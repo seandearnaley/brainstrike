@@ -231,7 +231,7 @@ export function diffGitHeader(oldPath: string, newPath: string): string {
  * Split a many-file patch into each file's patch, keyed by its `diff --git`
  * line. A type change (file to symlink) is two sections under one line; they
  * stay together, as in that file's own patch. A cut capture drops its last
- * section, which may be partial.
+ * file, which may be partial, with both halves of a type change.
  */
 export function splitPatchByFile({ text, truncated }: PatchCapture): ReadonlyMap<string, string> {
   const starts: number[] = text.length > 0 ? [0] : [];
@@ -242,13 +242,21 @@ export function splitPatchByFile({ text, truncated }: PatchCapture): ReadonlyMap
   ) {
     starts.push(at + 1);
   }
+  const headerAt = (start: number): string => {
+    const newline = text.indexOf('\n', start);
+    return text.slice(start, newline === -1 ? text.length : newline);
+  };
   const sections = new Map<string, string>();
   const whole = truncated ? starts.length - 1 : starts.length;
   for (let index = 0; index < whole; index += 1) {
-    const section = text.slice(starts[index], starts[index + 1] ?? text.length);
-    const newline = section.indexOf('\n');
-    const header = newline === -1 ? section : section.slice(0, newline);
-    sections.set(header, `${sections.get(header) ?? ''}${section}`);
+    const start = starts[index] ?? 0;
+    const header = headerAt(start);
+    sections.set(header, `${sections.get(header) ?? ''}${text.slice(start, starts[index + 1])}`);
+  }
+  const cut = truncated ? starts.at(-1) : undefined;
+  if (cut !== undefined) {
+    // A cut type change keeps neither half: its file loads its own diff.
+    sections.delete(headerAt(cut));
   }
   return sections;
 }

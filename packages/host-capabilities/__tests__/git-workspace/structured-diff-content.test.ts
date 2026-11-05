@@ -136,4 +136,13 @@ describe('splitPatchByFile', () => {
       ...splitPatchByFile({ text: `${deleted}${created}${other}`, truncated: true }),
     ]).toEqual([['diff --git a/t b/t', `${deleted}${created}`]]);
   });
+
+  it('drops both halves of a type change the cut lands in', () => {
+    const deleted = 'diff --git a/t b/t\ndeleted file mode 120000\n@@ -1 +0,0 @@\n-x\n';
+    const created = 'diff --git a/t b/t\nnew file mode 100644\n@@ -0,0 +1,9 @@\n+a\n+b';
+    const other = 'diff --git a/a b/a\n@@ -1 +1 @@\n-a\n+b\n';
+    expect([
+      ...splitPatchByFile({ text: `${other}${deleted}${created}`, truncated: true }),
+    ]).toEqual([['diff --git a/a b/a', other]]);
+  });
 });

@@ -348,6 +348,8 @@ export function DiffReview({
   const [loadingIds, setLoadingIds] = useState(NO_IDS);
   const [loaded, setLoaded] = useState(NO_LOADED);
   const [draft, setDraft] = useState<Draft | null>(null);
+  /** The latest read of each file, so an older read never lands after a newer one. */
+  const reads = useRef(new Map<string, number>());
 
   useImperativeHandle(
     ref,
@@ -383,17 +385,36 @@ export function DiffReview({
     [cache, collapsedIds, comments, draftCommentId, draftTarget, files, loaded]
   );
 
-  const readFile = async (file: DiffReviewFile): Promise<LoadedFile> => {
-    const diff = await loadFile(file.id);
-    return {
-      additions: diff.additions,
-      deletions: diff.deletions,
-      fileDiff: loadedFileDiff(diff),
-      truncated: diff.content.kind === 'hunks-only' && diff.content.patchTruncated,
-    };
+  /**
+   * One file's diff, or null when a newer read of the file started while this
+   * one ran: only the newest read is shown, or reports its failure.
+   */
+  const readFile = async (file: DiffReviewFile): Promise<LoadedFile | null> => {
+    const read = (reads.current.get(file.id) ?? 0) + 1;
+    reads.current.set(file.id, read);
+    const newest = () => reads.current.get(file.id) === read;
+    try {
+      const diff = await loadFile(file.id);
+      return newest()
+        ? {
+            additions: diff.additions,
+            deletions: diff.deletions,
+            fileDiff: loadedFileDiff(diff),
+            truncated: diff.content.kind === 'hunks-only' && diff.content.patchTruncated,
+          }
+        : null;
+    } catch (error) {
+      if (newest()) {
+        throw error;
+      }
+      return null;
+    }
   };
-  const showLoaded = (file: DiffReviewFile, entry: LoadedFile): void =>
-    setLoaded((current) => new Map(current).set(file.id, entry));
+  const showLoaded = (file: DiffReviewFile, entry: LoadedFile | null): void => {
+    if (entry) {
+      setLoaded((current) => new Map(current).set(file.id, entry));
+    }
+  };
 
   const load = async (file: DiffReviewFile): Promise<void> => {
     setLoadingIds((current) => toggled(current, file.id, true));
@@ -407,10 +428,12 @@ export function DiffReview({
   };
 
   // A refresh never leaves an opened file on an older version: a file the
-  // view still sends without its patch loads again (`loadedOf` covers the
-  // rest). It keeps showing what it showed until the new diff arrives.
+  // view still sends without its patch, opened or opening, loads again
+  // (`loadedOf` covers the rest). It keeps what it showed until the new diff arrives.
   const openedWithoutPatch = useEffectEvent((current: readonly DiffReviewFile[]) =>
-    current.filter((file) => file.patch === null && loaded.has(file.id))
+    current.filter(
+      (file) => file.patch === null && (loaded.has(file.id) || loadingIds.has(file.id))
+    )
   );
   useEffect(() => {
     for (const file of openedWithoutPatch(files)) {

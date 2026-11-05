@@ -295,8 +295,8 @@ test('side by side, a file replaced by a symlink shows both versions', async () 
   await expect.element(page.getByText('../elsewhere')).toBeVisible();
 });
 
-test('an opened file shows its newest version after the view refreshes', async () => {
-  const version = (line: string): StructuredFileDiff => ({
+function bigVersion(line: string): StructuredFileDiff {
+  return {
     additions: 1,
     content: {
       kind: 'hunks-only',
@@ -316,8 +316,11 @@ test('an opened file shows its newest version after the view refreshes', async (
     deletions: 1,
     path: 'src/big.ts',
     status: 'modified',
-  });
-  let current = version('first version');
+  };
+}
+
+test('an opened file shows its newest version after the view refreshes', async () => {
+  let current = bigVersion('first version');
   const big: DiffReviewFile = {
     additions: 1,
     deletions: 1,
@@ -331,12 +334,12 @@ test('an opened file shows its newest version after the view refreshes', async (
   await expect.element(page.getByText('first version')).toBeVisible();
 
   // Still too large for the view: it loads again.
-  current = version('second version');
+  current = bigVersion('second version');
   rerender(<Review files={[{ ...big }]} loadFile={async () => current} />);
   await expect.element(page.getByText('second version')).toBeVisible();
 
   // Now the view carries its patch, which wins over the loaded copy.
-  const patch = version('third version').content;
+  const patch = bigVersion('third version').content;
   rerender(
     <Review
       files={[{ ...big, patch: patch.kind === 'binary' ? null : patch.patch }]}
@@ -344,4 +347,35 @@ test('an opened file shows its newest version after the view refreshes', async (
     />
   );
   await expect.element(page.getByText('third version')).toBeVisible();
+});
+
+test('a read that finishes after a newer one never replaces it', async () => {
+  let finishFirst: (diff: StructuredFileDiff) => void = () => {};
+  const first = new Promise<StructuredFileDiff>((resolve) => {
+    finishFirst = resolve;
+  });
+  let loadFile = (): Promise<StructuredFileDiff> => first;
+  const big: DiffReviewFile = {
+    additions: 1,
+    deletions: 1,
+    id: 'big',
+    patch: null,
+    path: 'src/big.ts',
+    status: 'modified',
+  };
+  const { rerender } = render(<Review files={[big]} loadFile={() => loadFile()} />);
+  const header = page.getByRole('button', { name: 'src/big.ts' });
+  await header.click();
+  await expect.element(header).toBeDisabled();
+
+  // The view refreshes while the first read is still out.
+  loadFile = async () => bigVersion('newer version');
+  rerender(<Review files={[{ ...big }]} loadFile={() => loadFile()} />);
+  await expect.element(page.getByText('newer version')).toBeVisible();
+
+  finishFirst(bigVersion('older version'));
+  // The first read has settled once its spinner stops.
+  await expect.element(header).toBeEnabled();
+  await expect.element(page.getByText('newer version')).toBeVisible();
+  await expect.element(page.getByText('older version')).not.toBeInTheDocument();
 });
