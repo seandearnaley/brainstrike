@@ -7,6 +7,7 @@ import {
   // See __tests__/fast-refresh-hook-aliasing.test.ts.
   unstable_useThreadMessageIds as useThreadMessageIds,
 } from '@assistant-ui/react';
+import { prefersReducedMotion } from '@brainstrike/ui';
 import { observeElementOffset, useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { ArrowDownIcon } from 'lucide-react';
 import {
@@ -104,20 +105,6 @@ const JUMP_TO_LATEST_PROPS = {
   className: 'bs-scroll-to-bottom',
   'data-testid': 'assistant-scroll-to-bottom',
 } as const;
-
-/**
- * Reduced motion for the TIER-2 jump.
- *
- * Tier 1 deliberately passes NO `behavior` so the scroll routes through CSS
- * `scroll-behavior`, which globals.css already forces to `auto` under reduced
- * motion. Tier 2 cannot do that: the virtualizer's behavior argument is not
- * just forwarded to `scrollTo`, it drives the instance's scroll state machine
- * (a `'smooth'` scroll suppresses measurement corrections so re-measuring items
- * cannot push the target away mid-animation). So the option must be explicit —
- * which bypasses the CSS override — and the preference is honoured here.
- */
-const prefersReducedMotion = (): boolean =>
-  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /**
  * Positioning context for the scroller + its floating affordance, and the one
@@ -533,6 +520,15 @@ export const ThreadMessagesRegion = ({
                 atEnd: virtualAtEnd,
                 jumpToEnd: () =>
                   virtualizer.scrollToEnd({
+                    // Reduced motion for the TIER-2 jump.
+                    //
+                    // Tier 1 deliberately passes NO `behavior` so the scroll routes through CSS
+                    // `scroll-behavior`, which globals.css already forces to `auto` under reduced
+                    // motion. Tier 2 cannot do that: the virtualizer's behavior argument is not
+                    // just forwarded to `scrollTo`, it drives the instance's scroll state machine
+                    // (a `'smooth'` scroll suppresses measurement corrections so re-measuring items
+                    // cannot push the target away mid-animation). So the option must be explicit —
+                    // which bypasses the CSS override — and the preference is honoured here.
                     behavior: prefersReducedMotion() ? 'instant' : 'smooth',
                   }),
               }

@@ -83,6 +83,7 @@ import {
   commitHostModelMessages,
   continueHostRun,
   type HostNextRun,
+  hostInteractionPreview,
   startHostNextRun,
 } from './run-continuation.ts';
 import { userRunVerdict } from './run-verdicts.ts';
@@ -849,13 +850,11 @@ export class HostCore {
     this.mcpInputs.releaseClient(client);
   }
 
-  respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {
-    return this.answer('interaction/respond', params);
-  }
-
-  resume(params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> {
-    return this.answer('interaction/resume', params);
-  }
+  readonly respond = (params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> =>
+    this.answer('interaction/respond', params);
+  readonly resume = (params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> =>
+    this.answer('interaction/resume', params);
+  readonly previewInteraction = hostInteractionPreview(this.runs, () => this.executionPorts());
 
   private answer(
     method: 'interaction/respond' | 'interaction/resume',

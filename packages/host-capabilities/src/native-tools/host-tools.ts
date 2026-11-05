@@ -24,6 +24,7 @@ import {
   SHARED_NATIVE_TOOL_IDS,
   type SharedNativeToolId,
 } from './executors.ts';
+import { FILE_CHANGE_PREVIEWS } from './file-mutation-preview.ts';
 import { hostCanvasStore, hostTaskListNote, hostTaskListStore } from './host-stores.ts';
 import type { FileMutationPorts } from './ports.ts';
 import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.ts';
@@ -44,8 +45,10 @@ export function forgetSharedNativeToolThread(
   resetToolCallLoopGuards(threadId);
 }
 
-/** BST-1990 (D4): the tools whose approval names the folder their call writes to. */
+/** BST-1990 (D4): the tools whose approval names the folder their call changes. */
 const FILE_TARGET_TOOL_IDS: ReadonlySet<string> = new Set([
+  NATIVE_TOOL_ID.deleteWorkspaceFile,
+  NATIVE_TOOL_ID.renameWorkspaceFile,
   NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
   NATIVE_TOOL_ID.writeWorkspaceFile,
 ]);
@@ -190,6 +193,23 @@ export function createSharedNativeHostTools(
   const byCanonicalId = new Map(
     [...admitted.toolNameMap].map(([name, canonicalId]) => [canonicalId, name] as const)
   );
+  /** `task` over the live roots, rechecked after it: a revoked root rejects it. */
+  const overLiveRoots = async <T>(
+    signal: AbortSignal,
+    task: (runtime: RuntimeData) => Promise<T>
+  ): Promise<T> => {
+    signal.throwIfAborted();
+    const roots = options.freshRoots
+      ? [...(await options.freshRoots(signal))]
+      : options.runtime.workspaceRoots;
+    signal.throwIfAborted();
+    const result = await task({ ...options.runtime, ...(roots ? { workspaceRoots: roots } : {}) });
+    if (options.freshRoots) {
+      await options.freshRoots(signal);
+      signal.throwIfAborted();
+    }
+    return result;
+  };
   const tools: Record<string, HostTool> = {};
   for (const id of options.ids) {
     const name = byCanonicalId.get(id);
@@ -197,40 +217,37 @@ export function createSharedNativeHostTools(
     if (!(name && tool)) {
       throw new Error(`Shared native tool ${id} is unavailable for this request`);
     }
+    const preview = FILE_CHANGE_PREVIEWS[id];
     tools[name] = {
       ...tool,
       ...(FILE_TARGET_TOOL_IDS.has(id)
         ? { approvalTarget: (input: unknown) => fileApprovalTarget(options.runtime, input) }
         : {}),
+      ...(preview
+        ? {
+            proposedChange: (input: unknown, signal: AbortSignal) =>
+              overLiveRoots(signal, (runtime) => preview(input, runtime)),
+          }
+        : {}),
       ...(id === NATIVE_TOOL_ID.manageTaskList ? { contextNote: hostTaskListNote } : {}),
-      execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
-        context.signal.throwIfAborted();
-        const roots = options.freshRoots
-          ? [...(await options.freshRoots(context.signal))]
-          : options.runtime.workspaceRoots;
-        context.signal.throwIfAborted();
-        const executor = bind(
-          {
-            ...options.runtime,
-            memory: {
-              resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-              runId: context.runId,
-              threadId: context.threadId,
+      execute: (input: unknown, context: HostToolContext): Promise<unknown> =>
+        overLiveRoots(context.signal, (runtime) => {
+          const executor = bind(
+            {
+              ...runtime,
+              memory: {
+                resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+                runId: context.runId,
+                threadId: context.threadId,
+              },
             },
-            ...(roots ? { workspaceRoots: roots } : {}),
-          },
-          executionPorts(context, options.diagnostics)
-        ).tools[name];
-        if (!executor || executor.identity !== tool.identity) {
-          throw new Error('Shared native executor changed after admission');
-        }
-        const result = await executor.execute(input, context);
-        if (options.freshRoots) {
-          await options.freshRoots(context.signal);
-          context.signal.throwIfAborted();
-        }
-        return result;
-      },
+            executionPorts(context, options.diagnostics)
+          ).tools[name];
+          if (!executor || executor.identity !== tool.identity) {
+            throw new Error('Shared native executor changed after admission');
+          }
+          return executor.execute(input, context);
+        }),
     };
   }
   return tools;

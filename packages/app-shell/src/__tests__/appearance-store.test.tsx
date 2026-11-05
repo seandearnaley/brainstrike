@@ -60,6 +60,10 @@ describe('appearance store with ThemeProvider', () => {
     root.classList.remove('light', 'dark');
     root.removeAttribute('data-theme');
     root.removeAttribute('data-code-theme');
+    root.removeAttribute('data-motion');
+    root.removeAttribute('data-transcript-size');
+    root.removeAttribute('data-transcript-width');
+    root.style.removeProperty('--code-font-size');
   });
 
   it('opens on the defaults and applies them to the document', async () => {
@@ -112,6 +116,63 @@ describe('appearance store with ThemeProvider', () => {
     expect(root.dataset['codeTheme']).toBe('one');
     expect(root.style.getPropertyValue('--font-sans')).toContain('"Inter Variable"');
     expect(root.style.getPropertyValue('--font-mono')).toContain('"JetBrains Mono Variable"');
+  });
+
+  it('keeps the reading and code size choices across a reopen, and clearing one restores the default', async () => {
+    const first = await openApp();
+    act(() => {
+      first.result.current.setTranscriptTextSize('large');
+      first.result.current.setTranscriptWidth('narrow');
+      first.result.current.setMotion('reduced');
+      first.result.current.setCodeFontSize(15);
+      first.result.current.setCustomCodeFont('Berkeley Mono');
+    });
+    first.unmount();
+
+    const second = await openApp();
+    expect(second.result.current).toMatchObject({
+      codeFontSize: 15,
+      customCodeFont: 'Berkeley Mono',
+      motion: 'reduced',
+      transcriptTextSize: 'large',
+      transcriptWidth: 'narrow',
+    });
+    const root = document.documentElement;
+    expect(root.dataset['transcriptSize']).toBe('large');
+    expect(root.dataset['transcriptWidth']).toBe('narrow');
+    expect(root.dataset['motion']).toBe('reduce');
+    expect(root.style.getPropertyValue('--code-font-size')).toBe('15px');
+    expect(root.style.getPropertyValue('--font-mono')).toMatch(
+      /^"Berkeley Mono", "Geist Mono Variable"/u
+    );
+
+    act(() => {
+      second.result.current.setMotion('system');
+      second.result.current.setCodeFontSize(null);
+      second.result.current.setCustomCodeFont('');
+    });
+    second.unmount();
+
+    const { result } = await openApp();
+    expect(result.current).toMatchObject({
+      codeFontSize: null,
+      customCodeFont: '',
+      motion: 'system',
+    });
+    expect(root.dataset['motion']).toBeUndefined();
+    expect(root.style.getPropertyValue('--code-font-size')).toBe('');
+    expect(root.style.getPropertyValue('--font-mono')).toMatch(/^"Geist Mono Variable"/u);
+  });
+
+  it('uses a saved custom font only as a font name, and drops a size this build does not offer', async () => {
+    seed({ codeFontSize: 99, customCodeFont: 'x"; } body { color: red' });
+
+    const { result } = await openApp();
+
+    expect(result.current.codeFontSize).toBeNull();
+    expect(document.documentElement.style.getPropertyValue('--font-mono')).toMatch(
+      /^"x {2}body {2}color: red", "Geist Mono Variable"/u
+    );
   });
 
   it('keeps the default for a saved value this build does not know', async () => {

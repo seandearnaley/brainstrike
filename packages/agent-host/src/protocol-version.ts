@@ -72,6 +72,8 @@
 // Additions since: `thread/tree` (a thread's summary and every thread delegated beneath it, as
 // Core folds them) and its `thread/tree/changed` notice, and a wake that delivers the command
 // sessions its runs started that ended by themselves (`run.started` delivery `commandSessions`,
-// with `entries` then possibly empty; a next-turn delivery carries them too), and the turn a run the host continued in the worktree its
-// previous run entered carries on (`run.started` `turnId`; ADR-0028 step 3).
+// with `entries` then possibly empty; a next-turn delivery carries them too), and the turn a run
+// the host continued in the worktree its previous run entered carries on (`run.started`
+// `turnId`; ADR-0028 step 3), and `interaction/preview` (the file text a waiting approval's call
+// would change; ADR-0036), a new method.
 export const AGENT_HOST_PROTOCOL_VERSION = 19;

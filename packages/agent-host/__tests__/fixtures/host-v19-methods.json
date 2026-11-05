@@ -28,6 +28,7 @@
     "host/status",
     "host/stop",
     "initialize",
+    "interaction/preview",
     "interaction/respond",
     "interaction/resume",
     "ledger/read",

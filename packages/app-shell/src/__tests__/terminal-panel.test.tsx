@@ -1,6 +1,7 @@
 import { type BoundaryFailure, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act } from '@brainstrike/test-utils/react-act';
+import { type SavedAppearance, ThemeProvider } from '@brainstrike/ui';
 import { render as renderElement, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactElement, type ReactNode, StrictMode } from 'react';
@@ -73,6 +74,7 @@ interface FakeTerminal {
   loadAddon: ReturnType<typeof vi.fn>;
   onData: (cb: (data: string) => void) => { dispose: () => void };
   open: ReturnType<typeof vi.fn>;
+  options: Record<string, unknown>;
   rows: number;
   write: ReturnType<typeof vi.fn>;
 }
@@ -92,6 +94,7 @@ vi.mock('@xterm/xterm', () => {
   class MockTerminal {
     cols = 80;
     rows = 24;
+    options: Record<string, unknown>;
     open = vi.fn();
     write = vi.fn();
     loadAddon = vi.fn();
@@ -105,7 +108,8 @@ vi.mock('@xterm/xterm', () => {
     emitInput(data: string) {
       this.inputCb?.(data);
     }
-    constructor() {
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = { ...options };
       terminals.push(this as unknown as FakeTerminal);
     }
   }
@@ -284,6 +288,32 @@ describe('TerminalPanel', () => {
     );
     // The captured Terminal was opened on the host element.
     await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+  });
+
+  it('uses the code font and size from Settings > Appearance, and follows a change without restarting the shell', async () => {
+    const bridge = installBridge();
+    const appearance: SavedAppearance = { codeFont: 'jetbrains-mono', codeFontSize: 15 };
+    const { rerender } = render(
+      <ThemeProvider appearance={appearance}>
+        <TerminalPanel />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(bridge.create).toHaveBeenCalled());
+    const term = lastTerminal();
+    await waitFor(() => expect(term.options['fontSize']).toBe(15));
+    expect(term.options['fontFamily']).toMatch(/^"JetBrains Mono Variable"/u);
+
+    rerender(
+      <ThemeProvider
+        appearance={{ ...appearance, codeFontSize: 12, customCodeFont: 'Berkeley Mono' }}
+      >
+        <TerminalPanel />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(term.options['fontSize']).toBe(12));
+    expect(term.options['fontFamily']).toMatch(/^"Berkeley Mono", "JetBrains Mono Variable"/u);
+    expect(terminals).toHaveLength(1);
+    expect(bridge.create).toHaveBeenCalledTimes(1);
   });
 
   it('writes pty onData chunks into the terminal', async () => {

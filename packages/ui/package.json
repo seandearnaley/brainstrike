@@ -41,6 +41,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "catalog:",
+    "diff": "catalog:",
     "katex": "^0.19.1",
     "lucide-react": "catalog:",
     "pele": "catalog:",

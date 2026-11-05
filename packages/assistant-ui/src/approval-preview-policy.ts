@@ -32,7 +32,10 @@ const RUN_PYTHON_MAX_DOMAIN_CHARS = 253;
 export type ApprovalPreviewSubject = Pick<
   AssistantToolApprovalRequest,
   'args' | 'executionContext' | 'sandboxed' | 'targetRoot' | 'toolName'
->;
+> & {
+  /** Set while the approval waits: the host can then read the file its call would change. */
+  readonly interactionId?: string;
+};
 
 interface RunPythonApprovalArgs {
   readonly allowedDomains?: readonly string[];
