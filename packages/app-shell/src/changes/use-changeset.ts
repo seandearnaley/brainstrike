@@ -273,7 +273,10 @@ export function useChangeset(
       : 0
   );
 
-  const loadView = async (): Promise<BoundaryResult<ChangesetView> | null> => {
+  /** The newest load, whose view the hook shows once it settles. */
+  const newestLoad = useRef<Promise<unknown>>(Promise.resolve());
+
+  const resolveSelection = async (): Promise<BoundaryResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
     if (!(bridge && rootId && stableChangeset)) {
@@ -293,8 +296,33 @@ export function useChangeset(
     return result;
   };
 
+  const loadView = (): Promise<BoundaryResult<ChangesetView> | null> => {
+    const load = resolveSelection();
+    newestLoad.current = load;
+    return load;
+  };
+
+  /** Settles once the newest load has drawn its view, as a live refresh can supersede any load. */
+  const newestDrawn = async (): Promise<void> => {
+    const newest = newestLoad.current;
+    await newest;
+    if (newestLoad.current !== newest) {
+      await newestDrawn();
+    }
+  };
+
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();
+  }, [loadView]);
+
+  // An action reloads the view selected when it finishes, never the one it
+  // started from: a changeset chosen while it ran keeps its own view. Set
+  // before the load effect below, so no later load is the older selection's.
+  // It settles once that view, or a newer one, is drawn, so the next action
+  // never targets the files this one changed.
+  const loadSelected = useRef(loadView);
+  useEffect(() => {
+    loadSelected.current = loadView;
   }, [loadView]);
 
   // The reload signals above re-run the LOAD EFFECT, never `loadView`'s
@@ -351,7 +379,8 @@ export function useChangeset(
       logger.error('Failed to apply a change', { action, error: caught });
       result = { error: boundaryFailureOf(caught), ok: false };
     }
-    await loadView();
+    await loadSelected.current();
+    await newestDrawn();
     return result;
   };
 

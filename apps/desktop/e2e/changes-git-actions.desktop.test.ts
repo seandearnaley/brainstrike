@@ -41,11 +41,20 @@ async function openChanges(page: Page, repo: string): Promise<void> {
   await page.getByRole('menuitem', { name: /Changes/u }).click({ timeout: 15_000 });
 }
 
+/**
+ * Choose a scope with the keyboard, as the other submenu specs do: a pointer
+ * moving into a submenu that is still opening can cross the parent menu, which
+ * closes the submenu under the click.
+ */
 async function chooseScope(page: Page, scope: 'staged' | 'unstaged'): Promise<void> {
   const surface = page.getByTestId('changes-surface');
   await surface.getByTestId('changeset-source-picker-trigger').click({ timeout: 30_000 });
-  await page.getByTestId('changeset-source-worktree').first().hover({ timeout: 30_000 });
-  await page.getByRole('menuitem', { exact: true, name: scope }).click();
+  const worktree = page.getByTestId('changeset-source-worktree').first();
+  await worktree.focus({ timeout: 30_000 });
+  await page.keyboard.press('ArrowRight');
+  await expect(worktree).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('menuitem', { exact: true, name: scope }).focus();
+  await page.keyboard.press('Enter');
 }
 
 const diffOf = (page: Page) => page.getByTestId('changes-surface').getByTestId('diff-review');

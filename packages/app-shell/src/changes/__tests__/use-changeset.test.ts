@@ -235,6 +235,106 @@ describe('useChangeset', () => {
     expect(result.current.view?.changeset).toEqual(worktreeB);
   });
 
+  it('keeps the changeset chosen while an action on the previous one runs', async () => {
+    const worktreeA: Changeset = {
+      kind: 'git-scope',
+      repositoryRoot: '/repo',
+      scope: { kind: 'unstaged' },
+      worktreePath: '/repo/a',
+    };
+    const worktreeB: Changeset = { ...worktreeA, scope: { kind: 'staged' } };
+    let finishApply: (value: BoundaryResult<{ readonly paths: readonly string[] }>) => void = () =>
+      undefined;
+    const apply = vi.fn<ChangesBridge['apply']>(
+      () =>
+        new Promise((resolve) => {
+          finishApply = resolve;
+        })
+    );
+    const resolveView = vi.fn(
+      async (_rootId: string, changeset: Changeset): Promise<BoundaryResult<ChangesetView>> => ({
+        ok: true,
+        value: viewFixture({ changeset }),
+      })
+    );
+    installedChanges = stubChangesBridge({ apply, resolveView });
+    const { rerender, result } = renderHook(
+      ({ changeset }: { changeset: Changeset }) => useChangeset('root-1', changeset),
+      { initialProps: { changeset: worktreeA }, wrapper: changesHost() }
+    );
+    await waitFor(() => expect(result.current.view?.changeset).toEqual(worktreeA));
+
+    const target = { files: [{ path: 'src/a.ts', revision: 'r1' }], kind: 'files' } as const;
+    let applied: Promise<unknown> = Promise.resolve();
+    act(() => {
+      applied = result.current.apply('stage', target);
+    });
+    rerender({ changeset: worktreeB });
+    await waitFor(() => expect(result.current.view?.changeset).toEqual(worktreeB));
+    await act(async () => {
+      finishApply({ ok: true, value: { paths: ['src/a.ts'] } });
+      await applied;
+    });
+    expect(result.current.view?.changeset).toEqual(worktreeB);
+    expect(resolveView).toHaveBeenLastCalledWith('root-1', worktreeB);
+  });
+
+  it('settles an action once the newest view is drawn, when a live refresh overtakes its reload', async () => {
+    const answers: ((view: ChangesetView) => void)[] = [];
+    const resolveView = vi.fn(
+      (): Promise<BoundaryResult<ChangesetView>> =>
+        new Promise((resolve) => {
+          answers.push((value) => resolve({ ok: true, value }));
+        })
+    );
+    const apply = vi.fn<ChangesBridge['apply']>(async () => ({
+      ok: true,
+      value: { paths: ['src/a.ts'] },
+    }));
+    installedChanges = stubChangesBridge({ apply, resolveView });
+    act(() => {
+      useChangesNavigationStore.getState().setActiveThreadIdentity({
+        latestRunId: 'run-1',
+        threadId: 'thread-1',
+      });
+      useChangesNavigationStore.getState().selectLastTurn();
+    });
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => {
+      answers[0]?.(viewFixture({ totalAdditions: 1 }));
+    });
+
+    const target = { files: [{ path: 'src/a.ts', revision: 'r1' }], kind: 'files' } as const;
+    let settled = false;
+    let applied: Promise<unknown> = Promise.resolve();
+    act(() => {
+      applied = result.current.apply('stage', target).then(() => {
+        settled = true;
+      });
+    });
+    await waitFor(() => expect(answers).toHaveLength(2));
+    act(() => {
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+    });
+    await waitFor(() => expect(answers).toHaveLength(3));
+
+    // The action's own reload lands after the refresh began, so it is not the view drawn.
+    await act(async () => {
+      answers[1]?.(viewFixture({ totalAdditions: 2 }));
+    });
+    expect(settled).toBe(false);
+    expect(result.current.view?.totalAdditions).toBe(1);
+
+    await act(async () => {
+      answers[2]?.(viewFixture({ totalAdditions: 3 }));
+      await applied;
+    });
+    expect(result.current.view?.totalAdditions).toBe(3);
+  });
+
   it('times out a resolveView that never answers, into an error the surface can retry', async () => {
     vi.useFakeTimers();
     const resolveView = vi.fn(() => new Promise<BoundaryResult<ChangesetView>>(() => undefined));
