@@ -2,10 +2,10 @@
 
 - **Status:** Proposed. The owner decided every open question on 2026-10-22 (see Owner
   decisions) and may mark it Accepted.
-  - Implemented so far: step 3 for root runs (a created worktree binds its thread;
-    `packages/agent-host/src/worktree-binding.ts`).
-  - Not yet: step 2 (worker children still admit `askUser` through `*`;
-    `narrowHostChildTools` drops only delegation tools and `manageTaskList`), and steps 4–10.
+  - Implemented so far: step 2 (children never get `askUser` or `submitPlan`;
+    `PARENT_ONLY_TOOL_IDS` in `packages/assistant-contract/src/personas.ts`), and step 3 for
+    root runs (a created worktree binds its thread; `packages/agent-host/src/worktree-binding.ts`).
+  - Not yet: steps 4–10.
 - **Date:** 2026-10-22
 - **Builds on:** [ADR-0009](0009-host-run-loop-invariants.md) (with its 2026-10-22
   amendment), [ADR-0010](0010-approvals-and-delegation.md),
@@ -48,7 +48,8 @@ A child is an ordinary host run in its own child thread, on its parent's host
   the tree approvals list (`apps/desktop/src/renderer/host-tree-approvals.ts`), which reads
   Core's folded summary of the tree (`thread/tree`), never the children's logs. The root's
   policy governs the tree.
-- **Questions:** the built-in `worker` persona admits `*`, so a child can call `askUser`.
+- **Questions:** the built-in `worker` persona admitted `*`, so a child could call `askUser`
+  (removed by step 2).
 - **Limits:** `maxInvocations`, `maxDepth`, a per-turn work queue, the persona step budget, the
   child's own watchdog and an optional per-leg `maxChildRuntimeMs`. The parent's watchdog never
   judges a running delegation (ADR-0009 amendment, PR #4142).
@@ -127,7 +128,7 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
 - **Forked subagent:** missing. Add a `fork` option later (decision 6).
 - **Continue / message a child from the model:** people only today. Add a `message` tool
   (step 4).
-- **Children asking the person:** differs. Remove `askUser` and `submitPlan` from children
+- **Children asking the person:** matches. Children have no `askUser` or `submitPlan`
   (decision 1, step 2).
 - **Worktree isolation:** partial. Bind created worktrees; give writers their own (decision 7,
   steps 3 and 6).
@@ -267,7 +268,7 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
 
 0. **Done:** watchdog fix, PR #4142 (`62d6ee36e`).
 1. **Done:** owner decisions (2026-10-22).
-2. **Questions go up, by removal.** Drop `askUser` and `submitPlan` from child admission (as
+2. **Done: questions go up, by removal.** Drop `askUser` and `submitPlan` from child admission (as
    `manageTaskList` already is in `narrowHostChildTools`); update the worker persona.
 3. **A created worktree binds its thread** or the delegation that made it. No agent switches the
    person's checkout. A worker delegated beside another live writer gets its own worktree.

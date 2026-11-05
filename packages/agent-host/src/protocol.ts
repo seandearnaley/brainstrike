@@ -656,6 +656,11 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         parentMessageId: Schema.optional(Schema.NullOr(Id)),
         parentRunId: Schema.optional(Id),
         ...PlanMode,
+        /**
+         * The host wrote this run's prompt, not the person: the run it starts
+         * to carry a task on in the worktree the previous run entered.
+         */
+        hostPrompt: Schema.optional(Schema.Literal(true)),
         prompt: Prompt,
         snapshot: Schema.optional(hostRunSnapshotSchema(json)),
         /**

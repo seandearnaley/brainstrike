@@ -544,11 +544,11 @@ export class HostCore {
     });
   }
 
-  /** A run/start; one the host starts to carry a run's task on continues that run's `turnId`. */
+  /** A run/start; one the host starts to carry a run's task on records how (`HostRunCarry`). */
   startRun(
     params: HostParams<'run/start'>,
     origin?: HostClientOrigin,
-    turnId?: string
+    carry?: Pick<HostNextRun, 'hostPrompt' | 'turnId'>
   ): Promise<{ runId: string }> {
     const record = hostStartCommandRecord(params);
     return this.settledCommand('run/start', record, () =>
@@ -556,7 +556,7 @@ export class HostCore {
         'run/start',
         params,
         origin,
-        () => hostStartPosition(this.runs.values(), this.rewinds.position(params), turnId),
+        () => hostStartPosition(this.runs.values(), this.rewinds.position(params), carry),
         record
       )
     );
@@ -970,11 +970,11 @@ export class HostCore {
   }
 
   private startNextRun(next: HostNextRun, origin: HostClientOrigin | undefined): Promise<boolean> {
-    const { params, turnId } = next;
+    const { params } = next;
     return startHostNextRun(
       this.runs.values(),
       next,
-      () => this.startRun(params, origin, turnId),
+      () => this.startRun(params, origin, next),
       (runId, events) =>
         this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows)
     );

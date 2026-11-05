@@ -78,5 +78,6 @@
 // method.
 // v20 (2026-11-05): `log/subscribe` answers a `subscriptionId`, and `log/unsubscribe` names it
 // instead of the thread, so ending one view's subscription never ends another's. The required
-// parameter is why this is a version bump.
+// parameter is why this is a version bump. Additive since: `run.started` `hostPrompt`, set when
+// the host wrote the run's prompt (the worktree continuation).
 export const AGENT_HOST_PROTOCOL_VERSION = 20;
