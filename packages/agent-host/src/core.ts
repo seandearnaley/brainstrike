@@ -430,6 +430,9 @@ export class HostCore {
     return this.command(method, params, perform);
   }
 
+  /** VC-8: resolves once the thread and its children have no work in flight; it starts none. */
+  readonly idle = (threadId: string): Promise<void> => this.ends.idle(threadId);
+
   private admit<T>(
     threadId: string | undefined,
     perform: () => Promise<T>,

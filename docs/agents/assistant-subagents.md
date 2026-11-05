@@ -38,6 +38,8 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
   - Wakes use the parent thread's current committed selection and keep the original admitting client origin ([ADR-0019](../adr/0019-host-thread-run-selection.md)).
   - Delivery follows the thread, not the dispatching reply: a regenerate or edit of that reply's message takes its undelivered results once.
   - An outcome is in full only in the delivery that first takes it. A later ledger of the turn lists that invocation by its outcome's opening, which still reaches the model after Memory's window drops the earlier message.
+- `HostCore.idle(threadId)` resolves once the thread and its child threads have no run executing, ending or settling and no wake pending. A run waiting on a person counts as idle. It joins promises the runs and wakes already own, so it starts nothing and never waits on a clock.
+  - Tests of wakes and deliveries act, `await core.idle(threadId)`, then assert. "Nothing woke" is then a plain count, with no sleep and no poll. While a test holds a worker's model, `idle` waits for it too, so release the worker first.
 
 ## Conversation controls and retirement
 
