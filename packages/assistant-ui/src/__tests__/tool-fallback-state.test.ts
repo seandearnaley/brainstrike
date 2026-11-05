@@ -84,6 +84,27 @@ describe('resolveErrorMessage', () => {
     );
   });
 
+  it("reads an incomplete status error's own message rather than its JSON", () => {
+    expect(
+      resolveErrorMessage(
+        {
+          error: { code: 'E_TIMEOUT', message: 'Timed out after 30s' },
+          reason: 'error',
+          type: 'incomplete',
+        },
+        undefined,
+        false
+      )
+    ).toBe('Timed out after 30s');
+    expect(
+      resolveErrorMessage(
+        { error: { code: 'E_TIMEOUT' }, reason: 'error', type: 'incomplete' },
+        undefined,
+        false
+      )
+    ).toBe('{"code":"E_TIMEOUT"}');
+  });
+
   it("renders the result's own stated error verbatim", () => {
     expect(resolveErrorMessage({ type: 'complete' }, { error: 'boom' }, false)).toBe('boom');
   });

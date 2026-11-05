@@ -338,7 +338,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(window.getByText(SAVED.first, { exact: true })).toBeVisible();
   await expect(cedarPanel.getByText(TASKS.first, { exact: true })).toBeVisible();
   await expect(
-    cedarPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
+    cedarPanel.getByRole('button', { exact: true, includeHidden: true, name: 'Retry' })
   ).toHaveCount(1);
   await cedarPanel.getByText(TASKS.first, { exact: true }).hover();
   await expect(

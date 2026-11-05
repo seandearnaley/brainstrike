@@ -13,6 +13,7 @@ import {
 import { useId, useMemo, useState } from 'react';
 import type { AssistantRunEventDisplayStatus } from './assistant-run-event-derivation';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import { formatActivityDuration } from './tool-durations';
 import { categoryTintClasses, classifyRunEvent } from './tool-visual-classification';
 
 interface AssistantRunTimelineProps {
@@ -73,14 +74,9 @@ function formatTimestamp(value: string): string {
   }).format(date);
 }
 
+/** The thread's one duration format, so a row and its trace read the same time. */
 function formatDuration(durationMs: number | undefined): string | undefined {
-  if (durationMs === undefined) {
-    return;
-  }
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  }
-  return `${(durationMs / 1000).toFixed(1)}s`;
+  return durationMs === undefined ? undefined : formatActivityDuration(durationMs);
 }
 
 function AssistantRunTimelineDetails({

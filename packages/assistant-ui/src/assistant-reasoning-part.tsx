@@ -1,6 +1,11 @@
 import { useMessagePartReasoning } from '@assistant-ui/react';
 import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/citation-markers';
 
+/**
+ * The opened reasoning text. It sits directly in the step row's left-rule
+ * panel (`ActivityReasoningBlock`); the row above already names it, so it adds
+ * no card or heading of its own.
+ */
 export function AssistantReasoningPart() {
   const { text } = useMessagePartReasoning();
   // Reasoning renders as raw text, NOT through the markdown primitive, so it
@@ -12,16 +17,11 @@ export function AssistantReasoningPart() {
   const visibleText = stripProviderCitationMarkers(text);
 
   return (
-    <div className="border-border/60 bg-muted/20 rounded-2xl border px-3 py-3">
-      <p className="text-muted-foreground mb-2 text-[10px] font-medium tracking-[0.14em] uppercase">
-        Thinking
-      </p>
-      <div
-        className="text-muted-foreground text-sm leading-6 whitespace-pre-wrap"
-        data-testid="local-reasoning-part"
-      >
-        {visibleText}
-      </div>
+    <div
+      className="text-muted-foreground text-sm leading-6 whitespace-pre-wrap"
+      data-testid="local-reasoning-part"
+    >
+      {visibleText}
     </div>
   );
 }

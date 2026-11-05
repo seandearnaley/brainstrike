@@ -475,7 +475,7 @@ describe('durable delegated approval recovery', () => {
       expect(
         screen.queryByRole('button', { name: 'Decline brainstrike.executeCommand' })
       ).not.toBeInTheDocument();
-      expect(screen.getByText('Tool decision')).toBeInTheDocument();
+      expect(screen.getByText('Run pnpm build?')).toBeInTheDocument();
       expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
       expect(screen.queryByText(/re-running it may be safer/iu)).not.toBeInTheDocument();
     }
