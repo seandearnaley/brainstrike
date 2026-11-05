@@ -41,8 +41,8 @@ context, word-level highlights and comments anchored to lines. Codex draws it wi
    in session state, per changeset, until the person adds the drafts to the active
    thread's message. Nothing new is durable.
 5. **The host stays the only writer.** Hunk and file actions (stage, unstage, revert)
-   will be host methods that apply git patches and refuse on conflict; the renderer
-   never writes a file.
+   are one host method, `changes/apply`, that applies git's own patch or path-level
+   git and refuses a stale target or a conflict; the renderer never writes a file.
 
 ## Consequences
 

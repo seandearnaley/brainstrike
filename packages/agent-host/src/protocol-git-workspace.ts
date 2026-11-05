@@ -1,5 +1,6 @@
 import { BoundaryFailureSchema } from '@brainstrike/assistant-contract';
 import type {
+  ChangesApplyResult,
   ChangesetView,
   ChangesInvalidationEvent,
   GitCommitResult,
@@ -164,17 +165,19 @@ const ChangesetSchema = Schema.Union(
   ],
   { mode: 'oneOf' }
 );
+const ChangesActionSchema = Schema.Literals(['revert', 'stage', 'unstage']);
 const ChangesetViewSchema = Schema.Struct({
   changeset: ChangesetSchema,
   files: Schema.Array(
     Schema.Struct({
+      actions: Schema.Array(ChangesActionSchema),
       additions: Schema.NullOr(Count),
       deletions: Schema.NullOr(Count),
       oldPath: Schema.optionalKey(Text),
       patch: NullableText,
       path: Text,
       repositoryRoot: NullableText,
-      revertible: Schema.Boolean,
+      revision: Text,
       rootId: NullableText,
       status: ChangedFileStatusSchema,
       toolAttributed: Schema.optionalKey(Schema.Boolean),
@@ -184,6 +187,19 @@ const ChangesetViewSchema = Schema.Struct({
   totalAdditions: Schema.NullOr(Count),
   totalDeletions: Schema.NullOr(Count),
 }) satisfies Schema.ConstraintDecoder<ChangesetView>;
+const ChangesActionTargetSchema = Schema.Union(
+  [
+    Schema.Struct({
+      files: Schema.Array(Schema.Struct({ path: Text, revision: Text })),
+      kind: Schema.Literal('files'),
+    }),
+    Schema.Struct({ hunks: Texts, kind: Schema.Literal('hunks'), path: Text }),
+  ],
+  { mode: 'oneOf' }
+);
+const ChangesApplyResultSchema = Schema.Struct({
+  paths: Texts,
+}) satisfies Schema.ConstraintDecoder<ChangesApplyResult>;
 const Containment = Schema.Union([Texts, Schema.Literal('outside-roots')]);
 const WorktreeProvenanceSchema = Schema.Literals(['agent-reported', 'both', 'scanned']);
 const Trust = Schema.Literals(['unvalidated', 'validated']);
@@ -344,6 +360,12 @@ export const WorktreePathClassificationSchema = Schema.Literals([
  * the window's host connection.
  */
 export const GIT_WORKSPACE_METHOD_SCHEMAS = {
+  'changes/apply': Schema.Struct({
+    action: ChangesActionSchema,
+    changeset: ChangesetSchema,
+    rootId: Id,
+    target: ChangesActionTargetSchema,
+  }),
   'changes/file-diff': Schema.Struct({ changeset: ChangesetSchema, path: Text, rootId: Id }),
   'changes/inventory': Schema.Struct({ maxAgeMs: Schema.optionalKey(Count) }),
   'changes/resolve-view': Schema.Struct({ changeset: ChangesetSchema, rootId: Id }),
@@ -405,6 +427,7 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
 } as const;
 
 export const GIT_WORKSPACE_RESULT_SCHEMAS = {
+  'changes/apply': gitResult(ChangesApplyResultSchema),
   'changes/file-diff': gitResult(StructuredFileDiffSchema),
   'changes/inventory': gitResult(GitInventorySchema),
   'changes/resolve-view': gitResult(ChangesetViewSchema),

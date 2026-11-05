@@ -39,12 +39,13 @@ function withRegistry(node: ReactElement): ReactElement {
 
 function entry(path: string): ChangedFileEntry {
   return {
+    actions: [],
     additions: 1,
     deletions: 0,
     patch: null,
     path,
     repositoryRoot: '/repo',
-    revertible: true,
+    revision: 'r1',
     rootId: 'root-1',
     status: 'modified',
     worktreePath: '/repo',

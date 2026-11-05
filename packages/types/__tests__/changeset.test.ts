@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  ChangedFileStatus,
-  Changeset,
-  ChangesetView,
-  GitScope,
-  StructuredFileDiffContent,
-  WorktreeDescriptor,
+import {
+  actionHunks,
+  type ChangedFileStatus,
+  type Changeset,
+  type ChangesetView,
+  type GitScope,
+  patchHunks,
+  type StructuredFileDiffContent,
+  type WorktreeDescriptor,
 } from '../src/index.js';
 
 function trustLabel(trust: WorktreeDescriptor['trust']): string {
@@ -213,5 +215,45 @@ describe('changeset contracts', () => {
     expect(validated.trust).toBe('validated');
     expect(unvalidated.containment).toBe('outside-roots');
     expect(unvalidated.trust).toBe('unvalidated');
+  });
+});
+
+describe('patchHunks', () => {
+  it('quotes each hunk from its @@ line to the next hunk or file, endings and markers included', () => {
+    const first = '@@ -1,2 +1,2 @@ fn\n-a\r\n+b\r\n c\n';
+    const second =
+      '@@ -9 +9 @@\n-y\n\\ No newline at end of file\n+z\n\\ No newline at end of file\n';
+    const typeChange = '@@ -1 +0,0 @@\n-link\n';
+    const header = 'diff --git a/f b/f\nindex 1..2 100644\n--- a/f\n+++ b/f\n';
+    const patch = `${header}${first}${second}${header}${typeChange}diff --git a/g b/g\nnew file mode 120000\n`;
+
+    expect(patchHunks(patch)).toEqual([first, second, typeChange]);
+    expect(patchHunks(header)).toEqual([]);
+    expect(patchHunks(`${header}${first}`).join('')).toBe(first);
+  });
+});
+
+describe('actionHunks', () => {
+  const header = 'diff --git a/f b/f\nindex 1111111..2222222 100644\n--- a/f\n+++ b/f\n';
+  const hunk = '@@ -1,2 +1,2 @@\n-a\n+b\n c\n';
+
+  it("offers a text patch's hunks, whatever its lines' text says", () => {
+    // Lines that would be headers outside a hunk are only content inside one.
+    const lookalike = '@@ -5 +5,3 @@\n-e\n+diff --git a/g b/g\n+new file mode 160000\n+caf\u00e9\n';
+    expect(actionHunks(`${header}${hunk}${lookalike}`)).toEqual([hunk, lookalike]);
+  });
+
+  it('offers none for a gitlink, a type change, or text git did not decode', () => {
+    const gitlink = (line: string) =>
+      `diff --git a/m b/m\n${line}\n--- a/m\n+++ b/m\n@@ -1 +1 @@\n-Subproject commit 1\n+Subproject commit 2\n`;
+    const typeChange =
+      'diff --git a/f b/f\ndeleted file mode 100644\n--- a/f\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\ndiff --git a/f b/f\nnew file mode 120000\n--- /dev/null\n+++ b/f\n@@ -0,0 +1 @@\n+target\n\\ No newline at end of file\n';
+
+    expect(actionHunks(gitlink('index 1111111..2222222 160000'))).toBeNull();
+    expect(actionHunks(gitlink('new file mode 160000'))).toBeNull();
+    expect(actionHunks(gitlink('deleted file mode 160000'))).toBeNull();
+    expect(actionHunks(`diff --git a/f b/f\nold mode 100644\nnew mode 160000\n${hunk}`)).toBeNull();
+    expect(actionHunks(typeChange)).toBeNull();
+    expect(actionHunks(`${header}@@ -1 +1 @@\n-caf\uFFFD\n+cafe\n`)).toBeNull();
   });
 });

@@ -69,12 +69,13 @@ function withRegistry(node: ReactElement): ReactElement {
 
 function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   return {
+    actions: [],
     additions: 1,
     deletions: 0,
     patch: null,
     path: 'src/a.ts',
     repositoryRoot: '/repo',
-    revertible: true,
+    revision: 'r1',
     rootId: 'root-1',
     status: 'modified',
     worktreePath: '/repo',

@@ -17,7 +17,7 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 ## Diff meaning
 
 - The changeset kind sets the comparison.
-  - Unstaged is index versus working tree, not HEAD.
+  - Unstaged is index versus working tree, not HEAD, plus untracked files.
   - A settled turn compares committed start/end snapshots; a live turn compares its start to the current worktree.
 - The host log owns run boundaries and tool attribution, not SQL timestamps or an edit journal.
 - Validate refs and scoped pathspecs, keep rename pairing and refuse unresolved conflicts.
@@ -45,3 +45,13 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 - A finished turn that edited files shows its agent-run view under its reply, each file folded to its header; it loads as the turn nears view, and Review opens it in Changes.
 - Line comments are per-changeset drafts in `changes-store` until added to the active thread's message.
 - A worktree status still loading is not a clean checkout. Closing UI never mutates durable run history.
+
+## Stage, unstage and revert (ADR-0036)
+
+- Each entry's `actions` is the host's only statement of what applies to that file. Unstaged stages and reverts, Staged unstages, and every other scope and every turn applies nothing. A nested repository offers nothing, and a submodule never reverts.
+- An entry's `revision` is the identity of what the view drew: its status, counts, patch and git's blob ids. A working-tree file no patch names the content of (an untracked binary, or one past the view's limits) adds its stat, as git's index does. `changes/apply` lists the scope again first; a file whose revision differs, or a hunk the file's patch no longer holds, is `changeset.stale`.
+- Hunks are taken only as `actionHunks` splits the patch, and only from a modified file. A type change, a submodule, or text that did not decode exactly (U+FFFD) takes none, so the host never writes back bytes it could not read.
+- Hunks are `git apply` of git's own header (mode lines dropped) and the chosen hunks, with whitespace handling pinned and `--directory` for a folder inside the repository. Each chosen hunk's start is moved by the hunks skipped before it, as `git add -p` does, so git never lands on a repeated copy of the text. Never `--reject`, `--recount`, `--unidiff-zero` or `-C0`; a patch that no longer applies changes nothing (`changeset.apply-conflict`).
+- Files are path-level git with pathspecs on stdin. Revert removes only paths the listing names untracked or intent-to-add.
+- Every view and write needs the worktree git reports to lie inside the root, so a repository's `core.worktree` cannot point git outside it. Every listing and read pins `core.fsmonitor=false`, so a repository's fsmonitor command never runs.
+- The diff shows each file's actions on its header and on each hunk it can take, and the toolbar applies an action to every file that offers it. Reverting a file or every file asks first; a hunk reverts at once. Each action, taken or refused, redraws the view before the next one.

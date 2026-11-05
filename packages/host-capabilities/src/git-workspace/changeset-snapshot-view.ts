@@ -14,7 +14,7 @@ import {
 } from './changeset-snapshot-targets.ts';
 import { gitInvalid, gitRefused } from './git-failure.ts';
 import type { SnapshotService } from './snapshot-service.ts';
-import { boundViewPatches, completePatch } from './structured-diff-content.ts';
+import { boundViewPatches, completePatch, fileRevision } from './structured-diff-content.ts';
 
 type SnapshotChangeset = Extract<Changeset, { kind: 'agent-run' | 'run-range' }>;
 export interface SnapshotChangesetResolverDeps {
@@ -35,27 +35,32 @@ export interface SnapshotChangesetResolver {
 const DIFF_MEMO_MAX_ENTRIES = 16;
 const MEMO_KEY_SEPARATOR = String.fromCharCode(0);
 
-/** Map one root's structured diffs to `ChangedFileEntry` rows. */
+/**
+ * Map one root's structured diffs to `ChangedFileEntry` rows. A turn's files
+ * offer no actions yet.
+ */
 function entriesOfDiffs(
   rootId: string,
   diffs: readonly StructuredFileDiff[],
   toolAttributedFor: ((path: string) => boolean) | null
 ): ChangedFileEntry[] {
-  return diffs.map((diff) => ({
-    additions: diff.additions,
-    deletions: diff.deletions,
-    ...(diff.oldPath === undefined ? {} : { oldPath: diff.oldPath }),
-    patch: completePatch(diff.content),
-    path: diff.path,
-    repositoryRoot: null,
-    // The snapshot engine can restore every captured file (T3's rewind);
-    // per-entry chain bookkeeping died with the journal fold.
-    revertible: true,
-    rootId,
-    status: diff.status,
-    ...(toolAttributedFor === null ? {} : { toolAttributed: toolAttributedFor(diff.path) }),
-    worktreePath: null,
-  }));
+  return diffs.map((diff) => {
+    const patch = completePatch(diff.content);
+    return {
+      actions: [],
+      additions: diff.additions,
+      deletions: diff.deletions,
+      ...(diff.oldPath === undefined ? {} : { oldPath: diff.oldPath }),
+      patch,
+      path: diff.path,
+      repositoryRoot: null,
+      revision: fileRevision({ ...diff, patch }),
+      rootId,
+      status: diff.status,
+      ...(toolAttributedFor === null ? {} : { toolAttributed: toolAttributedFor(diff.path) }),
+      worktreePath: null,
+    };
+  });
 }
 
 export function createSnapshotChangesetResolver(
