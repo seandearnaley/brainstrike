@@ -129,6 +129,8 @@ export type Changeset =
 export type ChangedFileStatus = 'added' | 'deleted' | 'modified' | 'renamed' | 'untracked';
 
 export interface ChangedFileEntry {
+  /** What the host applies to this file in this view (ADR-0036); empty for none. */
+  readonly actions: readonly ChangesAction[];
   /** Line additions, or null when not computable (binary). */
   readonly additions: number | null;
   readonly deletions: number | null;
@@ -145,7 +147,13 @@ export interface ChangedFileEntry {
   /** Path relative to the owning worktree root. */
   readonly path: string;
   readonly repositoryRoot: string | null;
-  readonly revertible: boolean;
+  /**
+   * Identity of what the view drew for this file: its status, counts, patch
+   * and git's blob ids, or its working-tree stat where no patch names its
+   * content. A files target names it, and the host refuses the file once its
+   * entry reads differently.
+   */
+  readonly revision: string;
   /** Owning workspace root id (durable RootId), or null when outside all roots. */
   readonly rootId: string | null;
   readonly status: ChangedFileStatus;
@@ -193,6 +201,79 @@ export interface ChangesetView {
   readonly files: readonly ChangedFileEntry[];
   readonly totalAdditions: number | null;
   readonly totalDeletions: number | null;
+}
+
+/**
+ * What a Changes action does to git (ADR-0036): `stage` adds to the index,
+ * `unstage` takes back out of it, and `revert` discards from the working tree.
+ */
+export type ChangesAction = 'revert' | 'stage' | 'unstage';
+
+/** A file as a view drew it: its path and {@link ChangedFileEntry.revision}. */
+export interface ChangesFileRevision {
+  readonly path: string;
+  readonly revision: string;
+}
+
+/**
+ * What a Changes action applies to: whole files as the view drew them, or
+ * some of one modified file's hunks, each quoted exactly as
+ * {@link actionHunks} splits the file's patch. The host lists the view again
+ * and refuses a file whose revision or a hunk that is no longer in it.
+ */
+export type ChangesActionTarget =
+  | { readonly files: readonly ChangesFileRevision[]; readonly kind: 'files' }
+  | { readonly hunks: readonly string[]; readonly kind: 'hunks'; readonly path: string };
+
+export interface ChangesApplyParams {
+  readonly action: ChangesAction;
+  readonly changeset: Changeset;
+  readonly rootId: string;
+  readonly target: ChangesActionTarget;
+}
+
+/** The paths an applied action changed, including both sides of a rename. */
+export interface ChangesApplyResult {
+  readonly paths: readonly string[];
+}
+
+/**
+ * The hunks of git's patch for one file, as a hunk target quotes them: each
+ * runs from its `@@ ` line up to the next `@@ ` or `diff --git ` line, line
+ * endings included. A hunk's own lines start with a space, `-`, `+` or `\`,
+ * so neither marker can occur inside one.
+ */
+export function patchHunks(patch: string): string[] {
+  const hunks: string[][] = [];
+  let open = false;
+  for (const line of patch.split(/(?<=\n)/u)) {
+    if (line.startsWith('@@ ')) {
+      hunks.push([line]);
+      open = true;
+    } else if (line.startsWith('diff --git ')) {
+      open = false;
+    } else if (open) {
+      hunks.at(-1)?.push(line);
+    }
+  }
+  return hunks.map((lines) => lines.join(''));
+}
+
+/** A header line naming a gitlink: a submodule or an embedded repository. */
+const GITLINK_HEADER = /^(?:index \S+|(?:old|new|new file|deleted file) mode) 160000$/mu;
+
+/**
+ * The hunks an action can take one at a time from a file's patch, or null
+ * when it can take none: a type change (git writes two patches), a gitlink,
+ * or text git's bytes did not decode to exactly (U+FFFD stands in for
+ * them, and writing it back would replace the user's bytes).
+ */
+export function actionHunks(patch: string): string[] | null {
+  const header = patch.slice(0, Math.max(0, patch.indexOf('\n@@ ')));
+  if (patch.includes('\ndiff --git ') || GITLINK_HEADER.test(header) || patch.includes('\uFFFD')) {
+    return null;
+  }
+  return patchHunks(patch);
 }
 
 /**

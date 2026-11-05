@@ -5,16 +5,45 @@
  *
  * With `onSendComments`, a line takes a comment. Comments stay on the diff as
  * drafts until the toolbar adds them all to the active thread's message.
+ *
+ * With `applyAction`, each file's actions apply to a hunk, the file, or every
+ * file that offers them (ADR-0036), naming each file as the view drew it.
+ * Reverting a file asks first; one action runs at a time.
  */
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { ChangedFileEntry, StructuredFileDiff } from '@brainstrike/types';
-import { Button, type DiffComment, type DiffReviewHandle } from '@brainstrike/ui';
-import { DiffReview, type DiffReviewFile } from '@brainstrike/ui/diff-view';
+import type {
+  ChangedFileEntry,
+  ChangesAction,
+  ChangesActionTarget,
+  ChangesFileRevision,
+  StructuredFileDiff,
+} from '@brainstrike/types';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  type DiffComment,
+  type DiffReviewHandle,
+  toast,
+} from '@brainstrike/ui';
+import {
+  CHANGES_ACTION_LABEL,
+  CHANGES_ACTIONS,
+  DiffReview,
+  type DiffReviewFile,
+} from '@brainstrike/ui/diff-view';
 import { type ReactElement, type Ref, useMemo, useState } from 'react';
 import { changedFileKey, type DraftComment, useChangesStore } from '../changes-store';
 
 export interface ChangesetDiffPaneProps {
+  /** Applies an action, resolving once the view shows its result. Without it nothing applies. */
+  readonly applyAction?:
+    | ((action: ChangesAction, target: ChangesActionTarget) => Promise<BoundaryResult<unknown>>)
+    | undefined;
   /** Identity of the changeset; the diff's folds and drafts belong to it. */
   readonly changesetKey: string;
   readonly files: readonly ChangedFileEntry[];
@@ -30,19 +59,36 @@ export interface ChangesetDiffPaneProps {
 
 const NO_DRAFTS: readonly DraftComment[] = [];
 
+/** "src/a.ts", or "3 files". */
+function describeFiles(files: readonly ChangesFileRevision[]): string {
+  const [only] = files;
+  return files.length === 1 && only !== undefined ? only.path : `${files.length} files`;
+}
+
+function describeTarget(target: ChangesActionTarget): string {
+  return target.kind === 'hunks' ? target.path : describeFiles(target.files);
+}
+
+function revisionOf({ path, revision }: ChangedFileEntry): ChangesFileRevision {
+  return { path, revision };
+}
+
 function toReviewFile(entry: ChangedFileEntry): DiffReviewFile {
   return {
+    actions: entry.actions,
     additions: entry.additions,
     deletions: entry.deletions,
     id: changedFileKey(entry),
     oldPath: entry.oldPath,
     patch: entry.patch,
     path: entry.path,
+    revision: entry.revision,
     status: entry.status,
   };
 }
 
 export function ChangesetDiffPane({
+  applyAction,
   changesetKey,
   files,
   loadFileDiff,
@@ -50,6 +96,9 @@ export function ChangesetDiffPane({
   reviewRef,
 }: ChangesetDiffPaneProps): ReactElement | null {
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split');
+  const [applying, setApplying] = useState(false);
+  /** The files a revert waits to be confirmed for. */
+  const [reverting, setReverting] = useState<readonly ChangesFileRevision[] | null>(null);
   const drafts = useChangesStore(
     (state) => state.commentsByChangeset.get(changesetKey) ?? NO_DRAFTS
   );
@@ -94,43 +143,145 @@ export function ChangesetDiffPane({
     }
   };
 
+  const apply = async (action: ChangesAction, target: ChangesActionTarget): Promise<void> => {
+    if (!applyAction) {
+      return;
+    }
+    setApplying(true);
+    try {
+      const result = await applyAction(action, target);
+      if (!result.ok) {
+        toast({
+          description: describeBoundaryFailure(result.error),
+          title: `Couldn't ${CHANGES_ACTION_LABEL[action].toLowerCase()} ${describeTarget(target)}`,
+          variant: 'destructive',
+        });
+      }
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const applyToFiles = (action: ChangesAction, targets: readonly ChangesFileRevision[]) => {
+    if (action === 'revert') {
+      setReverting(targets);
+    } else {
+      void apply(action, { files: targets, kind: 'files' });
+    }
+  };
+
+  const applyToFile = (
+    action: ChangesAction,
+    file: DiffReviewFile,
+    hunks: readonly string[] | null
+  ) => {
+    const entry = entryById.get(file.id);
+    if (!entry) {
+      return;
+    }
+    if (hunks) {
+      void apply(action, { hunks, kind: 'hunks', path: entry.path });
+    } else {
+      applyToFiles(action, [revisionOf(entry)]);
+    }
+  };
+
+  const confirmRevert = () => {
+    if (reverting) {
+      setReverting(null);
+      void apply('revert', { files: reverting, kind: 'files' });
+    }
+  };
+
+  // Each toolbar action takes exactly the files that offer it.
+  const toolbar = applyAction
+    ? CHANGES_ACTIONS.flatMap((action) => {
+        const offering = files.filter((entry) => entry.actions.includes(action));
+        return offering.length > 0 ? [{ action, targets: offering.map(revisionOf) }] : [];
+      })
+    : [];
   const unified = diffStyle === 'unified';
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="changeset-diff-pane">
-      <div className="border-border flex h-9 shrink-0 items-center justify-end gap-1.5 border-b px-2">
-        {onSendComments && drafts.length > 0 ? (
+      <div className="border-border flex h-9 shrink-0 items-center gap-1.5 border-b px-2">
+        {toolbar.map(({ action, targets }) => (
           <Button
-            data-testid="changeset-diff-pane-send-comments"
-            onClick={sendComments}
+            disabled={applying}
+            key={action}
+            onClick={() => applyToFiles(action, targets)}
             size="xs"
             type="button"
+            variant="ghost"
           >
-            Add {drafts.length} {drafts.length === 1 ? 'comment' : 'comments'} to message
+            {CHANGES_ACTION_LABEL[action]} all
           </Button>
-        ) : null}
-        <Button
-          aria-pressed={unified}
-          data-testid="changeset-diff-pane-mode"
-          onClick={() => setDiffStyle(unified ? 'split' : 'unified')}
-          size="xs"
-          type="button"
-          variant={unified ? 'secondary' : 'ghost'}
-        >
-          Inline
-        </Button>
+        ))}
+        <div className="ml-auto flex items-center gap-1.5">
+          {onSendComments && drafts.length > 0 ? (
+            <Button
+              data-testid="changeset-diff-pane-send-comments"
+              onClick={sendComments}
+              size="xs"
+              type="button"
+            >
+              Add {drafts.length} {drafts.length === 1 ? 'comment' : 'comments'} to message
+            </Button>
+          ) : null}
+          <Button
+            aria-pressed={unified}
+            data-testid="changeset-diff-pane-mode"
+            onClick={() => setDiffStyle(unified ? 'split' : 'unified')}
+            size="xs"
+            type="button"
+            variant={unified ? 'secondary' : 'ghost'}
+          >
+            Inline
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1">
         <DiffReview
+          actionsDisabled={applying}
           comments={comments}
           diffStyle={diffStyle}
           files={reviewFiles}
           key={changesetKey}
           loadFile={loadFile}
+          onAction={applyAction && applyToFile}
           onComment={onSendComments && saveDraft}
           onDeleteComment={(id) => deleteComment(changesetKey, id)}
           ref={reviewRef}
         />
       </div>
+      {reverting ? (
+        <Dialog
+          onOpenChange={(open) => {
+            if (!open) {
+              setReverting(null);
+            }
+          }}
+          open
+        >
+          <DialogContent
+            aria-describedby={undefined}
+            className="sm:max-w-sm"
+            hideCloseButton
+            role="alertdialog"
+          >
+            <DialogHeader>
+              <DialogTitle>Revert {describeFiles(reverting)}?</DialogTitle>
+            </DialogHeader>
+            <DialogFooter>
+              <Button onClick={() => setReverting(null)} type="button" variant="outline">
+                Cancel
+              </Button>
+              <Button onClick={confirmRevert} type="button" variant="destructive">
+                Revert
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

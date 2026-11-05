@@ -81,4 +81,8 @@
 // parameter is why this is a version bump. Additive since: `run.started` `hostPrompt`, set when
 // the host wrote the run's prompt (the worktree continuation); a next-turn delivery carries the
 // thread's ended command sessions too (`commandSessions`, with `entries` then possibly empty).
-export const AGENT_HOST_PROTOCOL_VERSION = 20;
+// v21 (2026-11-05): each `changes/resolve-view` entry carries the actions the host offers for it
+// (`actions`) and the `revision` of what the view drew, and `revertible` is gone; `changes/apply`
+// stages, unstages or reverts a view's hunks or files (ADR-0036), a new method. The required
+// fields are why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 21;

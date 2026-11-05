@@ -142,6 +142,99 @@ describe('useChangeset', () => {
     expect(resolveView).not.toHaveBeenCalled();
   });
 
+  it('shows the view git left before an action returns, whether git took it or refused it', async () => {
+    let resolved = 0;
+    const resolveView = vi.fn(async (): Promise<BoundaryResult<ChangesetView>> => {
+      resolved += 1;
+      return { ok: true, value: viewFixture({ totalAdditions: resolved }) };
+    });
+    const apply = vi.fn<ChangesBridge['apply']>(async () => ({
+      ok: true,
+      value: { paths: ['src/a.ts'] },
+    }));
+    installedChanges = stubChangesBridge({ apply, resolveView });
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
+    await waitFor(() => expect(result.current.view?.totalAdditions).toBe(1));
+    const target = { files: [{ path: 'src/a.ts', revision: 'r1' }], kind: 'files' } as const;
+
+    await act(async () => {
+      expect(await result.current.apply('stage', target)).toEqual({
+        ok: true,
+        value: { paths: ['src/a.ts'] },
+      });
+      expect(resolveView).toHaveBeenCalledTimes(2);
+    });
+    expect(apply).toHaveBeenCalledWith({
+      action: 'stage',
+      changeset: CHANGESET,
+      rootId: 'root-1',
+      target,
+    });
+    expect(result.current.view?.totalAdditions).toBe(2);
+
+    const refused = gitFailure('the patch no longer applies');
+    apply.mockResolvedValueOnce(refused);
+    await act(async () => {
+      expect(await result.current.apply('revert', target)).toEqual(refused);
+      expect(resolveView).toHaveBeenCalledTimes(3);
+    });
+    expect(result.current.view?.totalAdditions).toBe(3);
+  });
+
+  it('acts on the view it drew while the next changeset still resolves', async () => {
+    const worktreeA: Changeset = {
+      kind: 'git-scope',
+      repositoryRoot: '/repo',
+      scope: { kind: 'unstaged' },
+      worktreePath: '/repo/a',
+    };
+    const worktreeB: Changeset = { ...worktreeA, worktreePath: '/repo/b' };
+    let answerB: () => void = () => {};
+    const bAnswered = new Promise<void>((resolve) => {
+      answerB = resolve;
+    });
+    const resolveView = vi.fn(
+      async (_rootId: string, changeset: Changeset): Promise<BoundaryResult<ChangesetView>> => {
+        if (changeset.kind === 'git-scope' && changeset.worktreePath === '/repo/b') {
+          await bAnswered;
+        }
+        return { ok: true, value: viewFixture({ changeset }) };
+      }
+    );
+    const apply = vi.fn<ChangesBridge['apply']>(async () => ({
+      ok: true,
+      value: { paths: ['src/a.ts'] },
+    }));
+    installedChanges = stubChangesBridge({ apply, resolveView });
+    const { rerender, result } = renderHook(
+      ({ changeset, rootId }: { changeset: Changeset; rootId: string }) =>
+        useChangeset(rootId, changeset),
+      { initialProps: { changeset: worktreeA, rootId: 'root-a' }, wrapper: changesHost() }
+    );
+    await waitFor(() => expect(result.current.view?.changeset).toEqual(worktreeA));
+
+    rerender({ changeset: worktreeB, rootId: 'root-b' });
+    await waitFor(() => expect(resolveView).toHaveBeenLastCalledWith('root-b', worktreeB));
+    expect(result.current.view?.changeset).toEqual(worktreeA);
+
+    // A click on worktree A's files, still drawn, reverts worktree A's copy.
+    const target = { files: [{ path: 'src/a.ts', revision: 'r1' }], kind: 'files' } as const;
+    await act(async () => {
+      const applied = result.current.apply('revert', target);
+      answerB();
+      await applied;
+    });
+    expect(apply).toHaveBeenCalledWith({
+      action: 'revert',
+      changeset: worktreeA,
+      rootId: 'root-a',
+      target,
+    });
+    expect(result.current.view?.changeset).toEqual(worktreeB);
+  });
+
   it('times out a resolveView that never answers, into an error the surface can retry', async () => {
     vi.useFakeTimers();
     const resolveView = vi.fn(() => new Promise<BoundaryResult<ChangesetView>>(() => undefined));
@@ -365,12 +458,13 @@ describe('useChangeset', () => {
     const view = viewFixture({
       files: [
         {
+          actions: [],
           additions: null,
           deletions: null,
           patch: null,
           path: 'src/file.ts',
           repositoryRoot: null,
-          revertible: true,
+          revision: 'r1',
           rootId: 'root-1',
           status: 'modified',
           worktreePath: null,
@@ -491,12 +585,13 @@ describe('useChangeset', () => {
       const staleFixture = viewFixture({
         files: [
           {
+            actions: [],
             additions: null,
             deletions: null,
             patch: null,
             path: 'stale.ts',
             repositoryRoot: null,
-            revertible: false,
+            revision: 'r1',
             rootId: 'root-1',
             status: 'modified',
             worktreePath: null,
@@ -506,12 +601,13 @@ describe('useChangeset', () => {
       const freshFixture = viewFixture({
         files: [
           {
+            actions: [],
             additions: null,
             deletions: null,
             patch: null,
             path: 'fresh.ts',
             repositoryRoot: null,
-            revertible: false,
+            revision: 'r1',
             rootId: 'root-1',
             status: 'modified',
             worktreePath: null,

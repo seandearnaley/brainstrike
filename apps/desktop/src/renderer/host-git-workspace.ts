@@ -69,6 +69,7 @@ export function createDesktopWorkspaceGitServices(
   ): Promise<HostResults[M]> => await (await client()).request(method, params);
   return {
     changes: {
+      apply: (params) => request('changes/apply', params),
       fileDiff: (rootId, changeset, path) =>
         request('changes/file-diff', { changeset, path, rootId }),
       inventory: (options) => request('changes/inventory', { ...options }),

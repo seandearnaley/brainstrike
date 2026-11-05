@@ -9,7 +9,8 @@
  * Pure: no I/O. Each engine runs git its own way and hands the capture here.
  */
 
-import type { StructuredFileDiffContent } from '@brainstrike/types';
+import { createHash } from 'node:crypto';
+import type { ChangedFileEntry, StructuredFileDiffContent } from '@brainstrike/types';
 
 /**
  * Largest side inlined as full text. A larger side is never read: the file's
@@ -46,12 +47,25 @@ export interface PatchCapture {
 }
 
 /**
+ * A repository's `core.fsmonitor` names a command git runs whenever it loads
+ * the index to read it or compare it with the working tree. Reading changes
+ * for a view or a file's diff never runs it.
+ */
+export const NO_FSMONITOR: readonly string[] = ['-c', 'core.fsmonitor=false'];
+
+/**
  * Settings with no command-line flag. `diff.suppressBlankEmpty` would drop the
  * leading space of a blank context line, which no patch parser accepts.
  * `core.quotePath=false` keeps non-ASCII names readable; git still quotes
  * control characters, `"` and `\`.
  */
-const PINNED_CONFIG = ['-c', 'core.quotePath=false', '-c', 'diff.suppressBlankEmpty=false'];
+const PINNED_CONFIG = [
+  ...NO_FSMONITOR,
+  '-c',
+  'core.quotePath=false',
+  '-c',
+  'diff.suppressBlankEmpty=false',
+];
 
 /**
  * Flags that decide which lines a diff marks, whatever the user's config
@@ -91,6 +105,44 @@ export function pinnedDiffArgs(args: readonly string[]): string[] {
 /** `git diff` printing git's patch in the pinned format, then `args`. */
 export function pinnedPatchArgs(args: readonly string[]): string[] {
   return [...PINNED_CONFIG, 'diff', ...LINE_FLAGS, ...PATCH_FLAGS, ...args];
+}
+
+/** `git status` of every file under `pathspec`, untracked ones included, for a listing. */
+export function pinnedStatusArgs(pathspec: string): string[] {
+  return [
+    ...NO_FSMONITOR,
+    'status',
+    '--porcelain=v2',
+    '--untracked-files=all',
+    '-z',
+    '--',
+    pathspec,
+  ];
+}
+
+/**
+ * A view entry's {@link ChangedFileEntry.revision}: a hash of its status,
+ * rename source, counts and git's whole patch for it, plus `identity`: what
+ * else names its content (git's blob ids, or a working-tree stamp). Both
+ * engines use it, so a files target names a file as the view drew it, and
+ * the host refuses the file once the same listing reads differently.
+ */
+export function fileRevision(
+  file: Pick<ChangedFileEntry, 'additions' | 'deletions' | 'status'> & {
+    readonly identity?: readonly string[] | undefined;
+    readonly oldPath?: string | null | undefined;
+    readonly patch: string | null;
+  }
+): string {
+  const drawn = [
+    file.status,
+    file.oldPath ?? null,
+    file.additions,
+    file.deletions,
+    file.patch,
+    file.identity ?? [],
+  ];
+  return createHash('sha256').update(JSON.stringify(drawn)).digest('hex');
 }
 
 const FILE_HEADER = 'diff --git ';

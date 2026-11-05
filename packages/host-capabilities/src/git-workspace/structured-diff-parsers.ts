@@ -83,6 +83,62 @@ export function parseNumstatZ(output: string): readonly NumstatEntry[] {
   return entries;
 }
 
+/** One record from `git diff --raw -z --no-abbrev [--find-renames]`. */
+export interface RawDiffRecord {
+  /** The new side's blob id; all zeros for a working-tree side git did not hash. */
+  readonly newId: string;
+  readonly newMode: string;
+  readonly oldId: string;
+  readonly oldMode: string;
+  /** The source path of a rename or copy, null otherwise. */
+  readonly oldPath: string | null;
+  readonly path: string;
+  /** Git's status letter, its similarity score dropped. */
+  readonly status: string;
+}
+
+// `:<old mode> <new mode> <old id> <new id> <status>[<score>]`.
+const RAW_RECORD_PATTERN = /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])\d*$/u;
+
+/**
+ * Parse `git diff --raw -z --no-abbrev [--find-renames]` output: each record
+ * is NUL-terminated and followed by its path, or by both paths of a rename
+ * (`R`) or copy (`C`).
+ */
+export function parseRawZ(output: string): readonly RawDiffRecord[] {
+  const fields = output.split('\0');
+  if (fields.at(-1) === '') {
+    fields.pop();
+  }
+  const records: RawDiffRecord[] = [];
+  let index = 0;
+  while (index < fields.length) {
+    const record = fields[index] ?? '';
+    const match = RAW_RECORD_PATTERN.exec(record);
+    if (!match) {
+      throw new Error(`git diff --raw -z returned a malformed record "${record}"`);
+    }
+    const [, oldMode = '', newMode = '', oldId = '', newId = '', status = ''] = match;
+    const paired = status === 'R' || status === 'C';
+    const first = fields[index + 1];
+    const second = paired ? fields[index + 2] : first;
+    if (!(first && second)) {
+      throw new Error(`git diff --raw -z returned record "${record}" without its paths`);
+    }
+    records.push({
+      newId,
+      newMode,
+      oldId,
+      oldMode,
+      oldPath: paired ? first : null,
+      path: second,
+      status,
+    });
+    index += paired ? 3 : 2;
+  }
+  return records;
+}
+
 /**
  * Count lines the way `git`'s line counts behave: newline-terminated text
  * counts the terminated lines, not `split('\n').length` (which double-counts

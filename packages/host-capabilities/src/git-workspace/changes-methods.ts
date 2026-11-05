@@ -3,10 +3,11 @@
  *
  * `resolveView` resolves any `Changeset` (agent-run / run-range / git-scope)
  * to an eager `ChangesetView`; `fileDiff` loads one file's
- * `StructuredFileDiff` lazily. Both accept `unknown` renderer-supplied
- * arguments (the client boundary is untrusted, same as `git-methods.ts`) —
- * `validateChangeset`/`validatePath` structurally narrow the payload before
- * it ever reaches `ChangesetDiffService`, which only ever sees typed values.
+ * `StructuredFileDiff` lazily; `apply` stages, unstages or reverts what a view
+ * drew. All accept `unknown` renderer-supplied arguments (the client boundary
+ * is untrusted, same as `git-methods.ts`) — `validateChangeset`/`validatePath`/
+ * `validateApplyParams` structurally narrow the payload before it ever reaches
+ * `ChangesetDiffService`, which only ever sees typed values.
  *
  * Every failure is a visible, typed `BoundaryResult` — never a thrown bare
  * `Error`, never a silent coercion of a malformed payload. Unknown `kind`s
@@ -16,8 +17,13 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import type {
+  ChangesAction,
+  ChangesActionTarget,
+  ChangesApplyParams,
+  ChangesApplyResult,
   Changeset,
   ChangesetView,
+  ChangesFileRevision,
   GitInventory,
   GitScope,
   StructuredFileDiff,
@@ -234,6 +240,132 @@ export function validatePath(value: unknown): BoundaryResult<string> {
   return { ok: true, value };
 }
 
+const CHANGES_ACTIONS: readonly ChangesAction[] = ['revert', 'stage', 'unstage'];
+
+function isChangesAction(value: unknown): value is ChangesAction {
+  return CHANGES_ACTIONS.includes(value as ChangesAction);
+}
+
+/** A non-empty list of distinct, non-empty strings. */
+function validateTexts(value: unknown, subject: string): BoundaryResult<readonly string[]> {
+  if (!(Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString))) {
+    return gitInvalid(`${subject} must be a non-empty array of non-empty strings`);
+  }
+  if (new Set(value).size !== value.length) {
+    return gitInvalid(`${subject} must not repeat an entry`);
+  }
+  return { ok: true, value };
+}
+
+/** A non-empty list of files, each its path and revision, no path twice. */
+function validateFileRevisions(value: unknown): BoundaryResult<readonly ChangesFileRevision[]> {
+  const subject = 'changes:apply files';
+  if (!(Array.isArray(value) && value.length > 0)) {
+    return gitInvalid(`${subject} must be a non-empty array of { path, revision }`);
+  }
+  const files: ChangesFileRevision[] = [];
+  for (const item of value) {
+    const recordResult = asRecord(item, `${subject} entry`);
+    if (!recordResult.ok) {
+      return recordResult;
+    }
+    const keysResult = rejectUnsupportedKeys(recordResult.value, ['path', 'revision'], subject);
+    if (!keysResult.ok) {
+      return keysResult;
+    }
+    const { path, revision } = recordResult.value;
+    if (!(isNonEmptyString(path) && isNonEmptyString(revision))) {
+      return gitInvalid(`${subject} entries need a non-empty path and revision`);
+    }
+    files.push({ path, revision });
+  }
+  if (new Set(files.map(({ path }) => path)).size !== files.length) {
+    return gitInvalid(`${subject} must not repeat a path`);
+  }
+  return { ok: true, value: files };
+}
+
+function validateActionTarget(value: unknown): BoundaryResult<ChangesActionTarget> {
+  const recordResult = asRecord(value, 'changes:apply target');
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const kind = record['kind'];
+  if (kind === 'files') {
+    const keysResult = rejectUnsupportedKeys(record, ['files', 'kind'], 'changes:apply files');
+    if (!keysResult.ok) {
+      return keysResult;
+    }
+    const files = validateFileRevisions(record['files']);
+    return files.ok ? { ok: true, value: { files: files.value, kind } } : files;
+  }
+  if (kind !== 'hunks') {
+    return gitInvalid(
+      `changes:apply target kind must be "files" or "hunks" (received "${String(kind)}")`
+    );
+  }
+  const keysResult = rejectUnsupportedKeys(
+    record,
+    ['hunks', 'kind', 'path'],
+    'changes:apply hunks'
+  );
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const path = record['path'];
+  if (!isNonEmptyString(path)) {
+    return gitInvalid('changes:apply hunks requires a non-empty path');
+  }
+  const hunks = validateTexts(record['hunks'], 'changes:apply hunks');
+  if (!hunks.ok) {
+    return hunks;
+  }
+  if (!hunks.value.every((hunk) => hunk.startsWith('@@ '))) {
+    return gitInvalid('changes:apply hunks must each start at its "@@ " line');
+  }
+  return { ok: true, value: { hunks: hunks.value, kind, path } };
+}
+
+/** Structurally validate a renderer-supplied `changes:apply` payload. */
+export function validateApplyParams(value: unknown): BoundaryResult<ChangesApplyParams> {
+  const recordResult = asRecord(value, 'changes:apply');
+  if (!recordResult.ok) {
+    return recordResult;
+  }
+  const record = recordResult.value;
+  const keysResult = rejectUnsupportedKeys(
+    record,
+    ['action', 'changeset', 'rootId', 'target'],
+    'changes:apply'
+  );
+  if (!keysResult.ok) {
+    return keysResult;
+  }
+  const action = record['action'];
+  if (!isChangesAction(action)) {
+    return gitInvalid(
+      `changes:apply action must be "revert", "stage" or "unstage" (received "${String(action)}")`
+    );
+  }
+  const rootId = record['rootId'];
+  if (!isNonEmptyString(rootId)) {
+    return gitInvalid('changes:apply requires a non-empty rootId');
+  }
+  const changeset = validateChangeset(record['changeset']);
+  if (!changeset.ok) {
+    return changeset;
+  }
+  const target = validateActionTarget(record['target']);
+  if (!target.ok) {
+    return target;
+  }
+  return {
+    ok: true,
+    value: { action, changeset: changeset.value, rootId, target: target.value },
+  };
+}
+
 // ===== Conversation Rewind (BST-1115 W5 T4) =====
 //
 // TWO LEVELS OF FAILURE, deliberately not collapsed into one:
@@ -289,6 +421,7 @@ function validateInventoryOptions(value: unknown): BoundaryResult<{ readonly max
 }
 
 export interface ChangesMethods {
+  readonly apply: (params: unknown) => Promise<BoundaryResult<ChangesApplyResult>>;
   readonly fileDiff: (
     rootId: unknown,
     changeset: unknown,
@@ -347,6 +480,18 @@ export function createChangesMethods(options: ChangesMethodsOptions): ChangesMet
     });
 
   return {
+    apply: async (params) => {
+      const paramsResult = validateApplyParams(params);
+      if (!paramsResult.ok) {
+        return paramsResult;
+      }
+      try {
+        return await service.apply(paramsResult.value);
+      } catch (error) {
+        logger.error('Unexpected changes:apply handler failure', { error });
+        return gitThrew(error);
+      }
+    },
     fileDiff: async (rootId, changeset, path) => {
       const changesetResult = validateChangeset(changeset);
       if (!changesetResult.ok) {

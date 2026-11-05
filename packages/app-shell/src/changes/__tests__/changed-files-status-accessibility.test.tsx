@@ -7,12 +7,13 @@ import type { ChangedFilesTreeNodeData } from '../ui/changed-files-tree-model';
 
 function props(status: ChangedFileStatus): TreeTableCellProps<ChangedFilesTreeNodeData> {
   const entry: ChangedFileEntry = {
+    actions: [],
     additions: 1,
     deletions: 0,
     patch: null,
     path: 'src/example.ts',
     repositoryRoot: '/repo',
-    revertible: true,
+    revision: 'r1',
     rootId: 'root-1',
     status,
     worktreePath: '/repo',

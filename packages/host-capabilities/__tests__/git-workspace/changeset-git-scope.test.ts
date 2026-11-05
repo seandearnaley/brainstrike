@@ -65,16 +65,42 @@ function isDiff(args: readonly string[]): boolean {
   return args.includes('diff');
 }
 
+/** `git diff --raw -z` records: `[status, path]`, or `[status, oldPath, path]` for a rename. */
+function raw(...records: (readonly string[])[]): string {
+  const id = '0'.repeat(40);
+  return records
+    .map(([status = '', ...paths]) => {
+      const modes = status === 'U' ? '000000 000000' : '100644 100644';
+      return `:${modes} ${id} ${id} ${status}\0${paths.join('\0')}\0`;
+    })
+    .join('');
+}
+
+/** The unstaged scope's untracked files: none, in the repository's top folder. */
+function noUntrackedFiles(args: readonly string[]): GitCommandRun | null {
+  if (args.includes('status')) {
+    return ok();
+  }
+  return args[0] === 'rev-parse' && args.includes('--show-prefix') ? ok({ stdout: '\n' }) : null;
+}
+
 interface RecordedCall {
   readonly args: readonly string[];
 }
 
+/**
+ * A fake git whose folder is the top of its own work tree: it answers the
+ * work-tree probe every git-scope call makes first, and `respond` the rest.
+ */
 function createFakeRunner(respond: (args: readonly string[]) => GitCommandRun): {
   calls: RecordedCall[];
   run: GitCommandRunner;
 } {
   const calls: RecordedCall[] = [];
-  const run: GitCommandRunner = ({ args }) => {
+  const run: GitCommandRunner = ({ args, cwd }) => {
+    if (args.includes('--is-inside-work-tree')) {
+      return Promise.resolve(ok({ stdout: `true\n${cwd}\n` }));
+    }
     const recorded = [...args];
     calls.push({ args: recorded });
     allRecordedCalls.push(recorded);
@@ -157,11 +183,15 @@ describe('resolveGitScopeChangesetView — rootId validation (NTH-2)', () => {
     const rootDir = await makeTempDir();
     let receivedRootId: unknown;
     const { run } = createFakeRunner((args) => {
+      const untracked = noUntrackedFiles(args);
+      if (untracked) {
+        return untracked;
+      }
       if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '1\t0\ta.txt\0' });
       }
-      if (isDiff(args) && args.includes('--name-status')) {
-        return ok({ stdout: 'M\x00a.txt\x00' });
+      if (isDiff(args) && args.includes('--raw')) {
+        return ok({ stdout: raw(['M', 'a.txt']) });
       }
       if (isDiff(args)) {
         return ok({ stdout: 'diff --git a/a.txt b/a.txt\n@@ -1 +1,2 @@\n a\n+b\n' });
@@ -194,14 +224,18 @@ describe('resolveGitScopeChangesetView — rootId validation (NTH-2)', () => {
 });
 
 describe("resolveGitScopeChangesetView — each entry's patch", () => {
-  async function viewOf(numstat: string, nameStatus: string, patch: string) {
+  async function viewOf(numstat: string, rawListing: string, patch: string) {
     const rootDir = await makeTempDir();
     const { run } = createFakeRunner((args) => {
+      const untracked = noUntrackedFiles(args);
+      if (untracked) {
+        return untracked;
+      }
       if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: numstat });
       }
-      if (isDiff(args) && args.includes('--name-status')) {
-        return ok({ stdout: nameStatus });
+      if (isDiff(args) && args.includes('--raw')) {
+        return ok({ stdout: rawListing });
       }
       if (isDiff(args)) {
         return ok({ stdout: patch });
@@ -226,7 +260,7 @@ describe("resolveGitScopeChangesetView — each entry's patch", () => {
       'diff --git a/old name.txt b/new name.txt\nsimilarity index 90%\nrename from old name.txt\nrename to new name.txt\n';
     const view = await viewOf(
       '1\t1\ttab\there\x000\t0\t\x00old name.txt\x00new name.txt\x00',
-      'M\x00tab\there\x00R090\x00old name.txt\x00new name.txt\x00',
+      raw(['M', 'tab\there'], ['R090', 'old name.txt', 'new name.txt']),
       `${renamed}${quoted}`
     );
     expect(view.ok).toBe(true);
@@ -242,18 +276,18 @@ describe("resolveGitScopeChangesetView — each entry's patch", () => {
   it('a binary file draws no patch', async () => {
     const view = await viewOf(
       '-\t-\tlogo.png\x00',
-      'M\x00logo.png\x00',
+      raw(['M', 'logo.png']),
       'diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n'
     );
     expect(view.ok && view.value.files[0]?.patch).toBeNull();
   });
 
   it('fails visibly when a listed text file has no section, or a section has no listed file', async () => {
-    const missing = await viewOf('1\t0\ta.txt\x00', 'M\x00a.txt\x00', '');
+    const missing = await viewOf('1\t0\ta.txt\x00', raw(['M', 'a.txt']), '');
     expect(missing.ok).toBe(false);
     const stray = await viewOf(
       '1\t0\ta.txt\x00',
-      'M\x00a.txt\x00',
+      raw(['M', 'a.txt']),
       'diff --git a/a.txt b/a.txt\n@@ -1 +1,2 @@\n a\n+b\ndiff --git a/b.txt b/b.txt\n@@ -1 +1 @@\n-x\n+y\n'
     );
     expect(stray.ok).toBe(false);
@@ -436,7 +470,7 @@ describe("resolveGitScopeStructuredFileDiffParams — uncommitted's per-path unt
   /** `git status --porcelain=v2 -z` + `rev-parse --show-prefix` (repo root). */
   function statusProbeInvoke(statusStdout: string) {
     return async (args: readonly string[]): Promise<GitCommandRun> => {
-      if (args[0] === 'status') {
+      if (args.includes('status')) {
         expect(args).toContain('--untracked-files=all');
         return ok({ stdout: statusStdout });
       }
@@ -576,13 +610,13 @@ describe('resolveGitScopeStructuredFileDiffParams — bogus commitId (NTH-9)', (
   });
 });
 
-describe('listRefComparisonChanges — bidirectional numstat/name-status merge (NTH-3)', () => {
-  it('a numstat entry with NO matching name-status entry is a visible error, not a silent drop', async () => {
+describe('listRefComparisonChanges — bidirectional numstat/raw merge (NTH-3)', () => {
+  it('a numstat entry with NO matching raw entry is a visible error, not a silent drop', async () => {
     const { run } = createFakeRunner((args) => {
       if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '1\t0\tonly-in-numstat.txt\0' });
       }
-      if (isDiff(args) && args.includes('--name-status')) {
+      if (isDiff(args) && args.includes('--raw')) {
         return ok({ stdout: '' });
       }
       if (isDiff(args)) {
@@ -608,13 +642,13 @@ describe('listRefComparisonChanges — bidirectional numstat/name-status merge (
     expect(result.error.message).toContain('only-in-numstat.txt');
   });
 
-  it('a name-status entry with NO matching numstat entry is a visible error, not a silent drop', async () => {
+  it('a raw entry with NO matching numstat entry is a visible error, not a silent drop', async () => {
     const { run } = createFakeRunner((args) => {
       if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '' });
       }
-      if (isDiff(args) && args.includes('--name-status')) {
-        return ok({ stdout: 'M\x00only-in-namestatus.txt\x00' });
+      if (isDiff(args) && args.includes('--raw')) {
+        return ok({ stdout: raw(['M', 'only-in-raw.txt']) });
       }
       if (isDiff(args)) {
         return ok({ stdout: '' });
@@ -636,7 +670,7 @@ describe('listRefComparisonChanges — bidirectional numstat/name-status merge (
     if (result.ok) {
       return;
     }
-    expect(result.error.message).toContain('only-in-namestatus.txt');
+    expect(result.error.message).toContain('only-in-raw.txt');
   });
 });
 
@@ -646,8 +680,8 @@ describe('listRefComparisonChanges — unmerged path (R3)', () => {
       if (isDiff(args) && args.includes('--numstat')) {
         return ok({ stdout: '0\t0\tconflict.txt\0' });
       }
-      if (isDiff(args) && args.includes('--name-status')) {
-        return ok({ stdout: 'U\x00conflict.txt\x00' });
+      if (isDiff(args) && args.includes('--raw')) {
+        return ok({ stdout: raw(['U', 'conflict.txt']) });
       }
       if (isDiff(args)) {
         return ok({ stdout: '' });
