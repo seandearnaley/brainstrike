@@ -4,8 +4,8 @@
  * a commented line quotes exactly the file's text, before and after the full
  * sides arrive.
  */
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { actionHunks } from '@brainstrike/types';
@@ -25,13 +25,59 @@ function git(...args: string[]): string {
   return gitWithInput(undefined, ...args);
 }
 
+const GIT_ENV = {
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+  PATH: process.env['PATH'],
+};
+
 function gitWithInput(input: string | undefined, ...args: string[]): string {
   return execFileSync('git', ['-c', 'core.autocrlf=false', ...args], {
     cwd: repo,
     encoding: 'utf8',
-    env: { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', PATH: process.env['PATH'] },
+    env: GIT_ENV,
     input,
   });
+}
+
+/**
+ * git's patch of `f.txt` from `oldText` to `newText`, and the lines its numstat
+ * counts, from one git run: starting a process costs far more than the diff,
+ * most of all on Windows. `a/` and `b/` with no prefix give the same patch as
+ * `git diff` of the file against the index.
+ */
+function diffOf(
+  oldText: string,
+  newText: string
+): { readonly added: number; readonly deleted: number; readonly patch: string } {
+  writeFileSync(path.join(repo, 'a', 'f.txt'), oldText);
+  writeFileSync(path.join(repo, 'b', 'f.txt'), newText);
+  const run = spawnSync(
+    'git',
+    [
+      '-c',
+      'core.autocrlf=false',
+      'diff',
+      '--no-index',
+      '--no-prefix',
+      '--no-color',
+      '--no-ext-diff',
+      '-U3',
+      '--numstat',
+      '-p',
+      '--',
+      'a/f.txt',
+      'b/f.txt',
+    ],
+    { cwd: repo, encoding: 'utf8', env: GIT_ENV }
+  );
+  // `--no-index` exits 1 when the files differ.
+  if (run.status !== 1) {
+    throw new Error(`git diff --no-index exited ${run.status}: ${run.stderr}`);
+  }
+  const gap = run.stdout.indexOf('\n\n');
+  const [added = '', deleted = ''] = run.stdout.slice(0, gap).split('\t');
+  return { added: Number(added), deleted: Number(deleted), patch: run.stdout.slice(gap + 2) };
 }
 
 /** The lines a quote of `lines` 1–n reads, given which line numbers the diff holds. */
@@ -55,6 +101,8 @@ function quoted(lines: readonly string[], held: (line: number) => boolean): stri
 beforeAll(() => {
   repo = mkdtempSync(path.join(tmpdir(), 'diff-metadata-'));
   git('init', '--quiet');
+  mkdirSync(path.join(repo, 'a'));
+  mkdirSync(path.join(repo, 'b'));
 });
 
 afterAll(() => {
@@ -127,11 +175,7 @@ test('a parsed patch counts git’s lines and quotes the file’s text', () => {
   fc.assert(
     fc.property(fileText, fileText, (oldText, newText) => {
       fc.pre(oldText !== newText);
-      writeFileSync(path.join(repo, 'f.txt'), oldText);
-      git('add', 'f.txt');
-      writeFileSync(path.join(repo, 'f.txt'), newText);
-      const patch = git('diff', '--no-color', '--no-ext-diff', '-U3', '--', 'f.txt');
-      const [added = '', deleted = ''] = git('diff', '--numstat', '--', 'f.txt').split('\t');
+      const { added, deleted, patch } = diffOf(oldText, newText);
 
       const partial = parseFilePatch(patch);
       const full = parseFilePatch(patch, {
@@ -144,8 +188,8 @@ test('a parsed patch counts git’s lines and quotes the file’s text', () => {
       for (const fileDiff of [partial, full]) {
         const sum = (count: (hunk: (typeof fileDiff.hunks)[number]) => number) =>
           fileDiff.hunks.reduce((total, hunk) => total + count(hunk), 0);
-        expect(sum((hunk) => hunk.additionLines)).toBe(Number(added));
-        expect(sum((hunk) => hunk.deletionLines)).toBe(Number(deleted));
+        expect(sum((hunk) => hunk.additionLines)).toBe(added);
+        expect(sum((hunk) => hunk.deletionLines)).toBe(deleted);
         for (const hunk of fileDiff.hunks) {
           for (
             let line = hunk.additionStart;
@@ -187,10 +231,7 @@ test('a hunk’s actions sit on a line of its last change, with or without the f
   fc.assert(
     fc.property(editedFile, ([oldText, newText]) => {
       fc.pre(oldText !== newText);
-      writeFileSync(path.join(repo, 'f.txt'), oldText);
-      git('add', 'f.txt');
-      writeFileSync(path.join(repo, 'f.txt'), newText);
-      const patch = git('diff', '--no-color', '--no-ext-diff', '-U3', '--', 'f.txt');
+      const { patch } = diffOf(oldText, newText);
 
       // The diff pairs each quoted hunk with the parsed hunk of its index.
       const hunks = actionHunks(patch) ?? [];

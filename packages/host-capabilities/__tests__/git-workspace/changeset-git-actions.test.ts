@@ -61,6 +61,9 @@ function git(cwd: string, args: readonly string[]): string {
 async function repoWith(committed: Readonly<Record<string, Buffer | string>>): Promise<string> {
   const dir = await tempDir();
   git(dir, ['init', '-q']);
+  // Files keep the line endings they were written with: Git for Windows turns
+  // core.autocrlf on for the whole machine.
+  git(dir, ['config', 'core.autocrlf', 'false']);
   for (const [name, text] of Object.entries(committed)) {
     await mkdir(path.dirname(path.join(dir, name)), { recursive: true });
     await writeFile(path.join(dir, name), text);
