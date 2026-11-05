@@ -440,16 +440,31 @@ export async function runHostSdkLoop(
   run: Run,
   model: LanguageModel
 ): Promise<void> {
+  // BST-1932: a child's execution deadline bounds each leg, across its attempts.
+  const deadline = ports.armDeadline(run);
+  const ended = await runHostSdkAttempts(ports, run, model).finally(() => clearTimeout(deadline));
+  await finishHostSdkLoop(
+    run,
+    ports.closing(),
+    ended.outcome.detail(),
+    ended.interrupted,
+    (joined, detail) => ports.finish(run, joined, detail)
+  );
+}
+
+/** The leg's attempts, until one ends it. */
+async function runHostSdkAttempts(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  model: LanguageModel
+): Promise<HostSdkAttempt> {
   // An empty reply is judged per attempt: a failed attempt's text never
   // entered the transcript, so only a leg that began with committed steps
   // counts as the model having contributed.
   const resumed = run.steps > 0;
-  // BST-1932: a child's execution deadline bounds each leg, across its attempts.
-  const deadline = ports.armDeadline(run);
   for (let attempt = 1; ; attempt += 1) {
     const ended = await runHostSdkAttempt(ports, run, model, resumed);
     if (ended.checkpointFailure !== undefined) {
-      clearTimeout(deadline);
       throw ended.checkpointFailure;
     }
     // A stopped, closing, steered or timed-out run ends here: none asked for another attempt.
@@ -484,15 +499,7 @@ export async function runHostSdkLoop(
         ended.outcome.fail(cause);
       }
     }
-    clearTimeout(deadline);
-    await finishHostSdkLoop(
-      run,
-      ports.closing(),
-      ended.outcome.detail(),
-      ended.interrupted,
-      (joined, detail) => ports.finish(run, joined, detail)
-    );
-    return;
+    return ended;
   }
 }
 

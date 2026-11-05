@@ -200,7 +200,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
         model: fixture,
       }),
       prepareStep: ({ messages: current }) => ({
-        messages: healInterruptedModelMessages(current, new Set(['recorded-call-1'])),
+        messages: healInterruptedModelMessages(current, new Set(['recorded-call-1']), 'stopped'),
       }),
     }).fullStream) {
       if (part.type === 'error') {

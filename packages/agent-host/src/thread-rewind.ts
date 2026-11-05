@@ -200,6 +200,13 @@ export class HostThreadRewinds {
     }
   }
 
+  /** A live run's committed start, folded as a host start folds it. */
+  readonly foldRows = (rows: readonly HostLogRow[]): void => {
+    for (const row of rows) {
+      this.fold(row);
+    }
+  };
+
   forgetThread(threadId: string): void {
     this.latest.delete(threadId);
   }
