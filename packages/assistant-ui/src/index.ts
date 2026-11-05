@@ -1,4 +1,5 @@
 export { TooltipIconButton, type TooltipIconButtonProps } from '@brainstrike/ui';
+export { ApprovalChangeProvider, type ReadApprovalChange } from './approval-change-context';
 export type { ApprovalOwnerThread } from './approval-owner-thread-context';
 export {
   AssistantConversationPanel,
@@ -23,9 +24,9 @@ export {
 export {
   type ChangesReviewContextValue,
   ChangesReviewProvider,
+  type RunChangesTarget,
   useChangesReviewContext,
 } from './changes-review-context';
-export { ChangesReviewLink } from './changes-review-link';
 export {
   CheckpointTurnRevert,
   CheckpointTurnRevertControl,

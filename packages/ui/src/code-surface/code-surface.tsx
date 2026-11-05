@@ -107,7 +107,8 @@ const BASE_EXTENSIONS: Extension[] = [
     '.cm-content': {
       caretColor: 'var(--foreground)',
       fontFamily: MONO_FONT_FAMILY,
-      fontSize: '0.8125rem',
+      // The code font size chosen in Settings > Appearance, when there is one.
+      fontSize: 'var(--code-font-size, 0.8125rem)',
       lineHeight: '1.55',
       minHeight: '100%',
       padding: '0.75rem 0',

@@ -5,6 +5,7 @@ import type {
   ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent/tool-runtime';
 import type {
+  ApprovalFileChange,
   AssistantPersonasListResult,
   McpElicitationPresentationWire,
   McpElicitationSettlement,
@@ -584,6 +585,13 @@ export interface HostTool {
    * undefined. The policy still decides whether the call asks at all.
    */
   readonly personApproval?: (input: unknown) => string | undefined;
+  /**
+   * ADR-0036: the file text this call would change, read now through the same
+   * resolution and matcher its execute uses. It never writes, and nothing
+   * durable holds it. A call it cannot preview is a typed refusal that says
+   * why. The desktop's card asks for it through `interaction/preview`.
+   */
+  readonly proposedChange?: (input: unknown, signal: AbortSignal) => Promise<ApprovalFileChange>;
   /** Tool-owned recovery of runtime meaning that JSON cannot retain. */
   reconstructApprovalInput?(rawInput: unknown): Promise<unknown>;
   readonly risk: ToolRiskCategory;
