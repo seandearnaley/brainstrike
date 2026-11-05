@@ -55,6 +55,18 @@ export type ContextTarget =
       readonly url: string;
     }
   /**
+   * A canvas card in the Artifacts gallery. `threadId` is the thread that
+   * holds the canvas (a subagent's own thread for a delegated canvas);
+   * `rootThreadId` is the top-level thread it opens in.
+   */
+  | {
+      readonly canvasId: string;
+      readonly kind: 'artifact';
+      readonly rootThreadId: string;
+      readonly threadId: string;
+      readonly title: string;
+    }
+  /**
    * The empty background of a tab strip (BST-1836 §6.4). Strip-level local
    * actions (New, Close All) claim it; `stripId` names the owning strip.
    */
