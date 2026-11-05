@@ -11,6 +11,7 @@ import type { HostCommandSessionExit } from '../src/ports.ts';
 import type { HostLogRow } from '../src/protocol.ts';
 import {
   type CallOptions,
+  childThreads,
   recordingAdmission,
   rowsUntil,
   setupChildRunHost,
@@ -177,4 +178,82 @@ test('an ended session no run took survives a restart', async () => {
   await harness.start('Is the build done?');
   await harness.core().idle(harness.threadId);
   expect(sessions(await harness.core().read(harness.threadId, 0))).toEqual([['next-turn', ['s1']]]);
+});
+
+test('an exit that commits on a child whose run just ended goes on to its parent, never waking the child', async () => {
+  const listeners = new Set<(exit: HostCommandSessionExit) => void>();
+  const childWorking = Promise.withResolvers<void>();
+  const childRelease = Promise.withResolvers<void>();
+  const noticeHeld = Promise.withResolvers<void>();
+  const noticeRelease = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const turn = latest(call);
+      const first = call.prompt.find((message) => message.role === 'user');
+      // The worker's thread opens with its task; the root's with the person's.
+      if (JSON.stringify(first).includes('Start the build.')) {
+        childWorking.resolve();
+        await childRelease.promise;
+        return stream(text('Started a session and returned.'));
+      }
+      return stream(
+        turn.text.includes('DELEGATE') && !turn.answered
+          ? toolCall('agent-worker', { prompt: 'Start the build.' }, 'call-1')
+          : text(JSON.stringify(call.prompt).includes(REPORT) ? 'saw report' : 'Done.')
+      );
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {
+    commandSessionExits: {
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    // The exit's notice commits only after the child's run has ended and handed on.
+    holdAppend: async (items) => {
+      const exitNotice = items.some(({ event }) => {
+        const posted = event as HostLogRow['event'];
+        return (
+          posted.type === 'notice.posted' &&
+          posted.notice.kind === 'command-session' &&
+          posted.notice.handedOnFrom === undefined
+        );
+      });
+      if (exitNotice) {
+        noticeHeld.resolve();
+        await noticeRelease.promise;
+      }
+    },
+    personas: [worker],
+  });
+  await harness.start('DELEGATE the build.');
+  await childWorking.promise;
+  const [child = ''] = await childThreads(harness);
+  for (const listener of listeners) {
+    listener({
+      createdAt: 0,
+      exitCode: 0,
+      exitedAt: 1000,
+      outputCursor: 10,
+      rootId: 'root-a',
+      sessionId: 's1',
+      signal: null,
+      threadId: child,
+    });
+  }
+  await noticeHeld.promise;
+  childRelease.resolve();
+  await rowsUntil(harness, child, ({ event }) => event.type === 'run.finished', 5000);
+  noticeRelease.resolve();
+  await harness.core().idle(harness.threadId);
+  const childRuns = (await harness.core().read(child, 0)).filter(
+    ({ event }) => event.type === 'run.started'
+  );
+  expect(childRuns).toHaveLength(1);
+  // The root hears the session once, by a wake of its own (beside the child's report).
+  const heard = sessions(await harness.core().read(harness.threadId, 0)).filter(
+    ([, ids]) => (ids?.length ?? 0) > 0
+  );
+  expect(heard).toEqual([['wake', ['s1']]]);
 });

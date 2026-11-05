@@ -126,7 +126,7 @@ export class HostCommandSessionExits {
 
   /** Tell `threadId` once, then wake it: the wake admits only an idle thread. */
   private post(threadId: string, notice: HostSessionNotice): void {
-    const { children, post, wake } = this.ports;
+    const { children, post } = this.ports;
     // A deleted thread has no run left to hear it.
     if (
       this.own(threadId).length === 0 ||
@@ -137,7 +137,7 @@ export class HostCommandSessionExits {
     const posting = this.posting.get(threadId) ?? new Set<Promise<void>>();
     this.posting.set(threadId, posting);
     const posted = post(threadId, notice)
-      .then(() => wake(threadId))
+      .then(() => this.heard(threadId))
       .catch((cause: unknown) => reportHostExitNoticeFailure(threadId, cause))
       .finally(() => {
         posting.delete(posted);
@@ -146,6 +146,19 @@ export class HostCommandSessionExits {
         }
       });
     posting.add(posted);
+  }
+
+  /**
+   * A notice committed on `threadId`: a child whose run ended while it
+   * committed hands it on, as that run's end would have; any other thread
+   * wakes, and the wake admits only an idle one.
+   */
+  private heard(threadId: string): void {
+    if (this.ports.children.isChild(threadId) && !this.active(threadId)) {
+      this.handOn(threadId);
+      return;
+    }
+    this.ports.wake(threadId);
   }
 
   /** A run ended: an idle child's exits go on to the thread that hears them now. */
