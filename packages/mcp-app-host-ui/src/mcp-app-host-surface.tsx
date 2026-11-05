@@ -308,10 +308,11 @@ export function McpAppHostSurface({
         <div
           aria-label={`Allow ${appName} to use ${approval.toolName}?`}
           aria-modal="true"
-          className="bg-background/90 absolute inset-0 flex items-center justify-center p-4"
+          className="bg-background/90 absolute inset-0 flex overflow-y-auto p-4"
           role="alertdialog"
         >
-          <div className="border-border bg-card flex max-w-sm flex-col gap-3 rounded-lg border p-4 shadow-lg">
+          {/* m-auto centres the prompt while it fits and lets the overlay scroll to its top when it doesn't. */}
+          <div className="border-border bg-card m-auto flex max-w-sm flex-col gap-3 rounded-lg border p-4 shadow-lg">
             <p className="font-medium">
               {appName} wants to run {approval.toolName}
             </p>
