@@ -412,6 +412,114 @@ describe('rich committed-log presentation projection', () => {
     });
   });
 
+  it('shows a person’s input faded at the reply’s end from its send until the run reads it there', () => {
+    const projection = projector();
+    const finished = rows.findIndex(({ event }) => event['type'] === 'run.finished');
+    const running = rows.slice(0, finished);
+    projection.acceptCommitted(running);
+    let seq = running.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    commit({
+      commandId: 'input-command-1',
+      method: 'run/input',
+      payload: {
+        attachments: [
+          {
+            data: 'data:image/png;base64,aGk=',
+            mediaType: 'image/png',
+            name: 'a.png',
+            type: 'image',
+          },
+        ],
+        commandId: 'input-command-1',
+        modelId: 'scripted',
+        prompt: 'Also add a title.',
+        runId,
+        threadId,
+      },
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    const unread = {
+      data: { images: ['data:image/png;base64,aGk='], text: 'Also add a title.', unread: true },
+      name: PERSON_INPUT_DATA_NAME,
+      type: 'data',
+    };
+    expect(answer(projection).content.at(-1)).toEqual(unread);
+    // The step still in flight when it was sent ends before it.
+    commit({ runId, type: 'step.noted' });
+    expect(answer(projection).content.at(-2)).toMatchObject({ data: { type: 'step.noted' } });
+    expect(answer(projection).content.at(-1)).toEqual(unread);
+    commit({
+      delivery: { entries: [], inputs: ['input-command-1'] },
+      messages: [
+        {
+          content: [
+            { text: 'Also add a title.', type: 'text' },
+            { data: 'data:image/png;base64,aGk=', mediaType: 'image/png', type: 'file' },
+          ],
+          role: 'user',
+        },
+      ],
+      runId,
+      type: 'model.messages',
+    });
+    const parts = answer(projection).content;
+    expect(
+      parts.filter((part) => part.type === 'data' && part.name === PERSON_INPUT_DATA_NAME)
+    ).toEqual([
+      { ...unread, data: { images: ['data:image/png;base64,aGk='], text: 'Also add a title.' } },
+    ]);
+    expect(parts.at(-2)).toMatchObject({ data: { type: 'step.noted' } });
+  });
+
+  it('keeps an input a stopped run never read at its reply’s end until the next run takes it', () => {
+    const next = { ...identity, assistantMessageId: 'next-answer', userMessageId: 'next-prompt' };
+    const projection = new CommittedAssistantLogProjection({
+      identifyRun: (row) => (row.event['runId'] === runId ? identity : next),
+      threadId,
+    });
+    projection.acceptCommitted(rows);
+    let seq = rows.at(-1)?.seq ?? 0;
+    const commit = (event: Record<string, unknown>) =>
+      projection.acceptCommitted([{ event, seq: ++seq, threadId }]);
+    const payload = {
+      commandId: 'late-input',
+      modelId: 'scripted',
+      prompt: 'One more.',
+      runId,
+      threadId,
+    };
+    commit({
+      commandId: 'late-input',
+      method: 'run/input',
+      payload,
+      result: { accepted: true },
+      type: 'command.accepted',
+    });
+    expect(answer(projection).content.at(-1)).toMatchObject({
+      data: { text: 'One more.', unread: true },
+    });
+    // The idle thread's next run takes it as its own prompt.
+    commit({
+      delivery: { entries: [], inputs: ['late-input'], messageId: 'delivery', via: 'next-turn' },
+      modelId: 'scripted',
+      prompt: 'One more.',
+      runId: 'next-run',
+      type: 'run.started',
+    });
+    expect(
+      answer(projection).content.some(
+        (part) => part.type === 'data' && part.name === PERSON_INPUT_DATA_NAME
+      )
+    ).toBe(false);
+    const prompt = projection
+      .getSnapshot()
+      .repository.messages.find(({ message }) => message.id === 'next-prompt')?.message;
+    expect(prompt?.content).toEqual([{ text: 'One more.', type: 'text' }]);
+  });
+
   it('keeps an agentic compaction’s reason, turns, summarizer model and usage on its card part', () => {
     const projection = projector();
     projection.acceptCommitted(rows);

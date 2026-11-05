@@ -2,11 +2,18 @@ import type { DataMessagePartComponent } from '@assistant-ui/react';
 import { readPersonInput } from './committed-person-input';
 import { PersonText } from './user-message-text';
 
-/** The person's message where the running agent read it: their bubble, inside the agent's reply. */
+/**
+ * The person's message inside the agent's reply: where the running agent read
+ * it, or faded at the reply's end while it waits to be read.
+ */
 export const PersonInputDataPart: DataMessagePartComponent = ({ data }) => {
-  const { images, text } = readPersonInput(data);
+  const { images, text, unread } = readPersonInput(data);
   return (
-    <div className="flex justify-end py-2" data-testid="person-input">
+    <div
+      className={unread ? 'flex justify-end py-2 opacity-60' : 'flex justify-end py-2'}
+      data-testid="person-input"
+      data-unread={unread ? '' : undefined}
+    >
       <div className="flex max-w-xl flex-col items-end gap-2">
         <div className="flex flex-wrap justify-end gap-2">
           {images.map((src, index) => (

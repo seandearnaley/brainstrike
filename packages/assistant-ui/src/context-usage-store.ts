@@ -22,6 +22,29 @@ export interface ThreadTokenUsage {
   outputTokens: number;
 }
 
+/** A committed step's usage when it is a real, changed context reading; otherwise undefined. */
+export function committedContextUsage(
+  event: Readonly<Record<string, unknown>>,
+  previous: ThreadTokenUsage | undefined
+): ThreadTokenUsage | undefined {
+  const usage = event['usage'];
+  const { inputTokens, outputTokens } =
+    usage && typeof usage === 'object' ? (usage as Record<string, unknown>) : {};
+  if (
+    typeof inputTokens === 'number' &&
+    typeof outputTokens === 'number' &&
+    Number.isFinite(inputTokens) &&
+    Number.isFinite(outputTokens) &&
+    inputTokens >= 0 &&
+    outputTokens >= 0 &&
+    inputTokens + outputTokens > 0 &&
+    (previous?.inputTokens !== inputTokens || previous.outputTokens !== outputTokens)
+  ) {
+    return { inputTokens, outputTokens };
+  }
+  return;
+}
+
 interface ContextUsageState {
   /**
    * Marks a thread whose run has stopped streaming but whose durable row has
