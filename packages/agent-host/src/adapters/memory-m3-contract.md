@@ -40,7 +40,8 @@ How Mastra Memory persists through the host StateStore. The host (StateStore wri
 - Memory patch:
   - Forwards owner/call abort signals into native observation/reflection work, which the public barrier lacks.
   - Retains independent background failures, joins sibling branches and cleanup tails, and rejects incomplete settlement without dropping still-owned work. (Upstream's barrier swallows registered job failures and can return after 100 drain waves while a job is still owned.)
-  - Builds on upstream's `runOMCommit` queue and turn signal; also fixes resource-group serialization indexing and single escape/decode of group attributes.
+  - Builds on upstream's `runOMCommit` queue and turn signal; also overlays only the owning thread's current messages in resource scope and escapes/decodes group attributes once. Upstream (1.40+) indexes only a commit's new groups, so the patch no longer touches indexing.
+  - Treats an `interrupted` observer/reflector finish (a provider stream that ended without its completion signal) as incomplete, like `other`/`unknown`: the reply is retried, never committed.
 - Core patch: `AgentThreadStreamRuntime` forwards the caller's abort reason to Memory's internal observer/reflector streams.
 - The alternative, a Worker enclosure with storage/model/stream RPC, was rejected as far more machinery.
 - Removal condition: upstream (or a reduced in-house implementation) passes the same ESM/CJS cancellation, join and error regressions without the patch (`packages/agent-host/__tests__/memory-public-lifecycle.test.ts`), plus composed WM/OM, usage, strict purge/reset and reopen checks. Remove the patch registration and patch file together.

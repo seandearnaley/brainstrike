@@ -26,14 +26,14 @@ cleanupUnusedCatalogs: true
 # prune either), and a comment attached to an entry that is itself pruned has no
 # measured verdict — so keep rationale beside entries that stay.
 catalog:
-  ai: 7.0.143
+  ai: 7.0.160
   vscode-jsonrpc: 10.0.0
-  "@ai-sdk/amazon-bedrock": 5.0.118
+  "@ai-sdk/amazon-bedrock": 5.0.130
   # BST-2067: the AI SDK's OpenTelemetry GenAI integration. LOCKSTEP with `ai`:
-  # each release depends on `ai` at an EXACT version (1.0.142 -> ai 7.0.142) and
+  # each release depends on `ai` at an EXACT version (1.0.160 -> ai 7.0.160) and
   # reads that release's telemetry events, so a split bump installs a second `ai`.
   # Node-only: the host process loads it when tracing is on; no browser bundle.
-  "@ai-sdk/otel": 1.0.143
+  "@ai-sdk/otel": 1.0.160
   # BST-2029: retain the qualified fence until 0.0.79 passes both OS suites.
   # macOS behavior passed; Linux readiness is blocked by host AppArmor policy.
   "@anthropic-ai/sandbox-runtime": 0.0.80
@@ -200,13 +200,13 @@ catalog:
   zustand: ^5.0.16
   "@codemirror/language": ^6.13.1
   "@codemirror/view": ^6.43.15
-  "@ai-sdk/anthropic": 4.0.82
-  "@ai-sdk/google": 4.0.99
-  "@ai-sdk/openai": 4.0.96
+  "@ai-sdk/anthropic": 4.0.94
+  "@ai-sdk/google": 4.0.109
+  "@ai-sdk/openai": 4.0.106
   "@atlaskit/pragmatic-drag-and-drop": ^4.0.0
   "@atlaskit/pragmatic-drag-and-drop-hitbox": ^3.0.0
-  "@mastra/core": 1.80.0
-  "@mastra/memory": 1.39.1
+  "@mastra/core": 1.82.0
+  "@mastra/memory": 1.41.0
   "@modelcontextprotocol/ext-apps": 2.0.4
   "@napi-rs/keyring": 2.1.2
   cmdk: ^1.1.1
@@ -298,14 +298,24 @@ allowBuilds:
 # Explicit zero overrides pnpm 11's default one-day floor.
 minimumReleaseAge: 0
 patchedDependencies:
-  # BST-2070: Memory 1.39's run-owner cancellation, retained background failures and
+  # BST-2070: Memory 1.41's run-owner cancellation, retained background failures and
   # joined initial flag writes. 1.39 adopted the turn signal, scoped settled() and
-  # abortable lock waits, so the patch now builds on those. Unpatched 1.39 fails the
-  # owner cases in packages/agent-host/__tests__/memory-public-lifecycle.test.ts.
-  "@mastra/memory@1.39.1": patches/@mastra__memory@1.39.1.patch
-  # BST-2070: Core 1.80 still drops the caller's abort reason in AgentThreadStreamRuntime,
+  # abortable lock waits, so the patch builds on those. 1.40 indexes only a commit's new
+  # groups and logs vector-write failures, so the patch no longer touches indexing.
+  # Unpatched, Memory fails the owner cases in
+  # packages/agent-host/__tests__/memory-public-lifecycle.test.ts.
+  # The same patch adds `interrupted` to Memory's incomplete finish reasons beside `other`
+  # and `unknown` (INCOMPLETE_FINISH_REASONS): AI SDK 7.0.149+ providers report a stream
+  # that ended without a completion signal as `interrupted`, and an observer or reflector
+  # reply cut off that way must be retried, never committed to memory. Unchanged upstream
+  # through 1.41.0: https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.41.0/packages/memory/src/processors/observational-memory/retry.ts
+  # Remove that hunk when upstream @mastra/memory treats `interrupted` as incomplete;
+  # owner cases: "never commits an interrupted observer/reflector reply" in
+  # memory-public-lifecycle.test.ts.
+  "@mastra/memory@1.41.0": patches/@mastra__memory@1.41.0.patch
+  # BST-2070: Core 1.82 still drops the caller's abort reason in AgentThreadStreamRuntime,
   # which Memory's internal observer/reflector streams pass through.
-  "@mastra/core@1.80.0": patches/@mastra__core@1.80.0.patch
+  "@mastra/core@1.82.0": patches/@mastra__core@1.82.0.patch
   "@assistant-ui/core@0.3.32": patches/@assistant-ui__core@0.3.32.patch
   vscode-jsonrpc@10.0.0: patches/vscode-jsonrpc@10.0.0.patch
   # Playwright 1.64 launches Electron through cmd.exe on every Windows path, so it holds the

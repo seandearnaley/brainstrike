@@ -1,11 +1,11 @@
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index bd51ccef45b78e98762ba96433f5fa4bdce14983..efe10c135a4d616a2c9b2255b02338f9c5a18703 100644
+index 835f92381b4d3689c5b537fa1a7a917267e356c7..184039d4e088a15091ce8ab7bc37130183c6e885 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -41,6 +41,8 @@ type MemoryObservationalMemoryOptions = Omit<ObservationalMemoryOptions, 'model'
-     autoModels?: ObservationalMemoryConfig['autoModels'];
-     canUseProvider?: ObservationalMemoryConfig['canUseProvider'];
+@@ -39,6 +39,8 @@ type MemoryObservationalMemoryOptions = Omit<ObservationalMemoryOptions, 'model'
      resolveModel?: ObservationalMemoryConfig['resolveModel'];
+     /** @deprecated Subconscious was removed; attach `Knowledge` to the agent instead. Setting it throws. */
+     experimental_subconscious?: unknown;
 +    /** Runtime-only lifetime of this run-owned Memory; never serialized. */
 +    abortSignal?: AbortSignal;
  };
@@ -78,23 +78,23 @@ index f00e9c9132ab86856638e04a81393d26ab13cbb4..0fc706a3f0b3a4d05b77d25d2822b44f
          resourceId?: string;
          messages?: MastraDBMessage[];
 diff --git a/dist/processors/observational-memory/types.d.ts b/dist/processors/observational-memory/types.d.ts
-index 0f04845206b948a1b8228aec5ee43554a4ce44da..db0673124e261a72755020edf6a92ae399d33888 100644
+index 28d574f8c905f30065071a69a57b6ff0aaf4134d..053886d00f4d3253b42d909150ae91a14cbe8bc4 100644
 --- a/dist/processors/observational-memory/types.d.ts
 +++ b/dist/processors/observational-memory/types.d.ts
-@@ -870,6 +870,8 @@ export interface ReflectionCommittedContext {
-     observabilityContext?: ObservabilityContext;
- }
+@@ -857,6 +857,8 @@ export interface ObservationDebugEvent {
+  * Configuration for ObservationalMemory
+  */
  export interface ObservationalMemoryConfig {
 +    /** Runtime-only lifetime signal; cleanup flag writes still complete after abort. */
 +    abortSignal?: AbortSignal;
      /**
       * Storage adapter for persisting observations.
       * Must be a MemoryStorage instance (from MastraStorage.stores.memory).
-diff --git a/dist/src-CLQXrKvR.js b/dist/src-CLQXrKvR.js
-index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503a6efa128 100644
---- a/dist/src-CLQXrKvR.js
-+++ b/dist/src-CLQXrKvR.js
-@@ -27001,6 +27001,7 @@ async function applyExtractorHooks(opts) {
+diff --git a/dist/src-BncFunCW.js b/dist/src-BncFunCW.js
+index 36b47452e4b81339a373005fc3fa1b9f7e386fe1..45927f4f9b790b984ac4f1c19db87092c68ea8d1 100644
+--- a/dist/src-BncFunCW.js
++++ b/dist/src-BncFunCW.js
+@@ -24157,6 +24157,7 @@ async function applyExtractorHooks(opts) {
  				requestContext: opts.requestContext,
  				observationCommitted: opts.observationCommitted
  			});
@@ -102,11 +102,11 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			if (isHook || hookValue === void 0) continue;
  			const parsed = extractor.schema.safeParse(hookValue);
  			if (parsed.success) values[extractor.slug] = parsed.data;
-@@ -27025,6 +27026,18 @@ async function applyExtractorHooks(opts) {
- 		failures: mergeExtractionFailures(failures)
+@@ -24209,6 +24210,18 @@ if (OM_DEBUG_LOG) {
+ 		_origConsoleError.apply(console, args);
  	};
  }
-+// Brainstrike compatibility: https://github.com/mastra-ai/mastra/tree/%40mastra%2Fmemory%401.39.1/packages/memory/src/processors/observational-memory
++// Brainstrike compatibility: https://github.com/mastra-ai/mastra/tree/%40mastra%2Fmemory%401.41.0/packages/memory/src/processors/observational-memory
 +// Remove when the upstream public lifecycle regressions pass without this patch.
 +function composeOMAbortSignal(owner, signal) {
 +	return owner && signal && owner !== signal ? AbortSignal.any([owner, signal]) : owner ?? signal;
@@ -121,7 +121,21 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  // src/processors/observational-memory/retry.ts
  /**
  * Retry knobs for the internal OM transport-error retry wrapper.
-@@ -27229,7 +27242,7 @@ function sleep(ms, abortSignal) {
+@@ -24258,7 +24271,12 @@ const TRANSIENT_MESSAGE_SUBSTRINGS = [
+ 	"connection closed",
+ 	"finished with finishreason \"other\""
+ ];
+-const INCOMPLETE_FINISH_REASONS = /* @__PURE__ */ new Set(["other", "unknown"]);
++// Brainstrike: AI SDK 7.0.149+ providers report a stream that ended without a completion
++// signal as `interrupted`; treat it like `other`/`unknown` so a cut-off observer or
++// reflector reply is retried, never committed to memory. Remove when upstream treats
++// `interrupted` as incomplete.
++// https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.41.0/packages/memory/src/processors/observational-memory/retry.ts
++const INCOMPLETE_FINISH_REASONS = /* @__PURE__ */ new Set(["other", "unknown", "interrupted"]);
+ /**
+ * A model call that streamed nothing for `RETRY_CONFIG.modelCallIdleTimeoutMs`. Retryable, and
+ * deliberately not an AbortError so `withRetry` doesn't treat it as cancellation.
+@@ -24413,7 +24431,7 @@ function sleep(ms, abortSignal) {
  	if (ms <= 0) return Promise.resolve();
  	return new Promise((resolve, reject) => {
  		if (abortSignal?.aborted) {
@@ -130,7 +144,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			return;
  		}
  		const timer = setTimeout(() => {
-@@ -27239,7 +27252,7 @@ function sleep(ms, abortSignal) {
+@@ -24423,7 +24441,7 @@ function sleep(ms, abortSignal) {
  		const onAbort = () => {
  			clearTimeout(timer);
  			abortSignal?.removeEventListener("abort", onAbort);
@@ -139,7 +153,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		};
  		abortSignal?.addEventListener("abort", onAbort, { once: true });
  	});
-@@ -27301,7 +27314,7 @@ async function withRetry(fn, opts) {
+@@ -24485,7 +24503,7 @@ async function withRetry(fn, opts) {
  	const { label, abortSignal, maxRetries = RETRY_CONFIG.maxRetries, idleTimeoutMs } = opts;
  	let attempt = 0;
  	while (true) {
@@ -148,7 +162,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		try {
  			if (idleTimeoutMs === void 0) return await fn(abortSignal ?? new AbortController().signal, () => {});
  			return await attemptWithIdleTimeout(fn, label, idleTimeoutMs, abortSignal);
-@@ -30081,6 +30094,7 @@ var ObserverRunner = class {
+@@ -27326,6 +27344,7 @@ var ObserverRunner = class {
  		this.mastra = opts.mastra;
  		this.memory = opts.memory;
  		this.hooks = opts.hooks;
@@ -156,7 +170,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  	}
  	__registerMastra(mastra) {
  		this.mastra = mastra;
-@@ -30144,9 +30158,9 @@ var ObserverRunner = class {
+@@ -27389,9 +27408,9 @@ var ObserverRunner = class {
  		return modelSupportsAttachments(routerId) ?? true;
  	}
  	async withAbortCheck(fn, abortSignal) {
@@ -168,7 +182,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		return result;
  	}
  	/**
-@@ -30154,6 +30168,8 @@ var ObserverRunner = class {
+@@ -27399,6 +27418,8 @@ var ObserverRunner = class {
  	* `beforeObservation` / `afterObservation` transform hooks around it.
  	*/
  	async call(existingObservations, messagesToObserve, abortSignal, options) {
@@ -177,7 +191,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const context = {
  			threadId: options?.threadId ?? messagesToObserve[0]?.threadId,
  			resourceId: options?.resourceId,
-@@ -30188,6 +30204,7 @@ var ObserverRunner = class {
+@@ -27433,6 +27454,7 @@ var ObserverRunner = class {
  		}
  		const activeExtractors = await resolveExtractors(filterObserverExtractors(this.observationConfig.extractors, options?.skipContinuationHints), {
  			source: "observer",
@@ -185,7 +199,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			threadId: messagesToObserve[0]?.threadId,
  			resourceId: options?.resourceId,
  			mainAgent: options?.mainAgent,
-@@ -30324,6 +30341,8 @@ var ObserverRunner = class {
+@@ -27569,6 +27591,8 @@ var ObserverRunner = class {
  	* Call the Observer agent for multiple threads in a single batched request.
  	*/
  	async callMultiThread(existingObservations, allMessagesByThread, allThreadOrder, abortSignal, requestContext, priorMetadataByThread, observabilityContext, model, hookContext, timeZone, mainAgent, currentModel, wasTruncated) {
@@ -194,7 +208,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const contextFor = (threadId) => ({
  			threadId,
  			...hookContext
-@@ -30370,6 +30389,7 @@ var ObserverRunner = class {
+@@ -27615,6 +27639,7 @@ var ObserverRunner = class {
  		const firstThreadMessages = messagesByThread.get(threadOrder[0] ?? "") ?? [];
  		const activeExtractors = await resolveExtractors(this.observationConfig.extractors ?? [], {
  			source: "observer",
@@ -202,7 +216,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			threadId: threadOrder[0],
  			resourceId: firstThreadMessages[0]?.resourceId,
  			memory: this.memory,
-@@ -32711,13 +32731,23 @@ function stripThreadTags(observations) {
+@@ -29977,13 +30002,23 @@ function stripThreadTags(observations) {
  // src/processors/observational-memory/observation-groups.ts
  const OBSERVATION_GROUP_OPEN = "<observation-group";
  const OBSERVATION_GROUP_CLOSE = "</observation-group>";
@@ -228,7 +242,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  	}
  	return attributes;
  }
-@@ -32820,7 +32850,7 @@ function generateAnchorId() {
+@@ -30086,7 +30121,7 @@ function generateAnchorId() {
  }
  function wrapInObservationGroup(observations, range, id = generateAnchorId(), _sourceGroupIds, kind) {
  	const content = observations.trim();
@@ -237,7 +251,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  }
  function parseObservationGroups(observations) {
  	if (!observations) return [];
-@@ -32844,7 +32874,8 @@ function stripObservationGroups(observations) {
+@@ -30110,7 +30145,8 @@ function stripObservationGroups(observations) {
  	return replaceObservationGroupTags(observations, (tag) => tag.content.trim()).replace(/\n{3,}/g, "\n\n").trim();
  }
  function getRangeSegments(range) {
@@ -247,7 +261,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  }
  function getRangeEndpoints(segment) {
  	const parts = segment.split(":").map((part) => part.trim());
-@@ -33157,8 +33188,8 @@ function hasVisibleParts(msg) {
+@@ -30445,8 +30481,8 @@ function isVisiblePart(part) {
  }
  function parseRangeFormat(cursor) {
  	if (cursor.includes(",")) {
@@ -258,7 +272,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			const first = parts[0];
  			const last = parts[parts.length - 1];
  			const firstColon = first.indexOf(":");
-@@ -34986,7 +35017,7 @@ var BufferingCoordinator = class BufferingCoordinator {
+@@ -32316,7 +32352,7 @@ var BufferingCoordinator = class BufferingCoordinator {
  		if (record.isBufferingObservation) {
  			if (isOpActiveInProcess(record.id, "bufferingObservation")) return false;
  			omDebug(`[OM:shouldTriggerAsyncObs] isBufferingObservation=true but stale, clearing`);
@@ -267,7 +281,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		}
  		const bufferKey = this.getObservationBufferKey(lockKey);
  		if (this.isAsyncBufferingInProgress(bufferKey)) return false;
-@@ -35550,6 +35581,7 @@ var ObservationStrategy = class ObservationStrategy {
+@@ -32847,6 +32883,7 @@ var ObservationStrategy = class ObservationStrategy {
  	*/
  	async run() {
  		const { record, threadId, abortSignal, writer, reflectionHooks, requestContext } = this.opts;
@@ -275,7 +289,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const cycleId = this.generateCycleId();
  		try {
  			abortSignal?.throwIfAborted();
-@@ -35611,6 +35643,7 @@ var ObservationStrategy = class ObservationStrategy {
+@@ -32907,6 +32944,7 @@ var ObservationStrategy = class ObservationStrategy {
  				providerMetadata: output.providerMetadata
  			};
  		} catch (error) {
@@ -283,7 +297,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			if (abortSignal?.aborted) throw error;
  			await this.emitFailedMarkers(cycleId, error);
  			if (!this.rethrowOnFailure) {
-@@ -35627,8 +35660,9 @@ var ObservationStrategy = class ObservationStrategy {
+@@ -32923,8 +32961,9 @@ var ObservationStrategy = class ObservationStrategy {
  					}
  				};
  				const observed = this.getObservedMessagesForThread(threadId);
@@ -294,16 +308,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				omError("[OM] Observation failed", error);
  				return {
  					observed: false,
-@@ -35820,7 +35854,7 @@ var ObservationStrategy = class ObservationStrategy {
- 		if (!resourceId || !this.deps.onIndexObservations) return;
- 		const groups = parseObservationGroups(observations);
- 		if (groups.length === 0) return;
--		await Promise.all(groups.map((group) => withRetry(() => this.deps.onIndexObservations({
-+		await joinOMWork(groups.map((group) => withRetry(() => this.deps.onIndexObservations({
- 			text: group.content,
- 			groupId: group.id,
- 			range: group.range,
-@@ -36621,7 +36655,15 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
+@@ -33959,7 +33998,15 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
  			const existingCurrentThreadMsgs = this.messagesByThread.get(currentThreadId) ?? [];
  			const messageMap = /* @__PURE__ */ new Map();
  			for (const msg of existingCurrentThreadMsgs) if (msg.id) messageMap.set(msg.id, msg);
@@ -320,7 +325,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			this.messagesByThread.set(currentThreadId, Array.from(messageMap.values()));
  		}
  		for (const [tid, msgs] of this.messagesByThread) {
-@@ -36725,7 +36767,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
+@@ -34063,7 +34110,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
  			currentBatchTokens += threadTokens;
  		}
  		if (currentBatch.threadIds.length > 0) batches.push(currentBatch);
@@ -329,26 +334,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			return this.deps.observer.callMultiThread(observerContext, batch.threadMap, batch.threadIds, this.opts.abortSignal, this.opts.requestContext, this.priorMetadataByThread, this.opts.observabilityContext, void 0, {
  				resourceId: this.opts.resourceId,
  				trigger: this.opts.trigger
-@@ -36911,7 +36953,17 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
- 			}
- 		}
- 		for (const marker of threadUpdateMarkers) await this.streamMarker(marker);
--		if (resourceId && !committed.alreadyCovered) await Promise.all(this.observationResults.map(({ threadId, threadMessages, result }) => this.indexObservationGroups(result.observations, threadId, resourceId, this.getMaxMessageTimestamp(threadMessages), committed.record.id)));
-+		// Index ONLY generated groups from the exact source just committed above;
-+		// raw observer prose has neither committed anchors nor native attribution.
-+		// Remove when upstream resource persistence passes this same probe.
-+		// https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.38.0/packages/memory/src/processors/observational-memory/observation-strategies/resource-scoped.ts
-+		if (resourceId && !committed.alreadyCovered) await joinOMWork(this.observationResults.map(({ threadId, threadMessages }) => {
-+			const groupIds = parseObservationGroups(this.threadSections.get(threadId) ?? "").map((group) => group.id);
-+			const committedGroups = scanObservationGroupTags(processed.observations).tags
-+				.filter((tag) => groupIds.includes(parseObservationGroupAttributes(tag.attributeString).id))
-+				.map((tag) => processed.observations.slice(tag.start, tag.end)).join("\n\n");
-+			return this.indexObservationGroups(committedGroups, threadId, resourceId, this.getMaxMessageTimestamp(threadMessages), committed.record.id);
-+		}));
- 		return {
- 			status: "committed",
- 			processed,
-@@ -36961,6 +37013,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
+@@ -34309,6 +34356,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
  };
  // src/processors/observational-memory/observation-strategies/index.ts
  ObservationStrategy.create = ((om, opts) => {
@@ -356,7 +342,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  	const deps = {
  		storage: om.getStorage(),
  		memory: om.getMemory(),
-@@ -36975,6 +37028,7 @@ ObservationStrategy.create = ((om, opts) => {
+@@ -34323,6 +34371,7 @@ ObservationStrategy.create = ((om, opts) => {
  		observedMessageIds: om.observedMessageIds,
  		obscureThreadIds: om.getObscureThreadIds(),
  		onIndexObservations: om.onIndexObservations,
@@ -364,7 +350,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		emitDebugEvent: (e) => om.emitDebugEvent(e),
  		prepareObserverContext: (observations, record) => om.prepareObserverContext(observations, record)
  	};
-@@ -37200,6 +37254,7 @@ var ObservationStep = class {
+@@ -34548,6 +34597,7 @@ var ObservationStep = class {
  			}
  			if (!deferred) {
  				om.trackBackgroundWork(om.buffer({
@@ -372,7 +358,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  					threadId,
  					resourceId,
  					messages: safeCandidates,
-@@ -37638,8 +37693,8 @@ var ObservationTurn = class {
+@@ -34986,8 +35036,8 @@ var ObservationTurn = class {
  	hooks;
  	abortSignal;
  	constructor(opts) {
@@ -382,7 +368,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		this.threadId = opts.threadId;
  		this.resourceId = opts.resourceId;
  		this.messageList = opts.messageList;
-@@ -37683,6 +37738,7 @@ var ObservationTurn = class {
+@@ -35031,6 +35081,7 @@ var ObservationTurn = class {
  	* them to the MessageList. Without a provider, only fetches/caches the record.
  	*/
  	async start(memory, runState) {
@@ -390,7 +376,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		if (this._started) throw new Error("Turn already started");
  		this._started = true;
  		this._record = await this.om.getOrCreateRecord(this.threadId, this.resourceId);
-@@ -38150,9 +38206,9 @@ function getLastModelFromMessageList(messageList) {
+@@ -35498,9 +35549,9 @@ function getLastModelFromMessageList(messageList) {
  	}
  }
  async function withAbortCheck(fn, abortSignal) {
@@ -402,19 +388,16 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  	return result;
  }
  /**
-@@ -38234,8 +38290,10 @@ var ReflectorRunner = class {
- 		this.mastra = opts.mastra;
+@@ -35582,6 +35633,8 @@ var ReflectorRunner = class {
  		this.memory = opts.memory;
- 		this.onReflectionCommitted = opts.onReflectionCommitted;
--		this.hooks = opts.hooks;
+ 		this.hooks = opts.hooks;
  		this.trackBackgroundWork = opts.trackBackgroundWork;
 +		this.recordBackgroundError = opts.recordBackgroundError;
-+		this.hooks = opts.hooks;
 +		this.abortSignal = opts.abortSignal;
  	}
  	__registerMastra(mastra) {
  		this.mastra = mastra;
-@@ -38290,6 +38348,8 @@ var ReflectorRunner = class {
+@@ -35636,6 +35689,8 @@ var ReflectorRunner = class {
  	* Call the Reflector agent with escalating compression levels.
  	*/
  	async call(observations, manualPrompt, streamContext, observationTokensThreshold, abortSignal, skipContinuationHints, compressionStartLevel, requestContext, priorExtractedValues, observabilityContext, model, mainAgent, sendSignal, currentModel) {
@@ -423,7 +406,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const originalTokens = this.tokenCounter.countObservations(observations);
  		const resolvedModel = model ? { model } : await this.resolveModel(originalTokens, {
  			requestContext,
-@@ -38298,6 +38358,7 @@ var ReflectorRunner = class {
+@@ -35644,6 +35699,7 @@ var ReflectorRunner = class {
  		});
  		const activeExtractors = await resolveExtractors((skipContinuationHints ? this.reflectionConfig.extractors?.filter((extractor) => extractor.slug !== "current-task" && extractor.slug !== "suggested-response") : this.reflectionConfig.extractors) ?? [], {
  			source: "reflector",
@@ -431,7 +414,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			threadId: streamContext?.threadId,
  			resourceId: streamContext?.resourceId,
  			mainAgent,
-@@ -38491,22 +38552,28 @@ var ReflectorRunner = class {
+@@ -35837,22 +35893,28 @@ var ReflectorRunner = class {
  	/**
  	* Start an async buffered reflection in the background.
  	*/
@@ -464,7 +447,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				reflectionError = error instanceof Error ? error : new Error(String(error));
  				if (writer) try {
  					const failedMarker = createBufferingFailedMarker({
-@@ -38525,6 +38592,7 @@ var ReflectorRunner = class {
+@@ -35871,6 +35933,7 @@ var ReflectorRunner = class {
  					}).catch(() => {});
  					await this.persistMarkerToStorage(failedMarker, record.threadId ?? "", record.resourceId ?? void 0);
  				} catch (markerError) {
@@ -472,7 +455,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  					omError("[OM] Failed to persist buffering-failed marker after async buffered reflection failure", markerError);
  				}
  				omError("[OM] Async buffered reflection failed", error);
-@@ -38537,13 +38605,19 @@ var ReflectorRunner = class {
+@@ -35883,13 +35946,19 @@ var ReflectorRunner = class {
  						...outcome?.providerMetadata ? { providerMetadata: outcome.providerMetadata } : {}
  					});
  				} catch (hookError) {
@@ -496,7 +479,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			}
  		})();
  		BufferingCoordinator.asyncBufferingOps.set(bufferKey, asyncOp);
-@@ -38553,7 +38627,7 @@ var ReflectorRunner = class {
+@@ -35899,7 +35968,7 @@ var ReflectorRunner = class {
  	* Perform async buffered reflection — reflects observations and stores to bufferedReflection.
  	* Does NOT create a new generation or update activeObservations.
  	*/
@@ -505,7 +488,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const currentRecord = await this.storage.getObservationalMemory(record.threadId, record.resourceId) ?? record;
  		const observationTokens = currentRecord.observationTokenCount ?? 0;
  		const reflectThreshold = getMaxThreshold(this.getEffectiveReflectionTokens(currentRecord));
-@@ -38594,7 +38668,7 @@ var ReflectorRunner = class {
+@@ -35940,7 +36009,7 @@ var ReflectorRunner = class {
  			await this.persistMarkerToStorage(startMarker, currentRecord.threadId ?? "", currentRecord.resourceId ?? void 0);
  		}
  		const compressionStartLevel = await this.getCompressionStartLevel(requestContext);
@@ -514,7 +497,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		reflectResult.observations = await applyTextTransform(this.hooks, "afterReflection", reflectResult.observations, hookContext);
  		const reflectionTokenCount = this.tokenCounter.countObservations(reflectResult.observations);
  		omDebug(`[OM:reflect] doAsyncBufferedReflection: reflector returned ${reflectionTokenCount} tokens (${reflectResult.observations?.length} chars), saving to recordId=${currentRecord.id}`);
-@@ -38769,7 +38843,13 @@ var ReflectorRunner = class {
+@@ -36101,7 +36170,13 @@ var ReflectorRunner = class {
  	* @internal Used by observation strategies. Do not call directly.
  	*/
  	async maybeReflect(opts) {
@@ -528,7 +511,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const { record: callerRecord, observationTokens, writer, abortSignal, mainAgent, sendSignal, sendStateSignal, messageList, currentModel, reflectionHooks, trigger, requestContext, observabilityContext, lastActivityAt, threadId: requestedThreadId } = opts;
  		const record = { ...callerRecord };
  		const lockKey = this.buffering.getLockKey(record.threadId, record.resourceId);
-@@ -38782,7 +38862,7 @@ var ReflectorRunner = class {
+@@ -36114,7 +36189,7 @@ var ReflectorRunner = class {
  				if (record.isBufferingReflection) {
  					if (isOpActiveInProcess(record.id, "bufferingReflection")) return false;
  					omDebug(`[OM:shouldTriggerAsyncRefl] isBufferingReflection=true but stale, clearing`);
@@ -537,7 +520,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				}
  				const bufferKey = this.buffering.getReflectionBufferKey(lockKey);
  				if (this.buffering.isAsyncBufferingInProgress(bufferKey)) return false;
-@@ -38790,7 +38870,7 @@ var ReflectorRunner = class {
+@@ -36122,7 +36197,7 @@ var ReflectorRunner = class {
  				if (record.bufferedReflection) return false;
  				const activationPoint = reflectThreshold * this.reflectionConfig.bufferActivation;
  				return observationTokens >= activationPoint;
@@ -546,7 +529,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		}
  		const activateAfterIdle = resolveActivationTTL(this.reflectionConfig.activateAfterIdle, currentModel);
  		const ttlExpiredMs = activateAfterIdle !== void 0 && lastActivityAt !== void 0 ? Date.now() - lastActivityAt : void 0;
-@@ -38839,7 +38919,7 @@ var ReflectorRunner = class {
+@@ -36163,7 +36238,7 @@ var ReflectorRunner = class {
  					return;
  				}
  				omDebug(`[OM:reflect] async activation failed, no blockAfter or below it (obsTokens=${observationTokens}, blockAfter=${this.reflectionConfig.blockAfter}) — starting background reflection`);
@@ -555,7 +538,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				return;
  			}
  		}
-@@ -38973,6 +39053,7 @@ var ReflectorRunner = class {
+@@ -36286,6 +36361,7 @@ var ReflectorRunner = class {
  				usage: reflectResult.usage
  			});
  		} catch (error) {
@@ -563,7 +546,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			reflectionError = error instanceof Error ? error : new Error(String(error));
  			if (abortSignal?.aborted) throw error;
  			const failedMarker = createObservationFailedMarker({
-@@ -39017,6 +39098,9 @@ var ReflectorRunner = class {
+@@ -36330,6 +36406,9 @@ var ReflectorRunner = class {
  		} finally {
  			try {
  				await this.storage.setReflectingFlag(record.id, false);
@@ -573,7 +556,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			} finally {
  				unregisterOp(record.id, "reflecting");
  			}
-@@ -39031,6 +39115,7 @@ var ReflectorRunner = class {
+@@ -36344,6 +36423,7 @@ var ReflectorRunner = class {
  				endHookError = error;
  			}
  			if (endHookError !== void 0) {
@@ -581,7 +564,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				if (lifecycleError === void 0 && !abortSignal?.aborted) throw endHookError;
  				omDebug(`[OM:hooks] onReflectionEnd hook failed after cycle failure: ${endHookError instanceof Error ? endHookError.message : String(endHookError)}`);
  			}
-@@ -39602,9 +39687,18 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -36915,9 +36995,18 @@ var ObservationalMemory = class ObservationalMemory {
  	* so a scoped `settled()` can wait for one conversation without waiting for every other.
  	* Returns the original promise so callers keep their own rejection handling.
  	*/
@@ -603,7 +586,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			this.pendingBackgroundWork.delete(tracked);
  		});
  		this.pendingBackgroundWork.set(tracked, lockKey);
-@@ -39624,15 +39718,21 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -36937,15 +37026,21 @@ var ObservationalMemory = class ObservationalMemory {
  	*/
  	async settled(scope) {
  		const lockKey = (this.scope === "resource" ? scope?.resourceId : scope?.threadId) ? this.buffering.getLockKey(scope.threadId, scope.resourceId) : void 0;
@@ -629,7 +612,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  	}
  	/**
  	* Acquire a lock for the given key, execute the callback, then release.
-@@ -39660,6 +39760,7 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -36973,6 +37068,7 @@ var ObservationalMemory = class ObservationalMemory {
  		if (config.model && config.reflection?.model) throw new Error("Cannot set both `model` and `reflection.model`. Use `model` to set both agents, or set each individually.");
  		this.shouldObscureThreadIds = config.obscureThreadIds || false;
  		this.storage = config.storage;
@@ -637,7 +620,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		this.scope = config.scope ?? "thread";
  		this.retrieval = Boolean(config.retrieval);
  		this.retrievalScope = typeof config.retrieval === "object" ? config.retrieval.scope ?? "resource" : "resource";
-@@ -39768,7 +39869,8 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -37081,7 +37177,8 @@ var ObservationalMemory = class ObservationalMemory {
  			tokenCounter: this.tokenCounter,
  			mastra: config.mastra,
  			memory: this.memory,
@@ -647,19 +630,18 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		});
  		this.buffering = new BufferingCoordinator({
  			observationConfig: this.observationConfig,
-@@ -39790,8 +39892,10 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -37103,7 +37200,9 @@ var ObservationalMemory = class ObservationalMemory {
  			mastra: config.mastra,
  			memory: this.memory,
- 			onReflectionCommitted: config.onReflectionCommitted,
-+			trackBackgroundWork: (work, scope, signal) => this.trackBackgroundWork(work, scope, signal),
-+			recordBackgroundError: (error, signal) => this.recordBackgroundError(error, signal),
  			hooks: this.hooks,
 -			trackBackgroundWork: (work, lockKey) => this.trackBackgroundWork(work, lockKey)
++			trackBackgroundWork: (work, scope, signal) => this.trackBackgroundWork(work, scope, signal),
++			recordBackgroundError: (error, signal) => this.recordBackgroundError(error, signal),
 +			abortSignal: this.abortSignal
  		});
  		this.validateBufferConfig();
  		if (this.scope === "resource" && !hasWarnedResourceScopeDeprecation) {
-@@ -40661,23 +40765,34 @@ ${formattedMessages}
+@@ -37973,23 +38072,34 @@ ${formattedMessages}
  	* @param lockKey - Lock key for this scope
  	* @param writer - Optional stream writer for emitting buffering markers
  	*/
@@ -707,7 +689,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		BufferingCoordinator.asyncBufferingOps.set(bufferKey, asyncOp);
  		return { op: asyncOp };
  	}
-@@ -40685,19 +40800,19 @@ ${formattedMessages}
+@@ -37997,19 +38107,19 @@ ${formattedMessages}
  	* Internal method that waits for existing buffering operation and then runs new buffering.
  	* This implements the mutex-wait behavior.
  	*/
@@ -730,7 +712,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const freshRecord = await this.storage.getObservationalMemory(record.threadId, record.resourceId);
  		if (!freshRecord) return;
  		let bufferCursor = BufferingCoordinator.lastBufferedAtTime.get(bufferKey) ?? freshRecord.lastBufferedAtTime ?? null;
-@@ -40723,6 +40838,7 @@ ${formattedMessages}
+@@ -38035,6 +38145,7 @@ ${formattedMessages}
  				resourceId: freshRecord.resourceId ?? void 0
  			});
  		} catch (err) {
@@ -738,7 +720,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			omError("[OM] Failed to persist sealed messages before buffering — skipping observation cycle", err);
  			return;
  		}
-@@ -40753,6 +40869,7 @@ ${formattedMessages}
+@@ -38065,6 +38176,7 @@ ${formattedMessages}
  			trigger: "async-buffer"
  		}, () => ObservationStrategy.create(this, {
  			record: freshRecord,
@@ -746,7 +728,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			threadId,
  			resourceId: freshRecord.resourceId ?? void 0,
  			messages: messagesToBuffer,
-@@ -40776,10 +40893,20 @@ ${formattedMessages}
+@@ -38088,10 +38200,20 @@ ${formattedMessages}
  	* Returns whether buffering was actually triggered.
  	*/
  	async triggerAsyncBuffering(opts) {
@@ -768,7 +750,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		return shouldTrigger;
  	}
  	isMessageList(value) {
-@@ -40954,7 +41081,7 @@ ${formattedMessages}
+@@ -38266,7 +38388,7 @@ ${formattedMessages}
  		const bufKey = this.buffering.getObservationBufferKey(lockKey);
  		BufferingCoordinator.setObservationBoundary(bufKey, 0);
  		try {
@@ -777,7 +759,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		} finally {
  			if (activatedMessageIds && activatedMessageIds.length > 0) this.buffering.cleanupStaticMaps(threadId, resourceId, activatedMessageIds);
  		}
-@@ -41293,7 +41420,13 @@ ${formattedMessages}
+@@ -38605,7 +38727,13 @@ ${formattedMessages}
  	* ```
  	*/
  	/** @internal Used by ObservationStep. */
@@ -792,7 +774,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const { threadId, resourceId, requestContext, observabilityContext } = opts;
  		let record = opts.record ?? await this.getOrCreateRecord(threadId, resourceId);
  		const inMemoryRecord = record;
-@@ -41316,7 +41449,7 @@ ${formattedMessages}
+@@ -38628,7 +38756,7 @@ ${formattedMessages}
  			resolveOp = resolve;
  		});
  		BufferingCoordinator.asyncBufferingOps.set(bufferKey, opPromise);
@@ -801,7 +783,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		if (existingOp) try {
  			await existingOp;
  		} catch {}
-@@ -41326,7 +41459,10 @@ ${formattedMessages}
+@@ -38638,7 +38766,10 @@ ${formattedMessages}
  		const ownsStartBoundary = BufferingCoordinator.ownsObservationBoundary(bufferKey, boundaryOwner);
  		inMemoryRecord.isBufferingObservation = true;
  		if (ownsStartBoundary) inMemoryRecord.lastBufferedAtTokens = currentTokens;
@@ -813,7 +795,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			omError("[OM] Failed to set buffering observation flag", err);
  		});
  		const setBufferingState = (isBufferingObservation, lastBufferedAtTokens) => {
-@@ -41394,7 +41530,8 @@ ${formattedMessages}
+@@ -38706,7 +38837,8 @@ ${formattedMessages}
  				chunkRecorded = true;
  				const ownsBoundary = BufferingCoordinator.ownsObservationBoundary(bufferKey, boundaryOwner);
  				if (ownsBoundary) BufferingCoordinator.setObservationBoundary(bufferKey, newTokens, boundaryOwner);
@@ -823,7 +805,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				flagCleared = true;
  				const stillOwnsBoundary = ownsBoundary && BufferingCoordinator.ownsObservationBoundary(bufferKey, boundaryOwner);
  				setBufferingState(false, stillOwnsBoundary ? newTokens : void 0);
-@@ -41407,6 +41544,7 @@ ${formattedMessages}
+@@ -38719,6 +38851,7 @@ ${formattedMessages}
  				resourceId: record.resourceId ?? resourceId,
  				trigger: "async-buffer"
  			}, () => ObservationStrategy.create(this, {
@@ -831,7 +813,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				record,
  				threadId,
  				resourceId: record.resourceId ?? void 0,
-@@ -41447,6 +41585,7 @@ ${formattedMessages}
+@@ -38759,6 +38892,7 @@ ${formattedMessages}
  				record: await this.storage.getObservationalMemory(record.threadId, record.resourceId) ?? record
  			};
  		} catch (error) {
@@ -839,7 +821,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			omError("[OM] buffer() failed", error);
  			return {
  				buffered: false,
-@@ -41454,13 +41593,14 @@ ${formattedMessages}
+@@ -38766,13 +38900,14 @@ ${formattedMessages}
  			};
  		} finally {
  			releaseChunkWrite();
@@ -858,7 +840,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		}
  	}
  	/**
-@@ -41498,7 +41638,7 @@ ${formattedMessages}
+@@ -38810,7 +38945,7 @@ ${formattedMessages}
  				if (currentContextTokens < dbBoundary * .5) {
  					omDebug(`[OM:activate] resetting stale lastBufferedBoundary: dbBoundary=${dbBoundary}, currentContextTokens=${currentContextTokens}`);
  					BufferingCoordinator.setObservationBoundary(bufKey, 0);
@@ -867,7 +849,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  					opts.abortSignal?.throwIfAborted();
  				}
  			}
-@@ -41606,7 +41746,7 @@ ${formattedMessages}
+@@ -38918,7 +39053,7 @@ ${formattedMessages}
  			record: await this.getRecord(threadId, resourceId) ?? record
  		};
  		const swappedRecordId = freshRecord.id;
@@ -876,7 +858,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		unregisterOp(freshRecord.id, "bufferingObservation");
  		const postSwapRecord = await this.storage.getObservationalMemory(record.threadId, record.resourceId);
  		opts.abortSignal?.throwIfAborted();
-@@ -41685,14 +41825,15 @@ ${formattedMessages}
+@@ -38997,14 +39132,15 @@ ${formattedMessages}
  			const hook = configHooks[name];
  			if (!hook) return;
  			if (shouldAwaitConfig) {
@@ -895,7 +877,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				logHookFailure(error);
  			}
  		};
-@@ -41750,6 +41891,7 @@ ${formattedMessages}
+@@ -39062,6 +39198,7 @@ ${formattedMessages}
  					...runResult?.providerMetadata ? { providerMetadata: runResult.providerMetadata } : {}
  				});
  			} catch (endHookError) {
@@ -903,7 +885,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  				if (lifecycleError === void 0) throw endHookError;
  				omDebug(`[OM:hooks] async-buffer onObservationEnd hook failed after cycle failure: ${endHookError instanceof Error ? endHookError.message : String(endHookError)}`);
  			}
-@@ -41765,7 +41907,13 @@ ${formattedMessages}
+@@ -39077,7 +39214,13 @@ ${formattedMessages}
  	* Returns a result indicating whether observation and/or reflection occurred,
  	* along with the updated record.
  	*/
@@ -918,7 +900,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  		const { threadId, resourceId, messages, requestContext } = opts;
  		const lockKey = this.buffering.getLockKey(threadId, resourceId);
  		const trigger = opts.trigger ?? "manual";
-@@ -41802,6 +41950,7 @@ ${formattedMessages}
+@@ -39114,6 +39257,7 @@ ${formattedMessages}
  				observationStarted = true;
  				await hooks?.onObservationStart?.();
  				const result = await ObservationStrategy.create(this, {
@@ -926,7 +908,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  					record: freshRecord,
  					threadId,
  					resourceId,
-@@ -41834,6 +41983,7 @@ ${formattedMessages}
+@@ -39146,6 +39290,7 @@ ${formattedMessages}
  				...observationProviderMetadata ? { providerMetadata: observationProviderMetadata } : {}
  			});
  		} catch (endHookError) {
@@ -934,7 +916,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			if (lifecycleError === void 0) throw endHookError;
  			omDebug(`[OM:hooks] onObservationEnd hook failed after cycle failure: ${endHookError instanceof Error ? endHookError.message : String(endHookError)}`);
  		}
-@@ -42092,6 +42242,7 @@ ${formattedMessages}
+@@ -39404,6 +39549,7 @@ ${formattedMessages}
  	*/
  	beginTurn(opts) {
  		return new ObservationTurn({
@@ -942,7 +924,7 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			om: this,
  			abortSignal: opts.abortSignal,
  			threadId: opts.threadId,
-@@ -44059,6 +44210,7 @@ ${workingMemory}`;
+@@ -41262,6 +41408,7 @@ ${workingMemory}`;
  			onIndexObservations,
  			onDebugEvent: omConfig.onDebugEvent,
  			hooks: omConfig.hooks,
@@ -950,11 +932,11 @@ index a2040f4a04aa5ae9b28c3a69eab9abaea14b8fca..1de0125c4b712db3cded79cf143b9503
  			observation: omConfig.observation ? {
  				model: omConfig.observation.model,
  				messageTokens: omConfig.observation.messageTokens,
-diff --git a/dist/src-DnCjNqwE.cjs b/dist/src-DnCjNqwE.cjs
-index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d3776454d 100644
---- a/dist/src-DnCjNqwE.cjs
-+++ b/dist/src-DnCjNqwE.cjs
-@@ -27022,6 +27022,7 @@ async function applyExtractorHooks(opts) {
+diff --git a/dist/src-gNoNdZv8.cjs b/dist/src-gNoNdZv8.cjs
+index b05e78742dd6b5173d75d45d5d6587213b327b5a..d3cba7c8a8d325fd0f7fb024e7819df4037d23ef 100644
+--- a/dist/src-gNoNdZv8.cjs
++++ b/dist/src-gNoNdZv8.cjs
+@@ -24178,6 +24178,7 @@ async function applyExtractorHooks(opts) {
  				requestContext: opts.requestContext,
  				observationCommitted: opts.observationCommitted
  			});
@@ -962,11 +944,11 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			if (isHook || hookValue === void 0) continue;
  			const parsed = extractor.schema.safeParse(hookValue);
  			if (parsed.success) values[extractor.slug] = parsed.data;
-@@ -27046,6 +27047,18 @@ async function applyExtractorHooks(opts) {
- 		failures: mergeExtractionFailures(failures)
+@@ -24230,6 +24231,18 @@ if (OM_DEBUG_LOG) {
+ 		_origConsoleError.apply(console, args);
  	};
  }
-+// Brainstrike compatibility: https://github.com/mastra-ai/mastra/tree/%40mastra%2Fmemory%401.39.1/packages/memory/src/processors/observational-memory
++// Brainstrike compatibility: https://github.com/mastra-ai/mastra/tree/%40mastra%2Fmemory%401.41.0/packages/memory/src/processors/observational-memory
 +// Remove when the upstream public lifecycle regressions pass without this patch.
 +function composeOMAbortSignal(owner, signal) {
 +	return owner && signal && owner !== signal ? AbortSignal.any([owner, signal]) : owner ?? signal;
@@ -981,7 +963,21 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  // src/processors/observational-memory/retry.ts
  /**
  * Retry knobs for the internal OM transport-error retry wrapper.
-@@ -27250,7 +27263,7 @@ function sleep(ms, abortSignal) {
+@@ -24279,7 +24292,12 @@ const TRANSIENT_MESSAGE_SUBSTRINGS = [
+ 	"connection closed",
+ 	"finished with finishreason \"other\""
+ ];
+-const INCOMPLETE_FINISH_REASONS = /* @__PURE__ */ new Set(["other", "unknown"]);
++// Brainstrike: AI SDK 7.0.149+ providers report a stream that ended without a completion
++// signal as `interrupted`; treat it like `other`/`unknown` so a cut-off observer or
++// reflector reply is retried, never committed to memory. Remove when upstream treats
++// `interrupted` as incomplete.
++// https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.41.0/packages/memory/src/processors/observational-memory/retry.ts
++const INCOMPLETE_FINISH_REASONS = /* @__PURE__ */ new Set(["other", "unknown", "interrupted"]);
+ /**
+ * A model call that streamed nothing for `RETRY_CONFIG.modelCallIdleTimeoutMs`. Retryable, and
+ * deliberately not an AbortError so `withRetry` doesn't treat it as cancellation.
+@@ -24434,7 +24452,7 @@ function sleep(ms, abortSignal) {
  	if (ms <= 0) return Promise.resolve();
  	return new Promise((resolve, reject) => {
  		if (abortSignal?.aborted) {
@@ -990,7 +986,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			return;
  		}
  		const timer = setTimeout(() => {
-@@ -27260,7 +27273,7 @@ function sleep(ms, abortSignal) {
+@@ -24444,7 +24462,7 @@ function sleep(ms, abortSignal) {
  		const onAbort = () => {
  			clearTimeout(timer);
  			abortSignal?.removeEventListener("abort", onAbort);
@@ -999,7 +995,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		};
  		abortSignal?.addEventListener("abort", onAbort, { once: true });
  	});
-@@ -27322,7 +27335,7 @@ async function withRetry(fn, opts) {
+@@ -24506,7 +24524,7 @@ async function withRetry(fn, opts) {
  	const { label, abortSignal, maxRetries = RETRY_CONFIG.maxRetries, idleTimeoutMs } = opts;
  	let attempt = 0;
  	while (true) {
@@ -1008,7 +1004,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		try {
  			if (idleTimeoutMs === void 0) return await fn(abortSignal ?? new AbortController().signal, () => {});
  			return await attemptWithIdleTimeout(fn, label, idleTimeoutMs, abortSignal);
-@@ -30102,6 +30115,7 @@ var ObserverRunner = class {
+@@ -27347,6 +27365,7 @@ var ObserverRunner = class {
  		this.mastra = opts.mastra;
  		this.memory = opts.memory;
  		this.hooks = opts.hooks;
@@ -1016,7 +1012,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  	}
  	__registerMastra(mastra) {
  		this.mastra = mastra;
-@@ -30165,9 +30179,9 @@ var ObserverRunner = class {
+@@ -27410,9 +27429,9 @@ var ObserverRunner = class {
  		return (0, _mastra_core_llm.modelSupportsAttachments)(routerId) ?? true;
  	}
  	async withAbortCheck(fn, abortSignal) {
@@ -1028,7 +1024,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		return result;
  	}
  	/**
-@@ -30175,6 +30189,8 @@ var ObserverRunner = class {
+@@ -27420,6 +27439,8 @@ var ObserverRunner = class {
  	* `beforeObservation` / `afterObservation` transform hooks around it.
  	*/
  	async call(existingObservations, messagesToObserve, abortSignal, options) {
@@ -1037,7 +1033,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const context = {
  			threadId: options?.threadId ?? messagesToObserve[0]?.threadId,
  			resourceId: options?.resourceId,
-@@ -30209,6 +30225,7 @@ var ObserverRunner = class {
+@@ -27454,6 +27475,7 @@ var ObserverRunner = class {
  		}
  		const activeExtractors = await resolveExtractors(filterObserverExtractors(this.observationConfig.extractors, options?.skipContinuationHints), {
  			source: "observer",
@@ -1045,7 +1041,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			threadId: messagesToObserve[0]?.threadId,
  			resourceId: options?.resourceId,
  			mainAgent: options?.mainAgent,
-@@ -30345,6 +30362,8 @@ var ObserverRunner = class {
+@@ -27590,6 +27612,8 @@ var ObserverRunner = class {
  	* Call the Observer agent for multiple threads in a single batched request.
  	*/
  	async callMultiThread(existingObservations, allMessagesByThread, allThreadOrder, abortSignal, requestContext, priorMetadataByThread, observabilityContext, model, hookContext, timeZone, mainAgent, currentModel, wasTruncated) {
@@ -1054,7 +1050,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const contextFor = (threadId) => ({
  			threadId,
  			...hookContext
-@@ -30391,6 +30410,7 @@ var ObserverRunner = class {
+@@ -27636,6 +27660,7 @@ var ObserverRunner = class {
  		const firstThreadMessages = messagesByThread.get(threadOrder[0] ?? "") ?? [];
  		const activeExtractors = await resolveExtractors(this.observationConfig.extractors ?? [], {
  			source: "observer",
@@ -1062,7 +1058,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			threadId: threadOrder[0],
  			resourceId: firstThreadMessages[0]?.resourceId,
  			memory: this.memory,
-@@ -32732,13 +32752,23 @@ function stripThreadTags(observations) {
+@@ -29998,13 +30023,23 @@ function stripThreadTags(observations) {
  // src/processors/observational-memory/observation-groups.ts
  const OBSERVATION_GROUP_OPEN = "<observation-group";
  const OBSERVATION_GROUP_CLOSE = "</observation-group>";
@@ -1088,7 +1084,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  	}
  	return attributes;
  }
-@@ -32841,7 +32871,7 @@ function generateAnchorId() {
+@@ -30107,7 +30142,7 @@ function generateAnchorId() {
  }
  function wrapInObservationGroup(observations, range, id = generateAnchorId(), _sourceGroupIds, kind) {
  	const content = observations.trim();
@@ -1097,7 +1093,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  }
  function parseObservationGroups(observations) {
  	if (!observations) return [];
-@@ -32865,7 +32895,8 @@ function stripObservationGroups(observations) {
+@@ -30131,7 +30166,8 @@ function stripObservationGroups(observations) {
  	return replaceObservationGroupTags(observations, (tag) => tag.content.trim()).replace(/\n{3,}/g, "\n\n").trim();
  }
  function getRangeSegments(range) {
@@ -1107,7 +1103,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  }
  function getRangeEndpoints(segment) {
  	const parts = segment.split(":").map((part) => part.trim());
-@@ -33178,8 +33209,8 @@ function hasVisibleParts(msg) {
+@@ -30466,8 +30502,8 @@ function isVisiblePart(part) {
  }
  function parseRangeFormat(cursor) {
  	if (cursor.includes(",")) {
@@ -1118,7 +1114,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			const first = parts[0];
  			const last = parts[parts.length - 1];
  			const firstColon = first.indexOf(":");
-@@ -35007,7 +35038,7 @@ var BufferingCoordinator = class BufferingCoordinator {
+@@ -32337,7 +32373,7 @@ var BufferingCoordinator = class BufferingCoordinator {
  		if (record.isBufferingObservation) {
  			if (isOpActiveInProcess(record.id, "bufferingObservation")) return false;
  			omDebug(`[OM:shouldTriggerAsyncObs] isBufferingObservation=true but stale, clearing`);
@@ -1127,7 +1123,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		}
  		const bufferKey = this.getObservationBufferKey(lockKey);
  		if (this.isAsyncBufferingInProgress(bufferKey)) return false;
-@@ -35571,6 +35602,7 @@ var ObservationStrategy = class ObservationStrategy {
+@@ -32868,6 +32904,7 @@ var ObservationStrategy = class ObservationStrategy {
  	*/
  	async run() {
  		const { record, threadId, abortSignal, writer, reflectionHooks, requestContext } = this.opts;
@@ -1135,7 +1131,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const cycleId = this.generateCycleId();
  		try {
  			abortSignal?.throwIfAborted();
-@@ -35632,6 +35664,7 @@ var ObservationStrategy = class ObservationStrategy {
+@@ -32928,6 +32965,7 @@ var ObservationStrategy = class ObservationStrategy {
  				providerMetadata: output.providerMetadata
  			};
  		} catch (error) {
@@ -1143,7 +1139,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			if (abortSignal?.aborted) throw error;
  			await this.emitFailedMarkers(cycleId, error);
  			if (!this.rethrowOnFailure) {
-@@ -35648,8 +35681,9 @@ var ObservationStrategy = class ObservationStrategy {
+@@ -32944,8 +32982,9 @@ var ObservationStrategy = class ObservationStrategy {
  					}
  				};
  				const observed = this.getObservedMessagesForThread(threadId);
@@ -1154,16 +1150,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				omError("[OM] Observation failed", error);
  				return {
  					observed: false,
-@@ -35841,7 +35875,7 @@ var ObservationStrategy = class ObservationStrategy {
- 		if (!resourceId || !this.deps.onIndexObservations) return;
- 		const groups = parseObservationGroups(observations);
- 		if (groups.length === 0) return;
--		await Promise.all(groups.map((group) => withRetry(() => this.deps.onIndexObservations({
-+		await joinOMWork(groups.map((group) => withRetry(() => this.deps.onIndexObservations({
- 			text: group.content,
- 			groupId: group.id,
- 			range: group.range,
-@@ -36642,7 +36676,15 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
+@@ -33980,7 +34019,15 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
  			const existingCurrentThreadMsgs = this.messagesByThread.get(currentThreadId) ?? [];
  			const messageMap = /* @__PURE__ */ new Map();
  			for (const msg of existingCurrentThreadMsgs) if (msg.id) messageMap.set(msg.id, msg);
@@ -1180,7 +1167,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			this.messagesByThread.set(currentThreadId, Array.from(messageMap.values()));
  		}
  		for (const [tid, msgs] of this.messagesByThread) {
-@@ -36746,7 +36788,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
+@@ -34084,7 +34131,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
  			currentBatchTokens += threadTokens;
  		}
  		if (currentBatch.threadIds.length > 0) batches.push(currentBatch);
@@ -1189,26 +1176,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			return this.deps.observer.callMultiThread(observerContext, batch.threadMap, batch.threadIds, this.opts.abortSignal, this.opts.requestContext, this.priorMetadataByThread, this.opts.observabilityContext, void 0, {
  				resourceId: this.opts.resourceId,
  				trigger: this.opts.trigger
-@@ -36932,7 +36974,17 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
- 			}
- 		}
- 		for (const marker of threadUpdateMarkers) await this.streamMarker(marker);
--		if (resourceId && !committed.alreadyCovered) await Promise.all(this.observationResults.map(({ threadId, threadMessages, result }) => this.indexObservationGroups(result.observations, threadId, resourceId, this.getMaxMessageTimestamp(threadMessages), committed.record.id)));
-+		// Index ONLY generated groups from the exact source just committed above;
-+		// raw observer prose has neither committed anchors nor native attribution.
-+		// Remove when upstream resource persistence passes this same probe.
-+		// https://github.com/mastra-ai/mastra/blob/@mastra/memory@1.38.0/packages/memory/src/processors/observational-memory/observation-strategies/resource-scoped.ts
-+		if (resourceId && !committed.alreadyCovered) await joinOMWork(this.observationResults.map(({ threadId, threadMessages }) => {
-+			const groupIds = parseObservationGroups(this.threadSections.get(threadId) ?? "").map((group) => group.id);
-+			const committedGroups = scanObservationGroupTags(processed.observations).tags
-+				.filter((tag) => groupIds.includes(parseObservationGroupAttributes(tag.attributeString).id))
-+				.map((tag) => processed.observations.slice(tag.start, tag.end)).join("\n\n");
-+			return this.indexObservationGroups(committedGroups, threadId, resourceId, this.getMaxMessageTimestamp(threadMessages), committed.record.id);
-+		}));
- 		return {
- 			status: "committed",
- 			processed,
-@@ -36982,6 +37034,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
+@@ -34330,6 +34377,7 @@ var ResourceScopedObservationStrategy = class extends ObservationStrategy {
  };
  // src/processors/observational-memory/observation-strategies/index.ts
  ObservationStrategy.create = ((om, opts) => {
@@ -1216,7 +1184,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  	const deps = {
  		storage: om.getStorage(),
  		memory: om.getMemory(),
-@@ -36996,6 +37049,7 @@ ObservationStrategy.create = ((om, opts) => {
+@@ -34344,6 +34392,7 @@ ObservationStrategy.create = ((om, opts) => {
  		observedMessageIds: om.observedMessageIds,
  		obscureThreadIds: om.getObscureThreadIds(),
  		onIndexObservations: om.onIndexObservations,
@@ -1224,7 +1192,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		emitDebugEvent: (e) => om.emitDebugEvent(e),
  		prepareObserverContext: (observations, record) => om.prepareObserverContext(observations, record)
  	};
-@@ -37221,6 +37275,7 @@ var ObservationStep = class {
+@@ -34569,6 +34618,7 @@ var ObservationStep = class {
  			}
  			if (!deferred) {
  				om.trackBackgroundWork(om.buffer({
@@ -1232,7 +1200,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  					threadId,
  					resourceId,
  					messages: safeCandidates,
-@@ -37659,8 +37714,8 @@ var ObservationTurn = class {
+@@ -35007,8 +35057,8 @@ var ObservationTurn = class {
  	hooks;
  	abortSignal;
  	constructor(opts) {
@@ -1242,7 +1210,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		this.threadId = opts.threadId;
  		this.resourceId = opts.resourceId;
  		this.messageList = opts.messageList;
-@@ -37704,6 +37759,7 @@ var ObservationTurn = class {
+@@ -35052,6 +35102,7 @@ var ObservationTurn = class {
  	* them to the MessageList. Without a provider, only fetches/caches the record.
  	*/
  	async start(memory, runState) {
@@ -1250,7 +1218,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		if (this._started) throw new Error("Turn already started");
  		this._started = true;
  		this._record = await this.om.getOrCreateRecord(this.threadId, this.resourceId);
-@@ -38171,9 +38227,9 @@ function getLastModelFromMessageList(messageList) {
+@@ -35519,9 +35570,9 @@ function getLastModelFromMessageList(messageList) {
  	}
  }
  async function withAbortCheck(fn, abortSignal) {
@@ -1262,19 +1230,16 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  	return result;
  }
  /**
-@@ -38255,8 +38311,10 @@ var ReflectorRunner = class {
- 		this.mastra = opts.mastra;
+@@ -35603,6 +35654,8 @@ var ReflectorRunner = class {
  		this.memory = opts.memory;
- 		this.onReflectionCommitted = opts.onReflectionCommitted;
--		this.hooks = opts.hooks;
+ 		this.hooks = opts.hooks;
  		this.trackBackgroundWork = opts.trackBackgroundWork;
 +		this.recordBackgroundError = opts.recordBackgroundError;
-+		this.hooks = opts.hooks;
 +		this.abortSignal = opts.abortSignal;
  	}
  	__registerMastra(mastra) {
  		this.mastra = mastra;
-@@ -38311,6 +38369,8 @@ var ReflectorRunner = class {
+@@ -35657,6 +35710,8 @@ var ReflectorRunner = class {
  	* Call the Reflector agent with escalating compression levels.
  	*/
  	async call(observations, manualPrompt, streamContext, observationTokensThreshold, abortSignal, skipContinuationHints, compressionStartLevel, requestContext, priorExtractedValues, observabilityContext, model, mainAgent, sendSignal, currentModel) {
@@ -1283,7 +1248,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const originalTokens = this.tokenCounter.countObservations(observations);
  		const resolvedModel = model ? { model } : await this.resolveModel(originalTokens, {
  			requestContext,
-@@ -38319,6 +38379,7 @@ var ReflectorRunner = class {
+@@ -35665,6 +35720,7 @@ var ReflectorRunner = class {
  		});
  		const activeExtractors = await resolveExtractors((skipContinuationHints ? this.reflectionConfig.extractors?.filter((extractor) => extractor.slug !== "current-task" && extractor.slug !== "suggested-response") : this.reflectionConfig.extractors) ?? [], {
  			source: "reflector",
@@ -1291,7 +1256,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			threadId: streamContext?.threadId,
  			resourceId: streamContext?.resourceId,
  			mainAgent,
-@@ -38512,22 +38573,28 @@ var ReflectorRunner = class {
+@@ -35858,22 +35914,28 @@ var ReflectorRunner = class {
  	/**
  	* Start an async buffered reflection in the background.
  	*/
@@ -1324,7 +1289,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				reflectionError = error instanceof Error ? error : new Error(String(error));
  				if (writer) try {
  					const failedMarker = createBufferingFailedMarker({
-@@ -38546,6 +38613,7 @@ var ReflectorRunner = class {
+@@ -35892,6 +35954,7 @@ var ReflectorRunner = class {
  					}).catch(() => {});
  					await this.persistMarkerToStorage(failedMarker, record.threadId ?? "", record.resourceId ?? void 0);
  				} catch (markerError) {
@@ -1332,7 +1297,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  					omError("[OM] Failed to persist buffering-failed marker after async buffered reflection failure", markerError);
  				}
  				omError("[OM] Async buffered reflection failed", error);
-@@ -38558,13 +38626,19 @@ var ReflectorRunner = class {
+@@ -35904,13 +35967,19 @@ var ReflectorRunner = class {
  						...outcome?.providerMetadata ? { providerMetadata: outcome.providerMetadata } : {}
  					});
  				} catch (hookError) {
@@ -1356,7 +1321,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			}
  		})();
  		BufferingCoordinator.asyncBufferingOps.set(bufferKey, asyncOp);
-@@ -38574,7 +38648,7 @@ var ReflectorRunner = class {
+@@ -35920,7 +35989,7 @@ var ReflectorRunner = class {
  	* Perform async buffered reflection — reflects observations and stores to bufferedReflection.
  	* Does NOT create a new generation or update activeObservations.
  	*/
@@ -1365,7 +1330,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const currentRecord = await this.storage.getObservationalMemory(record.threadId, record.resourceId) ?? record;
  		const observationTokens = currentRecord.observationTokenCount ?? 0;
  		const reflectThreshold = getMaxThreshold(this.getEffectiveReflectionTokens(currentRecord));
-@@ -38615,7 +38689,7 @@ var ReflectorRunner = class {
+@@ -35961,7 +36030,7 @@ var ReflectorRunner = class {
  			await this.persistMarkerToStorage(startMarker, currentRecord.threadId ?? "", currentRecord.resourceId ?? void 0);
  		}
  		const compressionStartLevel = await this.getCompressionStartLevel(requestContext);
@@ -1374,7 +1339,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		reflectResult.observations = await applyTextTransform(this.hooks, "afterReflection", reflectResult.observations, hookContext);
  		const reflectionTokenCount = this.tokenCounter.countObservations(reflectResult.observations);
  		omDebug(`[OM:reflect] doAsyncBufferedReflection: reflector returned ${reflectionTokenCount} tokens (${reflectResult.observations?.length} chars), saving to recordId=${currentRecord.id}`);
-@@ -38790,7 +38864,13 @@ var ReflectorRunner = class {
+@@ -36122,7 +36191,13 @@ var ReflectorRunner = class {
  	* @internal Used by observation strategies. Do not call directly.
  	*/
  	async maybeReflect(opts) {
@@ -1388,7 +1353,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const { record: callerRecord, observationTokens, writer, abortSignal, mainAgent, sendSignal, sendStateSignal, messageList, currentModel, reflectionHooks, trigger, requestContext, observabilityContext, lastActivityAt, threadId: requestedThreadId } = opts;
  		const record = { ...callerRecord };
  		const lockKey = this.buffering.getLockKey(record.threadId, record.resourceId);
-@@ -38803,7 +38883,7 @@ var ReflectorRunner = class {
+@@ -36135,7 +36210,7 @@ var ReflectorRunner = class {
  				if (record.isBufferingReflection) {
  					if (isOpActiveInProcess(record.id, "bufferingReflection")) return false;
  					omDebug(`[OM:shouldTriggerAsyncRefl] isBufferingReflection=true but stale, clearing`);
@@ -1397,7 +1362,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				}
  				const bufferKey = this.buffering.getReflectionBufferKey(lockKey);
  				if (this.buffering.isAsyncBufferingInProgress(bufferKey)) return false;
-@@ -38811,7 +38891,7 @@ var ReflectorRunner = class {
+@@ -36143,7 +36218,7 @@ var ReflectorRunner = class {
  				if (record.bufferedReflection) return false;
  				const activationPoint = reflectThreshold * this.reflectionConfig.bufferActivation;
  				return observationTokens >= activationPoint;
@@ -1406,7 +1371,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		}
  		const activateAfterIdle = resolveActivationTTL(this.reflectionConfig.activateAfterIdle, currentModel);
  		const ttlExpiredMs = activateAfterIdle !== void 0 && lastActivityAt !== void 0 ? Date.now() - lastActivityAt : void 0;
-@@ -38860,7 +38940,7 @@ var ReflectorRunner = class {
+@@ -36184,7 +36259,7 @@ var ReflectorRunner = class {
  					return;
  				}
  				omDebug(`[OM:reflect] async activation failed, no blockAfter or below it (obsTokens=${observationTokens}, blockAfter=${this.reflectionConfig.blockAfter}) — starting background reflection`);
@@ -1415,7 +1380,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				return;
  			}
  		}
-@@ -38994,6 +39074,7 @@ var ReflectorRunner = class {
+@@ -36307,6 +36382,7 @@ var ReflectorRunner = class {
  				usage: reflectResult.usage
  			});
  		} catch (error) {
@@ -1423,7 +1388,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			reflectionError = error instanceof Error ? error : new Error(String(error));
  			if (abortSignal?.aborted) throw error;
  			const failedMarker = createObservationFailedMarker({
-@@ -39038,6 +39119,9 @@ var ReflectorRunner = class {
+@@ -36351,6 +36427,9 @@ var ReflectorRunner = class {
  		} finally {
  			try {
  				await this.storage.setReflectingFlag(record.id, false);
@@ -1433,7 +1398,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			} finally {
  				unregisterOp(record.id, "reflecting");
  			}
-@@ -39052,6 +39136,7 @@ var ReflectorRunner = class {
+@@ -36365,6 +36444,7 @@ var ReflectorRunner = class {
  				endHookError = error;
  			}
  			if (endHookError !== void 0) {
@@ -1441,7 +1406,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				if (lifecycleError === void 0 && !abortSignal?.aborted) throw endHookError;
  				omDebug(`[OM:hooks] onReflectionEnd hook failed after cycle failure: ${endHookError instanceof Error ? endHookError.message : String(endHookError)}`);
  			}
-@@ -39623,9 +39708,18 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -36936,9 +37016,18 @@ var ObservationalMemory = class ObservationalMemory {
  	* so a scoped `settled()` can wait for one conversation without waiting for every other.
  	* Returns the original promise so callers keep their own rejection handling.
  	*/
@@ -1463,7 +1428,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			this.pendingBackgroundWork.delete(tracked);
  		});
  		this.pendingBackgroundWork.set(tracked, lockKey);
-@@ -39645,15 +39739,21 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -36958,15 +37047,21 @@ var ObservationalMemory = class ObservationalMemory {
  	*/
  	async settled(scope) {
  		const lockKey = (this.scope === "resource" ? scope?.resourceId : scope?.threadId) ? this.buffering.getLockKey(scope.threadId, scope.resourceId) : void 0;
@@ -1489,7 +1454,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  	}
  	/**
  	* Acquire a lock for the given key, execute the callback, then release.
-@@ -39681,6 +39781,7 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -36994,6 +37089,7 @@ var ObservationalMemory = class ObservationalMemory {
  		if (config.model && config.reflection?.model) throw new Error("Cannot set both `model` and `reflection.model`. Use `model` to set both agents, or set each individually.");
  		this.shouldObscureThreadIds = config.obscureThreadIds || false;
  		this.storage = config.storage;
@@ -1497,7 +1462,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		this.scope = config.scope ?? "thread";
  		this.retrieval = Boolean(config.retrieval);
  		this.retrievalScope = typeof config.retrieval === "object" ? config.retrieval.scope ?? "resource" : "resource";
-@@ -39789,7 +39890,8 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -37102,7 +37198,8 @@ var ObservationalMemory = class ObservationalMemory {
  			tokenCounter: this.tokenCounter,
  			mastra: config.mastra,
  			memory: this.memory,
@@ -1507,19 +1472,18 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		});
  		this.buffering = new BufferingCoordinator({
  			observationConfig: this.observationConfig,
-@@ -39811,8 +39913,10 @@ var ObservationalMemory = class ObservationalMemory {
+@@ -37124,7 +37221,9 @@ var ObservationalMemory = class ObservationalMemory {
  			mastra: config.mastra,
  			memory: this.memory,
- 			onReflectionCommitted: config.onReflectionCommitted,
-+			trackBackgroundWork: (work, scope, signal) => this.trackBackgroundWork(work, scope, signal),
-+			recordBackgroundError: (error, signal) => this.recordBackgroundError(error, signal),
  			hooks: this.hooks,
 -			trackBackgroundWork: (work, lockKey) => this.trackBackgroundWork(work, lockKey)
++			trackBackgroundWork: (work, scope, signal) => this.trackBackgroundWork(work, scope, signal),
++			recordBackgroundError: (error, signal) => this.recordBackgroundError(error, signal),
 +			abortSignal: this.abortSignal
  		});
  		this.validateBufferConfig();
  		if (this.scope === "resource" && !hasWarnedResourceScopeDeprecation) {
-@@ -40682,23 +40786,34 @@ ${formattedMessages}
+@@ -37994,23 +38093,34 @@ ${formattedMessages}
  	* @param lockKey - Lock key for this scope
  	* @param writer - Optional stream writer for emitting buffering markers
  	*/
@@ -1567,7 +1531,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		BufferingCoordinator.asyncBufferingOps.set(bufferKey, asyncOp);
  		return { op: asyncOp };
  	}
-@@ -40706,19 +40821,19 @@ ${formattedMessages}
+@@ -38018,19 +38128,19 @@ ${formattedMessages}
  	* Internal method that waits for existing buffering operation and then runs new buffering.
  	* This implements the mutex-wait behavior.
  	*/
@@ -1590,7 +1554,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const freshRecord = await this.storage.getObservationalMemory(record.threadId, record.resourceId);
  		if (!freshRecord) return;
  		let bufferCursor = BufferingCoordinator.lastBufferedAtTime.get(bufferKey) ?? freshRecord.lastBufferedAtTime ?? null;
-@@ -40744,6 +40859,7 @@ ${formattedMessages}
+@@ -38056,6 +38166,7 @@ ${formattedMessages}
  				resourceId: freshRecord.resourceId ?? void 0
  			});
  		} catch (err) {
@@ -1598,7 +1562,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			omError("[OM] Failed to persist sealed messages before buffering — skipping observation cycle", err);
  			return;
  		}
-@@ -40774,6 +40890,7 @@ ${formattedMessages}
+@@ -38086,6 +38197,7 @@ ${formattedMessages}
  			trigger: "async-buffer"
  		}, () => ObservationStrategy.create(this, {
  			record: freshRecord,
@@ -1606,7 +1570,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			threadId,
  			resourceId: freshRecord.resourceId ?? void 0,
  			messages: messagesToBuffer,
-@@ -40797,10 +40914,20 @@ ${formattedMessages}
+@@ -38109,10 +38221,20 @@ ${formattedMessages}
  	* Returns whether buffering was actually triggered.
  	*/
  	async triggerAsyncBuffering(opts) {
@@ -1628,7 +1592,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		return shouldTrigger;
  	}
  	isMessageList(value) {
-@@ -40975,7 +41102,7 @@ ${formattedMessages}
+@@ -38287,7 +38409,7 @@ ${formattedMessages}
  		const bufKey = this.buffering.getObservationBufferKey(lockKey);
  		BufferingCoordinator.setObservationBoundary(bufKey, 0);
  		try {
@@ -1637,7 +1601,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		} finally {
  			if (activatedMessageIds && activatedMessageIds.length > 0) this.buffering.cleanupStaticMaps(threadId, resourceId, activatedMessageIds);
  		}
-@@ -41314,7 +41441,13 @@ ${formattedMessages}
+@@ -38626,7 +38748,13 @@ ${formattedMessages}
  	* ```
  	*/
  	/** @internal Used by ObservationStep. */
@@ -1652,7 +1616,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const { threadId, resourceId, requestContext, observabilityContext } = opts;
  		let record = opts.record ?? await this.getOrCreateRecord(threadId, resourceId);
  		const inMemoryRecord = record;
-@@ -41337,7 +41470,7 @@ ${formattedMessages}
+@@ -38649,7 +38777,7 @@ ${formattedMessages}
  			resolveOp = resolve;
  		});
  		BufferingCoordinator.asyncBufferingOps.set(bufferKey, opPromise);
@@ -1661,7 +1625,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		if (existingOp) try {
  			await existingOp;
  		} catch {}
-@@ -41347,7 +41480,10 @@ ${formattedMessages}
+@@ -38659,7 +38787,10 @@ ${formattedMessages}
  		const ownsStartBoundary = BufferingCoordinator.ownsObservationBoundary(bufferKey, boundaryOwner);
  		inMemoryRecord.isBufferingObservation = true;
  		if (ownsStartBoundary) inMemoryRecord.lastBufferedAtTokens = currentTokens;
@@ -1673,7 +1637,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			omError("[OM] Failed to set buffering observation flag", err);
  		});
  		const setBufferingState = (isBufferingObservation, lastBufferedAtTokens) => {
-@@ -41415,7 +41551,8 @@ ${formattedMessages}
+@@ -38727,7 +38858,8 @@ ${formattedMessages}
  				chunkRecorded = true;
  				const ownsBoundary = BufferingCoordinator.ownsObservationBoundary(bufferKey, boundaryOwner);
  				if (ownsBoundary) BufferingCoordinator.setObservationBoundary(bufferKey, newTokens, boundaryOwner);
@@ -1683,7 +1647,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				flagCleared = true;
  				const stillOwnsBoundary = ownsBoundary && BufferingCoordinator.ownsObservationBoundary(bufferKey, boundaryOwner);
  				setBufferingState(false, stillOwnsBoundary ? newTokens : void 0);
-@@ -41428,6 +41565,7 @@ ${formattedMessages}
+@@ -38740,6 +38872,7 @@ ${formattedMessages}
  				resourceId: record.resourceId ?? resourceId,
  				trigger: "async-buffer"
  			}, () => ObservationStrategy.create(this, {
@@ -1691,7 +1655,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				record,
  				threadId,
  				resourceId: record.resourceId ?? void 0,
-@@ -41468,6 +41606,7 @@ ${formattedMessages}
+@@ -38780,6 +38913,7 @@ ${formattedMessages}
  				record: await this.storage.getObservationalMemory(record.threadId, record.resourceId) ?? record
  			};
  		} catch (error) {
@@ -1699,7 +1663,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			omError("[OM] buffer() failed", error);
  			return {
  				buffered: false,
-@@ -41475,13 +41614,14 @@ ${formattedMessages}
+@@ -38787,13 +38921,14 @@ ${formattedMessages}
  			};
  		} finally {
  			releaseChunkWrite();
@@ -1718,7 +1682,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		}
  	}
  	/**
-@@ -41519,7 +41659,7 @@ ${formattedMessages}
+@@ -38831,7 +38966,7 @@ ${formattedMessages}
  				if (currentContextTokens < dbBoundary * .5) {
  					omDebug(`[OM:activate] resetting stale lastBufferedBoundary: dbBoundary=${dbBoundary}, currentContextTokens=${currentContextTokens}`);
  					BufferingCoordinator.setObservationBoundary(bufKey, 0);
@@ -1727,7 +1691,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  					opts.abortSignal?.throwIfAborted();
  				}
  			}
-@@ -41627,7 +41767,7 @@ ${formattedMessages}
+@@ -38939,7 +39074,7 @@ ${formattedMessages}
  			record: await this.getRecord(threadId, resourceId) ?? record
  		};
  		const swappedRecordId = freshRecord.id;
@@ -1736,7 +1700,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		unregisterOp(freshRecord.id, "bufferingObservation");
  		const postSwapRecord = await this.storage.getObservationalMemory(record.threadId, record.resourceId);
  		opts.abortSignal?.throwIfAborted();
-@@ -41706,14 +41846,15 @@ ${formattedMessages}
+@@ -39018,14 +39153,15 @@ ${formattedMessages}
  			const hook = configHooks[name];
  			if (!hook) return;
  			if (shouldAwaitConfig) {
@@ -1755,7 +1719,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				logHookFailure(error);
  			}
  		};
-@@ -41771,6 +41912,7 @@ ${formattedMessages}
+@@ -39083,6 +39219,7 @@ ${formattedMessages}
  					...runResult?.providerMetadata ? { providerMetadata: runResult.providerMetadata } : {}
  				});
  			} catch (endHookError) {
@@ -1763,7 +1727,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  				if (lifecycleError === void 0) throw endHookError;
  				omDebug(`[OM:hooks] async-buffer onObservationEnd hook failed after cycle failure: ${endHookError instanceof Error ? endHookError.message : String(endHookError)}`);
  			}
-@@ -41786,7 +41928,13 @@ ${formattedMessages}
+@@ -39098,7 +39235,13 @@ ${formattedMessages}
  	* Returns a result indicating whether observation and/or reflection occurred,
  	* along with the updated record.
  	*/
@@ -1778,7 +1742,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  		const { threadId, resourceId, messages, requestContext } = opts;
  		const lockKey = this.buffering.getLockKey(threadId, resourceId);
  		const trigger = opts.trigger ?? "manual";
-@@ -41823,6 +41971,7 @@ ${formattedMessages}
+@@ -39135,6 +39278,7 @@ ${formattedMessages}
  				observationStarted = true;
  				await hooks?.onObservationStart?.();
  				const result = await ObservationStrategy.create(this, {
@@ -1786,7 +1750,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  					record: freshRecord,
  					threadId,
  					resourceId,
-@@ -41855,6 +42004,7 @@ ${formattedMessages}
+@@ -39167,6 +39311,7 @@ ${formattedMessages}
  				...observationProviderMetadata ? { providerMetadata: observationProviderMetadata } : {}
  			});
  		} catch (endHookError) {
@@ -1794,7 +1758,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			if (lifecycleError === void 0) throw endHookError;
  			omDebug(`[OM:hooks] onObservationEnd hook failed after cycle failure: ${endHookError instanceof Error ? endHookError.message : String(endHookError)}`);
  		}
-@@ -42113,6 +42263,7 @@ ${formattedMessages}
+@@ -39425,6 +39570,7 @@ ${formattedMessages}
  	*/
  	beginTurn(opts) {
  		return new ObservationTurn({
@@ -1802,7 +1766,7 @@ index c7680a26c5f1f0cbd5133146e5787a5163c549fe..2560e67bbceeaca137e797ceb93ccc9d
  			om: this,
  			abortSignal: opts.abortSignal,
  			threadId: opts.threadId,
-@@ -44080,6 +44231,7 @@ ${workingMemory}`;
+@@ -41283,6 +41429,7 @@ ${workingMemory}`;
  			onIndexObservations,
  			onDebugEvent: omConfig.onDebugEvent,
  			hooks: omConfig.hooks,

@@ -533,7 +533,7 @@ describe('BST-1927 independent-review runtime counterexamples', () => {
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] === '1') {
       await writeFile(
         fixture,
-        `${JSON.stringify({ openai: '4.0.96', payloads: recorded, sdk: '7.0.142', source: 'pinned runtime parsing/serialization; mocked HTTP; no real account' }, null, 2)}\n`
+        `${JSON.stringify({ openai: '4.0.106', payloads: recorded, sdk: '7.0.160', source: 'pinned runtime parsing/serialization; mocked HTTP; no real account' }, null, 2)}\n`
       );
     }
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] !== '1') {
