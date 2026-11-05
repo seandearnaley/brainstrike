@@ -59,7 +59,7 @@ test('returning to a thread reconnects its folder and its file opens after a res
     await electronApp.app.evaluate((_electron, next) => {
       process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = next;
     }, bravoRoot);
-    await page.keyboard.press('Control+k');
+    await page.keyboard.press('ControlOrMeta+k');
     await page.keyboard.type('Open folder');
     await page.keyboard.press('Enter');
     await page.getByRole('tab', { name: /Files/u }).first().click();

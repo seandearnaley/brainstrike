@@ -76,7 +76,7 @@ async function openFolder(
   await electronApp.app.evaluate((_electron, next) => {
     process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = next;
   }, folder);
-  await page.keyboard.press('Control+k');
+  await page.keyboard.press('ControlOrMeta+k');
   await page.keyboard.type('Open folder');
   await page.keyboard.press('Enter');
   await expect(page.getByText(fileName).first()).toBeVisible({ timeout: 30_000 });
