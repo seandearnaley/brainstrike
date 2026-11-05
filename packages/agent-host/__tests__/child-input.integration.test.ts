@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
+import type { HostLogRow } from '../src/protocol.js';
 import {
   blocked,
   childThreads,
@@ -37,7 +38,8 @@ function delegating(child: 'answer' | 'block' | 'fail'): MockLanguageModelV4 {
       if (texts.some((value) => value.includes(FOLLOW))) {
         return stream(text('Follow-up done.'));
       }
-      if (texts.some((value) => value.includes(TASK))) {
+      // The child's thread opens with its task; a parent's wake only quotes it.
+      if (texts[0]?.includes(TASK)) {
         if (child === 'fail') {
           throw new Error('CHILD_MODEL_FAILED');
         }
@@ -189,4 +191,38 @@ test('an input a restart finds untaken is committed as a refused run, waking no 
   expect(
     parent.filter((row) => row.event.type === 'run.started' && row.event.delivery?.via === 'wake')
   ).toHaveLength(0);
+  // Both runs still report, for the parent's next turn to take.
+  expect(reported(parent)).toEqual([input.runId, runId]);
+});
+
+/** The child runs a parent's log was told about, in post order. */
+const reported = (rows: readonly { readonly event: HostLogRow['event'] }[]): string[] =>
+  rows.flatMap(({ event }) =>
+    event.type === 'notice.posted' && event.notice.kind === 'child'
+      ? [event.notice.entry.childRunId]
+      : []
+  );
+
+test('an input a stopped child never read is refused, and the parent hears both runs', async () => {
+  const harness = await setupChildRunHost(delegating('block'), cleanup, { personas: [worker] });
+  await harness.start('Delegate.');
+  await expect.poll(async () => (await childThreads(harness)).length).toBe(1);
+  const [child = ''] = await childThreads(harness);
+  const runId = await childRun(harness.core(), child);
+  await harness.core().input({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: FOLLOW,
+    runId,
+    threadId: child,
+  });
+  await harness.core().stop({ commandId: randomUUID(), runId, threadId: child });
+  await harness.core().idle(harness.threadId);
+  const refused = (await harness.core().read(child, 0)).flatMap(({ event }) =>
+    event.type === 'run.finished' ? [[event.runId, event.outcome]] : []
+  );
+  expect(refused.map(([, outcome]) => outcome)).toEqual(['stopped', 'failed']);
+  expect(reported(await harness.core().read(harness.threadId, 0))).toEqual(
+    refused.map(([id]) => id)
+  );
 });

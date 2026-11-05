@@ -186,11 +186,30 @@ export class HostRunEnds {
     if (!input) {
       return false;
     }
-    try {
-      return await this.ports.startNextRun(input, run.input?.origin);
-    } finally {
+    const started = await this.ports
+      .startNextRun(input, run.input?.origin)
       // The input's run, or its refusal, is committed: the report now waits on that run.
-      settleHostChildInput(run, this.ports.runs());
+      .finally(() => settleHostChildInput(run, this.ports.runs()));
+    if (!started) {
+      await this.report(this.ports.runs().get(run.inputRun ?? '') ?? run);
+    }
+    return started;
+  }
+
+  /**
+   * ADR-0028 step 3b: the notices of a run whose end posted none because it
+   * held an input that never ran: its refusal ends the chain, which reports.
+   */
+  private async report(run: HostRunState): Promise<void> {
+    const { children, deletions, runs } = this.ports;
+    if (!(run.terminal && run.outcome)) {
+      return;
+    }
+    const notices = children
+      .notify(run, { detail: run.detail, outcome: run.outcome }, runs())
+      .filter(({ threadId }) => !deletions.has(threadId));
+    if (notices.length > 0) {
+      await this.ports.appendTerminal(notices, this.ports.foldRows);
     }
   }
 
