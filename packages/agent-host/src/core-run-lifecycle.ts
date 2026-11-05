@@ -406,7 +406,9 @@ export async function joinHostClosingRun(
   closeOwner: (run: HostRunState) => Promise<void>,
   finish: (run: HostRunState) => Promise<void>
 ): Promise<readonly unknown[]> {
-  const task = await Promise.allSettled([run.task ?? Promise.resolve()]);
+  // A Stop joins its stopped work outside the admission queue (`run.stopping`,
+  // which never rejects); close joins it too, so that work ends before its owners close.
+  const task = await Promise.allSettled([run.task ?? Promise.resolve(), run.stopping]);
   // A public SDK task can reject after committing its transcript checkpoint.
   // Join its actual effects and resource owners before separating that outcome
   // from an unproved cleanup. Never classify by abort identity or error text.
