@@ -96,6 +96,31 @@ function withoutApprovals(message: ModelMessage, approvals: ReadonlySet<string>)
   return message;
 }
 
+/** The user message a step's notices commit, as Memory stores it. */
+function intakeSegment(
+  row: CommittedModelRow,
+  id: string,
+  resourceId: string,
+  messages: readonly ModelMessage[]
+): MastraDBMessage {
+  const native = new MessageList({
+    generateMessageId: () => id,
+    resourceId,
+    threadId: row.threadId,
+  });
+  native.add(
+    messages.map((message) => ({ ...message, id })),
+    'input'
+  );
+  const segment = native.get.all.db().find((message) => message.id === id);
+  if (segment?.role !== 'user' || row.ts === undefined) {
+    throw new Error('Public converter cannot represent the committed notice');
+  }
+  segment.createdAt = new Date(row.ts);
+  segment.content.parts = segment.content.parts.map(({ createdAt: _ephemeral, ...part }) => part);
+  return segment;
+}
+
 /** Immutable native segments address existing rows; there is no message-ID writer. */
 export function committedMemoryTranscript(
   rows: readonly HostLogRow[],
@@ -158,6 +183,12 @@ export function committedMemoryTranscript(
         throw new Error('Native segment requires its committed SQLite timestamp');
       }
       const id = committedRowAddress(row);
+      // ADR-0028 step 3b: the notices a running run took at a step reach its
+      // model as one user message of their own, inside the run's turn.
+      if (event.type === 'model.messages' && event.delivery) {
+        append(intakeSegment(row, id, resourceId, committed.get(row) ?? []));
+        continue;
+      }
       const native = new MessageList({
         generateMessageId: () => id,
         resourceId,
