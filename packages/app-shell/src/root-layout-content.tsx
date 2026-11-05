@@ -6,6 +6,8 @@ import {
   type PanelTab,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import {
   type ChangesReviewContextValue,
   ChangesReviewProvider,
@@ -78,6 +80,7 @@ import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
 import { useToolApprovalGrantHandlers } from './use-tool-approval-grant-handlers';
 import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
+import { useChangesBridge } from './workspace-git-services';
 
 interface DebouncedPanelLayoutState {
   readonly showConsole: boolean;
@@ -124,8 +127,8 @@ export interface RootLayoutContentProps {
    * (capability gating, not an isElectron check). Registered as a closable
    * singleton workspace app tab (BST-1258 unified workspace tab panel), not
    * as its own nav-rail page. When absent, no Changes tab or launcher card
-   * renders at all, and the "→ Review" assistant-turn footer link stays
-   * hidden (its provider binds to this same presence check).
+   * renders at all, and assistant turns show no changes (their provider
+   * binds to this same presence check).
    */
   readonly changesPageContent?: ReactNode;
   /**
@@ -240,25 +243,8 @@ function KeepMountedRoute({
 }
 
 /**
- * The "→ Review" footer link's binding, or `null` when there is no Changes
- * surface to navigate to. A dedicated hook (rather than inlined in
- * `RootLayoutContent`) purely to keep that already-large component's
- * cognitive complexity under the lint budget — the logic itself is a
- * straight capability-presence gate, same shape as `terminalPageContent`/etc.
- *
- * The Changes surface lives as a closable singleton workspace app tab
- * (BST-1258 unified workspace tab panel), not its own top-level route, so
- * opening it from here is two steps: bring the shell back to the `explorer`
- * route (in case the user is on Settings/Artifacts — the workspace panel only
- * exists on that route), and hand the changeset to `openChangeset`, which
- * opens/activates the Changes app tab through
- * `useWorkspaceTabSelectionStore.openApp` (see that store action's doc
- * comment for why `openChangeset`, not `requestChangeset`, is the one
- * external callers use).
- */
-/**
  * Binds the composer popover's "Open context map" link (ADR-0021) to the
- * Context workspace tab. Gated like the Review link: no page content, no link.
+ * Context workspace tab. Gated like a turn's changes: no page content, no link.
  */
 function useContextMapLinkValue(
   threadContextPageContent: ReactNode,
@@ -277,13 +263,35 @@ function useContextMapLinkValue(
   }, [threadContextPageContent, setActiveTab]);
 }
 
+async function unwrapBoundary<T>(pending: Promise<BoundaryResult<T>>): Promise<T> {
+  const result = await pending;
+  if (!result.ok) {
+    throw new Error(describeBoundaryFailure(result.error));
+  }
+  return result.value;
+}
+
+/**
+ * A turn's changes in the chat (ADR-0036), or `null` when there is no Changes
+ * surface: the card reads the run's changeset through the Changes bridge, and
+ * Review opens it there. A dedicated hook keeps `RootLayoutContent` under the
+ * lint's complexity budget.
+ *
+ * The Changes surface is a closable singleton workspace app tab (BST-1258),
+ * so Review brings the shell back to the `explorer` route (the workspace panel
+ * exists only there) and hands the changeset to `openChangeset`, which opens
+ * the Changes tab through `useWorkspaceTabSelectionStore.openApp`.
+ */
 function useChangesReviewValue(
   changesPageContent: ReactNode,
   setActiveTab: (tab: PanelTab) => void
 ): ChangesReviewContextValue | null {
   const openChangeset = useChangesNavigationStore((state) => state.openChangeset);
+  const bridge = useChangesBridge();
+  // The page is a fresh element each render; a new binding would reload every turn's changes.
+  const hasChanges = Boolean(changesPageContent);
   return useMemo(() => {
-    if (!changesPageContent) {
+    if (!(hasChanges && bridge)) {
       return null;
     }
     return {
@@ -291,8 +299,14 @@ function useChangesReviewValue(
         openChangeset({ kind: 'agent-run', runId, threadId });
         setActiveTab('explorer');
       },
+      readRunChanges: ({ rootId, runId, threadId }) =>
+        unwrapBoundary(bridge.resolveView(rootId, { kind: 'agent-run', runId, threadId })),
+      readRunFile: ({ rootId, runId, threadId }, file) =>
+        unwrapBoundary(
+          bridge.fileDiff(file.rootId ?? rootId, { kind: 'agent-run', runId, threadId }, file.path)
+        ),
     };
-  }, [changesPageContent, openChangeset, setActiveTab]);
+  }, [bridge, hasChanges, openChangeset, setActiveTab]);
 }
 
 /**
@@ -545,8 +559,8 @@ export function RootLayoutContent({
   const actionRegistry = createAppActionRegistry();
   // Capability gate mirrors terminalPageContent:
   // the desktop wrapper only passes changesPageContent when the Changes bridge
-  // exists, so its presence IS the capability check here — the "→ Review"
-  // footer link (packages/ui, gated on this same context) renders null without it.
+  // exists, so its presence IS the capability check here — a turn's changes
+  // (packages/assistant-ui, gated on this same context) render nothing without it.
   const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
   const contextMapLinkValue = useContextMapLinkValue(threadContextPageContent, setActiveTab);
   const rewindValue = useRewindValue(changesPageContent);

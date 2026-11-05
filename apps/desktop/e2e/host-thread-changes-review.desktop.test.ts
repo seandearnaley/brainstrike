@@ -64,6 +64,11 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
   // While the write waits on approval, a change no tool made lands in the workspace.
   const approve = region.getByRole('button', { name: /^Approve /u });
   await expect(approve).toBeVisible({ timeout: 90_000 });
+  // The approval diffs the file as it is against what the write would leave, without writing.
+  const proposed = region.getByTestId('approval-diff-view');
+  await expect(proposed.getByText(ORIGINAL.trim())).toBeVisible({ timeout: 30_000 });
+  await expect(proposed.getByText(REWRITTEN.trim())).toBeVisible();
+  expect(readFileSync(notes, 'utf8')).toBe(ORIGINAL);
   writeFileSync(path.join(root, 'shell-made.txt'), 'made by a shell\n');
   await approve.click();
   await expect(region.getByText(FIRST_REPLY)).toBeVisible({ timeout: 90_000 });
@@ -75,10 +80,15 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
     (await readAgentHostLog(electron.getUserDataDir())).typeCounts['workspace.snapshot.recorded'];
   await expect.poll(snapshotRows, { timeout: 30_000 }).toBe(2);
 
-  // "→ Review" opens the run's changeset: the tool edit and the shell side effect.
-  const review = region.getByTestId('changes-review-link');
-  await expect(review).toHaveText(/1 file edit from this turn/u, { timeout: 30_000 });
-  await review.click();
+  // The turn lists its changes: the tool edit and the shell side effect, from git.
+  const turnChanges = region.getByRole('region', { name: 'Changes from this turn' });
+  await expect(turnChanges).toContainText('2 files changed', { timeout: 30_000 });
+  await expect(turnChanges.getByText('notes.txt')).toBeVisible();
+  await expect(turnChanges.getByText('shell-made.txt')).toBeVisible();
+  // A file opens in place, and Review opens the turn in Changes.
+  await turnChanges.getByText('notes.txt').click();
+  await expect(turnChanges.getByText(REWRITTEN.trim())).toBeVisible({ timeout: 30_000 });
+  await turnChanges.getByRole('button', { exact: true, name: 'Review' }).click();
   const surface = page.getByTestId('changes-surface');
   const tree = surface.getByTestId('changed-files-tree');
   await expect(tree.getByText('notes.txt')).toBeVisible({ timeout: 30_000 });
@@ -105,8 +115,9 @@ test('a host run is reviewed in Changes from its turn snapshots, and "Last Turn"
   await reloadRenderer(page, 'm3-changes-review-reload');
   await ensureAssistantShellVisible(page);
   const reloaded = page.getByRole('region', { exact: true, name: 'Assistant' });
-  await expect(reloaded.getByTestId('changes-review-link')).toHaveCount(2, { timeout: 60_000 });
-  await reloaded.getByTestId('changes-review-link').first().click();
+  const reloadedTurns = reloaded.getByRole('region', { name: 'Changes from this turn' });
+  await expect(reloadedTurns).toHaveCount(2, { timeout: 60_000 });
+  await reloadedTurns.first().getByRole('button', { exact: true, name: 'Review' }).click();
   const reloadedTree = page.getByTestId('changes-surface').getByTestId('changed-files-tree');
   await expect(reloadedTree.getByText('notes.txt')).toBeVisible({ timeout: 30_000 });
   await expect(reloadedTree.getByText('shell-made.txt')).toBeVisible();
@@ -137,7 +148,10 @@ test('a comment on a Changes diff line goes into the thread’s next message', a
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await region.getByRole('button', { name: /^Approve /u }).click({ timeout: 90_000 });
   await expect(region.getByText(FIRST_REPLY)).toBeVisible({ timeout: 90_000 });
-  await region.getByTestId('changes-review-link').click({ timeout: 30_000 });
+  await region
+    .getByRole('region', { name: 'Changes from this turn' })
+    .getByRole('button', { exact: true, name: 'Review' })
+    .click({ timeout: 30_000 });
 
   // The + on the hovered line opens a box; Ctrl+Enter keeps the comment on the diff,
   // and the toolbar adds every kept comment to the thread's message.

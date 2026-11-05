@@ -134,6 +134,47 @@ test('a folded file loads when opened, and folds again', async () => {
   expect(loadFile).toHaveBeenCalledTimes(1);
 });
 
+test('files that start folded open one at a time, inside a box that grows to its cap', async () => {
+  const loadFile = vi.fn(loadById);
+  render(
+    <ThemeProvider defaultMode="light">
+      <div style={{ width: 900 }}>
+        <DiffReview
+          className="max-h-[320px]"
+          defaultCollapsed
+          diffStyle="unified"
+          files={FILES}
+          loadFile={loadFile}
+        />
+      </div>
+    </ThemeProvider>
+  );
+  const sum = page.getByRole('button', { name: 'src/sum.ts' });
+  const big = page.getByRole('button', { name: 'src/big.ts' });
+  await expect.element(sum).toHaveAttribute('aria-expanded', 'false');
+  await expect.element(big).toHaveAttribute('aria-expanded', 'false');
+  const line = page.getByText('export function sum(x: number, y: number) {');
+  await expect.element(line).not.toBeInTheDocument();
+  const region = page.getByTestId('diff-review').element().firstElementChild as HTMLElement;
+  const folded = region.getBoundingClientRect().height;
+  expect(folded).toBeGreaterThan(0);
+  expect(folded).toBeLessThan(320);
+
+  await sum.click();
+  await expect.element(sum).toHaveAttribute('aria-expanded', 'true');
+  await expect.element(line).toBeVisible();
+  expect(region.getBoundingClientRect().height).toBeGreaterThan(folded);
+
+  // A file the view sent without its patch loads, then opens.
+  await big.click();
+  await expect.element(big).toHaveAttribute('aria-expanded', 'true');
+  expect(loadFile).toHaveBeenCalledWith('big');
+  await expect.poll(() => region.getBoundingClientRect().height).toBe(320);
+
+  await sum.click();
+  await expect.element(sum).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('a new file the view did not diff opens with its counts', async () => {
   const patch = [
     'diff --git a/src/new.ts b/src/new.ts',

@@ -15,6 +15,7 @@ import {
 import { useThreadFoldersReopening } from '@brainstrike/app-shell/roots/thread-folders-reopening';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import {
+  ApprovalChangeProvider,
   BudgetGuardrailProvider,
   CommittedAssistantConversation,
   DebugBundleProvider,
@@ -49,6 +50,7 @@ import {
   windowHostConnection,
 } from './desktop-host-connection';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
+import { hostApprovalChange } from './host-approval-change';
 import { HostApprovalStrip } from './host-approval-strip';
 import { HostChildDetailsFold } from './host-child-details';
 import { HostApprovalHistoryProvider } from './host-child-tree-notices';
@@ -337,6 +339,11 @@ function HostThread({
     }
     return createHostDebugBundleBinding(client, threadId, diagnostics);
   }, [client, threadId]);
+  // A waiting file approval's card reads the change from the host (ADR-0036).
+  const readApprovalChange = useMemo(
+    () => (conversation ? hostApprovalChange(client, conversation) : null),
+    [client, conversation]
+  );
   // Steer (BST-588): the queue holds the message at its front while Core ends
   // the run after its step in flight; the message then starts the next turn.
   const [steeredRunId, setSteeredRunId] = useState<string>();
@@ -357,30 +364,32 @@ function HostThread({
                   <HostApprovalHistoryProvider tree={conversation.approvals}>
                     {/* Each delegation card reads its child's run from the tree's own follow of the child's log. */}
                     <SubagentChildRunContext value={conversation.approvals}>
-                      <HostChildConversations revision={effects} threadId={threadId}>
-                        <CommittedAssistantConversation
-                          {...withFoldersGate(withMemoryGate(presentation, memory), reopening)}
-                          {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
-                          agentColor={conversationColor}
-                          approvalStrip={
-                            <HostApprovalStrip
-                              client={client}
-                              self={child ? label : undefined}
-                              tree={conversation.approvals}
-                            />
-                          }
-                          commands={conversation.commands}
-                          {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                          label={label}
-                          onRunningChange={onRunningChange}
-                          onSendActiveInput={child ? conversation.sendInput : undefined}
-                          onSteerActiveRun={steer}
-                          {...(reconnect === undefined ? {} : { reconnect })}
-                          rewind={child ? null : rewind}
-                          store={conversation.store}
-                          {...workspaceSlots(child, threadId)}
-                        />
-                      </HostChildConversations>
+                      <ApprovalChangeProvider value={readApprovalChange}>
+                        <HostChildConversations revision={effects} threadId={threadId}>
+                          <CommittedAssistantConversation
+                            {...withFoldersGate(withMemoryGate(presentation, memory), reopening)}
+                            {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
+                            agentColor={conversationColor}
+                            approvalStrip={
+                              <HostApprovalStrip
+                                client={client}
+                                self={child ? label : undefined}
+                                tree={conversation.approvals}
+                              />
+                            }
+                            commands={conversation.commands}
+                            {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                            label={label}
+                            onRunningChange={onRunningChange}
+                            onSendActiveInput={child ? conversation.sendInput : undefined}
+                            onSteerActiveRun={steer}
+                            {...(reconnect === undefined ? {} : { reconnect })}
+                            rewind={child ? null : rewind}
+                            store={conversation.store}
+                            {...workspaceSlots(child, threadId)}
+                          />
+                        </HostChildConversations>
+                      </ApprovalChangeProvider>
                     </SubagentChildRunContext>
                   </HostApprovalHistoryProvider>
                 </DebugBundleProvider>

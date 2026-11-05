@@ -56,6 +56,7 @@ function errorText(cause: unknown): string {
 function previewSubject(approval: CommittedPendingApproval): ApprovalPreviewSubject {
   return {
     args: approval.args,
+    interactionId: approval.interactionId,
     ...(approval.sandboxed === undefined ? {} : { sandboxed: approval.sandboxed }),
     ...(approval.targetRoot ? { targetRoot: approval.targetRoot } : {}),
     toolName: approval.toolName,
