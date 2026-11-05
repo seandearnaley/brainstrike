@@ -1,12 +1,6 @@
 import { expect, it } from 'vitest';
 import { ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE } from '../assistant-attachments.js';
-import {
-  assistantChildInputContents,
-  normalizeAssistantChildInput,
-  readAssistantChildSignalContents,
-  serializeAssistantChildInput,
-} from '../child-input.js';
-import { assertAssistantChildImageCapability } from '../child-input-model.js';
+import { normalizeAssistantChildInput, serializeAssistantChildInput } from '../child-input.js';
 
 const image = {
   data: 'data:image/png;base64,AQID',
@@ -15,13 +9,8 @@ const image = {
   type: 'file',
 } as const;
 const input = { attachments: [image], id: 'receipt', text: '' };
-it('accepts image-only input and preserves native FilePart contents through projection', () => {
-  const normalized = normalizeAssistantChildInput(input);
-  expect(readAssistantChildSignalContents(assistantChildInputContents(normalized))).toEqual({
-    attachments: [image],
-    text: '',
-  });
-  expect(readAssistantChildSignalContents('legacy text')).toEqual({ text: 'legacy text' });
+it('accepts image-only input', () => {
+  expect(normalizeAssistantChildInput(input)).toEqual(input);
 });
 it.each([
   { id: 'empty', text: '' },
@@ -59,22 +48,4 @@ it('compares the complete normalized payload independent of property insertion o
   expect(
     serializeAssistantChildInput({ ...input, attachments: [{ ...image, filename: 'changed.png' }] })
   ).not.toBe(identity);
-});
-it('enforces the root tri-state model rule against the actual child model', () => {
-  expect(() => assertAssistantChildImageCapability(input, 'openrouter', 'z-ai/glm-5.3')).toThrow(
-    'does not support'
-  );
-  expect(() =>
-    assertAssistantChildImageCapability(input, 'unknown-provider', 'unknown-model')
-  ).toThrow('unavailable');
-  expect(() => assertAssistantChildImageCapability(input, undefined, undefined)).toThrow(
-    'effective model'
-  );
-  expect(() => assertAssistantChildImageCapability(input, 'openai', 'gpt-4o')).not.toThrow();
-  expect(() =>
-    assertAssistantChildImageCapability(input, 'openai', 'unknown-provider-route')
-  ).not.toThrow();
-  expect(() =>
-    assertAssistantChildImageCapability({ id: 'text', text: 'Hello' }, undefined, undefined)
-  ).not.toThrow();
 });

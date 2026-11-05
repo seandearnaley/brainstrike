@@ -1,7 +1,4 @@
-import {
-  DELEGATED_CONVERSATION_DATA_NAME,
-  readAssistantRunEventDataPart,
-} from '@brainstrike/assistant-contract';
+import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { Predicate } from 'effect';
 import { createContext } from 'react';
@@ -107,60 +104,15 @@ function readResultThread(result: unknown): string | undefined {
   return threadId;
 }
 
-/** Read the already validated host envelope in this message, never a persona label. */
-export function readSubagentConversationThread(
-  parts: readonly unknown[],
-  toolCallId: string,
-  result?: unknown
-): string | undefined {
-  // Live publication has an envelope instead; contradictory sources fail closed.
-  let threadId = readResultThread(result);
-  for (const part of parts) {
-    if (
-      !(
-        Predicate.isObject(part) &&
-        part['type'] === 'data' &&
-        part['name'] === DELEGATED_CONVERSATION_DATA_NAME &&
-        Predicate.isObject(part['data'])
-      )
-    ) {
-      continue;
-    }
-    const data = part['data'];
-    if (
-      !(
-        Predicate.isObject(data['identity']) &&
-        data['identity']['parentToolCallId'] === toolCallId &&
-        Predicate.isObject(data['baseline'])
-      )
-    ) {
-      continue;
-    }
-    const child = data['baseline']['threadId'];
-    if (typeof child !== 'string' || !child.trim()) {
-      throw new Error('Invalid child conversation address.');
-    }
-    if (threadId && threadId !== child) {
-      throw new Error('Conflicting child conversation addresses.');
-    }
-    threadId = child;
-  }
-  return threadId;
-}
-
 export type SubagentConversationAddress =
   | { readonly kind: 'unavailable' }
   | { readonly kind: 'available'; readonly threadId: string }
   | { readonly kind: 'invalid'; readonly error: string };
 
 /** Render failures locally without hiding a contradictory host address. */
-export function readSubagentConversationAddress(
-  parts: readonly unknown[],
-  toolCallId: string,
-  result?: unknown
-): SubagentConversationAddress {
+export function readSubagentConversationAddress(result: unknown): SubagentConversationAddress {
   try {
-    const threadId = readSubagentConversationThread(parts, toolCallId, result);
+    const threadId = readResultThread(result);
     return threadId ? { kind: 'available', threadId } : { kind: 'unavailable' };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };
