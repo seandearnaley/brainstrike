@@ -140,6 +140,12 @@ const MIN_TEXT_CONTRAST = 4.5;
  * as text on the background, and each fill gets whichever foreground reads on it.
  */
 const TEXT_COLOURS = ['primary', 'destructive'];
+/**
+ * Text colours that must also read on a neutral fill, not only on the page:
+ * badges, pills and chips paint `text-muted-foreground` on `bg-muted`, the
+ * darkest neutral surface in light mode and the lightest in dark mode.
+ */
+const TEXT_ON_FILL = [['muted-foreground', 'muted']];
 const FILL_FOREGROUNDS = [
   ['primary', 'primary-foreground'],
   ['destructive', 'destructive-foreground'],
@@ -186,14 +192,15 @@ export function contrast(first, second) {
 export function normalizeContrast(tokens, mode) {
   const next = new Map(tokens);
   const changed = [];
-  const background = parseOklch(next.get('background'));
-  for (const name of TEXT_COLOURS) {
+  const textPairs = [...TEXT_COLOURS.map((name) => [name, 'background']), ...TEXT_ON_FILL];
+  for (const [name, surfaceName] of textPairs) {
+    const surface = parseOklch(next.get(surfaceName));
     let colour = parseOklch(next.get(name));
-    if (!(background && colour) || contrast(colour, background) >= MIN_TEXT_CONTRAST) {
+    if (!(surface && colour) || contrast(colour, surface) >= MIN_TEXT_CONTRAST) {
       continue;
     }
     const step = mode === 'dark' ? 0.005 : -0.005;
-    while (contrast(colour, background) < MIN_TEXT_CONTRAST && colour.l > 0 && colour.l < 1) {
+    while (contrast(colour, surface) < MIN_TEXT_CONTRAST && colour.l > 0 && colour.l < 1) {
       colour = { ...colour, l: colour.l + step };
     }
     next.set(name, formatOklch(colour));
@@ -299,8 +306,8 @@ export function renderThemeCss({ id, code, decoded, light, dark }) {
     contrastChanges.length > 0
       ? ` *
  *   contrastAdjusted: moved to WCAG AA (4.5:1) because Brainstrike also uses
- *   primary and destructive as text on the background, and every fill needs
- *   a readable foreground:
+ *   primary and destructive as text on the background, muted-foreground as
+ *   text on muted fills, and every fill needs a readable foreground:
 ${contrastChanges.map((change) => ` *     ${change}`).join('\n')}
 `
       : '';
