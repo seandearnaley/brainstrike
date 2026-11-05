@@ -16,7 +16,12 @@
  */
 import { useAuiState } from '@assistant-ui/react';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
-import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
+import {
+  type CostEstimate,
+  countTokensHeuristic,
+  formatTokenCount,
+  formatUsdCost,
+} from '@brainstrike/tokenization';
 import { cn, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { useEffect } from 'react';
 import {
@@ -201,6 +206,12 @@ export interface ContextUsageMeterProps {
    * is not shown in the popover (the last-turn gauge still renders).
    */
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
+  /**
+   * Heuristic size of the unsent composer draft. Shown as a "+N tokens" hint
+   * beside the figure, and it can raise the warning before the draft is sent;
+   * the ring and the recorded figure stay the conversation's own.
+   */
+  draftTokens?: number | undefined;
   /** Effective input budget (contextWindow − output reservation). Meter is hidden when absent. */
   effectiveInputBudget: number | undefined;
   /** Heuristic token estimate to display before exact usage is recorded. */
@@ -229,6 +240,55 @@ function resolveUsageState(used: number, effectiveInputBudget: number): ContextR
     return 'warning';
   }
   return 'ok';
+}
+
+const STATE_TEXT_CLASS: Readonly<Record<ContextRingState, string>> = {
+  critical: 'text-destructive',
+  ok: 'text-muted-foreground',
+  warning: 'text-warning',
+};
+
+/** The unsent draft's size beside the figure, coloured by what sending it would bring. */
+function DraftHint({
+  projectedState,
+  text,
+}: {
+  readonly projectedState: ContextRingState;
+  readonly text: string;
+}) {
+  return (
+    <span
+      className={cn('tabular-nums', STATE_TEXT_CLASS[projectedState])}
+      data-testid="context-usage-draft"
+      title="The unsent draft's estimated size"
+    >
+      {text}
+    </span>
+  );
+}
+
+/**
+ * Trimming-risk notice, INLINE next to the ring, never hidden inside the
+ * popover (visibility rule). A draft that would cross the line warns before
+ * it is sent.
+ */
+function BudgetNotice({
+  projectedState,
+  state,
+}: {
+  readonly projectedState: ContextRingState;
+  readonly state: ContextRingState;
+}) {
+  if (projectedState !== 'critical') {
+    return null;
+  }
+  return (
+    <p className="bs-composer-context-notice" data-testid="context-usage-critical-notice">
+      {state === 'critical'
+        ? 'Approaching input budget; older messages may be trimmed.'
+        : 'Sending this draft approaches the input budget; older messages may be trimmed.'}
+    </p>
+  );
 }
 
 interface TriggerDisplay {
@@ -283,6 +343,7 @@ export const ContextUsageMeter = ({
   contextWindow,
   conversationEstimate,
   cumulativeUsage,
+  draftTokens = 0,
   effectiveInputBudget,
   estimatedTokens,
   isRunning,
@@ -339,6 +400,9 @@ export const ContextUsageMeter = ({
 
   const state = resolveUsageState(usedTokens, effectiveInputBudget);
   const percentage = Math.min(100, (usedTokens / effectiveInputBudget) * 100);
+  // What sending the draft would bring the context to: it warns before the send.
+  const projectedState = resolveUsageState(usedTokens + draftTokens, effectiveInputBudget);
+  const draftText = draftTokens > 0 ? `+${formatTokenCount(draftTokens)}` : undefined;
 
   // Thread-total headline (BST-953): the overall billed figure — every
   // captured source (chat, subagents, OM) plus the in-flight run's live step
@@ -388,25 +452,17 @@ export const ContextUsageMeter = ({
               effectiveInputBudget so the fraction and the ring fill tell the
               same story; the full model window lives in the popover + title. */}
           <button
-            aria-label={trigger.ariaLabel}
+            aria-label={draftText ? `${trigger.ariaLabel}; draft ${draftText}` : trigger.ariaLabel}
             className="bs-composer-chip bs-composer-context-trigger"
             data-testid="context-usage-trigger"
             title={`context ${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)} · model window ${formatTokenCount(contextWindow)}`}
             type="button"
           >
             <ContextRing isEstimated={isEstimated} percentage={percentage} state={state} />
-            <span
-              className={cn(
-                'tabular-nums',
-                state === 'critical'
-                  ? 'text-destructive'
-                  : state === 'warning'
-                    ? 'text-warning'
-                    : 'text-muted-foreground'
-              )}
-            >
+            <span className={cn('tabular-nums', STATE_TEXT_CLASS[state])}>
               {trigger.primaryText}
             </span>
+            {draftText && <DraftHint projectedState={projectedState} text={draftText} />}
             {trigger.costText && (
               <span
                 className="text-muted-foreground/70 tabular-nums"
@@ -446,13 +502,7 @@ export const ContextUsageMeter = ({
         </PopoverContent>
       </Popover>
 
-      {/* Critical trimming-risk notice — INLINE next to the ring, never hidden
-          inside the popover (visibility rule). */}
-      {state === 'critical' && (
-        <p className="bs-composer-context-notice" data-testid="context-usage-critical-notice">
-          Approaching input budget; older messages may be trimmed.
-        </p>
-      )}
+      <BudgetNotice projectedState={projectedState} state={state} />
     </div>
   );
 };
@@ -488,6 +538,9 @@ export const ThreadContextMeter = ({
   // of freezing until the next exact finish.
   const messages = useAuiState((s) => s.thread.messages);
   const isRunning = useAuiState((s) => s.thread.isRunning);
+  // The selector returns the count, so typing re-renders the meter only when
+  // the estimate moves (the same chars/4 heuristic as the conversation walk).
+  const draftTokens = useAuiState((s) => countTokensHeuristic(s.composer.text));
 
   const conversationEstimate = estimateConversationTokens(messages);
 
@@ -496,6 +549,7 @@ export const ThreadContextMeter = ({
       contextWindow={contextWindow}
       conversationEstimate={conversationEstimate}
       {...(cumulativeUsage ? { cumulativeUsage } : {})}
+      draftTokens={draftTokens}
       effectiveInputBudget={effectiveInputBudget}
       isRunning={isRunning}
       {...(omSegment ? { omSegment } : {})}
