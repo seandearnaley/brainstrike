@@ -28,33 +28,26 @@ interface InterruptedHydrationState {
 
 const STORE_NAME = 'brainstrike:thread-workspace-interrupted-hydration.v1' as const;
 const logger = createLogger('InterruptedHydrationStore');
-const isSnapshot = Schema.is(WorkspaceSnapshotSchema);
+const decodeInterrupted = Schema.decodeUnknownResult(
+  Schema.Struct({ snapshot: WorkspaceSnapshotSchema, threadId: Schema.String })
+);
 
-/** A saved record that is not a whole snapshot is dropped: resuming from it would merge garbage. */
+/** A saved record that does not decode is dropped: resuming from it would merge garbage. */
 function coerce(persisted: unknown): InterruptedHydration | null {
-  const interrupted =
+  const saved =
     persisted && typeof persisted === 'object' && 'interrupted' in persisted
       ? persisted.interrupted
       : null;
-  if (interrupted === null) {
+  if (saved === null || saved === undefined) {
     return null;
   }
-  if (
-    interrupted &&
-    typeof interrupted === 'object' &&
-    'threadId' in interrupted &&
-    typeof interrupted.threadId === 'string' &&
-    'snapshot' in interrupted &&
-    isSnapshot(interrupted.snapshot)
-  ) {
-    // The schema spells an absent optional field `undefined`; the interface omits it.
-    return {
-      snapshot: interrupted.snapshot as WorkspaceSnapshotV1,
-      threadId: interrupted.threadId,
-    };
+  const decoded = decodeInterrupted(saved);
+  if (decoded._tag === 'Failure') {
+    logger.warn('The saved interrupted workspace hydration does not decode; it is dropped');
+    return null;
   }
-  logger.warn('The saved interrupted workspace hydration is not readable; it is dropped');
-  return null;
+  // The schema spells an absent optional field `undefined`; the interface omits it.
+  return decoded.success as InterruptedHydration;
 }
 
 export const useInterruptedHydrationStore = create<InterruptedHydrationState>()(

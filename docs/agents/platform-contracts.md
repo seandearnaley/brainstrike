@@ -174,7 +174,9 @@ amended by ADR-0027).
     drain is recorded instead (BST-2281): its baseline goes to a
     `persistDurable` store and it sends no later write. The next document's
     first hydration of that thread resumes from that baseline, so edits made
-    while the read was pending survive; a record of another thread is dropped.
+    while the read was pending survive. The baseline's file panes come from the
+    new document, because panes are session-only. A record of another thread is
+    dropped.
   - None owns a `beforeunload`/`pagehide` handler.
 - Every other durable renderer store is made with `persistDurable`
   (`@brainstrike/storage`): zustand `persist` on `localStorage` under the

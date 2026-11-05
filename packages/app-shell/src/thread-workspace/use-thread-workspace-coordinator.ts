@@ -390,9 +390,29 @@ function takeInterruptedBaseline(threadId: string): HydrationBaseline | null {
 }
 
 /**
+ * Per-file pane state is session-only (`useFileTabPaneStore`): a new document starts without
+ * it. Compared against the interrupted document's panes, that reset would read as the user
+ * closing them and strip the loaded row's panes, so the resumed baseline takes its panes from
+ * this document's own capture. Everything else in the snapshot survives the document.
+ */
+function withThisDocumentsPanes(
+  interrupted: HydrationBaseline,
+  current: HydrationBaseline | null
+): HydrationBaseline {
+  const editors: MutableSnapshotEditors = {};
+  for (const [compositeKey, recorded] of Object.entries(interrupted.snapshot.editors)) {
+    const { pane: _sessionOnly, ...surviving } = recorded;
+    const pane = current?.snapshot.editors[compositeKey]?.pane;
+    editors[compositeKey] = pane === undefined ? surviving : { ...surviving, pane };
+  }
+  return { ...interrupted, snapshot: { ...interrupted.snapshot, editors } };
+}
+
+/**
  * This document's first hydration resumes the one an earlier document's unload interrupted
- * (BST-2281): the recorded baseline replaces the one just captured. A deferred boot hydration
- * continues its first activation's baseline, so it has already resumed.
+ * (BST-2281): the recorded baseline replaces the one just captured, except for the session-only
+ * panes. A deferred boot hydration continues its first activation's baseline, so it has already
+ * resumed.
  */
 function resumeInterruptedHydration(
   activeThreadId: string | null,
@@ -409,7 +429,7 @@ function resumeInterruptedHydration(
   refs.checked.current = true;
   const interrupted = takeInterruptedBaseline(activeThreadId);
   if (interrupted) {
-    refs.baseline.current = interrupted;
+    refs.baseline.current = withThisDocumentsPanes(interrupted, refs.baseline.current);
     refs.resumed.current = activeThreadId;
   }
 }

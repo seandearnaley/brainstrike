@@ -340,6 +340,68 @@ describe('thread workspace app-owned close', () => {
       reopened.unmount();
     }
   });
+
+  it("a thread switch interrupted by quit keeps the incoming thread's saved file panes", async () => {
+    const harness = createHarness();
+    const openPane = { expandedPaths: ['/root/src'], open: true, widthPct: 40 };
+    // thread-b was saved with a file tab whose pane is open.
+    await relaunch();
+    const earlier = render(harness, 'thread-b');
+    await waitFor(() => expect(harness.rows.has('thread-b')).toBe(true));
+    act(() => {
+      harness.state.tabs = [{ compositeKey: 'kb', path: 'b.ts' }];
+      harness.state.activeTabId = 'kb';
+      harness.state.editorState = { pane: openPane };
+      harness.notify();
+    });
+    await waitFor(() =>
+      expect(harness.rows.get('thread-b')?.editors['kb']?.pane).toEqual(openPane)
+    );
+    earlier.unmount();
+
+    // The next document shows thread-a, switches to thread-b, and quits before b's read answers.
+    await relaunch();
+    const switching = renderHook(
+      ({ activeThreadId }) =>
+        useThreadWorkspaceCoordinator({
+          activeThreadId,
+          debounceMs: 50,
+          facade: harness.facade,
+          navigation: harness.navigation,
+          openThreadIds: [activeThreadId],
+          repository: harness.repository,
+          resourceId: 'brainstrike:workspace',
+          subscribe: harness.subscribe,
+        }),
+      { initialProps: { activeThreadId: 'thread-a' } }
+    );
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const read = Promise.withResolvers<WorkspaceSnapshotV1 | null>();
+    vi.mocked(harness.repository.getThreadWorkspace).mockReturnValueOnce(read.promise);
+    switching.rerender({ activeThreadId: 'thread-b' });
+    await act(async () => {
+      await prepareRendererClose();
+    });
+    switching.unmount();
+
+    // File panes are session-only: the relaunched document starts without any.
+    harness.state.editorState = {};
+    await relaunch();
+    const hydrated = vi.spyOn(harness.navigation, 'complete');
+    const reopened = render(harness, 'thread-b');
+    try {
+      await waitFor(() => expect(hydrated).toHaveBeenCalled());
+      await act(async () => {
+        for (let turn = 0; turn < 10; turn += 1) {
+          await Promise.resolve();
+        }
+      });
+      expect(harness.facade.applyPanes).toHaveBeenLastCalledWith({ kb: openPane });
+      expect(harness.rows.get('thread-b')?.editors['kb']?.pane).toEqual(openPane);
+    } finally {
+      reopened.unmount();
+    }
+  });
 });
 
 /** A relaunched document: a fresh close registry and coordinator module, the same storage. */
