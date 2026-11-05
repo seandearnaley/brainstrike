@@ -15,8 +15,7 @@ import { borrowHostAdmission } from './admission-lease.ts';
 import {
   describeHostChildContinuation,
   describeHostChildLedger,
-  describeHostDelivery,
-  type HostChildLedgerState,
+  type HostChildLedgerEntry,
 } from './child-delivery.ts';
 import {
   type HostChildColoring,
@@ -34,24 +33,22 @@ import {
 } from './child-runs.ts';
 import { HostChildWorkQueue } from './child-work-queue.ts';
 import { hostRunTurnId, hostTurnStopped } from './committed-identities.ts';
-import {
-  describeHostCommandSessionExits,
-  hostCommandSessionDelivery,
-} from './core-command-exits.ts';
 import { retainHostRunWork } from './core-run-lifecycle.ts';
 import {
   type HostRunState,
   type HostThreadGrants,
   hasHostInteractionResponse,
 } from './core-state.ts';
+import {
+  type HostChildNotice,
+  type HostNoticeBranch,
+  HostNotices,
+  type HostSessionNotice,
+  hostChildNotice,
+  hostNoticeBranch,
+} from './notices.ts';
+import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.ts';
 import type {
-  HostCommandSessionExit,
-  HostDelegation,
-  HostPlatform,
-  HostRunAdmission,
-} from './ports.ts';
-import type {
-  HostChildDelivery,
   HostChildDeliveryEntry,
   HostChildOrigin,
   HostChildStatus,
@@ -60,7 +57,7 @@ import type {
   HostResults,
   HostRunSelection,
 } from './protocol.ts';
-import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.ts';
+import { delegatedHostRunAdmission, startedHostRun } from './run-branch.ts';
 
 type Action = Extract<
   HostEvent,
@@ -112,59 +109,6 @@ export interface HostPreparedChild {
   readonly settled: Promise<void>;
   readonly threadId: string;
 }
-type Pending = ReturnType<HostChildRuns['pending']>;
-/** The command sessions that ended by themselves, waiting for the thread a run starts on. */
-export interface HostWakeExits {
-  readonly exits: readonly HostCommandSessionExit[];
-  readonly threadId: string;
-  /** The turn a wake continues when it delivers no invocation's result: the run it follows, unless stopped. */
-  readonly turnId: string;
-}
-/**
- * A new run's position with the child results and ended command sessions it
- * delivers (BST-1932): a wake's prompt is that delivery; any other run carries
- * it ahead of the person's own message.
- */
-export function hostDeliveryPosition(
-  method: string,
-  messageId: string,
-  position: HostRunPosition,
-  pending: Pending,
-  ended: HostWakeExits
-): HostRunPosition {
-  const { exits } = ended;
-  const sessions =
-    exits.length > 0 ? { commandSessions: exits.map(hostCommandSessionDelivery) } : {};
-  const parts = [
-    pending?.ledger,
-    exits.length > 0 ? describeHostCommandSessionExits(ended.threadId, exits) : undefined,
-  ];
-  const report = parts.some(Boolean) ? describeHostDelivery(parts) : '';
-  if (method === 'wake') {
-    const turnId = pending?.turnId ?? ended.turnId;
-    if (report === '') {
-      throw new Error('A wake has nothing undelivered');
-    }
-    return {
-      ...position,
-      delivery: { ...sessions, entries: pending?.entries ?? [], messageId, turnId, via: 'wake' },
-      prompt: report,
-    };
-  }
-  if (report === '') {
-    return position;
-  }
-  return {
-    ...position,
-    delivery: {
-      ...sessions,
-      entries: pending?.entries ?? [],
-      ledger: report,
-      messageId: randomUUID(),
-      via: 'next-turn',
-    },
-  };
-}
 /** A policy answer that did not commit leaves its approval for a person. */
 function reportHostGrantFailure(run: HostRunState, cause: unknown): void {
   logger.warn('Host policy answer was not committed', {
@@ -183,15 +127,6 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
   });
 }
 type Outcome = NonNullable<HostRunState['outcome']>;
-function settledState(outcome: Outcome): HostChildDeliveryEntry['state'] {
-  if (outcome === 'completed') {
-    return 'returned';
-  }
-  return outcome === 'stopped' ? 'cancelled' : 'failed';
-}
-function ledgerState(outcome: HostRunState['outcome']): HostChildLedgerState {
-  return outcome === undefined ? 'running' : settledState(outcome);
-}
 /**
  * BST-1932: whether `run` is the run that takes the human input `accepted`
  * handed on (a committed run/input, never a legacy run/steer): the run its
@@ -215,11 +150,6 @@ function hostRunTakingInput(run: HostRunState, runs: ReadonlyMap<string, HostRun
       takesHostInputOf(next, run) &&
       (!next.terminal || hostRunTakingInput(next, runs)))
   );
-}
-interface Invocation {
-  readonly origin: HostChildOrigin;
-  readonly run: HostRunState;
-  readonly threadId: string;
 }
 /**
  * BST-1932: HostCore's child-thread registry, folded from the committed log.
@@ -285,8 +215,8 @@ export class HostChildRuns {
   private readonly coloring = new Map<string, HostChildColoring>();
   /** Each child thread's invocation run: the first run its delegation started. */
   private readonly invocations = new Map<string, string>();
-  /** Child runs whose outcome reached the parent's model (the durable watermark). */
-  private readonly delivered = new Set<string>();
+  /** What each thread is told that no person typed (ADR-0028 step 3b). */
+  readonly notices = new HostNotices();
   private readonly settlements = new Map<string, PromiseWithResolvers<void>>();
   /** Each child run's `maxChildRuntimeMs`, captured from its delegation's settings. */
   private readonly runtimeLimits = new Map<string, number | null>();
@@ -303,6 +233,7 @@ export class HostChildRuns {
     return [...children, threadId];
   }
   forget(threadId: string): void {
+    this.notices.forget(threadId);
     this.origins.delete(threadId);
     this.invocations.delete(threadId);
     this.grantsByRoot.delete(threadId);
@@ -333,7 +264,8 @@ export class HostChildRuns {
       if (run && origin) {
         this.adopt(run, origin);
       }
-      this.recordDelivery(event.delivery);
+    } else if (event.type === 'notice.posted') {
+      this.notices.fold(row);
     } else if (event.type === 'run.finished') {
       this.settlements.get(event.runId)?.resolve();
       this.settlements.delete(event.runId);
@@ -484,8 +416,6 @@ export class HostChildRuns {
     selections: {
       forWake(threadId: string): HostRunSelection;
     },
-    /** Whether command sessions that ended by themselves wait for this thread. */
-    exited: boolean,
     /**
      * The run a rewind left as the thread's tip (`HostThreadRewinds.tip`):
      * null for the thread's start, which a wake cannot follow, so results
@@ -496,8 +426,11 @@ export class HostChildRuns {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
     const tip =
       rewound === undefined ? own.at(-1) : rewound === null ? undefined : runs.get(rewound);
-    const pending = this.pending(threadId, runs, undefined, false);
-    if (!(tip && (pending || exited)) || own.some((run) => !run.terminal)) {
+    if (!tip || own.some((run) => !run.terminal)) {
+      return;
+    }
+    const pending = this.pending(threadId, runs, tip, false);
+    if (!pending) {
       return;
     }
     return {
@@ -616,19 +549,17 @@ export class HostChildRuns {
     this.coloring.set(root, coloring);
     return { colors: coloring.colors, committed };
   }
-  /** A committed run.started's delivery advances the watermark. */
-  recordDelivery(delivery: HostChildDelivery | undefined): void {
-    for (const entry of delivery?.entries ?? []) {
-      this.delivered.add(entry.childRunId);
-    }
-  }
   /**
    * The parent thread a settled child run reports to: a background invocation
    * in any outcome; a follow-up when it completed, or in any outcome when it
    * takes the human input of a run that reports, whose report it carries (a
    * pause or a stop never wakes the parent otherwise).
    */
-  deliveryParent(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): string | undefined {
+  deliveryParent(
+    run: HostRunState,
+    runs: ReadonlyMap<string, HostRunState>,
+    outcome = run.outcome
+  ): string | undefined {
     const origin = run.origin;
     if (!origin) {
       return;
@@ -636,9 +567,43 @@ export class HostChildRuns {
     const invocation = this.invocations.get(run.threadId) === run.id;
     const reports = invocation
       ? origin.background
-      : run.outcome === 'completed' || this.inputOf(run, runs) !== undefined;
+      : outcome === 'completed' || this.inputOf(run, runs) !== undefined;
     return reports ? origin.parentThreadId : undefined;
   }
+  /**
+   * ADR-0028 step 3b: the notices a child run's terminal commit posts on the
+   * thread it reports to, decided once, here. A run that hands its human input
+   * on posts nothing yet: the run taking that input reports for both.
+   */
+  notify(
+    run: HostRunState,
+    ended: { readonly detail?: string | undefined; readonly outcome: Outcome },
+    runs: ReadonlyMap<string, HostRunState>
+  ): { readonly event: HostEvent; readonly threadId: string }[] {
+    const parent = this.deliveryParent(run, runs, ended.outcome);
+    if (parent === undefined || run.childInput) {
+      return [];
+    }
+    const chain: HostRunState[] = [];
+    for (let at: HostRunState | undefined = run; at; at = this.inputOf(at, runs)) {
+      if (this.notices.has(parent, at.id)) {
+        break;
+      }
+      chain.unshift(at);
+    }
+    return chain.map((at) => ({
+      event: {
+        notice: hostChildNotice(
+          at,
+          this.invocations.get(at.threadId) === at.id,
+          at === run ? ended : { detail: at.detail, outcome: at.outcome }
+        ),
+        type: 'notice.posted',
+      },
+      threadId: parent,
+    }));
+  }
+
   /**
    * A delegation. The child thread's origin and first run commit with the
    * parent's effect in one transaction, and the child runs its own loop and
@@ -704,128 +669,113 @@ export class HostChildRuns {
     }, limit);
   }
   /**
-   * Settled background invocations of `threadId` not yet delivered, with the
-   * ledger of every background invocation of their turns and every one still
-   * running from the thread's other turns. A stopped turn's
-   * results wait for the next user turn (`includeStopped`), never a wake.
+   * The notices due on `threadId` for a run after `after`: those no run on
+   * that branch has taken, with the ledger of every background invocation of
+   * their turns and every one still at work from the thread's other turns. A
+   * stopped turn's notices wait for the next user turn (`includeStopped`),
+   * never a wake.
    */
   pending(
     threadId: string,
     runs: ReadonlyMap<string, HostRunState>,
-    delegation: HostDelegation | undefined,
+    after: HostRunState | undefined,
     includeStopped: boolean
   ):
     | {
         readonly entries: HostChildDeliveryEntry[];
-        readonly ledger: string;
+        readonly ledger: string | undefined;
+        readonly sessions: readonly HostSessionNotice[];
         readonly turnId: string | undefined;
       }
     | undefined {
-    const { all, followUps } = this.reports(threadId, runs);
-    // An invocation still taking human input reports with that input's run.
-    const reported = ({ run }: Invocation): Outcome | undefined =>
-      hostRunTakingInput(run, runs) ? undefined : run.outcome;
-    const due = all.flatMap((invocation) => {
-      const outcome = reported(invocation);
-      return outcome &&
-        !this.delivered.has(invocation.run.id) &&
-        (includeStopped || !hostTurnStopped(runs, invocation.origin.turnId))
-        ? [{ ...invocation, outcome }]
-        : [];
-    });
-    // A follow-up still taking human input reports with that input's run, and
-    // the run taking a run's input is delivered with that run, never alone.
-    // Follow-ups are in commit order, so the run whose input one takes comes first.
-    const reporting = new Set(due.map(({ run }) => run.id));
-    const continuing: typeof followUps = [];
-    for (const followUp of followUps) {
-      const accepted = this.inputOf(followUp.run, runs);
-      if (
-        hostRunTakingInput(followUp.run, runs) ||
-        (accepted && !(reporting.has(accepted.id) || this.delivered.has(accepted.id)))
-      ) {
-        continue;
-      }
-      reporting.add(followUp.run.id);
-      continuing.push(followUp);
-    }
-    if (due.length === 0 && continuing.length === 0) {
+    const stopped = (turnId: string | undefined): boolean =>
+      !includeStopped && turnId !== undefined && hostTurnStopped(runs, turnId);
+    const tipStopped = stopped(after && hostRunTurnId(after));
+    const branch = hostNoticeBranch(runs, after);
+    const due = this.notices
+      .due(threadId, branch)
+      .filter((notice) => (notice.kind === 'child' ? !stopped(notice.turnId) : !tipStopped));
+    if (due.length === 0) {
       return;
     }
-    const persona = ({ origin, run }: Invocation): AssistantPersonaDefinition =>
-      delegation?.personas.find((candidate) => candidate.id === origin.persona) ?? {
-        // A persona removed since dispatch keeps its committed identity and budget.
-        allowedToolIds: [],
-        description: origin.persona,
-        id: origin.persona,
-        instructions: '',
-        label: origin.persona,
-        maxSteps: run.snapshot?.maxSteps ?? 0,
-      };
-    const entry = (invocation: Invocation, outcome: Outcome): HostChildDeliveryEntry => ({
-      childRunId: invocation.run.id,
-      childThreadId: invocation.threadId,
-      outcome: hostChildResult(
-        invocation.threadId,
-        persona(invocation),
-        outcome,
-        invocation.run.messages
-      ).text,
-      parentRunId: invocation.origin.parentRunId,
-      state: settledState(outcome),
-      toolCallId: invocation.origin.toolCallId,
-    });
-    const turns = new Set(due.map(({ origin }) => origin.turnId));
-    const continued = continuing.map(
-      (followUp): HostChildDeliveryEntry => ({
-        ...entry(followUp, followUp.outcome),
-        followUp: true,
-      })
+    const children = due.filter((notice): notice is HostChildNotice => notice.kind === 'child');
+    const sessions = due.filter(
+      (notice): notice is HostSessionNotice => notice.kind === 'command-session'
     );
+    const invoked = children.filter((notice) => !notice.entry.followUp);
+    const continued = children.filter((notice) => notice.entry.followUp);
+    const turns = new Set(invoked.map((notice) => notice.turnId));
     // The ledger is the one message the parent's model is sure to read, and an
     // earlier wake's can leave Memory's window: each settled outcome is in it,
     // in full when first delivered and by its opening after that.
-    const settledOutcome = (invocation: Invocation): string | undefined => {
-      const outcome = reported(invocation);
-      return outcome === undefined ? undefined : entry(invocation, outcome).outcome;
-    };
-    const ledger = due.length
-      ? [
-          describeHostChildLedger(
-            all
-              // Another turn's invocation still at work is listed too: a
-              // ledger that left it out told the model nothing was running,
-              // and the model dispatched that work a second time.
-              .filter(
-                (invocation) =>
-                  turns.has(invocation.origin.turnId) || reported(invocation) === undefined
-              )
-              .map((invocation) => ({
-                callSign: hostChildCallSign(invocation.threadId),
-                deliveredEarlier: this.delivered.has(invocation.run.id),
-                earlierTurn: !turns.has(invocation.origin.turnId),
-                outcome: settledOutcome(invocation),
-                persona: persona(invocation).label,
-                prompt: invocation.run.branch.prompt,
-                reason: invocation.run.detail,
-                state: ledgerState(reported(invocation)),
-                toolCallId: invocation.origin.toolCallId,
-                toolName: `agent-${invocation.origin.persona}`,
-              }))
-          ),
-        ]
-      : [];
+    const settled = this.notices
+      .of(threadId)
+      .filter(
+        (notice): notice is HostChildNotice =>
+          notice.kind === 'child' && !notice.entry.followUp && turns.has(notice.turnId)
+      )
+      .map(
+        (notice): HostChildLedgerEntry => ({
+          callSign: hostChildCallSign(notice.entry.childThreadId),
+          deliveredEarlier: branch.taken.has(notice.entry.childRunId),
+          outcome: notice.entry.outcome,
+          persona: notice.persona,
+          prompt: notice.prompt,
+          reason: notice.reason,
+          state: notice.entry.state,
+          toolCallId: notice.entry.toolCallId,
+          toolName: notice.toolName,
+        })
+      );
+    // Another turn's invocation still at work is listed too: a ledger that
+    // left it out told the model nothing was running, and the model
+    // dispatched that work a second time.
+    const working = this.working(threadId, runs, branch).map(
+      ({ origin, run }): HostChildLedgerEntry => ({
+        callSign: hostChildCallSign(run.threadId),
+        earlierTurn: !turns.has(origin.turnId),
+        persona: origin.profile?.label ?? origin.persona,
+        prompt: run.branch.prompt,
+        reason: run.detail,
+        state: 'running',
+        toolCallId: origin.toolCallId,
+        toolName: `agent-${origin.persona}`,
+      })
+    );
+    const ledger = [
+      ...(invoked.length > 0 ? [describeHostChildLedger([...settled, ...working])] : []),
+      ...continued.map((notice) =>
+        describeHostChildContinuation(notice.entry, hostChildCallSign(notice.entry.childThreadId))
+      ),
+    ].join('\n\n');
     return {
-      entries: [...due.map((invocation) => entry(invocation, invocation.outcome)), ...continued],
-      ledger: [
-        ...ledger,
-        ...continued.map((followUp) =>
-          describeHostChildContinuation(followUp, hostChildCallSign(followUp.childThreadId))
-        ),
-      ].join('\n\n'),
+      entries: [...invoked, ...continued].map((notice) => notice.entry),
+      ledger: ledger === '' ? undefined : ledger,
+      sessions,
       // The turn its invocations belong to; a follow-up's report is not a turn of the parent's.
-      turnId: due.at(-1)?.origin.turnId,
+      turnId: invoked.at(-1)?.turnId,
     };
+  }
+  /**
+   * The background invocations `branch` dispatched that are still at work:
+   * running, or settled while the run taking their human input runs.
+   */
+  private working(
+    threadId: string,
+    runs: ReadonlyMap<string, HostRunState>,
+    branch: HostNoticeBranch
+  ): { readonly origin: HostChildOrigin; readonly run: HostRunState }[] {
+    return [...runs.values()].flatMap((run) => {
+      const origin = run.origin;
+      return origin?.parentThreadId === threadId &&
+        branch.runs.has(origin.parentRunId) &&
+        origin.background &&
+        this.invocations.get(run.threadId) === run.id &&
+        !this.notices.has(threadId, run.id) &&
+        (!run.terminal || hostRunTakingInput(run, runs))
+        ? [{ origin, run }]
+        : [];
+    });
   }
   /**
    * The run whose accepted human input `run` takes (its branch parent), when
@@ -842,41 +792,6 @@ export class HostChildRuns {
       this.deliveryParent(accepted, runs) !== undefined
       ? accepted
       : undefined;
-  }
-  /**
-   * What `threadId`'s children report to it: its background invocations, and
-   * the follow-ups typed into any of its children not yet delivered: those that
-   * completed, and the run taking a reported run's input in any outcome.
-   */
-  private reports(
-    threadId: string,
-    runs: ReadonlyMap<string, HostRunState>
-  ): {
-    readonly all: Invocation[];
-    readonly followUps: (Invocation & { readonly outcome: Outcome })[];
-  } {
-    const all: Invocation[] = [];
-    const followUps: (Invocation & { readonly outcome: Outcome })[] = [];
-    for (const run of runs.values()) {
-      const origin = run.origin;
-      if (origin?.parentThreadId !== threadId) {
-        continue;
-      }
-      const invocation: Invocation = { origin, run, threadId: run.threadId };
-      const outcome = run.outcome;
-      if (this.invocations.get(run.threadId) === run.id) {
-        if (origin.background) {
-          all.push(invocation);
-        }
-      } else if (
-        outcome !== undefined &&
-        !this.delivered.has(run.id) &&
-        (outcome === 'completed' || this.inputOf(run, runs) !== undefined)
-      ) {
-        followUps.push({ ...invocation, outcome });
-      }
-    }
-    return { all, followUps };
   }
   /** The child's identity, its admission narrowed from the parent's, and its committed rows. */
   private prepare(
