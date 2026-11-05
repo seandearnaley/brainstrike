@@ -1,7 +1,4 @@
-import {
-  __resetTokenPreferencesStoreForTests,
-  useTokenPreferencesStore,
-} from '@brainstrike/app-state/stores/token-preferences-store';
+import { useTokenPreferencesStore } from '@brainstrike/app-state/stores/token-preferences-store';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +8,6 @@ const { TokenCountingSettingsSection } = await import(
 
 describe('TokenCountingSettingsSection', () => {
   beforeEach(() => {
-    __resetTokenPreferencesStoreForTests();
     useTokenPreferencesStore.setState({ accurateCounting: true });
     vi.clearAllMocks();
   });
@@ -21,21 +17,23 @@ describe('TokenCountingSettingsSection', () => {
 
     render(<TokenCountingSettingsSection accurateRuntimeAvailable={true} />);
 
-    expect(screen.queryByText('Heuristic mode (explicit)')).not.toBeNull();
-    expect(screen.queryByText(/only because you explicitly selected it/iu)).not.toBeNull();
+    expect(screen.queryByText('Estimated counts')).not.toBeNull();
+    expect(screen.queryByText(/because you turned accurate counts off/iu)).not.toBeNull();
   });
 
   it('renders unavailable status when runtime does not support WASM tokenizer', async () => {
     render(<TokenCountingSettingsSection accurateRuntimeAvailable={false} />);
 
-    expect(await screen.findByText('Accurate tokenizer unavailable')).not.toBeNull();
-    expect(screen.queryByText(/Requests that need token sizing will fail/iu)).not.toBeNull();
+    expect(await screen.findByText('Accurate counts unavailable')).not.toBeNull();
+    expect(screen.queryByText(/anything that needs a token count fails/iu)).not.toBeNull();
   });
 
   it('disables accurate counting via toggle', async () => {
     render(<TokenCountingSettingsSection accurateRuntimeAvailable={true} />);
 
-    const toggle = await screen.findByRole('switch');
+    const toggle = await screen.findByRole('switch', {
+      name: 'Accurate token counts (recommended)',
+    });
     expect(toggle.getAttribute('aria-checked')).toBe('true');
 
     fireEvent.click(toggle);
@@ -43,12 +41,12 @@ describe('TokenCountingSettingsSection', () => {
     await waitFor(() => {
       expect(useTokenPreferencesStore.getState().accurateCounting).toBe(false);
     });
-    expect(screen.queryByText(/Heuristic mode/u)).not.toBeNull();
+    expect(screen.queryByText('Estimated counts')).not.toBeNull();
   });
 
   it('shows checking state when runtime availability is unresolved', async () => {
     render(<TokenCountingSettingsSection accurateRuntimeAvailable={null} />);
 
-    expect(await screen.findByText('Checking runtime…')).not.toBeNull();
+    expect(await screen.findByText('Checking…')).not.toBeNull();
   });
 });

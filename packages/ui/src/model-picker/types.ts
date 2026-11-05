@@ -2,9 +2,8 @@ import type React from 'react';
 
 export interface ModelPickerModel {
   capabilities: {
-    type: 'llm' | 'embedding';
+    type: 'llm';
     streaming?: boolean;
-    defaultDimension?: number;
     /** Image-input support (LLM models). */
     vision?: 'supported' | 'unsupported';
     /**
@@ -32,7 +31,6 @@ export interface ModelPickerProvider {
   name: string;
 }
 
-export type ModelType = 'llm' | 'embedding' | 'all';
 export type ModelPickerSelectionMode = 'single' | 'multi';
 
 export interface TriggerRenderProps {
@@ -61,14 +59,11 @@ export interface ModelPickerProps {
   /** Models to display (typically from useModelRegistryStore) */
   models: ModelPickerModel[];
 
-  /** Filter by model type */
-  modelType?: ModelType; // default: 'all'
-
   /** Callback when selection changes */
   onChange?: (value: string | string[]) => void;
 
   /** Placeholder text when nothing selected */
-  placeholder?: string; // default: 'Select a model...'
+  placeholder?: string; // default: 'Select a model…'
 
   /** Providers for grouping (typically from useModelRegistryStore) */
   providers: ModelPickerProvider[];

@@ -27,9 +27,7 @@ describe('spanFreshness', () => {
 
   it('is unknown without current text, delivered lines, a start line, or for a repeat read', () => {
     expect(spanFreshness(read(1, ['one']), undefined)).toBe('unknown');
-    expect(spanFreshness({ chunkId: 'c', kind: 'semantic', path: 'src/a.ts' }, current)).toBe(
-      'unknown'
-    );
+    expect(spanFreshness({ kind: 'grep', path: 'src/a.ts' }, current)).toBe('unknown');
     expect(
       spanFreshness({ endLine: 2, kind: 'edit', path: 'src/a.ts', startLine: 1 }, current)
     ).toBe('unknown');

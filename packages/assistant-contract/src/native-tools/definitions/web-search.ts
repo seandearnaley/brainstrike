@@ -7,6 +7,12 @@ import { WebSearchInputSchema } from '../schemas/schemas-search.ts';
 // it by default like the other readers. NOTE the privacy caveat documented on
 // the tool description: it sends the query to an EXTERNAL service (Tavily).
 export const webSearch = defineNativeTool({
+  activity: {
+    active: 'Searching the web',
+    done: 'Searched the web',
+    family: 'web',
+    request: 'Search the web',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 130,

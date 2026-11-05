@@ -1,5 +1,5 @@
 /**
- * Input schemas for the diagnostics, queue and embedding-set agent tools.
+ * Input schemas for the diagnostics and queue agent tools.
  *
  * Authored in Effect Schema: ADR-0004 (amended 2026-10-15) makes Effect the
  * single boundary owner, and `effectToolInputSchema` derives the provider JSON
@@ -19,9 +19,6 @@ import { Schema } from 'effect';
  */
 const bounded = (minimum: number, maximum: number) =>
   Schema.String.check(Schema.isMinCodePoints(minimum), Schema.isMaxLength(maximum));
-
-/** A non-empty string with no upper bound. */
-const nonEmpty = Schema.String.check(Schema.isMinCodePoints(1));
 
 /** An ISO-8601 instant, bounded to the lengths the offset forms occupy. */
 const isoBound = bounded(20, 35);
@@ -62,63 +59,3 @@ export const QueryDiagnosticsInputSchema = Schema.Struct({
 });
 
 export type QueryDiagnosticsInput = typeof QueryDiagnosticsInputSchema.Type;
-
-// ============================================================================
-// Queue Status Tool Schema
-// ============================================================================
-
-export const QueueStatusInputSchema = Schema.Struct({
-  embeddingSetId: Schema.optionalKey(
-    nonEmpty.annotate({
-      description: 'Optional: filter to specific embedding set',
-    })
-  ),
-});
-
-export type QueueStatusInput = typeof QueueStatusInputSchema.Type;
-
-// ============================================================================
-// Embedding Sets Tool Schemas
-// ============================================================================
-
-export const ListEmbeddingSetsInputSchema = Schema.Struct({
-  includeStats: Schema.optionalKey(
-    Schema.Boolean.annotate({ description: 'Include coverage statistics' })
-  ),
-  workspaceIndexOnly: Schema.optionalKey(
-    Schema.Boolean.annotate({
-      description: 'Only return the embedding space configured as the current workspace index',
-    })
-  ),
-});
-
-export type ListEmbeddingSetsInput = typeof ListEmbeddingSetsInputSchema.Type;
-
-// ============================================================================
-// System Diagnostics Tool Schema
-// ============================================================================
-
-export const SystemDiagnosticsInputSchema = Schema.Struct({
-  categories: Schema.optionalKey(
-    Schema.Array(Schema.Literals(['database', 'queue', 'worker', 'storage', 'all'])).annotate({
-      description: 'Diagnostic categories to check',
-    })
-  ),
-});
-
-export type SystemDiagnosticsInput = typeof SystemDiagnosticsInputSchema.Type;
-
-// ============================================================================
-// Re-embed Collection Tool Schema
-// ============================================================================
-
-export const ReembedCollectionInputSchema = Schema.Struct({
-  embeddingSetId: nonEmpty.annotate({
-    description: 'Embedding set ID to re-embed',
-  }),
-  reason: Schema.optionalKey(
-    Schema.String.check(Schema.isMaxLength(200)).annotate({
-      description: 'Reason for re-embedding',
-    })
-  ),
-});

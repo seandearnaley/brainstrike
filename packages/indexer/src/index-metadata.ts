@@ -1,28 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import {
-  decoder,
-  IndexerError,
-  type IndexerIdentity,
-  type IndexerOptions,
-  scopedProofIdentitySchema,
-} from './contracts.ts';
+import { decoder, IndexerError, type IndexerIdentity } from './contracts.ts';
 
-export const INDEX_SCHEMA_VERSION = 16;
+/** 17: the workspace file, chunk, symbol and vector tables are gone (BST-2436). */
+export const INDEX_SCHEMA_VERSION = 17;
 /** Derived data is rebuildable (ADR-0020): any other stored version refuses as rebuild-required. */
 const supportedSchemaVersion = Schema.Literal(INDEX_SCHEMA_VERSION);
 const metadataSchema = Schema.Struct({
   schemaVersion: supportedSchemaVersion,
   storeId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
 });
-export function freshIdentity(options: IndexerOptions): IndexerIdentity {
-  if (options.embedding.indexMode === 'open-existing') {
-    throw new IndexerError(
-      'index-not-found',
-      'Explicit open-existing requires an existing index file.'
-    );
-  }
+export function freshIdentity(): IndexerIdentity {
   return { storeId: randomBytes(32).toString('hex') };
 }
 /** Driver-neutral row boundary; the supplied metadata must come from the caller's owned snapshot. */
@@ -70,27 +59,4 @@ export function readIndexIdentity(db: Database.Database): IndexerIdentity {
       { cause: error }
     );
   }
-}
-export function readScopeEpoch(db: Database.Database): string {
-  try {
-    return decoder(scopedProofIdentitySchema.fields.authorityEpoch)(
-      db.prepare('SELECT epoch FROM index_scope_authority WHERE singleton=1').pluck().get()
-    );
-  } catch (error) {
-    throw new IndexerError(
-      'rebuild-required',
-      `Stored scope authority is invalid: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error }
-    );
-  }
-}
-export function readScopedIdentity(
-  db: Database.Database,
-  authorityRevision: number
-): typeof scopedProofIdentitySchema.Type {
-  return decoder(scopedProofIdentitySchema)({
-    authorityEpoch: readScopeEpoch(db),
-    authorityRevision,
-    storeId: readIndexIdentity(db).storeId,
-  });
 }

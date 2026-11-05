@@ -1,12 +1,9 @@
-import {
-  __resetSecretsStoreForTests,
-  useSecretsStore,
-} from '@brainstrike/app-state/stores/secrets-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCredentialSources } from '../use-credential-sources';
 
 interface SecretsApi {
@@ -24,10 +21,6 @@ function installSecretsBridge(list: () => Promise<unknown>): void {
 function removeSecretsBridge(): void {
   (window as unknown as Record<string, unknown>)['secrets'] = undefined;
 }
-
-beforeEach(() => {
-  __resetSecretsStoreForTests();
-});
 
 afterEach(() => {
   removeSecretsBridge();

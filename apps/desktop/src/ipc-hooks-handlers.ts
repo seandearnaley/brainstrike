@@ -103,16 +103,16 @@ export function resolveDbRootForPath(
 }
 
 export function getProjectHooksForReview(
-  rootId: unknown,
-  absPath: unknown,
+  rootId: string,
+  absPath: string,
   deps: HooksReviewDeps
 ): ProjectHooksReview {
   const read = deps.readFile ?? readProjectHookConfig;
   const realpath = deps.realpath ?? realpathSync;
-  if (typeof rootId !== 'string' || rootId.length === 0) {
+  if (rootId.length === 0) {
     return { error: 'rootId must be a non-empty string', exists: false, path: '', rootId: '' };
   }
-  if (typeof absPath !== 'string' || absPath.trim().length === 0 || !isAbsolute(absPath.trim())) {
+  if (absPath.trim().length === 0 || !isAbsolute(absPath.trim())) {
     return {
       error: 'root path must be a non-empty absolute path',
       exists: false,

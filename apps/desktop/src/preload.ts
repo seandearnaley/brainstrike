@@ -11,24 +11,19 @@ import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/ma
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
+import { appLifetimeContract } from './ipc-domains/app-lifetime.contract';
 import { appUpdatesContract } from './ipc-domains/app-updates.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
-import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
-import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
-import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
-import { storageContract } from './ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
-import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import {
   createBridgeExposer,
   createDesktopIpcTransport,
@@ -99,10 +94,6 @@ ipcRenderer.on(
 ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, payload: unknown) => {
   window.postMessage({ payload, type: 'agent-host/disconnected' }, '*');
 });
-// This set only selects the E2E-only seed channel; MAIN validates the exact
-// authoritative allowlist again on every call.
-const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
-
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 
@@ -130,33 +121,15 @@ function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
 }
 
-// Expose storage APIs to renderer
 if (shouldExposeBridge('electronAPI')) {
-  const storageBridge = createIpcBridge(ipcRenderer, storageContract);
   const electronAPI = {
     content: createIpcBridge(ipcRenderer, contentClearContract),
     factoryReset: {
       ...createIpcBridge(ipcRenderer, factoryResetContract),
       unavailableReason: getFactoryResetUnavailableReason(process.platform),
     },
-    fileSystem: {
-      ...createIpcBridge(ipcRenderer, fileSystemContract),
-      ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
-    },
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
-    storage: {
-      ...(DESKTOP_TEST_MODE
-        ? { clearAllForE2e: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e) }
-        : {}),
-      getAllKeys: storageBridge.getAllKeys,
-      getItem: storageBridge.getItem,
-      removeItem: storageBridge.removeItem,
-      setItem: (key: string, value: string) =>
-        DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
-          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e, key, value)
-          : storageBridge.setItem(key, value),
-    },
   } satisfies VisibleDesktopElectronApi;
   assertDesktopElectronApiKeyParity(electronAPI);
   contextBridge.exposeInMainWorld('electronAPI', electronAPI);
@@ -185,10 +158,6 @@ contextBridge.exposeInMainWorld('secrets', {
 contextBridge.exposeInMainWorld('envBootstrap', {
   read: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.secrets.envBootstrap),
 });
-
-if (shouldExposeBridge('indexSearch')) {
-  exposeBridge('indexSearch', indexSearchContract);
-}
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,
@@ -299,6 +268,13 @@ contextBridge.exposeInMainWorld('appMenu', {
 // resolving a Finder-dropped folder to an absolute path. The two `on*` members
 // mirror commandPalette; `getDroppedPath` is preload-local.
 let workspaceResetGenerationPayload: unknown = { resetGeneration: null };
+let workspaceOpenPathReady = false;
+const sendOpenPathReady = (): void => {
+  void ipcRenderer.invoke(
+    DESKTOP_IPC_CHANNELS.workspace.openPathReady,
+    workspaceResetGenerationPayload
+  );
+};
 ipcRenderer.on(
   DESKTOP_IPC_CHANNELS.workspace.factoryResetGeneration,
   (_event: unknown, payload: unknown) => {
@@ -306,6 +282,11 @@ ipcRenderer.on(
     // wiring becomes an immediate reset diagnostic rather than being silently
     // normalized into a timeout.
     workspaceResetGenerationPayload = payload;
+    // The renderer can be ready before Main's challenge arrives (Main pushes it at
+    // dom-ready); answer it now so readiness does not depend on that order.
+    if (workspaceOpenPathReady) {
+      sendOpenPathReady();
+    }
   }
 );
 
@@ -325,10 +306,8 @@ if (shouldExposeBridge('workspace')) {
     // subscribes to `onOpenPath`, so main can gate delivery on the renderer
     // actually being ready to receive rather than merely having loaded.
     notifyOpenPathReady: (): void => {
-      void ipcRenderer.invoke(
-        DESKTOP_IPC_CHANNELS.workspace.openPathReady,
-        workspaceResetGenerationPayload
-      );
+      workspaceOpenPathReady = true;
+      sendOpenPathReady();
     },
     onOpenFolderPicker: (callback: () => void) => {
       const listener = () => callback();
@@ -366,6 +345,11 @@ if (shouldExposeBridge('windowFocus')) {
 // app launched, and show the profile's data folder. Desktop-only.
 if (shouldExposeBridge('agentHostRecovery')) {
   exposeBridge('agentHostRecovery', agentHostRecoveryContract);
+}
+
+// Settings › Startup (ADR-0033, desktop-only): keep running in the tray, open at login.
+if (shouldExposeBridge('appLifetime')) {
+  exposeBridge('appLifetime', appLifetimeContract);
 }
 
 // Settings › Updates (BST-2367, desktop-only): whether update checks offer betas.
@@ -478,23 +462,6 @@ if (shouldExposeBridge('hooks')) {
     untrustProjectHooks: (absPath: string) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks, absPath),
   });
-}
-
-// Workspace context-files bridge (desktop). Capability-gated: the Workspace
-// Instructions settings panel scans each mounted root's detected
-// AGENTS.md/AGENT.md/CLAUDE.md (size + token estimate + injection status) so the
-// user can opt an oversized file in. Web never constructs this bridge.
-if (shouldExposeBridge('contextFiles')) {
-  exposeBridge('contextFiles', contextFilesContract);
-}
-
-// Subagent persona discovery bridge (desktop-only). Capability-gated: the
-// Settings -> Subagents panel calls `list` to show built-in + user-defined
-// personas scanned from `.brainstrike/agents`. Web never constructs this
-// bridge (no preload), so consumers must capability-check
-// `window.assistantPersonas` rather than `isElectron()`.
-if (shouldExposeBridge('assistantPersonas')) {
-  exposeBridge('assistantPersonas', userPersonasContract);
 }
 
 if (shouldExposeBridge('threadGroups')) {

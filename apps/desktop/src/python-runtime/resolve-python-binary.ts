@@ -67,18 +67,6 @@ export function isPythonRuntimeError(error: unknown): error is PythonRuntimeErro
   return error instanceof PythonRuntimeError;
 }
 
-/**
- * Environment every launch of the bundled interpreter carries (BST-1627). The
- * tree ships inside the package, and on macOS inside the signed bundle, where a
- * `__pycache__` write would break the code signature's sealed resources. A
- * fenced run cannot write there anyway; an approved skill script runs unfenced
- * with the user's own access, so the interpreter must not try.
- */
-export const BUNDLED_PYTHON_ENV: Readonly<Record<string, string>> = {
-  // biome-ignore lint/style/useNamingConvention: CPython's documented variable name.
-  PYTHONDONTWRITEBYTECODE: '1',
-};
-
 export interface ResolvePythonBinaryOptions {
   /** Defaults to `process.arch`; injectable for tests. */
   readonly arch?: string;

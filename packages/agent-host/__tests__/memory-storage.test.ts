@@ -2,6 +2,7 @@ import type { MemoryDomainPort, MemorySnapshot } from '@brainstrike/state-store'
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { expect, test } from 'vitest';
 import { StateStoreMemoryStorage } from '../src/adapters/memory-storage.js';
+import { HostRunOwnerFailure } from '../src/run-admission.js';
 
 const committed: MastraDBMessage = {
   content: { format: 2, parts: [{ text: 'Committed host truth', type: 'text' }] },
@@ -87,7 +88,7 @@ test('public storage projects committed identities without appending native tran
   );
 });
 
-test('uncommitted native IDs and forbidden transcript mutations remain cleanup failures', async () => {
+test('uncommitted native IDs and forbidden transcript mutations are the run outcome once drained', async () => {
   const adapter = new StateStoreMemoryStorage(
     'resource',
     { memory: async () => empty },
@@ -99,6 +100,7 @@ test('uncommitted native IDs and forbidden transcript mutations remain cleanup f
   expect(uncommitted).toBeInstanceOf(Error);
   const forbidden = await adapter.deleteMessages([committed.id]).catch((cause: unknown) => cause);
   expect(forbidden).toBeInstanceOf(Error);
-  await expect(adapter.close()).rejects.toMatchObject({ errors: [uncommitted, forbidden] });
+  // A joined failure releases the run (closeHostRunResources); it never keeps the thread owned.
+  await expect(adapter.close()).rejects.toBeInstanceOf(HostRunOwnerFailure);
   await expect(adapter.close()).rejects.toMatchObject({ errors: [uncommitted, forbidden] });
 });

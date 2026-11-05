@@ -62,11 +62,13 @@ const ROOT_PLAIN = 'root-plain-c';
 
 function file(rootId: string, path: string, repositoryRoot: string | null): ChangedFileEntry {
   return {
+    actions: [],
     additions: null,
     deletions: null,
+    patch: null,
     path,
     repositoryRoot,
-    revertible: true,
+    revision: 'r1',
     rootId,
     status: 'modified',
     worktreePath: null,
@@ -232,7 +234,7 @@ function testFileSystemAdapter(): FileSystemAdapter {
 
 function renderDialog() {
   return render(
-    <AdaptersProvider fileSystemAdapter={testFileSystemAdapter()} storageAdapter={{} as never}>
+    <AdaptersProvider fileSystemAdapter={testFileSystemAdapter()}>
       <ActionRegistryProvider registry={testActionRegistry}>
         <RewindConfirmDialog />
         <Toaster />
@@ -291,13 +293,13 @@ describe('RewindConfirmDialog', () => {
     await waitFor(() => {
       expect(screen.getByTestId('changed-files-tree')).toBeInTheDocument();
     });
-    // All three files get a card — two roots that share the SAME relative path
-    // plus one file outside any repository. (Asserted on the diff pane rather
-    // than the tree: the tree viewport is virtualized and measures zero height
-    // in jsdom, so its rows are a false negative, not evidence.)
-    const cards = screen.getAllByTestId('changeset-file-diff-card-header');
-    expect(cards).toHaveLength(3);
-    expect(cards.map((card) => card.textContent ?? '').join('|')).toContain('scratch.md');
+    // All three files head the diff — two roots that share the SAME relative
+    // path plus one file outside any repository. (Asserted on the diff pane
+    // rather than the tree: the tree viewport is virtualized and measures zero
+    // height in happy-dom, so its rows are a false negative, not evidence.)
+    const headers = screen.getAllByTestId('diff-review-file-header');
+    expect(headers).toHaveLength(3);
+    expect(headers.map((header) => header.textContent ?? '').join('|')).toContain('scratch.md');
   });
 
   // ===== Scope choice (Amendment 1 A1.1) =====

@@ -73,7 +73,10 @@ test('a host run counts toward the daily cap, gates the next send, and lists in 
   const blocked = region.getByTestId('budget-guardrail-blocked');
   await expect(blocked).toContainText('Last-24h budget cap reached', { timeout: 30_000 });
   await expect(blocked).toContainText('Sending is paused.');
-  await expect(input).toBeDisabled();
+  // The draft stays editable; only sending is held.
+  await expect(input).toBeEnabled();
+  await input.fill('One more thought.');
+  await expect(region.getByRole('button', { exact: true, name: 'Send' })).toBeDisabled();
   await expect(region.getByTestId('budget-guardrail-unpriced')).toHaveCount(0);
 
   // The cost views list the host run from its committed log.

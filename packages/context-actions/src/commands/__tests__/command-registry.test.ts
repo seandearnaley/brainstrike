@@ -33,11 +33,7 @@ const fileTarget: ContextTarget = {
   rootFolderId: 'root-1',
 };
 
-const collectionTarget: ContextTarget = {
-  id: 'col-1',
-  kind: 'collection',
-  name: 'Docs',
-};
+const stripTarget: ContextTarget = { kind: 'tab-strip', stripId: 'strip-1' };
 
 describe('createCommandRegistry', () => {
   it('hides a command whose required capabilities exceed the context set', () => {
@@ -124,7 +120,7 @@ describe('bridgeActionToCommand', () => {
   });
 
   it('returns null for a target whose kind the action does not apply to', () => {
-    expect(bridgeActionToCommand(copyName, () => collectionTarget)).toBeNull();
+    expect(bridgeActionToCommand(copyName, () => stripTarget)).toBeNull();
   });
 
   it('returns null when the action isVisible gate fails for the target', () => {

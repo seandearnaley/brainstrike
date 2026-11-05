@@ -17,7 +17,6 @@ import { readHostRootRecords, readHostThreadTree, withAppHost } from './utils/ag
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
-import { textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-host-attached-files';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -196,9 +195,6 @@ test('a Search result file attaches to the thread as a mention and reaches the m
   try {
     await ensureMockWorkspaceOpen(page);
     await expect(page.getByText('search-hit.txt').first()).toBeVisible({ timeout: 60_000 });
-    await expect
-      .poll(() => textReadiness(page), { timeout: 120_000 })
-      .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
     await enableModel(page);
     const seen = { attached: false };
     modelProvider.setScript((request) => {

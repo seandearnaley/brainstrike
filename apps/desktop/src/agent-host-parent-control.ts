@@ -1,5 +1,4 @@
 import type { AgentHost } from '@brainstrike/agent-host';
-import type { ClearContentResult } from '@brainstrike/state-store';
 import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
 import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
@@ -10,7 +9,7 @@ export function receiveAgentHostParentMessage(
   input: unknown,
   host: AgentHost | undefined,
   cancel: () => void
-): Promise<ClearContentResult> | undefined {
+): Promise<void> | undefined {
   if (
     installParentPlatformPort(input) ||
     installHostLifetimePort(input, cancel) ||

@@ -11,7 +11,6 @@ export interface EnvironmentConfig {
   isCodex: boolean;
   isGitHubActions: boolean;
   retries: number;
-  workers: number | string;
 }
 
 export interface PlaywrightCliOverrides {
@@ -82,27 +81,6 @@ export const detectEnvironment = () => {
   const isCI = !!process.env[ciEnv] || isCodex || isGitHubActions;
 
   return { isCI, isCodex, isGitHubActions };
-};
-
-/**
- * Get worker count based on environment capabilities. A developer or sign-off
- * machine gets Playwright's own default, half its logical cores: a fixed 2 left
- * a 16-thread Windows box running the whole desktop suite two apps at a time.
- * https://playwright.dev/docs/api/class-testconfig#test-config-workers
- */
-export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>): number | string => {
-  const { isCodex, isGitHubActions, isCI } = env || detectEnvironment();
-
-  if (isCodex) {
-    return 1; // Codex has very limited resources
-  }
-  if (isGitHubActions) {
-    return 2; // GitHub Actions private-repo runners have 2 vCPU (public repos get 4)
-  }
-  if (isCI) {
-    return 1; // Other CI environments, be conservative
-  }
-  return '50%';
 };
 
 /**
@@ -180,7 +158,6 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
     // Local development can override with --headed flag if needed
     headless: true,
     retries: getRetryCount(env),
-    workers: getWorkerCount(env),
   };
 };
 
@@ -269,7 +246,6 @@ export const logEnvironmentConfig = (
     `isCodex=${String(config.isCodex)}`,
     `isGitHubActions=${String(config.isGitHubActions)}`,
     `isCI=${String(config.isCI)}`,
-    `baseWorkers=${String(config.workers)}`,
     `baseGlobalTimeout=${String(config.globalTimeout)}`,
     `baseRetries=${String(config.retries)}`,
     `headless=${String(config.headless)}`,

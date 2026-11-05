@@ -40,11 +40,14 @@ export function WorkspaceBody(): ReactElement {
     apps,
     fileContentErrors,
     fileContents,
+    fileFolderStatus,
     isRestoring,
     loadingFiles,
     mountedAppIds,
     openApps,
+    onCloseFileTab,
     onRetryFileContent,
+    reopenFolder,
     rootDescriptors,
     selection,
     tabs,
@@ -53,6 +56,8 @@ export function WorkspaceBody(): ReactElement {
 
   const activeFileTab =
     selection.kind === 'file' ? tabs.find((t) => t.id === selection.tabId) : undefined;
+  const folderStatus = activeFileTab ? fileFolderStatus(activeFileTab.compositeKey) : undefined;
+  const closedFolderPath = folderStatus?.kind === 'closed' ? folderStatus.path : null;
   const activeFileContentError = activeFileTab
     ? fileContentErrors.get(activeFileTab.compositeKey)
     : undefined;
@@ -110,6 +115,11 @@ export function WorkspaceBody(): ReactElement {
               isRestoring={isRestoring}
               key={activeFileTab.compositeKey}
               onRetryContent={() => onRetryFileContent(activeFileTab.compositeKey)}
+              {...(folderStatus ? { folderStatus } : {})}
+              onCloseTab={() => onCloseFileTab(activeFileTab.id)}
+              {...(reopenFolder && closedFolderPath !== null
+                ? { onReopenFolder: () => reopenFolder(closedFolderPath) }
+                : {})}
               rootPath={getTabRootPath(activeFileTab, rootDescriptors)}
               status={tabStatuses.get(activeFileTab.compositeKey)}
               tab={activeFileTab}

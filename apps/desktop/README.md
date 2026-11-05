@@ -1,84 +1,57 @@
 # Brainstrike desktop
 
-Electron hosts the React UI, native platform adapters and the shared agent-host
-attachment. Desktop and web share UI packages but have different runtime owners.
+Electron hosts the React UI, native platform adapters and the attachment to the shared agent host.
 
 ## Development
 
-Use the repository-pinned Node and pnpm versions. From the repository root:
+From the repository root: `pnpm install`, then `pnpm dev`.
 
-```sh
-pnpm install
-pnpm dev
-```
-
-From `apps/desktop`, `pnpm dev` starts the Vite renderer and builds/launches
-Electron. The default renderer URL is `http://localhost:38181`; both Vite and
-Electron use the configuration in
-[`desktop-renderer-config.ts`](src/desktop-renderer-config.ts). Renderer edits use
-Vite hot reload; restart Electron after changing main or preload code.
+- `pnpm dev` (in `apps/desktop`) starts the Vite renderer and builds and launches Electron.
+- The renderer URL defaults to `http://localhost:38181`; Vite and Electron both read [`desktop-renderer-config.ts`](src/desktop-renderer-config.ts).
+- Renderer edits hot-reload; restart Electron after changing main or preload code.
 
 | Command in `apps/desktop` | Purpose |
 | --- | --- |
 | `pnpm dev:renderer` | Start the renderer dev server |
-| `pnpm dev:main` | Build main/preload and helper entries, without the packaged-app import check |
-| `pnpm dev:electron` | Build and launch against the running dev server |
+| `pnpm dev:main` | Build main/preload and helper entries |
+| `pnpm dev:electron` | Build main and launch against the running dev server |
 | `pnpm build` | Build renderer and main in parallel |
 | `pnpm start` | Build and launch the built renderer |
 | `pnpm type-check` | Check desktop TypeScript |
 
-[`package.json`](package.json) owns the complete command list. Packaging, signing
-and distribution are separate from ordinary development and need owner authorization.
+- [`package.json`](package.json) has the full command list.
+- Packaging, signing and distribution need owner authorization; see [RELEASES.md](RELEASES.md).
 
 ### macOS Keychain prompts
 
-Ordinary dev launches from every worktree share one Keychain credential service.
-Electron's dev binary is ad-hoc signed, so macOS ties each "Always Allow" to that
-exact build: an Electron upgrade, or a worktree on another Electron version, asks
-again for every stored credential. To make grants last, opt in to signing the
-installed `Electron.app` with your own code-signing identity:
+Dev launches share one Keychain credential service, and the ad-hoc signed Electron dev binary makes each "Always Allow" grant expire on every Electron version change. To make grants last:
 
-```sh
-export BRAINSTRIKE_DEV_ELECTRON_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-pnpm install
-```
+- Export your code-signing identity from a file every shell reads (for zsh, `~/.zshenv`):
 
-Export it from a file every shell reads (for zsh, `~/.zshenv`) so worktree installs
-see it. The desktop `postinstall` then signs Electron for local use (no hardened
-runtime, no timestamp), skips a bundle already signed by that identity, and fails
-the install if the identity cannot sign. pnpm skips lifecycle scripts when an
-install is already up to date, so in an existing checkout run
-`node apps/desktop/scripts/sign-dev-electron.mjs` once instead. Restart a running
-dev app after signing, then choose "Always Allow" once per prompt; those grants
-survive later Electron upgrades.
+  ```sh
+  export BRAINSTRIKE_DEV_ELECTRON_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+  ```
+
+- Run `pnpm install`; the desktop `postinstall` signs `Electron.app` for local use (no hardened runtime, no timestamp) and fails if the identity cannot sign.
+  - An up-to-date install skips lifecycle scripts; in an existing checkout run `node apps/desktop/scripts/sign-dev-electron.mjs` once instead.
+- Restart the dev app and choose "Always Allow" once per prompt.
 
 ## Runtime boundaries
 
-- Electron main owns windows, authorized IPC and platform lifecycle. The visible
-  renderer uses role-scoped preload capabilities rather than direct Node access.
-- The Electron-free agent host owns runs, committed conversations and workspace
-  authority. Its SQLite StateStore owns the canonical catalog; desktop and CLI
-  clients attach through the authenticated host protocol.
-- The derived SQLite index has its own process and lifecycle. Desktop has no
-  PGlite engine or renderer SQL/live-query bridge. PGlite still exists in web and
-  explicit test consumers.
-- Preference storage is distinct from the canonical host catalog and derived
-  indexes. Clear Database retains configuration/credentials; Factory Reset also
-  clears them. See the [reset contract](../../docs/agents/platform-contracts.md)
-  for lifecycle and platform limits.
-
-The preload and IPC implementation is the API reference; historical examples of
-`window.electronAPI.db` do not describe the current desktop surface. BrowserWindow
-security settings live in [`create-window.ts`](src/create-window.ts). Development
-launches include `--no-sandbox`, so they do not demonstrate Chromium sandboxing.
+- Electron main owns windows, authorized IPC and platform lifecycle. The renderer uses role-scoped preload capabilities, never direct Node access.
+- The Electron-free agent host owns runs, committed conversations and workspace authority.
+  - Its SQLite StateStore owns the canonical catalog.
+  - Desktop and CLI clients attach through the authenticated host protocol.
+- The host's derived conversation search index runs on its own worker thread. The renderer has no SQL bridge.
+- Renderer preferences live in `localStorage` and Main's settings in its settings store (`brainstrike-settings`), both separate from the canonical catalog and the derived index.
+  - Clear content (Settings) keeps configuration and credentials; Factory Reset also clears them.
+  - See the [reset contract](../../docs/agents/platform-contracts.md).
+- The preload and IPC code is the API reference. BrowserWindow security settings live in [`create-window.ts`](src/create-window.ts); see also [SECURITY.md](SECURITY.md).
+- Dev launches pass `--no-sandbox`, so they don't exercise Chromium sandboxing.
 
 ## Testing and debugging
 
-The merge queue runs every lane on hosted runners, so before a PR run only the
-narrow checks for what changed (see the root `AGENTS.md`). Use the
-[desktop E2E guide](e2e/README.md) to pick the specs.
-
-`pnpm dev:agent-debug` is an opt-in disposable debugging session. Never use Sean's
-protected profile for automated debugging or reset. Debugging does not belong in
-the default E2E launch. Native binaries and packaged paths must be checked on the
-actual affected platform/artifact when those boundaries change.
+- Before a PR run only the narrow checks for what changed (root [`AGENTS.md`](../../AGENTS.md)); the merge queue runs every lane.
+- Unit and integration tests: [`src/__tests__/README.md`](src/__tests__/README.md). E2E: [`e2e/README.md`](e2e/README.md).
+- `pnpm dev:agent-debug` starts an opt-in, disposable debugging session. Never use Sean's protected profile for automated debugging or reset.
+- When native binaries or packaged paths change, check them on the affected platform and artifact.

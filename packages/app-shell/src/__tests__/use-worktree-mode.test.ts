@@ -1,4 +1,3 @@
-import { __resetWorktreeSetupConsentStoreForTests } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -148,7 +147,6 @@ function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
 describe('useWorktreeMode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetWorktreeSetupConsentStoreForTests();
     getSettingsSpy.mockResolvedValue({
       ok: true,
       value: {

@@ -1,8 +1,8 @@
 /**
  * The Context workspace tab (ADR-0021, BST-2017): what the active thread's
- * model received, per file and per index chunk, as of any turn on the
+ * model received, per file and per line band, as of any turn on the
  * displayed branch. Everything shown is folded from committed rows by
- * assistant-ui's `ThreadContextFold`; chunk bounds come from the native index.
+ * assistant-ui's `ThreadContextFold`.
  */
 import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import {
@@ -21,7 +21,6 @@ import {
   THREAD_CONTEXT_APP_ID,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import type { IndexChunkBoundsCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { formatTokenCount } from '@brainstrike/tokenization';
 import { isAgentColor } from '@brainstrike/types/agent-color';
 import {
@@ -29,6 +28,7 @@ import {
   CopyTextButton,
   cn,
   EmptyState,
+  ErrorNotice,
   saveDownload,
   Tabs,
   TabsList,
@@ -56,35 +56,14 @@ import {
 } from './context-map-model';
 import { TurnScrubber } from './turn-scrubber';
 import { type ContextLane, useContextLanes } from './use-context-lanes';
-import { type FileChunksState, useFileChunks } from './use-file-chunks';
 import { useRowFreshness } from './use-row-freshness';
-
-export interface ThreadContextPageProps {
-  /** The native index's chunk bounds; null draws every file by line bands. */
-  readonly chunkBounds: IndexChunkBoundsCapability | null;
-}
 
 function tokens(value: number | null): string {
   return value === null ? 'not recorded' : `~${formatTokenCount(value)}`;
 }
 
-function cellsFor(
-  row: ContextFileRow,
-  chunks: FileChunksState | undefined,
-  mode: ContextMapMode
-): { readonly cells: ChunkCell[]; readonly note?: string } {
-  if (chunks?.kind === 'indexed') {
-    return { cells: chunkCells(chunks.chunks, row.spans, mode) };
-  }
-  const note =
-    chunks === undefined || chunks.kind === 'loading'
-      ? undefined
-      : chunks.kind === 'failed'
-        ? 'chunk bounds unavailable'
-        : chunks.kind === 'not-indexed'
-          ? 'not indexed yet'
-          : 'outside the index';
-  return { cells: chunkCells(lineBands(row.maxLine), row.spans, mode), ...(note ? { note } : {}) };
+function cellsFor(row: ContextFileRow, mode: ContextMapMode): ChunkCell[] {
+  return chunkCells(lineBands(row.maxLine), row.spans, mode);
 }
 
 function addedTokensPerTurn(runs: readonly ContextRun[], view: ThreadContextAtTurn): number[] {
@@ -138,7 +117,7 @@ function ContextRingBar({
         />
         {filesTokens !== null && (
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-blue-600 dark:bg-blue-400"
+            className="bg-info absolute inset-y-0 left-0 rounded-full"
             style={{ width: percentOf(Math.min(filesTokens, ring.usedTokens), ring.budgetTokens) }}
             title="Workspace files in the window"
           />
@@ -269,16 +248,13 @@ function LaneChips({
         </TabsList>
       </Tabs>
       {listError !== undefined && (
-        <p className="text-destructive text-xs" role="alert">
-          Subagents could not be listed: {listError}
-        </p>
+        <ErrorNotice message={`Subagents could not be listed: ${listError}`} />
       )}
     </div>
   );
 }
 
 interface LaneViewProps {
-  readonly chunkBounds: IndexChunkBoundsCapability | null;
   /** The lane chips, shown in the header when the thread has subagents. */
   readonly lanes: ReactElement | undefined;
   readonly mode: ContextMapMode;
@@ -295,7 +271,6 @@ interface LaneViewProps {
 
 /** One lane's map: the thread's own, or a subagent's from its own log. */
 function LaneView({
-  chunkBounds,
   lanes,
   mode,
   notice,
@@ -310,17 +285,6 @@ function LaneView({
   const view = threadContextAt(record.snapshot, record.branchRunIds, turn);
   const rows = useMemo(() => contextFileRows(view.calls, mode), [view, mode]);
   const totals = useMemo(() => contextMapTotals(view, rows), [view, rows]);
-  // Chunk bounds are read again once the thread starts a turn or edits a file.
-  const chunkRevision = useMemo(() => {
-    let edits = 0;
-    for (const call of record.snapshot.calls.values()) {
-      if (call.spans.some((span) => span.kind === 'edit')) {
-        edits += 1;
-      }
-    }
-    return `${record.branchRunIds.length}:${edits}`;
-  }, [record]);
-  const chunks = useFileChunks(chunkBounds, rows, chunkRevision);
   // The scrubber always describes the whole branch, whichever turn is shown.
   const scrubber = useMemo(() => {
     const runs = record.branchRunIds.flatMap((id) => {
@@ -460,7 +424,7 @@ function LaneView({
       <div className="grid min-h-0 flex-1 grid-cols-1 @[56rem]/context-map:grid-cols-[minmax(0,1fr)_22rem]">
         <ul aria-label="Files the model received" className="min-h-0 overflow-y-auto p-2">
           {rows.map((row) => {
-            const { cells, note } = cellsFor(row, chunks.get(row.key), mode);
+            const cells = cellsFor(row, mode);
             const isSelected = row.key === selected?.key;
             const changedNow = isSelected && freshness?.changed === true;
             return (
@@ -471,7 +435,7 @@ function LaneView({
                     // Narrow: name and tokens, then the strip on its own line.
                     'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded px-2 py-1.5 text-left',
                     '@[40rem]/context-map:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_6rem]',
-                    'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
+                    'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-hidden',
                     isSelected && 'bg-muted',
                     mode === 'window' && row.gone && 'opacity-60'
                   )}
@@ -484,12 +448,11 @@ function LaneView({
                     <span className="text-muted-foreground truncate font-mono text-[11px]">
                       {row.path}
                     </span>
-                    {(note || row.editedWithoutRead || changedNow) && (
+                    {(row.editedWithoutRead || changedNow) && (
                       <span className="text-muted-foreground text-[11px]">
                         {[
                           changedNow ? 'changed since read' : null,
                           row.editedWithoutRead ? 'edited without reading' : null,
-                          note,
                         ]
                           .filter(Boolean)
                           .join(' · ')}
@@ -510,7 +473,7 @@ function LaneView({
         <aside className="border-border min-h-0 overflow-y-auto border-t p-4 @[56rem]/context-map:border-t-0 @[56rem]/context-map:border-l">
           {selected && (
             <ContextLens
-              cells={cellsFor(selected, chunks.get(selected.key), mode).cells}
+              cells={cellsFor(selected, mode)}
               folderLabel={folderLabel(selected)}
               freshness={freshness}
               row={selected}
@@ -578,22 +541,15 @@ function LaneError({
   readonly onRetry: () => void;
 }): ReactElement {
   return (
-    <div
-      className="text-destructive flex flex-wrap items-center gap-2 text-xs"
+    <ErrorNotice
       data-testid="context-map-lane-error"
-      role="alert"
-    >
-      <span>
-        {callSign}'s log could not be read: {message}
-      </span>
-      <Button className="h-6 text-xs" onClick={onRetry} size="sm" variant="outline">
-        Retry
-      </Button>
-    </div>
+      message={`${callSign}'s log could not be read: ${message}`}
+      onRetry={onRetry}
+    />
   );
 }
 
-export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): ReactElement {
+export function ThreadContextPage(): ReactElement {
   const threadId = useActiveAssistantThreadId();
   const record = useThreadContextStore((state) =>
     threadId ? state.byThread[threadId] : undefined
@@ -675,7 +631,6 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
     }
     return (
       <LaneView
-        chunkBounds={chunkBounds}
         key={child.threadId}
         lanes={chips}
         mode={mode}
@@ -710,7 +665,6 @@ export function ThreadContextPage({ chunkBounds }: ThreadContextPageProps): Reac
   }
   return (
     <LaneView
-      chunkBounds={chunkBounds}
       key={threadId}
       lanes={chips}
       mode={mode}

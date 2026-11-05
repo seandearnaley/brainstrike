@@ -14,25 +14,14 @@ const CONTENT_TABLES = [
   'run_events',
   'run_sync',
   'purge_intent',
-  'file_records',
-  'source_blob_gc',
   'roots',
-  'embedding_sets',
 ];
 
 /** @param {import('better-sqlite3').Database} db */
 export function clearContentRows(db) {
-  return db.transaction(() => {
-    const row = /** @type {{files:number;unknown:number;chunks:number|null}} */ (
-      db
-        .prepare(
-          'SELECT COUNT(*) AS files, COUNT(*)-COUNT(chunks_count) AS unknown, SUM(chunks_count) AS chunks FROM file_records'
-        )
-        .get()
-    );
+  db.transaction(() => {
     for (const table of CONTENT_TABLES) {
       db.exec(`DELETE FROM ${table}`);
     }
-    return { deletedChunks: row.unknown > 0 ? null : (row.chunks ?? 0), deletedFiles: row.files };
   })();
 }

@@ -2,7 +2,10 @@ import fsPromises, { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFileExportsIpcHandlers } from '../ipc-file-exports-handlers';
+import { createFileExportsIpcHandlers, SaveToDownloadsArgs } from '../ipc-file-exports-handlers';
+import { ipcArgsDecoder } from '../platform/ipc-args';
+
+const decodeSaveArgs = ipcArgsDecoder('file-exports:save-to-downloads', SaveToDownloadsArgs);
 
 describe('createFileExportsIpcHandlers', () => {
   let downloadsDir: string;
@@ -75,53 +78,22 @@ describe('createFileExportsIpcHandlers', () => {
   });
 
   it.each([
-    ['a path traversal', '../escape.md'],
-    ['an absolute path', '/etc/escape.md'],
-    ['a backslash separator', 'a\\b.md'],
-    ['a dots-only name', '..'],
-    ['a name with spaces', 'my export.csv'],
-  ])('rejects %s without writing', async (_label, filename) => {
-    const result = await handlers.saveToDownloads({
-      bytes: new Uint8Array([1]),
-      filename,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain('filename');
-  });
-
-  it('rejects a filename too long to carry the widest collision counter', async () => {
-    const result = await handlers.saveToDownloads({
-      bytes: new Uint8Array([1]),
-      filename: `${'a'.repeat(248)}.md`,
-    });
-
-    expect(result).toEqual({ error: 'file-exports filename exceeds 250 characters', ok: false });
-  });
-
-  it.each([
+    ['a path traversal', { bytes: new Uint8Array([1]), filename: '../escape.md' }],
+    ['an absolute path', { bytes: new Uint8Array([1]), filename: '/etc/escape.md' }],
+    ['a backslash separator', { bytes: new Uint8Array([1]), filename: 'a\\b.md' }],
+    ['a dots-only name', { bytes: new Uint8Array([1]), filename: '..' }],
+    ['a name with spaces', { bytes: new Uint8Array([1]), filename: 'my export.csv' }],
+    [
+      'a filename too long to carry the widest collision counter',
+      { bytes: new Uint8Array([1]), filename: `${'a'.repeat(248)}.md` },
+    ],
     ['a non-object payload', 'export.csv'],
     ['a null payload', null],
-  ])('rejects %s', async (_label, payload) => {
-    const result = await handlers.saveToDownloads(payload);
-
-    expect(result).toEqual({
-      error: 'file-exports saveToDownloads requires an object payload',
-      ok: false,
-    });
-  });
-
-  it.each([
-    ['missing bytes', undefined],
-    ['string bytes', 'not bytes'],
-    ['a plain ArrayBuffer', new ArrayBuffer(4)],
-  ])('rejects %s', async (_label, bytes) => {
-    const result = await handlers.saveToDownloads({ bytes, filename: 'export.csv' });
-
-    expect(result).toEqual({
-      error: 'file-exports saveToDownloads requires Uint8Array bytes',
-      ok: false,
-    });
+    ['missing bytes', { filename: 'export.csv' }],
+    ['string bytes', { bytes: 'not bytes', filename: 'export.csv' }],
+    ['a plain ArrayBuffer', { bytes: new ArrayBuffer(4), filename: 'export.csv' }],
+  ])('refuses %s before the handler runs', (_label, payload) => {
+    expect(() => decodeSaveArgs([payload])).toThrow(TypeError);
   });
 
   it('removes the partial file when the write fails after the exclusive claim', async () => {

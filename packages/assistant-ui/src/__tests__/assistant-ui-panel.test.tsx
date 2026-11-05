@@ -333,10 +333,7 @@ const providerGroups: ProviderGroupConfig[] = [
     providers: [
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'openai',
         models: [
@@ -360,10 +357,7 @@ const providerGroups: ProviderGroupConfig[] = [
     providers: [
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'anthropic',
         models: [
@@ -589,13 +583,13 @@ describe('assistant thread surface', () => {
       throw new Error('Expected a run-event data renderer to be registered.');
     }
 
-    // No AssistantDetailLevelProvider here → standard default → background hidden.
+    // Detail level untouched → standard default → background hidden.
     render(
       <RunEventPart
         data={{
           id: 'evt-1',
-          kind: 'memory.semantic.completed',
-          label: 'Recalled memory',
+          kind: 'memory.reflection.completed',
+          label: 'Reflected memory',
           status: 'completed',
           timestamp: '2026-06-16T10:00:00.000Z',
         }}
@@ -616,7 +610,7 @@ describe('assistant thread surface', () => {
       throw new Error('Expected a run-event data renderer to be registered.');
     }
 
-    // No AssistantDetailLevelProvider → standard default → background hidden,
+    // Detail level untouched → standard default → background hidden,
     // yet a terminal run failure must still render so the turn isn't silently
     // swallowed.
     const { rerender } = render(
@@ -750,7 +744,27 @@ describe('assistant thread surface', () => {
     expect(trigger).toBeInTheDocument();
   });
 
-  it('disables the model picker when no models are enabled', () => {
+  it('hints at the "/" menu in the idle placeholder only when there are commands', () => {
+    const { unmount } = render(<Panel {...baseProps} />);
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toHaveAttribute(
+      'placeholder',
+      'Ask Brainstrike anything…'
+    );
+    unmount();
+
+    render(
+      <Panel
+        {...baseProps}
+        slashCommands={[{ execute: () => {}, id: 'thread.new', label: 'New thread' }]}
+      />
+    );
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toHaveAttribute(
+      'placeholder',
+      'Ask anything, or type / for commands'
+    );
+  });
+
+  it('keeps the model picker openable when no models are enabled, so it can lead to a fix', () => {
     const noModelsGroups: ProviderGroupConfig[] = providerGroups.map((group) => ({
       ...group,
       providers: group.providers.map((provider) => ({
@@ -759,13 +773,17 @@ describe('assistant thread surface', () => {
       })),
     }));
 
-    // Provide empty pickerModels - the picker should be disabled
-    render(<Panel pickerModels={[]} providerGroups={noModelsGroups} />);
+    render(
+      <Panel
+        onManageModels={() => {}}
+        onModelChange={() => {}}
+        pickerModels={[]}
+        providerGroups={noModelsGroups}
+      />
+    );
 
     expect(screen.getByText('No models enabled')).toBeInTheDocument();
-    // The menu trigger should be disabled when no models are available
-    const trigger = screen.getByTestId('composer-model-menu-trigger');
-    expect(trigger).toBeDisabled();
+    expect(screen.getByTestId('composer-model-menu-trigger')).toBeEnabled();
   });
 
   it('omits context summary and context controls while keeping tool controls visible', () => {

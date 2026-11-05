@@ -12,29 +12,10 @@ import { encodeFileSelection } from '../selection.js';
 const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 // const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // Removed unused spy
 
-// Mock storage adapter for tests
-const mockStorageAdapter = {
-  async clear() {
-    // no-op
-  },
-  async getAllKeys() {
-    return [];
-  },
-  async getItem(_key: string) {
-    return null;
-  },
-  async removeItem(_key: string) {
-    // no-op
-  },
-  async setItem(_key: string, _value: string) {
-    // no-op
-  },
-};
-
 // Helper to dynamically import and get persist options
 const getFreshPersistOptions = async () => {
   const mod = await import('../persistence/file-explorer-persistence');
-  return mod.createPersistOptions(mockStorageAdapter);
+  return mod.createPersistOptions();
 };
 
 const testDefaultFolderState: FolderState = {
@@ -60,68 +41,6 @@ describe('file-explorer-persistence', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs(); // Clean up environment variable stubs
-  });
-
-  describe('createPersistOptions', () => {
-    it('should create persist options with the correct configuration', async () => {
-      const persistOptions = await getFreshPersistOptions();
-
-      expect(persistOptions.name).toBe('file-explorer-storage-v5');
-      expect(persistOptions.version).toBe(FILE_EXPLORER_STORAGE_VERSION);
-      expect(persistOptions.storage).toBeDefined();
-      expect(persistOptions.partialize).toBeDefined();
-      expect(persistOptions.migrate).toBeDefined();
-      expect(persistOptions.merge).toBeDefined();
-    });
-
-    it('persists setItem calls immediately to prevent race conditions with page reloads', async () => {
-      const setItemSpy = vi.fn();
-      const adapter = { ...mockStorageAdapter, setItem: setItemSpy };
-      const mod = await import('../persistence/file-explorer-persistence');
-      const persistOptions = mod.createPersistOptions(adapter);
-      vi.useFakeTimers();
-
-      const storage = persistOptions.storage as NonNullable<(typeof persistOptions)['storage']>;
-      const base: SerializedState = {
-        currentFolderId: null,
-        devInlineFixtureEnabled: false,
-        excludeFilters: [],
-        expandedDirectoryPaths: [],
-        folderAccessOrder: [],
-        folderStates: {},
-        folderSummaryThreshold: 0,
-        includeFilters: [],
-        includeProjectTree: false,
-        lastActiveTab: 'files',
-        maxSelectionCount: 0,
-        quickFilter: '',
-        selectedFilePaths: [],
-        useRegex: false,
-      };
-
-      // First setItem call - should persist immediately
-      await storage.setItem('foo', { state: base, version: 1 });
-      expect(setItemSpy).toHaveBeenCalledTimes(1);
-
-      // Second setItem call - should also persist immediately
-      await storage.setItem('foo', {
-        state: { ...base, lastActiveTab: 'preview' },
-        version: 1,
-      });
-      expect(setItemSpy).toHaveBeenCalledTimes(2);
-
-      // Verify the calls were made with correct arguments
-      expect(setItemSpy.mock.calls[0]?.[0]).toBe('foo');
-      expect(setItemSpy.mock.calls[1]?.[0]).toBe('foo');
-
-      const firstCall = JSON.parse(setItemSpy.mock.calls[0]?.[1] as string);
-      const secondCall = JSON.parse(setItemSpy.mock.calls[1]?.[1] as string);
-
-      expect(firstCall).toEqual({ state: base, version: 1 });
-      expect(secondCall).toEqual({ state: { ...base, lastActiveTab: 'preview' }, version: 1 });
-
-      vi.useRealTimers();
-    });
   });
 
   describe('partialize', () => {
@@ -824,12 +743,6 @@ describe('file-explorer-persistence', () => {
       const afterRehydrate = prodOnRehydrate(mockHydratedState);
       afterRehydrate?.(mockHydratedState, undefined);
       expect(consoleLogSpy).not.toHaveBeenCalled();
-    });
-
-    it('should not throw when rehydration completes with an error', async () => {
-      const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
-      const afterRehydrate = onRehydrateStorageFn(mockHydratedState);
-      expect(() => afterRehydrate?.(undefined, new Error('rehydration failed'))).not.toThrow();
     });
   });
 });

@@ -199,9 +199,9 @@ async function assertWorkerWrite(
       observed.parentResult ||= history.includes(childResult);
       // A wake answers its ledger, which says not to call a settled invocation
       // again, so the parent never delegates from one. Its history cannot say so:
-      // a delivered outcome replaces the dispatch acknowledgement
-      // (packages/agent-host/src/child-delivery.ts), so a stopped child's wake
-      // shows neither the acknowledgement nor a result.
+      // Memory's window may have dropped the dispatch acknowledgement, and a
+      // stopped child's ledger carries no result
+      // (packages/agent-host/src/child-delivery.ts).
       const wake = JSON.stringify(userMessages.at(-1)).includes(ledger);
       if (wake || history.includes('Background task started.') || history.includes(childResult)) {
         return {

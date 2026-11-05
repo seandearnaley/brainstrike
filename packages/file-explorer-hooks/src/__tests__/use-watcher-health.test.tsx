@@ -22,20 +22,8 @@ function makeEvent(
 }
 
 function createWrapper(adapter: Partial<FileSystemAdapter>) {
-  const storageAdapter = {
-    clear: vi.fn(),
-    getAllKeys: vi.fn(),
-    getItem: vi.fn(),
-    removeItem: vi.fn(),
-    setItem: vi.fn(),
-  };
   return ({ children }: { children: ReactNode }) => (
-    <AdaptersProvider
-      fileSystemAdapter={adapter as FileSystemAdapter}
-      storageAdapter={storageAdapter as never}
-    >
-      {children}
-    </AdaptersProvider>
+    <AdaptersProvider fileSystemAdapter={adapter as FileSystemAdapter}>{children}</AdaptersProvider>
   );
 }
 

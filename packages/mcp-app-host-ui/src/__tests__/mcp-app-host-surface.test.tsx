@@ -179,7 +179,10 @@ describe('MCP Apps host surface', () => {
     });
     const dialog = await screen.findByRole('alertdialog');
     expect(dialog).toHaveAccessibleName('Allow Linear issue editor to use create_issue?');
-    expect(dialog).toHaveTextContent('This execute action requires your approval.');
+    expect(dialog).toHaveTextContent('Linear issue editor wants to run create_issue');
+    expect(dialog).toHaveTextContent(
+      'It can run commands or take actions with effects outside this app.'
+    );
     expect(dialog).not.toHaveTextContent('must-not-render');
     expect(dialog).not.toHaveTextContent('Secret issue');
     const denyButton = screen.getByRole('button', { name: 'Deny create_issue' });

@@ -5,10 +5,9 @@ import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 describe('MCP IPC contracts', () => {
   const contracts = [mcpPathSelectionContract, mcpAppsContract];
 
-  it('owns all 3 invokes and no pushes in the desktop MCP manifest', () => {
+  it('binds every desktop MCP manifest method as an invoke, with no pushes', () => {
     const specs = contracts.flatMap((contract) => Object.values(contract));
-    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(3);
-    expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(0);
+    expect(specs.filter(({ kind }) => kind === 'push')).toEqual([]);
     expect(new Set(specs.map(({ channel }) => channel))).toEqual(
       new Set(Object.values(DESKTOP_IPC_CHANNELS.mcp))
     );
@@ -22,35 +21,5 @@ describe('MCP IPC contracts', () => {
         }
       }
     }
-  });
-
-  it('rejects malformed tuples before handlers run', () => {
-    expect(() => mcpAppsContract.prepareShell.parseArgs([])).toThrow();
-    expect(mcpPathSelectionContract.selectPath.parseArgs(['extra'])).toEqual([]);
-  });
-
-  // BST-1930 c5a: the agent host owns MCP config, extension dials and tool
-  // preferences; the renderer reaches them as host methods, never Main channels.
-  it('leaves MCP settings off the desktop IPC manifest', () => {
-    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
-    expect(channels.filter((channel) => /^mcp:(tools|extensions):/u.test(channel))).toEqual([]);
-    expect(channels.filter((channel) => channel.startsWith('mcp:config:'))).toEqual([
-      'mcp:config:selectPath',
-    ]);
-  });
-
-  // BST-1930 c5b-c5d: server status, lifecycle control and content (an App's
-  // document included) are host methods too.
-  it('leaves MCP status, lifecycle control and content off the desktop IPC manifest', () => {
-    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
-    expect(channels.filter((channel) => /^mcp:(lifecycle|status|content):/u.test(channel))).toEqual(
-      []
-    );
-  });
-
-  // BST-1930 c5c: Tasks cards and global server input are host methods too.
-  it('leaves MCP Tasks and elicitation channels off the desktop IPC manifest', () => {
-    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
-    expect(channels.filter((channel) => /^mcp:(task|elicitation):/u.test(channel))).toEqual([]);
   });
 });

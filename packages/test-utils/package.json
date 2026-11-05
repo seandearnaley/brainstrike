@@ -15,10 +15,10 @@
     "jsdom": "catalog:",
     "react": "^19.3.0",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zustand": "catalog:"
   },
   "exports": {
-    "./fixtures/canonical-provided-chunks.json": "./fixtures/canonical-provided-chunks.json",
     ".": "./src/index.ts",
     "./vitest-matchers": "./vitest-matchers.d.ts",
     "./vitest.setup": "./src/vitest.setup.ts",
@@ -26,6 +26,7 @@
     "./vitest.dom-aware-timeouts.setup": "./src/vitest.dom-aware-timeouts.setup.ts",
     "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
     "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",
+    "./zustand-store-reset": "./src/zustand-store-reset.ts",
     "./vitest-provided-context": "./src/vitest-provided-context.ts",
     "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
     "./test-timeouts": "./src/test-timeouts.ts",
@@ -45,10 +46,7 @@
     "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
     "./fixtures/recorded-grep-patterns.json": "./fixtures/recorded-grep-patterns.json",
     "./fixtures/observation-memory": "./fixtures/observation-memory.mjs",
-    "./vitest.base": {
-      "types": "./src/vitest.base.ts",
-      "default": "./vitest.base.mjs"
-    },
+    "./vitest.base": "./src/vitest.base.ts",
     "./vitest-lost-file-reporter": "./vitest-lost-file-reporter.mjs",
     "./vitest-react-compiler": "./vitest-react-compiler.mjs",
     "./electron": "./src/index.ts",
@@ -66,9 +64,7 @@
     "access": "public"
   },
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,

@@ -37,6 +37,7 @@ function probe(
   display?: Readonly<Record<string, string>>
 ) {
   return defineNativeTool({
+    activity: { active: 'Probing', done: 'Probed', family: 'search', request: 'Probe' },
     defaults: PROBE_DEFAULTS,
     description: 'probe',
     discovery: { family: 'diagnostics', namespace: 'database' },

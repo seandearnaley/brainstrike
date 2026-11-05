@@ -140,9 +140,15 @@ export interface DirectoryHandle {
    * collide: on web `path` is only the directory name (the FSA API hides the
    * absolute path), so two folders both named "project" share a path. Identity
    * resolution prefers this over `path`. Absent for legacy single-root handles
-   * (the `setRoot`/`restoreLastFolder` path), where `path` is unique anyway.
+   * (the `setRoot` path), where `path` is unique anyway.
    */
   rootId?: RootId;
+  /**
+   * The root is a managed worktree: a thread's checkout, mounted for the thread but never one
+   * of the open folders (ADR-0034). The Explorer shows it only in place of its repository's
+   * folder while the active thread works in it.
+   */
+  worktree?: true;
 }
 
 /**
@@ -362,6 +368,14 @@ export interface FileSystemAdapter {
    */
   onWatcherHealth?(callback: (event: WatcherRootHealthEvent) => void): () => void;
   /**
+   * Desktop-only: open a folder as the window's project (ADR-0034). The platform's root
+   * registry closes every other open folder in the same write; a managed worktree stays
+   * mounted for its thread. With a path, the folder must be a recent one (no picker); without,
+   * the picker runs and a cancel rejects with `UserCancelledError`. Absent where the platform
+   * has no open-folder list of its own (web): the capability check IS the platform gate.
+   */
+  openRoot?(path?: string): Promise<RootDescriptor>;
+  /**
    * Present when the platform's own root registry records every mounted folder
    * in `roots` under its one id (desktop Main, BST-1990). Roots reconciliation
    * then only reads those records; without it (web), reconciliation writes them.
@@ -457,7 +471,6 @@ export interface FileSystemAdapter {
    * @returns The resolved leaf `FileSystemFileHandle`
    */
   resolveFileHandleByPath?(absolutePath: string): Promise<FileSystemFileHandle>;
-  restoreLastFolder?(): Promise<DirectoryHandle | null>;
   /**
    * Multi-root: return every persisted root with its current permission state.
    * Never prompts (web queryPermission only). Dead handles are returned with

@@ -36,7 +36,6 @@ test('a host run’s command session appears in the Terminal panel and stops fro
   const rootId = randomUUID();
   try {
     await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
       reloadReason: 'm3-host-session-root',
       rootId,
     });

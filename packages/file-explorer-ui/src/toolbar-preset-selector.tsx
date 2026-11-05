@@ -8,13 +8,9 @@
  * at the top level with stable dependencies.
  */
 
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { createLogger } from '@brainstrike/logging';
 import type { ViewFilterPreset } from '@brainstrike/types';
-import { isDevEnv } from '@brainstrike/utils/env-utils';
 import * as React from 'react';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { hasPersistApi } from './hooks/recursive-selection-utils';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import { useOptionalExplorerThreadStatus } from './shell/explorer-thread-status';
 import {
@@ -22,10 +18,7 @@ import {
   useFileExplorerStoreSelector,
 } from './shell/file-explorer-provider';
 import { threadTouchedPreset } from './thread-touched-preset';
-import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
-
-const logger = createLogger('ToolbarPresetSelector');
 
 interface HydratablePersistApi {
   hasHydrated?: () => boolean;
@@ -157,7 +150,6 @@ const ToolbarPresetSelectorInner = React.memo(
     setUseRegex,
     clearDisabledFilters,
     isHydrated,
-    persistNow,
   }: ToolbarPresetSelectorProps & {
     excludeFilters: readonly string[];
     includeFilters: readonly string[];
@@ -168,7 +160,6 @@ const ToolbarPresetSelectorInner = React.memo(
     setUseRegex: (useRegex: boolean) => void;
     clearDisabledFilters: () => void;
     isHydrated: boolean;
-    persistNow: () => Promise<void>;
   }) => {
     // Load presets from database
     const { presets, loading, error, createPreset, updatePreset, deletePreset } =
@@ -230,24 +221,18 @@ const ToolbarPresetSelectorInner = React.memo(
       }
 
       setViewFilterPresetId(selectedPresetId);
-      void persistNow().catch((error: unknown) => {
-        if (isDevEnv()) {
-          logger.warn('Failed to persist preset sync', { error });
-        }
-      });
     }, [
       error,
       isHydrated,
       loading,
       optimisticPresetId,
-      persistNow,
       selectedPreset,
       setViewFilterPresetId,
       viewFilterPresetId,
     ]);
 
-    // Handle preset selection with persistence
-    const handlePresetSelect = async (preset: ViewFilterPreset) => {
+    // The store's persist middleware saves each change as it is set.
+    const handlePresetSelect = (preset: ViewFilterPreset) => {
       setOptimisticPresetId(preset.id);
       // Apply the filter payload before setting the preset id so the synchronization
       // effect never observes a new preset id against stale filter state.
@@ -265,16 +250,6 @@ const ToolbarPresetSelectorInner = React.memo(
       React.startTransition(() => {
         onFilterChange(preset.includes, preset.excludes, preset.useRegex);
       });
-
-      // Persist the store snapshot immediately (async, doesn't block UI) so
-      // a quick app quit cannot lose the change to the debounce window.
-      try {
-        await persistNow();
-      } catch (error) {
-        if (isDevEnv()) {
-          logger.warn('Failed to persist preset selection', { error });
-        }
-      }
     };
 
     // Filters are active but match no preset — the trigger must say so
@@ -310,7 +285,6 @@ ToolbarPresetSelectorInner.displayName = 'ToolbarPresetSelectorInner';
 const ToolbarPresetSelector = React.memo(
   ({ onFilterChange, className }: ToolbarPresetSelectorProps) => {
     const store = useFileExplorerStoreContext();
-    const { storageAdapter } = useAdapters();
     const isHydrated = useStoreHydrated(store);
 
     // Subscribe to each store field independently so preset label updates
@@ -324,17 +298,6 @@ const ToolbarPresetSelector = React.memo(
     const setUseRegex = useFileExplorerStoreSelector((s) => s.setUseRegex);
     const clearDisabledFilters = useFileExplorerStoreSelector((s) => s.clearDisabledFilters);
 
-    // ONE writer: the canonical store snapshot (same serializer as the
-    // persist middleware), never a hand-merged patch — a second JSON writer
-    // racing the middleware was the historical settings-clobber source.
-    const persistNow = async () => {
-      if (!hasPersistApi(store)) {
-        logger.warn('Preset selection not persisted immediately: store has no persist API');
-        return;
-      }
-      await persistFileExplorerStateImmediately(store, storageAdapter);
-    };
-
     return (
       <ToolbarPresetSelectorInner
         className={className}
@@ -343,7 +306,6 @@ const ToolbarPresetSelector = React.memo(
         includeFilters={includeFilters}
         isHydrated={isHydrated}
         onFilterChange={onFilterChange}
-        persistNow={persistNow}
         setFilters={setFilters}
         setUseRegex={setUseRegex}
         setViewFilterPresetId={setViewFilterPresetId}

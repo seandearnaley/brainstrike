@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { seedRoot } from './utils/seed-root';
 
-test('ordinary app Main validates a committed host root through its actual catalog and pinned registry', async ({
+test('the ordinary app host validates a committed root through its actual catalog and pinned registry', async ({
   window: page,
   electron,
 }) => {
@@ -14,7 +14,6 @@ test('ordinary app Main validates a committed host root through its actual catal
   const rootId = randomUUID();
   writeFileSync(path.join(root, 'bound-evidence.ts'), 'export const bound = true;\n');
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'm3-main-binding-owner',
     rootId,
   });
@@ -24,27 +23,14 @@ test('ordinary app Main validates a committed host root through its actual catal
       const bridge = (
         window as Window & { agentHost?: { connect(requestId: string): Promise<void> } }
       ).agentHost;
-      const files = window.electronAPI?.fileSystem;
-      if (!(bridge && files)) {
+      if (!bridge) {
         throw new Error('Ordinary app owner capabilities are unavailable');
       }
-      const reply = await files.restoreRoots();
-      if (!reply.ok) {
-        throw new Error(reply.error.message);
-      }
-      const rows = reply.value
-        .filter((root) => root.rootId === expectedRootId)
-        .map((root) => ({
-          id: root.rootId,
-          path: root.handle.path,
-          permissionState: root.permissionState,
-        }));
       const requestId = crypto.randomUUID();
       const transferred = Promise.withResolvers<{
         port: MessagePort;
         record: { token: string; protocolVersion: number; hostVersion: string };
       }>();
-      const disconnected = Promise.withResolvers<void>();
       const receive = (event: MessageEvent<unknown>): void => {
         if (event.source !== window || !event.data || typeof event.data !== 'object') {
           return;
@@ -57,9 +43,6 @@ test('ordinary app Main validates a committed host root through its actual catal
           data.payload.requestId !== requestId
         ) {
           return;
-        }
-        if ('type' in data && data.type === 'agent-host/disconnected') {
-          disconnected.resolve();
         }
         if ('type' in data && data.type === 'agent-host/connected' && 'record' in data.payload) {
           const port = event.ports[0];
@@ -108,6 +91,12 @@ test('ordinary app Main validates a committed host root through its actual catal
           protocolVersion: connection.record.protocolVersion,
           token: connection.record.token,
         });
+        const restored = (await request('workspace/roots/restore', {})) as {
+          roots: { available: boolean; path: string; rootId: string }[];
+        };
+        const rows = restored.roots
+          .filter((root) => root.rootId === expectedRootId)
+          .map((root) => ({ available: root.available, id: root.rootId, path: root.path }));
         const started = (await request('thread/start', { commandId: crypto.randomUUID() })) as {
           threadId: string;
         };
@@ -155,15 +144,12 @@ test('ordinary app Main validates a committed host root through its actual catal
         };
       } finally {
         port?.close();
-        if (port) {
-          await disconnected.promise;
-        }
         window.removeEventListener('message', receive);
       }
     },
     { expectedPath: root, expectedRootId: rootId }
   );
-  expect(result.rootRows).toEqual([{ id: rootId, path: root, permissionState: 'granted' }]);
+  expect(result.rootRows).toEqual([{ available: true, id: rootId, path: root }]);
   expect(result.accepted).toEqual({ accepted: true });
   expect(result.rejected).toBe(true);
   expect(result.current).toEqual({ binding: result.binding });

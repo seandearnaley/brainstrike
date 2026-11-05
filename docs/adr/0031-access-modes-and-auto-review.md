@@ -5,19 +5,19 @@
 
 ## Context
 
-Codex and Claude Code put an access control in the composer: ask for every
-action, let a reviewer approve routine ones, or allow everything. Brainstrike
-had the first and last as a Settings policy and a YOLO switch, and no middle
-mode. The owner asked for all three in the composer, with the middle one judged
-by a separate quick model through the AI SDK (2026-10-30).
-
-Prior art read before designing: Codex's auto-review (`codex-rs/ext/guardian-reviewer`,
-`prompts/templates/guardian/policy.md`), which reviews only the calls that would
-otherwise ask, sees a compact transcript, fails closed and answers
-`{ outcome, risk_level, user_authorization, rationale }`; and Anthropic's Claude
-Code auto mode write-up, whose classifier sees user messages and tool calls but
-never tool results or the assistant's prose, so injected content cannot argue
-for its own approval.
+- Codex and Claude Code put an access control in the composer: ask for every action, let a
+  reviewer approve routine ones, or allow everything.
+- Brainstrike had the first and last as a Settings policy and a YOLO switch, and no middle mode.
+- The owner asked for all three in the composer, with the middle one judged by a separate quick
+  model through the AI SDK (2026-10-30).
+- Prior art read before designing:
+  - **Codex auto-review** (`codex-rs/ext/guardian-reviewer`,
+    `prompts/templates/guardian/policy.md`): reviews only calls that would otherwise ask, sees a
+    compact transcript, fails closed, answers
+    `{ outcome, risk_level, user_authorization, rationale }`.
+  - **Claude Code auto mode** (Anthropic's write-up): the classifier sees user messages and tool
+    calls but never tool results or the assistant's prose, so injected content cannot argue for
+    its own approval.
 
 ## Decision
 
@@ -40,8 +40,9 @@ for its own approval.
   and the call under review, each clipped. Never tool results or assistant
   prose. A request is a user message the person wrote, read from the run's
   committed branch rather than from message roles: a delegation's task, a
-  wake's child results and a delivery ledger reach the model as user messages,
-  but a model wrote them, so they never read as the user. A child's review
+  wake's child results, a delivery ledger and the host's worktree continuation
+  reach the model as user messages, but the person did not write them, so they
+  never read as the user. A child's review
   starts from the path of the run that delegated it, so it judges against the
   root person's request.
 - **Which model.** `auto` is the chat provider's first quick model, from the one

@@ -5,21 +5,16 @@ import { afterEach, expect, test } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { ModelPicker } from '../model-picker/model-picker';
 import type { ModelPickerModel } from '../model-picker/types';
-import { ThemeProvider, type ThemeStorageAdapter } from '../theme-provider';
+import { ThemeProvider } from '../theme-provider';
 
 afterEach(cleanup);
 
 const models: ModelPickerModel[] = Array.from({ length: 12 }, (_, index) => ({
-  capabilities: { defaultDimension: 384, type: 'embedding' },
+  capabilities: { type: 'llm' },
   id: `model-${index}`,
   name: `Model ${index}`,
   providerId: 'local',
 }));
-
-const themeStorage: ThemeStorageAdapter = {
-  getItem: () => Promise.resolve('light'),
-  setItem: () => Promise.resolve(),
-};
 
 function Picker() {
   const [chosen, setChosen] = useState('none');
@@ -29,7 +24,7 @@ function Picker() {
       <ModelPicker
         models={models}
         onChange={(next) => setChosen(String(next))}
-        placeholder="Embedding model"
+        placeholder="Chat model"
         providers={[{ id: 'local', name: 'Local' }]}
       />
       <output data-testid="chosen">{chosen}</output>
@@ -41,7 +36,7 @@ test('the last model stays inside a short window and can be picked', async () =>
   // The app's minimum window height.
   await page.viewport(1024, 600);
   render(
-    <ThemeProvider storageAdapter={themeStorage}>
+    <ThemeProvider defaultMode="light">
       <Picker />
     </ThemeProvider>
   );

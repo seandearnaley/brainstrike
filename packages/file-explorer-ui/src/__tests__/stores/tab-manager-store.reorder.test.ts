@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../../stores/tab-manager-store';
+import { useTabManagerStore } from '../../stores/tab-manager-store';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -10,7 +10,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   return { ...actual, createLogger: () => loggerMock };
 });
 
-const STORE_KEY = 'tab-manager.v1';
+const STORE_KEY = 'brainstrike:tab-manager.v1';
 
 function openThreeTabs(): void {
   const store = useTabManagerStore.getState();
@@ -33,7 +33,6 @@ async function rehydrate(): Promise<void> {
 describe('tab-manager-store reorderTabs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetTabManagerStoreForTests();
     try {
       localStorage.removeItem(STORE_KEY);
     } catch {}
@@ -117,7 +116,7 @@ describe('tab-manager-store reorderTabs', () => {
           { compositeKey: 'file-a', id: 'file-a', path: 'src/a.ts' },
         ],
       },
-      version: 2,
+      version: 1,
     });
 
     // A reload: the in-memory store is gone, only the persisted payload remains.

@@ -87,34 +87,34 @@
 
 /* Agent identity is scoped to a conversation. The same validated color paints
    its reading surface and composer; delegation cards override it per child. */
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="blue"] { --agent-accent: var(--color-sky-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="emerald"] { --agent-accent: var(--color-emerald-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="amber"] { --agent-accent: var(--color-amber-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="rose"] { --agent-accent: var(--color-rose-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="violet"] { --agent-accent: var(--color-violet-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="slate"] { --agent-accent: var(--color-slate-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="cyan"] { --agent-accent: var(--color-cyan-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="lime"] { --agent-accent: var(--color-lime-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="orange"] { --agent-accent: var(--color-orange-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="fuchsia"] { --agent-accent: var(--color-fuchsia-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="indigo"] { --agent-accent: var(--color-indigo-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="red"] { --agent-accent: var(--color-red-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="teal"] { --agent-accent: var(--color-teal-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="green"] { --agent-accent: var(--color-green-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="yellow"] { --agent-accent: var(--color-yellow-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="pink"] { --agent-accent: var(--color-pink-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="purple"] { --agent-accent: var(--color-purple-500); }
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="zinc"] { --agent-accent: var(--color-zinc-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="blue"] { --agent-accent: var(--color-sky-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="emerald"] { --agent-accent: var(--color-emerald-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="amber"] { --agent-accent: var(--color-amber-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="rose"] { --agent-accent: var(--color-rose-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="violet"] { --agent-accent: var(--color-violet-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="slate"] { --agent-accent: var(--color-slate-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="cyan"] { --agent-accent: var(--color-cyan-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="lime"] { --agent-accent: var(--color-lime-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="orange"] { --agent-accent: var(--color-orange-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="fuchsia"] { --agent-accent: var(--color-fuchsia-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="indigo"] { --agent-accent: var(--color-indigo-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="red"] { --agent-accent: var(--color-red-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="teal"] { --agent-accent: var(--color-teal-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="green"] { --agent-accent: var(--color-green-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="yellow"] { --agent-accent: var(--color-yellow-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="pink"] { --agent-accent: var(--color-pink-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="purple"] { --agent-accent: var(--color-purple-500); }
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="zinc"] { --agent-accent: var(--color-zinc-500); }
 
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color^="family:"] {
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color^="family:"] {
   --agent-accent: var(--agent-accent-light);
 }
 
-.dark :where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color^="family:"] {
+.dark :where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color^="family:"] {
   --agent-accent: var(--agent-accent-dark);
 }
 
-:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval)[data-agent-color="unresolved"] {
+:where(.assistant-ui-panel, .bs-subagent-card, .bs-approval, .bs-subagent-chip, .bs-approval-reviewed)[data-agent-color="unresolved"] {
   --agent-accent: var(--muted-foreground);
 }
 
@@ -330,6 +330,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .bs-scroll-to-bottom {
+    transition: none;
+  }
+}
+
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
   .bs-scroll-to-bottom {
     transition: none;
   }
@@ -945,9 +952,18 @@ span.bs-composer-chip {
   padding-block: 0.625rem;
 }
 
+/* Transcript text size (Settings > Appearance): Medium is the 13px default. */
+:root[data-transcript-size="small"] {
+  --transcript-font-size: 0.75rem;
+}
+
+:root[data-transcript-size="large"] {
+  --transcript-font-size: 0.9375rem;
+}
+
 .aui-assistant-message-content,
 .aui-user-message-content {
-  font-size: 0.8125rem;
+  font-size: var(--transcript-font-size, 0.8125rem);
 }
 
 /* Button sizing */
@@ -968,6 +984,31 @@ span.bs-composer-chip {
     max-width: 48rem;
     margin-inline: auto;
   }
+}
+
+/**
+ * TRANSCRIPT WIDTH (Settings > Appearance). Wide is the rule above. Narrow caps
+ * messages at a reading column at every panel width; Full lets them span the
+ * panel even when it is wide. The `:root[data-…]` prefix outranks the
+ * container rule, so either choice wins over it.
+ */
+:root[data-transcript-width="narrow"]
+  .aui-thread-viewport
+  :where(.aui-user-message-root, .aui-assistant-message-root) {
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
+:root[data-transcript-width="full"]
+  .aui-thread-viewport
+  :where(
+    .aui-user-message-root,
+    .aui-assistant-message-root,
+    .aui-assistant-message-content,
+    .bs-chain-of-thought
+  ) {
+  /* The roots, and the reading caps (`max-w-2xl`) on a reply and its activity. */
+  max-width: none;
 }
 
 .bs-expandable-message {
@@ -1051,6 +1092,14 @@ span.bs-composer-chip {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-tool-timeline,
+  .assistant-ui-panel .bs-run-timeline {
+    animation: none;
+  }
+}
+
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
   .assistant-ui-panel .bs-tool-timeline,
   .assistant-ui-panel .bs-run-timeline {
     animation: none;
@@ -1295,6 +1344,13 @@ span.bs-composer-chip {
   }
 }
 
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
+  .assistant-ui-panel .bs-todo-progress-fill {
+    transition: none;
+  }
+}
+
 /**
  * ACTIVITY TRACE MOTION (phase 2). CSS-only by repo rule. Four primitives:
  * - .bs-trace-label: a keyed span that fades/slides in when its text changes
@@ -1452,6 +1508,19 @@ span.bs-composer-chip {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-trace-label,
+  .assistant-ui-panel .bs-trace-reveal {
+    animation: none;
+  }
+
+  .assistant-ui-panel .bs-trace-collapse,
+  .assistant-ui-panel .bs-trace-glyph {
+    transition: none;
+  }
+}
+
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
   .assistant-ui-panel .bs-trace-label,
   .assistant-ui-panel .bs-trace-reveal {
     animation: none;
@@ -1700,11 +1769,16 @@ span.bs-composer-chip {
   --bs-family-web: oklch(0.76 0.1 235);
 }
 
+/* The header's glyphs and labels swap and animate as the group's phase
+   changes. Never the node native scroll anchoring holds still: while one of
+   its transitions ran, Chromium kept no anchor, and a reader parked lower in
+   an open group moved when content landed above. */
 .assistant-ui-panel .bs-activity-header {
   align-items: center;
   container-type: inline-size;
   display: flex;
   min-width: 0;
+  overflow-anchor: none;
 }
 
 /* The disclosure yields room to its siblings instead of claiming the row. */
@@ -1780,7 +1854,16 @@ span.bs-composer-chip {
   width: 100%;
 }
 
-.assistant-ui-panel :is(.bs-activity-failed-jump, .bs-run-strip, .bs-activity-filter-chip, .bs-activity-filter-action):focus-visible {
+.assistant-ui-panel
+  :is(
+    .bs-activity-failed-jump,
+    .bs-run-strip,
+    .bs-activity-filter-chip,
+    .bs-activity-filter-action,
+    .bs-step-row,
+    .bs-approval-row-line,
+    .bs-approval-strip-grant
+  ):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
@@ -1966,6 +2049,13 @@ span.bs-composer-chip {
   }
 }
 
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
+  .assistant-ui-panel .bs-run-mark-running {
+    animation: none;
+  }
+}
+
 /* Approval depth remains a layout cue; color follows the durable owner id. */
 .assistant-ui-panel .bs-approval {
   --bs-approval-accent: var(--agent-accent, var(--primary));
@@ -2141,6 +2231,12 @@ span.bs-composer-chip {
 .assistant-ui-panel .bs-subagents-running .bs-thinking-mark {
   block-size: 0.875rem;
   inline-size: 0.875rem;
+}
+
+.assistant-ui-panel .bs-subagents-running-agents {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
 }
 
 .assistant-ui-panel .bs-subagents-running-label {
@@ -2538,6 +2634,38 @@ span.bs-composer-chip {
   }
 }
 
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
+  /* The two compound selectors are listed explicitly: the trace's live status
+     label matches all three classes at once, and the compound rules above are
+     (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
+     (0,2,0) — cannot reach it however late the block is declared. Drop either
+     and exactly one element keeps shimmering under a reduced-motion
+     preference. */
+  .assistant-ui-panel .bs-thinking-pulse,
+  .assistant-ui-panel .bs-thinking-core,
+  .assistant-ui-panel .bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label.bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
+    animation: none;
+  }
+
+  .assistant-ui-panel .bs-thinking-pulse {
+    opacity: 0.18;
+    transform: scale(1);
+  }
+
+  .assistant-ui-panel .bs-thinking-core {
+    opacity: 0.78;
+    transform: scale(1);
+  }
+
+  .assistant-ui-panel .bs-thinking-shimmer {
+    background: none;
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  }
+}
+
 @media (forced-colors: active) {
   .assistant-ui-panel .bs-thinking-shimmer {
     background: none;
@@ -2727,7 +2855,8 @@ span.bs-composer-chip {
   padding: 0.7rem 0.9rem;
   background: color-mix(in oklab, var(--color-muted) 60%, transparent);
   overflow-x: auto;
-  font-size: 0.82em;
+  /* Same size as the highlighted block (globals.css), so the swap keeps its metrics. */
+  font-size: var(--code-font-size, 0.82em);
   line-height: 1.55;
 }
 
@@ -2840,6 +2969,14 @@ span.bs-composer-chip {
   }
 }
 
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
+  .assistant-ui-panel .aui-md [data-sd-animate],
+  .assistant-ui-panel .aui-md [data-sd-animate-marker]::marker {
+    animation: none;
+  }
+}
+
 /* A new thread's composer sits centred under its welcome, on the gradient. */
 .bs-new-thread .bs-composer-shell {
   width: 100%;
@@ -2855,4 +2992,62 @@ span.bs-composer-chip {
     opacity: 0;
     transform: translateY(0.5rem);
   }
+}
+
+/* A subagent's call sign on a dot of its family colour (`SubagentChip`). */
+.bs-subagent-chip {
+  align-items: center;
+  background: color-mix(in oklab, var(--agent-accent) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--agent-accent) 45%, transparent);
+  border-radius: 9999px;
+  color: var(--foreground);
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.6875rem;
+  gap: 0.3125rem;
+  line-height: 1.25rem;
+  max-inline-size: 12rem;
+  padding: 0 0.5rem 0 0.375rem;
+}
+
+.bs-subagent-chip-dot {
+  background: var(--agent-accent);
+  border-radius: 9999px;
+  block-size: 0.5rem;
+  flex-shrink: 0;
+  inline-size: 0.5rem;
+}
+
+.bs-subagent-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.bs-subagent-chip {
+  cursor: pointer;
+}
+
+button.bs-subagent-chip:hover {
+  background: color-mix(in oklab, var(--agent-accent) 22%, transparent);
+}
+
+button.bs-subagent-chip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* A reviewed approval a subagent raised carries its family colour. */
+.bs-approval-reviewed[data-agent-color] {
+  border-inline-start: 3px solid var(--agent-accent);
+  padding-inline-start: 0.625rem;
+}
+
+/* The subagents a group delegated to, beside its collapsed header. */
+.bs-activity-agents {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
 }

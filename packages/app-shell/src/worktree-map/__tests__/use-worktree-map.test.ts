@@ -1,12 +1,5 @@
-import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
-import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import { act } from '@brainstrike/test-utils/react-act';
-import {
-  type NativeWorkspaceSearchDependencies,
-  NativeWorkspaceSearchProvider,
-} from '@brainstrike/workspace-search/core';
 import { renderHook, waitFor } from '@testing-library/react';
-import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { gitFailure } from '../../__tests__/helpers/git-failure';
 import {
@@ -56,20 +49,10 @@ vi.mock('../../changes/use-changes-live-refresh', () => ({
 // `publishCanonicalMapping` lands a new adapter→DB pair.
 let rootIdentityValue: {
   resolveAdapterRootId: (dbRootId: string) => string | null;
-  workspaceDbRootIds: readonly string[];
 } | null = null;
 vi.mock('../../roots/root-identity-context', () => ({
   useOptionalRootIdentity: () => rootIdentityValue,
 }));
-
-/** An index that is ready and serves `root-1`. */
-const READY_STATUS = {
-  authorizedRootIds: ['root-1'],
-  embedding: { indexMode: 'text-only' as const },
-  kind: 'ready' as const,
-  rootReadiness: [{ rootId: 'root-1', scanComplete: true }],
-  storeId: 'store-a',
-};
 
 const INPUT: UseWorktreeMapInput = {
   resourceId: 'brainstrike:workspace',
@@ -115,101 +98,6 @@ describe('useWorktreeMap', () => {
     });
     adoptMock.mockReset();
     archiveMock.mockReset();
-    useIndexConfigStore.setState({
-      state: { config: DEFAULT_INDEX_CONFIG, kind: 'ready' },
-      update: vi.fn(),
-    });
-  });
-
-  it('shows each mounted checkout’s index choice from Main’s config, and none before it is read', async () => {
-    listMock.mockResolvedValue({
-      ok: true,
-      value: [
-        entry({ path: '/repo', rootId: 'root-1', rootIdIsExactMount: true }),
-        entry({ path: '/repo-b', primary: false, rootId: 'root-2', rootIdIsExactMount: true }),
-      ],
-    });
-    useIndexConfigStore.setState({ state: { kind: 'loading' } });
-    const status = { ...READY_STATUS, authorizedRootIds: [] };
-    const { result } = renderHook(() => useWorktreeMap(INPUT), {
-      wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(
-          wrapper,
-          null,
-          createElement(NativeWorkspaceSearchProvider, {
-            children,
-            dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
-          })
-        ),
-    });
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    const indexing = () => result.current.repositories[0]?.cards.map((card) => card.indexing);
-    expect(indexing()).toEqual(['unknown', 'unknown']);
-
-    act(() =>
-      useIndexConfigStore.setState({
-        state: {
-          config: { ...DEFAULT_INDEX_CONFIG, worktrees: { 'root-1': false, 'root-2': true } },
-          kind: 'ready',
-        },
-      })
-    );
-    expect(indexing()).toEqual(['excluded', 'included']);
-  });
-
-  it('makes no indexing claim for a checkout without an opt-in until the index status is ready', async () => {
-    listMock.mockResolvedValue({
-      ok: true,
-      value: [entry({ path: '/repo', rootId: 'root-1', rootIdIsExactMount: true })],
-    });
-    let status: NonNullable<NativeWorkspaceSearchDependencies['status']> = {
-      kind: 'unavailable',
-      reason: 'Paused',
-    };
-    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), {
-      wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(
-          wrapper,
-          null,
-          createElement(NativeWorkspaceSearchProvider, {
-            children,
-            dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
-          })
-        ),
-    });
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    const indexing = () => result.current.repositories[0]?.cards.map((card) => card.indexing);
-    expect(indexing()).toEqual(['unknown']);
-    status = READY_STATUS;
-    rerender();
-    expect(indexing()).toEqual(['open-folder']);
-  });
-
-  it('shows a checkout the index serves as an ordinary open folder as indexed', async () => {
-    listMock.mockResolvedValue({
-      ok: true,
-      value: [
-        entry({ path: '/repo', rootId: 'root-1', rootIdIsExactMount: true }),
-        entry({ path: '/repo-b', primary: false, rootId: 'root-2', rootIdIsExactMount: true }),
-      ],
-    });
-    const status = READY_STATUS;
-    const { result } = renderHook(() => useWorktreeMap(INPUT), {
-      wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(
-          wrapper,
-          null,
-          createElement(NativeWorkspaceSearchProvider, {
-            children,
-            dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
-          })
-        ),
-    });
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.repositories[0]?.cards.map((card) => card.indexing)).toEqual([
-      'open-folder',
-      'excluded',
-    ]);
   });
 
   it('loads the list once on mount and projects it into repository lanes', async () => {
@@ -332,7 +220,7 @@ describe('useWorktreeMap', () => {
   // context value only when a NEW pair lands (after `reconcileRoots` wrote the
   // row), so the hook re-reads exactly when the row provably exists.
   it('re-reads the list when a root registration publishes a new canonical identity', async () => {
-    rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
+    rootIdentityValue = { resolveAdapterRootId: () => null };
     const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(listMock).toHaveBeenCalledTimes(1);
@@ -341,7 +229,6 @@ describe('useWorktreeMap', () => {
     act(() => {
       rootIdentityValue = {
         resolveAdapterRootId: () => 'adapter-1',
-        workspaceDbRootIds: ['db-root-1'],
       };
     });
     rerender();
@@ -354,7 +241,7 @@ describe('useWorktreeMap', () => {
   });
 
   it('does not re-read the list when the identity value is unchanged', async () => {
-    rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
+    rootIdentityValue = { resolveAdapterRootId: () => null };
     const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(listMock).toHaveBeenCalledTimes(1);

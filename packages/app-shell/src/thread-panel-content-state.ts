@@ -117,10 +117,10 @@ export function resolveThreadPanelContentState({
   }
   if (loadState?.status === 'loading' && threads.length === 0) {
     return {
-      description: 'Reading Mastra memory from PGlite.',
+      description: 'Reading your saved conversations.',
       kind: 'card',
       testId: 'threads-loading-card',
-      title: 'Loading threads...',
+      title: 'Loading threads…',
       variant: 'muted',
     };
   }
@@ -135,10 +135,10 @@ export function resolveThreadPanelContentState({
   }
   if (folderGrouping?.loading) {
     return {
-      description: 'Reading workspace folders from PGlite.',
+      description: 'Reading your workspace folders.',
       kind: 'card',
       testId: 'threads-folders-loading-card',
-      title: 'Loading folders...',
+      title: 'Loading folders…',
       variant: 'muted',
     };
   }

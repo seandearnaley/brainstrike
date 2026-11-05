@@ -17,17 +17,23 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     <div data-testid="file-explorer-provider">{children}</div>
   ),
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
+  ThreadCheckoutProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 // Mock the file-explorer-hooks package
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: null,
-    storageAdapter: null,
   }),
 }));
 
 // Mock the UI package
+// The real store imports theme validators from `@brainstrike/ui`, which is mocked below.
+vi.mock('../appearance-store', () => ({
+  chooseAppearance: vi.fn(),
+  useAppearanceStore: () => ({}),
+}));
+
 vi.mock('@brainstrike/ui', () => ({
   // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
   ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
@@ -96,9 +102,6 @@ vi.mock('../app-reload/app-reload-strip', () => ({
 vi.mock('../status-items/database-status-item', () => ({
   DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
 }));
-vi.mock('../status-items/indexing-status-item', () => ({
-  IndexingStatusItem: () => <div data-testid="indexing-status-item">Indexing Status</div>,
-}));
 vi.mock('../status-items/workspace-root-status-item', () => ({
   WorkspaceRootStatusItem: () => (
     <div data-testid="workspace-root-status-item">Workspace Root Status</div>
@@ -109,15 +112,12 @@ vi.mock('../status-items/workspace-root-status-item', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     fileSystemAdapter: {},
-    storageAdapter: {},
   }),
 }));
 
 const mockConfig: AppShellConfig = {
   description: 'A test application',
   navigationItems: [{ icon: () => null, name: 'Home', path: '/' }],
-  themePaletteStorageKey: 'test-theme-palette',
-  themeStorageKey: 'test-theme',
   title: 'Test App',
 };
 
@@ -134,23 +134,6 @@ describe('AppLayout', () => {
     expect(screen.getByTestId('toaster')).toBeInTheDocument();
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByText('Page Content')).toBeInTheDocument();
-  });
-
-  it('places the unified indexing surface at the far right', () => {
-    render(
-      <AppLayout config={mockConfig} currentPath="/">
-        <div>Page Content</div>
-      </AppLayout>
-    );
-    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
-    expect(screen.getByTestId('database-status-item')).toBeInTheDocument();
-    expect(screen.getByTestId('indexing-status-item')).toBeInTheDocument();
-    expect(screen.getByTestId('status-bar-center')).toBeEmptyDOMElement();
-    expect(screen.getByTestId('status-bar-right')).toContainElement(
-      screen.getByTestId('indexing-status-item')
-    );
-    expect(screen.queryByTestId('collection-sync-status-item')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('queue-status-item')).not.toBeInTheDocument();
   });
 
   it('places the workspace-root item on the left beside the database item', () => {

@@ -6,13 +6,11 @@ import {
   BrainCircuit,
   FolderTree,
   Palette,
-  Search,
   Settings,
   ShieldCheck,
   Sigma,
   Webhook,
 } from 'lucide-react';
-import type { TestMemoryEmbedder } from './settings/models/assistant-memory-embedder-test';
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import type { ClearContentProps } from './settings/system/clear-content-panel';
@@ -26,8 +24,10 @@ import {
   type SavedBrowserOrigins,
   SavedBrowserOriginsSection,
 } from './settings/system/saved-browser-origins-section';
-import { SearchIndexSettingsSection } from './settings/system/search-index-settings-section';
-import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
+import {
+  SubagentPersonasSettingsSection,
+  type SubagentPersonasSettingsSectionProps,
+} from './settings/system/subagent-personas-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 import {
   WorktreeSettingsSection,
@@ -39,7 +39,7 @@ import type { SettingsCategory } from './settings-page-content';
 export function createAppearanceSettingsCategory(): SettingsCategory {
   return {
     content: <ThemeSettings />,
-    description: 'Choose your theme, fonts and code colours.',
+    description: 'Choose your theme, fonts and code colors.',
     icon: Palette,
     id: 'appearance',
     keywords: [
@@ -51,6 +51,8 @@ export function createAppearanceSettingsCategory(): SettingsCategory {
       'typeface',
       'code theme',
       'syntax',
+      'interface font',
+      'code font',
     ],
     title: 'Appearance',
   };
@@ -67,10 +69,19 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
 }): SettingsCategory {
   return {
     content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
-    description: 'Control the tokenizer used for Explorer token counts.',
+    description: 'Choose how Explorer counts tokens.',
     icon: Sigma,
     id: 'token-counting',
-    keywords: ['token', 'counting', 'tiktoken', 'preview'],
+    keywords: [
+      'token',
+      'counting',
+      'tiktoken',
+      'preview',
+      'accurate token counts',
+      'estimated counts',
+      'tokenizer',
+      'wasm',
+    ],
     title: 'Token Counting',
   };
 }
@@ -104,7 +115,18 @@ export function createFactoryResetSettingsCategory(
     description: 'Wipe application data and reset preferences.',
     icon: Settings,
     id: 'factory-reset',
-    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
+    keywords: [
+      'factory',
+      'reset',
+      'resetting',
+      'wipe',
+      'preferences',
+      'stored folders',
+      'clear content',
+      'delete chats',
+      'forget all folders',
+      'inline fixtures',
+    ],
     title: 'Factory Reset',
   };
 }
@@ -142,22 +164,12 @@ export function createWorkspaceSettingsCategory(
       'setup command',
       'consent',
       'revoke',
+      'managed worktree location',
+      'default location',
+      'disable setup',
+      'setup script',
     ],
     title: 'Workspace',
-  };
-}
-
-export function createSearchIndexingSettingsCategory(
-  nativeIndex?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability
-): SettingsCategory {
-  return {
-    content: <SearchIndexSettingsSection {...(nativeIndex ? { nativeIndex } : {})} />,
-    description:
-      'Choose how your folders are searched, the embedding model and how files are split.',
-    icon: Search,
-    id: 'search-indexing',
-    keywords: ['search', 'indexing', 'semantic', 'embeddings', 'chunking', 'model'],
-    title: 'Search & Indexing',
   };
 }
 
@@ -196,6 +208,14 @@ export function createPermissionSettingsCategory(options?: {
       'guardrails',
       'sites',
       'browser',
+      'enforce tool permissions',
+      'tool policy',
+      'tool category policies',
+      'per-tool overrides',
+      'session grants',
+      'access mode',
+      'auto-review model',
+      'sites the agent may open',
     ],
     title: 'Permissions',
   };
@@ -204,36 +224,44 @@ export function createPermissionSettingsCategory(options?: {
 export interface CreateAssistantMemorySettingsCategoryOptions {
   readonly assistantMemoryBackendAvailable: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
-  /** The host's test of the selected embedder (BST-2227). */
-  readonly testEmbedder?: TestMemoryEmbedder;
 }
 
 export function createAssistantMemorySettingsCategory({
   assistantMemoryBackendAvailable,
   providerKeySources,
-  testEmbedder,
 }: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
   return {
     content: (
       <AssistantMemorySettingsSection
         assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
         {...(providerKeySources ? { providerKeySources } : {})}
-        {...(testEmbedder ? { testEmbedder } : {})}
       />
     ),
-    description: 'Configure the assistant’s observational memory and semantic recall.',
+    description: 'Configure the assistant’s observational memory.',
     icon: BrainCircuit,
     id: 'assistant-memory',
-    keywords: ['memory', 'observations', 'semantic recall', 'mastra', 'embedding'],
+    keywords: [
+      'memory',
+      'observations',
+      'mastra',
+      'observational memory',
+      'enable observations',
+      'observation scope',
+      'observe messages after',
+      'reflect observations after',
+      'retrieval mode',
+    ],
     title: 'Assistant Memory',
   };
 }
 
-export function createSubagentPersonasSettingsCategory(): SettingsCategory {
+export function createSubagentPersonasSettingsCategory(
+  options: SubagentPersonasSettingsSectionProps = {}
+): SettingsCategory {
   return {
     content: (
       <div className="space-y-6">
-        <SubagentPersonasSettingsSection />
+        <SubagentPersonasSettingsSection {...options} />
         <SubagentSettingsSection />
       </div>
     ),
@@ -255,6 +283,13 @@ export function createSubagentPersonasSettingsCategory(): SettingsCategory {
       'steps',
       'output tokens',
       'summary',
+      'enable subagent delegation',
+      'subagent limits',
+      'delegation depth',
+      'subagents per turn',
+      'subagent work at once',
+      'steps per subagent',
+      'runtime per subagent',
     ],
     title: 'Subagents',
   };
@@ -280,7 +315,18 @@ export function createHooksSettingsCategory(
     description: 'Approve a workspace’s shell hooks before they run at tool-lifecycle events.',
     icon: Webhook,
     id: 'hooks',
-    keywords: ['hooks', 'shell', 'lifecycle', 'pretooluse', 'posttooluse', 'trust', 'approve'],
+    keywords: [
+      'hooks',
+      'shell',
+      'lifecycle',
+      'pretooluse',
+      'posttooluse',
+      'trust',
+      'approve',
+      'workspace hooks',
+      'hooks.json',
+      'revoke',
+    ],
     title: 'Hooks',
   };
 }

@@ -22,17 +22,17 @@ const profileStartup = vi.hoisted(() => ({
   events: [] as string[],
 }));
 
-vi.mock('../../native-index-activation', async () => {
-  const actual = await vi.importActual<typeof import('../../native-index-activation')>(
-    '../../native-index-activation'
+vi.mock('../../host-profile-admission', async () => {
+  const actual = await vi.importActual<typeof import('../../host-profile-admission')>(
+    '../../host-profile-admission'
   );
   return {
     ...actual,
-    createNativeIndexActivation: (
-      ...args: Parameters<typeof actual.createNativeIndexActivation>
+    createHostProfileAdmission: (
+      ...args: Parameters<typeof actual.createHostProfileAdmission>
     ) => ({
-      ...actual.createNativeIndexActivation(...args),
-      acquireProfile: profileStartup.acquire,
+      ...actual.createHostProfileAdmission(...args),
+      acquire: profileStartup.acquire,
     }),
   };
 });
@@ -208,14 +208,6 @@ vi.mock('../../window-state', async () => {
   };
 });
 
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { default: MockElectronStore };
-});
-
 const REAL_PROCESS_ARGV = process.argv;
 
 describe('global desktop IPC manifest (BST-1648 step 5)', () => {
@@ -254,7 +246,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   });
 
   it('boots the full per-domain registry set (module scope + app.whenReady())', () => {
-    expect(registryCapture.instances).toHaveLength(27);
+    expect(registryCapture.instances).toHaveLength(22);
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.appUpdates.setBetaUpdates,
@@ -287,11 +279,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       return channel;
     });
     expect(expected.length).toBeGreaterThanOrEqual(30);
-    const registered = new Set<string>([
-      ...union.map(({ channel }) => channel),
-      DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
-      DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
-    ]);
+    const registered = new Set<string>(union.map(({ channel }) => channel));
     expect(expected.filter((channel) => channel === undefined || !registered.has(channel))).toEqual(
       []
     );

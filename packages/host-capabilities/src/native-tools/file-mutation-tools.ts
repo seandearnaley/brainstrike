@@ -2,14 +2,13 @@
  * The file-mutation native tool family (BST-743): writeWorkspaceFile,
  * stringReplaceWorkspaceFile, deleteWorkspaceFile, and renameWorkspaceFile —
  * per-file lock critical sections, read-before-write staleness guards,
- * edit-checkpoint capture, in-lock Workspace Index coherence, and the
- * out-of-lock post-edit LSP diagnostics. Security-sensitive: every path goes
+ * edit-checkpoint capture, and the out-of-lock post-edit LSP diagnostics. Security-sensitive: every path goes
  * through the audited `secure-file-write` containment helpers.
  *
- * Edit attribution, Workspace Index maintenance and LSP diagnostics are the
- * shell's ports (`FileMutationPorts`): the agent host passes Core's edit
- * tracker, reindex and LSP.
+ * Edit attribution and LSP diagnostics are the shell's ports
+ * (`FileMutationPorts`): the agent host passes Core's edit tracker and LSP.
  */
+import type { Stats } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -61,9 +60,6 @@ import { readWorkspaceTextFile } from './workspace-text-file-reader.ts';
 const logger = createLogger('DesktopAssistantTools');
 
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
-
-/** Without an index port there is no index row to invalidate. */
-const NO_INDEX_INVALIDATION = { invalidated: false } as const;
 
 const GUTTER_PREFIX_REFUSAL_MESSAGE =
   'This looks like readWorkspaceFile display output (line-number gutters). Strip the `N: ` prefixes or reconstruct the intended file content before writing.';
@@ -191,6 +187,31 @@ function workspaceRenameLock(
     withWorkspaceMutationLease(rootPath, 'files', () => withTwoFileLocks(from, to, task), signal);
 }
 
+type ResolvedWritePath = Awaited<ReturnType<typeof resolveWorkspaceWritePath>>;
+
+/** A write's checks before its lock. Its approval preview runs the same ones. */
+export async function prepareWriteWorkspaceFile(
+  input: WriteWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{ buffer: Buffer; resolved: ResolvedWritePath; root: RuntimeWorkspaceRoot }> {
+  // Cheap bounded size check FIRST (PR #2352 review): an over-limit payload
+  // is rejected before it pays for the gutter guard's `split('\n')` pass —
+  // both are pure pre-lock validations, so the ordering only affects how
+  // much work an already-doomed oversized write does before failing.
+  const buffer = Buffer.from(input.content, 'utf8');
+  if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
+    throw new ToolInputError(
+      `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
+    );
+  }
+  assertNoReadWorkspaceFileGutters(input.content);
+
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  await assertAgentMayChange(resolved);
+  return { buffer, resolved, root };
+}
+
 export async function runWriteWorkspaceFile(
   input: WriteWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
@@ -208,21 +229,7 @@ export async function runWriteWorkspaceFile(
 }> {
   assertFileMutationActive(runtimeData, signal);
   const threadScope = executionThreadId ?? readStateScope(runtimeData);
-  // Cheap bounded size check FIRST (PR #2352 review): an over-limit payload
-  // is rejected before it pays for the gutter guard's `split('\n')` pass —
-  // both are pure pre-lock validations, so the ordering only affects how
-  // much work an already-doomed oversized write does before failing.
-  const buffer = Buffer.from(input.content, 'utf8');
-  if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
-    throw new ToolInputError(
-      `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
-    );
-  }
-  assertNoReadWorkspaceFileGutters(input.content);
-
-  const root = resolveWorkspaceRoot(runtimeData, input.root);
-  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
-  await assertAgentMayChange(resolved);
+  const { buffer, resolved, root } = await prepareWriteWorkspaceFile(input, runtimeData);
 
   // Serialize same-file writes against concurrent edits (Mastra runs tool calls
   // within a step concurrently). Key by the canonical absolute path so two edits
@@ -274,13 +281,6 @@ export async function runWriteWorkspaceFile(
     // Our own write is the scope's freshest observation — consecutive writes
     // must never trip the guard on themselves.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
-    await ports.index?.edited({
-      absolutePath: resolved.absolutePath,
-      content: input.content,
-      rootId: root.rootId,
-      size: buffer.byteLength,
-      workspacePath: resolved.workspacePath,
-    });
     return writeResult;
   });
 
@@ -303,6 +303,53 @@ export async function runWriteWorkspaceFile(
   };
 }
 
+/** A replacement's checks before its lock. Its approval preview runs the same ones. */
+export async function prepareStringReplaceWorkspaceFile(
+  input: StringReplaceWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{ resolved: ResolvedWritePath; root: RuntimeWorkspaceRoot }> {
+  assertNoReadWorkspaceFileGutters(input.newStr);
+  const root = resolveWorkspaceRoot(runtimeData, input.root);
+  // Resolve the write path up front so we can lock on the canonical absolute
+  // path. resolveWorkspaceWritePath clamps ".." and contains symlinked
+  // ancestors; the read below uses the same containment as the read tools.
+  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
+  await assertAgentMayChange(resolved);
+  return { resolved, root };
+}
+
+/** The file a replacement edits. Only an existing text file can be edited. */
+export async function readStringReplaceTarget(
+  requestedPath: string,
+  rootPath: string
+): ReturnType<typeof readWorkspaceTextFile> {
+  // Read through the SAME checked read path the read tools use (isFile, 2 MB
+  // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
+  // edit inherits PR-2.1's path-escape protection on the read side too.
+  try {
+    return await readWorkspaceTextFile({ requestedPath, rootPath });
+  } catch (error: unknown) {
+    if (error instanceof WorkspacePathRefusal && error.reason === 'missing') {
+      throw new ToolInputError(
+        'stringReplaceWorkspaceFile edits only an existing file. Use writeWorkspaceFile to create the new file.',
+        { cause: error }
+      );
+    }
+    throw error;
+  }
+}
+
+/** The edited file's bytes, refused past the write limit. */
+export function editedContentBytes(requestedPath: string, content: string): Buffer {
+  const buffer = Buffer.from(content, 'utf8');
+  if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
+    throw new ToolInputError(
+      `Edited content for "${requestedPath}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
+    );
+  }
+  return buffer;
+}
+
 export async function runStringReplaceWorkspaceFile(
   input: StringReplaceWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
@@ -323,13 +370,7 @@ export async function runStringReplaceWorkspaceFile(
 }> {
   assertFileMutationActive(runtimeData, signal);
   const threadScope = executionThreadId ?? readStateScope(runtimeData);
-  assertNoReadWorkspaceFileGutters(input.newStr);
-  const root = resolveWorkspaceRoot(runtimeData, input.root);
-  // Resolve the write path up front so we can lock on the canonical absolute
-  // path. resolveWorkspaceWritePath clamps ".." and contains symlinked
-  // ancestors; the read below uses the same containment as the read tools.
-  const resolved = await resolveWorkspaceWritePath(root.path, input.path);
-  await assertAgentMayChange(resolved);
+  const { resolved, root } = await prepareStringReplaceWorkspaceFile(input, runtimeData);
 
   // The whole read-modify-write-AND-reindex cycle runs under the per-file lock so
   // a concurrent edit (another stringReplace, or a writeWorkspaceFile) to the
@@ -342,24 +383,7 @@ export async function runStringReplaceWorkspaceFile(
     signal ?? runtimeData?.signal
   );
   const result = await commit(async () => {
-    // Read through the SAME checked read path the read tools use (isFile, 2 MB
-    // byte cap, NUL-byte binary probe, realpath-both-sides containment), so the
-    // edit inherits PR-2.1's path-escape protection on the read side too.
-    let file: Awaited<ReturnType<typeof readWorkspaceTextFile>>;
-    try {
-      file = await readWorkspaceTextFile({
-        requestedPath: input.path,
-        rootPath: root.path,
-      });
-    } catch (error: unknown) {
-      if (error instanceof WorkspacePathRefusal && error.reason === 'missing') {
-        throw new ToolInputError(
-          'stringReplaceWorkspaceFile edits only an existing file. Use writeWorkspaceFile to create the new file.',
-          { cause: error }
-        );
-      }
-      throw error;
-    }
+    const file = await readStringReplaceTarget(input.path, root.path);
 
     // Staleness compare (report R8): oldStr/newStr were crafted from what this
     // scope last observed. If disk moved past that observation, applying the
@@ -381,12 +405,7 @@ export async function runStringReplaceWorkspaceFile(
       scope,
     });
 
-    const buffer = Buffer.from(replacement.newContent, 'utf8');
-    if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
-      throw new ToolInputError(
-        `Edited content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
-      );
-    }
+    const buffer = editedContentBytes(input.path, replacement.newContent);
 
     await ports
       .edits({
@@ -410,23 +429,6 @@ export async function runStringReplaceWorkspaceFile(
     // Our own write is the scope's freshest observation — a follow-up edit in
     // the same thread must never trip the guard on it.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
-
-    // Keep the RAG index coherent: re-index the edited file INSIDE the same
-    // per-file critical section as the read-modify-write. Running it after the
-    // lock released reopened the very race the lock closes — a concurrent edit
-    // could land its newer bytes (and mtime) between this write and its
-    // re-index, leaving the file_records row stale relative to disk and
-    // self-healing-proof (matching mtime skips the next sync's re-read). No-ops
-    // when the file isn't part of the Workspace Index; already non-fatal (it
-    // catches+logs internally), so it never undoes a successful edit nor
-    // extends the lock's failure surface.
-    await ports.index?.edited({
-      absolutePath: resolved.absolutePath,
-      content: replacement.newContent,
-      rootId: root.rootId,
-      size: buffer.byteLength,
-      workspacePath: resolved.workspacePath,
-    });
 
     return {
       bytesWritten: buffer.byteLength,
@@ -475,21 +477,11 @@ export function withTwoFileLocks<T>(
   return withFileLock(first, () => withFileLock(second, task));
 }
 
-export async function runDeleteWorkspaceFile(
+/** A delete's checks before its lock. Its approval preview runs the same ones. */
+export async function prepareDeleteWorkspaceFile(
   input: DeleteWorkspaceFileInput,
-  runtimeData: RuntimeData | undefined,
-  ports: FileMutationPorts,
-  toolCallId?: string,
-  executionThreadId?: string,
-  signal?: AbortSignal
-): Promise<{
-  ok: true;
-  path: string;
-  rootName: string;
-  indexInvalidated: boolean;
-}> {
-  assertFileMutationActive(runtimeData, signal);
-  const threadScope = executionThreadId ?? readStateScope(runtimeData);
+  runtimeData: RuntimeData | undefined
+): Promise<{ mutationPath: string; resolved: ResolvedWritePath; root: RuntimeWorkspaceRoot }> {
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Same path hardening as the write tools: clamps "..", contains symlinked
   // ancestors, and rejects the workspace root itself. A LIVE symlink whose target
@@ -506,6 +498,49 @@ export async function runDeleteWorkspaceFile(
     resolved.requestedAbsolutePath,
     input.path
   );
+  return { mutationPath, resolved, root };
+}
+
+/** The leaf a delete removes, never followed. It must exist and not be a directory. */
+export async function inspectDeleteLeaf(
+  mutationPath: string,
+  requestedPath: string
+): Promise<Stats> {
+  let leafStats: Stats;
+  try {
+    leafStats = await fsPromises.lstat(mutationPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new ToolInputError(`Path "${requestedPath}" does not exist.`, { cause: error });
+    }
+    throw error;
+  }
+  // A symlink leaf (live or dangling) is deleted AS A LINK — `unlink` removes
+  // the pointer, never the target. Only a REAL directory is refused (lstat does
+  // not follow the leaf, so a symlink-to-directory reports isDirectory() false).
+  if (leafStats.isDirectory()) {
+    throw new ToolInputError(
+      `Path "${requestedPath}" is a directory. Deleting directories is not supported — use executeCommand for that.`
+    );
+  }
+  return leafStats;
+}
+
+export async function runDeleteWorkspaceFile(
+  input: DeleteWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  ports: FileMutationPorts,
+  toolCallId?: string,
+  executionThreadId?: string,
+  signal?: AbortSignal
+): Promise<{
+  ok: true;
+  path: string;
+  rootName: string;
+}> {
+  assertFileMutationActive(runtimeData, signal);
+  const threadScope = executionThreadId ?? readStateScope(runtimeData);
+  const { mutationPath, resolved, root } = await prepareDeleteWorkspaceFile(input, runtimeData);
 
   const commit = workspaceFileLock(
     resolved.canonicalRootPath,
@@ -513,23 +548,7 @@ export async function runDeleteWorkspaceFile(
     signal ?? runtimeData?.signal
   );
   return commit(async () => {
-    let leafStats: import('node:fs').Stats;
-    try {
-      leafStats = await fsPromises.lstat(mutationPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new ToolInputError(`Path "${input.path}" does not exist.`, { cause: error });
-      }
-      throw error;
-    }
-    // A symlink leaf (live or dangling) is deleted AS A LINK — `unlink` removes
-    // the pointer, never the target. Only a REAL directory is refused (lstat does
-    // not follow the leaf, so a symlink-to-directory reports isDirectory() false).
-    if (leafStats.isDirectory()) {
-      throw new ToolInputError(
-        `Path "${input.path}" is a directory. Deleting directories is not supported — use executeCommand for that.`
-      );
-    }
+    await inspectDeleteLeaf(mutationPath, input.path);
 
     // The attribution owner observes the before-identity BEFORE unlinking.
     await ports
@@ -549,14 +568,8 @@ export async function runDeleteWorkspaceFile(
     // Drop the staleness observation with the file so a later re-creation at
     // this path is treated as new, not compared against a ghost.
     forgetKnownFile(threadScope, mutationPath);
-    const invalidated =
-      (await ports.index?.deleted({
-        rootId: root.rootId,
-        workspacePath: resolved.workspacePath,
-      })) ?? NO_INDEX_INVALIDATION;
 
     return {
-      indexInvalidated: invalidated.invalidated,
       ok: true,
       path: resolved.workspacePath,
       rootName: root.displayName,
@@ -576,7 +589,6 @@ export async function runRenameWorkspaceFile(
   fromPath: string;
   toPath: string;
   rootName: string;
-  indexInvalidated: boolean;
 }> {
   assertFileMutationActive(runtimeData, signal);
   const threadScope = executionThreadId ?? readStateScope(runtimeData);
@@ -701,28 +713,8 @@ export async function runRenameWorkspaceFile(
       await recordOwnWriteObservation(threadScope, toResolved.absolutePath);
     }
 
-    // Index coherence: invalidate the SOURCE rows immediately (the differentiator
-    // vs a shell mv). `indexInvalidated` reflects that source removal. The
-    // DESTINATION is re-indexed through the edit seam, which no-ops for a
-    // brand-new path — a not-previously-indexed destination's row is imported by
-    // the background workspace sync (the documented staleness window: the moved
-    // file is searchable via the live grep pass immediately, and via the semantic
-    // index once the next sync imports it).
-    const invalidated =
-      (await ports.index?.deleted({
-        rootId: root.rootId,
-        workspacePath: fromResolved.workspacePath,
-      })) ?? NO_INDEX_INVALIDATION;
-    await ports.index?.renamed({
-      absolutePath: toResolved.absolutePath,
-      rootId: root.rootId,
-      rootPath: root.path,
-      workspacePath: toResolved.workspacePath,
-    });
-
     return {
       fromPath: fromResolved.workspacePath,
-      indexInvalidated: invalidated.invalidated,
       ok: true,
       rootName: root.displayName,
       toPath: toResolved.workspacePath,

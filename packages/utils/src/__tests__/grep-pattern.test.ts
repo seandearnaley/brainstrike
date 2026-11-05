@@ -1,21 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  escapeLikeLiteral,
-  extractTrigramLiteral,
-  MIN_TRIGRAM_LITERAL_LENGTH,
-} from '../grep-pattern.js';
-
-describe('escapeLikeLiteral', () => {
-  it('escapes LIKE metacharacters and backslashes', () => {
-    expect(escapeLikeLiteral('100%_done\\x')).toBe('100\\%\\_done\\\\x');
-  });
-
-  it('passes plain text through unchanged', () => {
-    expect(escapeLikeLiteral('createForegroundEmbeddingGate')).toBe(
-      'createForegroundEmbeddingGate'
-    );
-  });
-});
+import { extractTrigramLiteral, MIN_TRIGRAM_LITERAL_LENGTH } from '../grep-pattern.js';
 
 describe('extractTrigramLiteral', () => {
   it('returns the longest literal run from a regex', () => {

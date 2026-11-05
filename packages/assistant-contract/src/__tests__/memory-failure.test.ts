@@ -15,21 +15,20 @@ const decode = Schema.decodeUnknownSync(BoundaryFailureSchema, {
 describe('memory failure codes (BST-2202)', () => {
   it('names a memory model’s own provider and status, never the chat provider’s', () => {
     const failure = memoryComponentFailure({
-      component: 'embedder',
+      component: 'observer',
       httpStatus: 401,
-      modelId: 'openai::text-embedding-3-small',
-      step: 'recall',
+      modelId: 'openai::gpt-4.1-mini',
+      step: 'observe',
     });
     expect(decode(failure)).toEqual(failure);
     expect(failure).toEqual({
       category: 'authorization',
-      code: MEMORY_FAILURE_CODES.embedder,
+      code: MEMORY_FAILURE_CODES.observer,
       kind: 'fault',
-      message:
-        'Memory recall failed because its embedding model (OpenAI text-embedding-3-small) failed.',
+      message: 'Memory observe failed because its observer model (OpenAI gpt-4.1-mini) failed.',
       providerEvidence: 'OpenAI returned HTTP 401.',
       remedy:
-        'Check the OpenAI API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory.',
+        'Check the OpenAI API key in Settings → Providers, or choose another observer model in Settings → Assistant Memory.',
     });
   });
 
@@ -60,16 +59,9 @@ describe('memory failure codes (BST-2202)', () => {
       message:
         'Memory observe failed because its reflector model (Google AI Studio gemini-3-flash) failed.',
     });
-    const vector = memoryComponentFailure({ component: 'vector-store', step: 'save' });
-    expect(vector).toEqual({
-      category: 'internal',
-      code: 'memory.vector-store-failed',
-      kind: 'fault',
-      message: 'Memory save failed because its vector store failed.',
-    });
     expect(
       memoryComponentFailure({
-        component: 'embedder',
+        component: 'observer',
         httpStatus: 400,
         modelId: 'openai::m',
         step: 'save',
@@ -80,26 +72,26 @@ describe('memory failure codes (BST-2202)', () => {
   it('keeps a producer’s model-safe classification and an unknown provider unnamed', () => {
     expect(
       memoryComponentFailure({
-        component: 'embedder',
-        detail: 'Embedding provider openai is rate limiting requests; try again later.',
+        component: 'observer',
+        detail: 'The provider is rate limiting requests; try again later.',
         httpStatus: 429,
-        modelId: 'openai::text-embedding-3-small',
-        step: 'recall',
+        modelId: 'openai::gpt-4.1-mini',
+        step: 'observe',
       }).message
     ).toBe(
-      'Memory recall failed because its embedding model (OpenAI text-embedding-3-small) failed: Embedding provider openai is rate limiting requests; try again later.'
+      'Memory observe failed because its observer model (OpenAI gpt-4.1-mini) failed: The provider is rate limiting requests; try again later.'
     );
     const unknown = memoryComponentFailure({
-      component: 'embedder',
+      component: 'observer',
       httpStatus: 401,
-      modelId: 'fixture-embedder-4',
-      step: 'recall',
+      modelId: 'fixture-observer-4',
+      step: 'observe',
     });
     expect(unknown).toMatchObject({
-      message: 'Memory recall failed because its embedding model (fixture-embedder-4) failed.',
+      message: 'Memory observe failed because its observer model (fixture-observer-4) failed.',
       providerEvidence: 'The provider returned HTTP 401.',
       remedy:
-        'Check the provider’s API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory.',
+        'Check the provider’s API key in Settings → Providers, or choose another observer model in Settings → Assistant Memory.',
     });
   });
 

@@ -2,11 +2,23 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { useWorkspaceTabs } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createLogger } from '@brainstrike/logging';
-import { Button, Input, useToast } from '@brainstrike/ui';
+import {
+  Button,
+  ErrorNotice,
+  Input,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+  useToast,
+} from '@brainstrike/ui';
+import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { ArrowLeft, ArrowRight, Bot, RotateCw } from 'lucide-react';
 import {
   type FormEvent,
+  type KeyboardEvent,
   type ReactElement,
+  type ReactNode,
   type RefObject,
   useEffect,
   useRef,
@@ -18,6 +30,48 @@ import { type BrowserPageTab, browserPageTabId } from './browser-page-tab';
 import { useBrowserTabsStore } from './browser-tabs-store';
 
 const logger = createLogger('BrowserPage');
+
+type PageAction = 'goBack' | 'goForward' | 'navigate' | 'reload';
+
+const FAILURE_LABEL: Readonly<Record<PageAction, string>> = {
+  goBack: "Couldn't go back",
+  goForward: "Couldn't go forward",
+  navigate: "Couldn't open the address",
+  reload: "Couldn't reload the page",
+};
+
+/**
+ * A toolbar button with its name as a tooltip. The tooltip opens upward: the
+ * page below is a native view drawn above all DOM, which would cover it.
+ */
+function ToolbarButton({
+  children,
+  disabled,
+  label,
+  onClick,
+}: {
+  readonly children: ReactNode;
+  readonly disabled?: boolean;
+  readonly label: string;
+  readonly onClick: () => void;
+}): ReactElement {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+          size="icon-sm"
+          variant="ghost"
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 /**
  * Keep main's native view over `viewport` while `shown`. A `WebContentsView`
@@ -111,13 +165,35 @@ export function BrowserPageView({
     viewport
   );
 
-  // The address follows the page unless the person is editing it: `null`
-  // follows, any string is their edit. Cleared on submit and on blur.
+  // The address follows the page until the person types: `null` follows, any
+  // string is their edit. It stays when focus leaves (another window, the page's
+  // own view), as a browser's does, and clears when they navigate from here or
+  // the page goes somewhere else (a link, a redirect, the agent). A new tab's
+  // first address replaces nothing it was typed over.
   const [draft, setDraft] = useState<string | null>(null);
+  const [draftOver, setDraftOver] = useState(page?.url);
+  if (page?.url !== draftOver) {
+    setDraftOver(page?.url);
+    if (draftOver) {
+      setDraft(null);
+    }
+  }
   const address = draft ?? page?.url ?? '';
-  const run = (action: Promise<unknown>, label: string): void => {
-    void action.catch((error: unknown) => {
+  // The last action that failed, shown in the pane with a Retry until the next
+  // action starts.
+  const [failure, setFailure] = useState<{
+    readonly message: string;
+    readonly retry: () => void;
+  } | null>(null);
+  const run = (label: PageAction, start: () => Promise<unknown>): void => {
+    setDraft(null);
+    setFailure(null);
+    void start().catch((error: unknown) => {
       logger.error('Browser page action failed', { error, label, tabId: tab.tabId });
+      setFailure({
+        message: `${FAILURE_LABEL[label]}: ${getErrorMessage(error)}`,
+        retry: () => run(label, start),
+      });
     });
   };
   const handleNavigate = (event: FormEvent): void => {
@@ -125,7 +201,14 @@ export function BrowserPageView({
     const trimmed = address.trim();
     setDraft(null);
     if (trimmed) {
-      run(bridge.navigate(tab.tabId, trimmed), 'navigate');
+      run('navigate', () => bridge.navigate(tab.tabId, trimmed));
+    }
+  };
+  // Escape gives up the edit: the address shows the page's own URL again.
+  const handleAddressKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Escape' && draft !== null) {
+      event.preventDefault();
+      setDraft(null);
     }
   };
 
@@ -138,40 +221,36 @@ export function BrowserPageView({
   }
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="browser-page">
-      <div className="border-border flex h-9 shrink-0 items-center gap-1 border-b px-2">
-        <Button
-          aria-label="Back"
-          disabled={!page.canGoBack}
-          onClick={() => run(bridge.goBack(tab.tabId), 'goBack')}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <ArrowLeft className="size-3.5" />
-        </Button>
-        <Button
-          aria-label="Forward"
-          disabled={!page.canGoForward}
-          onClick={() => run(bridge.goForward(tab.tabId), 'goForward')}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <ArrowRight className="size-3.5" />
-        </Button>
-        <Button
-          aria-label="Reload"
-          onClick={() => run(bridge.reload(tab.tabId), 'reload')}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <RotateCw className="size-3.5" />
-        </Button>
+      <div className="border-border relative flex h-9 shrink-0 items-center gap-1 border-b px-2">
+        <TooltipProvider delayDuration={300}>
+          <ToolbarButton
+            disabled={!page.canGoBack}
+            label="Back"
+            onClick={() => run('goBack', () => bridge.goBack(tab.tabId))}
+          >
+            <ArrowLeft className="size-3.5" />
+          </ToolbarButton>
+          <ToolbarButton
+            disabled={!page.canGoForward}
+            label="Forward"
+            onClick={() => run('goForward', () => bridge.goForward(tab.tabId))}
+          >
+            <ArrowRight className="size-3.5" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Reload"
+            onClick={() => run('reload', () => bridge.reload(tab.tabId))}
+          >
+            <RotateCw className="size-3.5" />
+          </ToolbarButton>
+        </TooltipProvider>
         <form className="min-w-0 flex-1" onSubmit={handleNavigate}>
           <Input
             aria-label="Address"
             className="h-6 text-xs"
             data-testid="browser-url-input"
-            onBlur={() => setDraft(null)}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleAddressKeyDown}
             placeholder="Search or enter address"
             value={address}
           />
@@ -187,7 +266,25 @@ export function BrowserPageView({
             Agent
           </span>
         ) : null}
+        {page.isLoading ? (
+          // An indeterminate bar along the toolbar's bottom edge while the
+          // page's main frame loads.
+          <div
+            aria-label="Loading page"
+            className="bg-primary/70 absolute inset-x-0 bottom-0 h-0.5 motion-safe:animate-pulse"
+            data-testid="browser-page-loading"
+            role="progressbar"
+          />
+        ) : null}
       </div>
+      {failure ? (
+        <ErrorNotice
+          className="m-2 shrink-0"
+          data-testid="browser-page-error"
+          message={failure.message}
+          onRetry={failure.retry}
+        />
+      ) : null}
       {/* Native WebContentsView overlays exactly this reserved region. */}
       <div className="min-h-0 flex-1" data-testid="browser-page-viewport" ref={viewport} />
     </div>

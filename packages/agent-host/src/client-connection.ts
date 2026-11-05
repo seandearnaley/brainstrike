@@ -8,6 +8,9 @@ import { createHostCatalogClient, type HostCatalog } from './catalog/transport.t
 import { markHostClosing, markHostDrained, sendHostRequest } from './client-request.ts';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
+  FILE_SEARCH_BATCH,
+  type FileSearchBatch,
+  FileSearchBatchSchema,
   GIT_WORKSPACE_EVENT,
   type GitWorkspaceEvent,
   GitWorkspaceEventSchema,
@@ -16,6 +19,7 @@ import {
   HOST_DRAINED_EVENT,
   HOST_RESULT_SCHEMAS,
   HOST_RUN_TELEMETRY,
+  HOST_TREE_CHANGED,
   HostChildrenChangedSchema,
   type HostLogRow,
   HostLogRowSchema,
@@ -24,6 +28,7 @@ import {
   type HostResults,
   type HostRunTelemetry,
   HostRunTelemetrySchema,
+  HostTreeChangedSchema,
   MCP_PRESENTATION_EVENT,
   MCP_SETTINGS_EVENT,
   type McpPresentationEvent,
@@ -34,6 +39,9 @@ import {
   TERMINAL_EVENT,
   type TerminalEvent,
   TerminalEventSchema,
+  WORKSPACE_FILES_EVENT,
+  type WorkspaceFilesEvent,
+  WorkspaceFilesEventSchema,
 } from './protocol.ts';
 /**
  * What a client expects the host's initialize to answer. A socket client knows the
@@ -54,6 +62,8 @@ export interface HostClient {
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
+  /** The match batches of the `workspace/files/search` calls this client started. */
+  onFileSearch(listener: (batch: FileSearchBatch) => void): () => void;
   /** Repository and pull-request changes, after this client's `workspace/git/subscribe`. */
   onGitWorkspace(listener: (event: GitWorkspaceEvent) => void): () => void;
   /** MCP task changes and server input, after this client's `mcp/presentation/subscribe`. */
@@ -64,6 +74,13 @@ export interface HostClient {
   onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void;
   /** Output and exits of the terminals this client created. */
   onTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /**
+   * A thread's `thread/tree` summary changed: the threads named are it and every
+   * thread above it.
+   */
+  onTreeChanged(listener: (threadIds: readonly string[]) => void): () => void;
+  /** Change batches and health of the root watches this client holds. */
+  onWorkspaceFiles(listener: (event: WorkspaceFilesEvent) => void): () => void;
   /** An abort sends the request's JSON-RPC cancellation; the host settles it. */
   request<M extends HostMethod>(
     method: M,
@@ -98,6 +115,30 @@ function readResult<M extends HostMethod>(method: M, result: unknown): HostResul
   });
   throw new BoundaryFailureError({ ...INTERNAL_FAULT, correlationId }, { cause: parsed.failure });
 }
+/** A notification's decode failure as a log keeps it: each issue's path, never the row's content. */
+function decodeFailure(cause: unknown): Readonly<Record<string, unknown>> {
+  return cause instanceof Schema.SchemaError
+    ? { issues: SchemaIssue.makeFormatterStandardSchemaV1()(cause.issue).issues }
+    : { error: cause };
+}
+/** Every listener gets the value, even after one throws; what they threw comes back. */
+function deliverEach<T>(
+  listeners: Iterable<(value: T) => void>,
+  value: T
+): { readonly error: unknown } | undefined {
+  const failures: unknown[] = [];
+  for (const listener of listeners) {
+    try {
+      listener(value);
+    } catch (cause) {
+      failures.push(cause);
+    }
+  }
+  if (failures.length > 1) {
+    return { error: new AggregateError(failures, 'Host notification listeners failed') };
+  }
+  return failures.length === 1 ? { error: failures[0] } : undefined;
+}
 /** Browser-safe connection; what it expects of the host comes from the owning launcher. */
 export async function authenticateHostClient<E extends HostClientExpectation>(
   connection: MessageConnection,
@@ -105,106 +146,84 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
   closeTransport: () => Promise<void>,
   transportClosed: Promise<void>
 ): Promise<HostClient & { readonly record: E }> {
-  const listeners = new Set<(row: HostLogRow) => void>();
-  const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
-  const gitWorkspaceListeners = new Set<(event: GitWorkspaceEvent) => void>();
-  const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
-  const terminalListeners = new Set<(event: TerminalEvent) => void>();
-  const childListeners = new Set<(threadId: string) => void>();
-  const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
-  const closeConnection = async (): Promise<void> => {
-    const failures: unknown[] = [];
-    try {
-      connection.dispose();
-    } catch (cause) {
-      failures.push(cause);
-    }
-    listeners.clear();
-    settingsListeners.clear();
-    gitWorkspaceListeners.clear();
-    presentationListeners.clear();
-    terminalListeners.clear();
-    childListeners.clear();
-    telemetryListeners.clear();
-    try {
-      await closeTransport();
-    } catch (cause) {
-      failures.push(cause);
-    }
-    if (failures.length === 1) {
-      throw failures[0];
-    }
-    if (failures.length > 1) {
-      throw new AggregateError(failures, 'Host client disposal and transport close failed');
-    }
+  const registries: { clear(): void }[] = [];
+  let closing: Promise<void> | undefined;
+  const closeConnection = (): Promise<void> => {
+    closing ??= (async (): Promise<void> => {
+      const failures: unknown[] = [];
+      try {
+        connection.dispose();
+      } catch (cause) {
+        failures.push(cause);
+      }
+      for (const registry of registries) {
+        registry.clear();
+      }
+      try {
+        await closeTransport();
+      } catch (cause) {
+        failures.push(cause);
+      }
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Host client disposal and transport close failed');
+      }
+    })();
+    return closing;
+  };
+  /**
+   * One host notification and its listeners. A notification this client cannot
+   * decode, or one a listener throws on, closes the connection: a view that
+   * missed a row would otherwise wait on its gap forever, and the owner's
+   * host-lost path reconnects and replays. Every listener still gets the value.
+   */
+  const notification = <S extends Schema.ConstraintDecoder<unknown>>(
+    method: string,
+    schema: S
+  ): ((listener: (value: S['Type']) => void) => () => void) => {
+    const decode = wireDecoder(schema, { errors: 'all', onExcessProperty: 'error' });
+    const listeners = new Set<(value: S['Type']) => void>();
+    registries.push(listeners);
+    const fail = (message: string, fields: Readonly<Record<string, unknown>>): void => {
+      logger.error(message, { ...fields, method });
+      closeConnection().catch((cause: unknown) =>
+        logger.error('Closing the agent host connection failed', { error: cause })
+      );
+    };
+    connection.onNotification(method, (input: unknown) => {
+      let value: S['Type'];
+      try {
+        value = decode(input);
+      } catch (cause) {
+        fail('The agent host sent a notification this client cannot read', decodeFailure(cause));
+        return;
+      }
+      const failure = deliverEach(listeners, value);
+      if (failure !== undefined) {
+        fail('A host notification listener failed', failure);
+      }
+    });
+    return (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
   };
   // Before any request: a host that closes its end can fail the next write.
   watchPeerReset(connection);
   connection.onNotification(HOST_CLOSING_EVENT, () => markHostClosing(connection));
   connection.onNotification(HOST_DRAINED_EVENT, () => markHostDrained(connection));
-  connection.onNotification('log/event', (input: unknown) => {
-    const row = Schema.decodeUnknownSync(HostLogRowSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of listeners) {
-      listener(row);
-    }
-  });
-  connection.onNotification(HOST_CHILDREN_CHANGED, (input: unknown) => {
-    const { threadId } = Schema.decodeUnknownSync(HostChildrenChangedSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of childListeners) {
-      listener(threadId);
-    }
-  });
-  connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
-    const event = wireDecoder(McpSettingsEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of settingsListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(GIT_WORKSPACE_EVENT, (input: unknown) => {
-    const event = wireDecoder(GitWorkspaceEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of gitWorkspaceListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(TERMINAL_EVENT, (input: unknown) => {
-    const event = wireDecoder(TerminalEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of terminalListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(MCP_PRESENTATION_EVENT, (input: unknown) => {
-    const event = wireDecoder(McpPresentationEventSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of presentationListeners) {
-      listener(event);
-    }
-  });
-  connection.onNotification(HOST_RUN_TELEMETRY, (input: unknown) => {
-    const telemetry = Schema.decodeUnknownSync(HostRunTelemetrySchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(input);
-    for (const listener of telemetryListeners) {
-      listener(telemetry);
-    }
-  });
+  const onEvent = notification('log/event', HostLogRowSchema);
+  const onChildrenChanged = notification(HOST_CHILDREN_CHANGED, HostChildrenChangedSchema);
+  const onTreeChanged = notification(HOST_TREE_CHANGED, HostTreeChangedSchema);
+  const onMcpSettings = notification(MCP_SETTINGS_EVENT, McpSettingsEventSchema);
+  const onGitWorkspace = notification(GIT_WORKSPACE_EVENT, GitWorkspaceEventSchema);
+  const onTerminal = notification(TERMINAL_EVENT, TerminalEventSchema);
+  const onWorkspaceFiles = notification(WORKSPACE_FILES_EVENT, WorkspaceFilesEventSchema);
+  const onFileSearch = notification(FILE_SEARCH_BATCH, FileSearchBatchSchema);
+  const onMcpPresentation = notification(MCP_PRESENTATION_EVENT, McpPresentationEventSchema);
+  const onTelemetry = notification(HOST_RUN_TELEMETRY, HostRunTelemetrySchema);
   connection.listen();
   try {
     const reply = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS.initialize, {
@@ -237,34 +256,16 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     catalog: createHostCatalogClient(connection),
     close: closeConnection,
     closed: transportClosed,
-    onChildrenChanged: (listener) => {
-      childListeners.add(listener);
-      return () => childListeners.delete(listener);
-    },
-    onEvent: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    onGitWorkspace: (listener) => {
-      gitWorkspaceListeners.add(listener);
-      return () => gitWorkspaceListeners.delete(listener);
-    },
-    onMcpPresentation: (listener) => {
-      presentationListeners.add(listener);
-      return () => presentationListeners.delete(listener);
-    },
-    onMcpSettings: (listener) => {
-      settingsListeners.add(listener);
-      return () => settingsListeners.delete(listener);
-    },
-    onTelemetry: (listener) => {
-      telemetryListeners.add(listener);
-      return () => telemetryListeners.delete(listener);
-    },
-    onTerminal: (listener) => {
-      terminalListeners.add(listener);
-      return () => terminalListeners.delete(listener);
-    },
+    onChildrenChanged: (listener) => onChildrenChanged(({ threadId }) => listener(threadId)),
+    onEvent,
+    onFileSearch,
+    onGitWorkspace,
+    onMcpPresentation,
+    onMcpSettings,
+    onTelemetry,
+    onTerminal,
+    onTreeChanged: (listener) => onTreeChanged(({ threadIds }) => listener(threadIds)),
+    onWorkspaceFiles,
     record,
     request: async <M extends HostMethod>(
       method: M,

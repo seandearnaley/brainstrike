@@ -14,10 +14,10 @@ interface ShellLike {
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 
-export function validateExternalUrl(
-  value: unknown
+function validateExternalUrl(
+  value: string
 ): { ok: true; url: string } | { ok: false; error: string } {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (value.length === 0) {
     return { error: 'URL must be a non-empty string', ok: false };
   }
   let parsed: URL;
@@ -44,10 +44,7 @@ interface ShellTargetStats {
   isSymbolicLink?: () => boolean;
 }
 
-function validateAbsolutePath(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
+function validateAbsolutePath(value: string): string | null {
   const trimmed = value.trim();
   if (trimmed.length === 0 || !path.isAbsolute(trimmed)) {
     return null;
@@ -96,7 +93,7 @@ export function createShellIpcHandlers({
   statPath = fsPromises.stat,
 }: ShellIpcDependencies) {
   return {
-    openExternal: async (url: unknown): Promise<ShellIpcResult> => {
+    openExternal: async (url: string): Promise<ShellIpcResult> => {
       const validated = validateExternalUrl(url);
       if (!validated.ok) {
         return { error: validated.error, ok: false };
@@ -108,7 +105,7 @@ export function createShellIpcHandlers({
         return { error: toErrorMessage(error), ok: false };
       }
     },
-    openPath: async (rawPath: unknown): Promise<ShellIpcResult> => {
+    openPath: async (rawPath: string): Promise<ShellIpcResult> => {
       const absolutePath = validateAbsolutePath(rawPath);
       if (!absolutePath) {
         return { error: 'openPath requires a non-empty absolute path string', ok: false };
@@ -126,7 +123,7 @@ export function createShellIpcHandlers({
         return { error: toErrorMessage(error), ok: false };
       }
     },
-    showItemInFolder: async (rawPath: unknown): Promise<ShellIpcResult> => {
+    showItemInFolder: async (rawPath: string): Promise<ShellIpcResult> => {
       const absolutePath = validateAbsolutePath(rawPath);
       if (!absolutePath) {
         return {

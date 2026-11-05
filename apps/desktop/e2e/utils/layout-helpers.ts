@@ -2,7 +2,6 @@ import { type BrowserContext, expect, type Locator, type Page } from '@playwrigh
 import { HomePage } from '../page-objects/home-page';
 import { SettingsPage } from '../page-objects/settings-page';
 import { loadElectronHelpers } from './load-electron-helpers';
-import { nativeStatus } from './text-search-mode';
 
 /**
  * Expands the activity in `region` unless it already is: activity is collapsed
@@ -123,19 +122,8 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
   return activePage;
 }
 
-/** The index holds no folder, and a fresh start shows the new-thread screen with no threads. */
+/** A fresh start shows the new-thread screen with no threads. */
 async function verifyClearedDesktopContent(page: Page): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        const status = await nativeStatus(page);
-        return status.kind === 'ready'
-          ? { folders: status.authorizedRootIds.length, kind: status.kind }
-          : status;
-      },
-      { timeout: 60_000 }
-    )
-    .toEqual({ folders: 0, kind: 'ready' });
   await ensureAssistantShellVisible(page);
   await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('threads-panel').getByTestId('thread-row')).toHaveCount(0);

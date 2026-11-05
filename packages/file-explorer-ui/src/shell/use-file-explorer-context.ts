@@ -9,6 +9,7 @@
  * updated tree for file content loading.
  */
 
+import type { FolderRequests } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
@@ -101,6 +102,8 @@ interface UseFileExplorerReturn {
   /** Filtered tree currently visible in the explorer */
   fileTree: IFileNode[];
   filterError: string | null;
+  /** Folder mounts in flight by the path asked for, and the last failure of each. */
+  folderRequests: FolderRequests;
   handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
@@ -131,6 +134,8 @@ interface UseFileExplorerReturn {
     compositeKeys: string[],
     intent: FileContentLoadIntent
   ) => Promise<void>;
+  /** Bumped whenever a folder change may have changed Recents. */
+  recentRootsRevision: number;
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<FileTreeDirectorySnapshot | null>;
   refreshFileExplorer: () => Promise<FileTreeRefreshResult>;
@@ -142,15 +147,14 @@ interface UseFileExplorerReturn {
     intent: FileContentLoadIntent
   ) => Promise<void>;
   /**
-   * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete by
-   * default; `options.deleteData` (Phase 6) opts into a cascade delete of the
-   * root's indexed rows.
+   * Disconnect a root by RootId (multi-root, Phase 5). Disconnect ≠ delete: the
+   * root's record is kept for a later re-add.
    */
-  removeRootDirectory:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  removeRootDirectory: ((rootId: string) => Promise<void>) | undefined;
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
+  /** The start-up restore has not answered yet, so any folder may still be opening. */
+  restorePending: boolean;
   rootDirectoryHandle: DirectoryHandle | null;
   /** All active root handles (multi-root, Phase 4+). */
   rootDirectoryHandles: DirectoryHandle[];
@@ -252,6 +256,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     removeRootDirectory,
     setFocusedRoot,
     rootIdByPath,
+    folderRequests,
+    recentRootsRevision,
+    restorePending,
   } = useFileSystem();
 
   // Use the store's isAccessLoading (shared across all components)
@@ -447,7 +454,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     }
 
     // CRITICAL: Wait for file system access loading to complete.
-    // On desktop, restoreLastFolder is called on startup and sets isAccessLoading=true.
+    // On desktop, restoreRoots is called on startup and sets isAccessLoading=true.
     // We must not clear state until that restore attempt completes.
     if (isAccessLoading) {
       return;
@@ -566,6 +573,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     fileContents,
     fileTree: filteredTree,
     filterError: localFilterError,
+    folderRequests,
     handleRootDirectorySelect,
     isCancelling,
     isExpandingAll,
@@ -584,6 +592,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     loadingPaths,
     loadingProgress,
     loadMultipleFileContents: handleFileContentLoading,
+    recentRootsRevision,
     refreshDirectory,
     refreshFileExplorer,
     /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
@@ -592,6 +601,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
     removeRootDirectory,
     restorationProgress,
+    restorePending,
     rootDirectoryHandle,
     /** All active root handles (multi-root, Phase 4+). */
     rootDirectoryHandles,

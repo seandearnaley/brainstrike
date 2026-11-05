@@ -1,119 +1,53 @@
-# Temporary M3 memory boundary
+# Memory storage contract
 
-Studio owns shared StateStore dispatch, schema registration, public exports,
-canonical transcript identities, host loop, profile/vector/indexer composition,
-root lease, strict purge and reset. These leaves create no DB connection, actor
-loop, approval gate, scheduler or persistent transcript copy.
+How Mastra Memory persists through the host StateStore. The host (StateStore writer plus agent-host, called "Studio" in some code comments) owns dispatch, schema registration, canonical transcript identity, the run loop, index composition, the root lease, strict purge and reset. The adapters here open no database connection, actor loop, approval gate, scheduler or transcript copy.
 
 ## Storage composition
 
-Register `MEMORY_SCHEMA` from `packages/state-store/src/memory-domain.mjs` in
-the existing migration registry on the existing database. The tables contain
-native thread/resource metadata and full OM records/history. Thread rows require
-the canonical `threads` row to have been committed first. The existing reset's
-database deletion removes this domain too; strict purge must invoke the domain
-only after all admitted memory/provider/storage work has joined.
+- Schema: `MEMORY_SCHEMA` (`packages/state-store/src/memory-domain.mjs`) is registered in the existing migration registry on the existing state database.
+  - Tables hold native thread/resource metadata and full observational-memory (OM) records and history.
+  - A memory thread row requires its canonical `threads` row to be committed first.
+  - Database reset removes this domain with everything else.
+- Port: the writer exposes `MemoryDomainPort.memory(request): Promise<MemorySnapshot>`.
+  - Native requests are calculated on StateStore's memory calculator worker, never on the writer thread; the writer commits their delta with `executeMemoryRequest` against the revision the snapshot was read at. One resource's mutations, and the purge or thread deletion that erases from it, run one at a time; appends and other resources go on during a calculation ([state store](../../../../docs/agents/state-store.md)).
+  - The calculator is [`memory-storage-calculator.ts`](memory-storage-calculator.ts). The worker also uses its `countObservationTokens` to detach a deleted thread's sections from shared observations. Requests are data-only: no client-supplied URL or function crosses the port.
+- Calculation:
+  - Uses Mastra core's public `InMemoryStore` as a transient calculator; opens no file or connection and seeds no transcript.
+  - Native buffer/reflection algorithms and record IDs are preserved.
+  - A complete delta commits atomically against the exact input revision. A conflict fails visibly: no retry, no guessed merge.
+- Extractors: native OM's resolved config includes `Extractor` instances. The writer stores their data descriptors with the model descriptors; executable schemas and hooks stay in the run's Memory config and are never rebuilt from storage on reopen.
+- `new StateStoreMemoryStorage(resourceId, writer, { read })` implements Mastra's `MemoryStorage`.
+  - `read()` returns a consistent committed host projection with stable canonical IDs.
+  - `saveMessages` verifies those identities and returns canonical rows.
+  - Transcript mutation, deletion and copying stay host-owned; metadata updates use an explicit revision check and atomic commit.
 
-Expose `MemoryDomainPort.memory(request): Promise<MemorySnapshot>` on the
-existing writer. Native requests must execute
-`executeNativeMemoryRequest(db, request, calculateMemoryMutation)` while holding
-the existing StateStore mutation chain across the awaited pure calculation.
-Other requests execute `executeMemoryRequest(db, request)`. The calculator is
-`packages/agent-host/src/adapters/memory-storage-calculator.ts`; Studio chooses
-its trusted writer-side module wiring. Adapters use the public StateStore type
-exports. No client-supplied executable URL or
-function crosses the data-only request port.
+## Purge and close
 
-The calculator uses the pinned public core `InMemoryStore` domain as a transient
-operation calculator, opens no file/connection, and seeds no transcript. Native
-buffer/reflection algorithms and record IDs are preserved. A complete delta
-commits atomically against the exact input revision. Unexpected concurrency
-fails visibly, with no automatic retry or guessed merge.
+- `purge-thread` takes an explicit shared-resource policy:
+  - `clear`: erase the resource's shared working memory (WM) and OM.
+  - `detach-thread`: keep WM; remove only the deleted thread's attributed sections from shared observations.
+  - `preserve`: component-level only; cannot establish strict erasure of a thread already in shared observations.
+  - The strict purge owner picks full erasure or fails closed. Canonical FK deletion alone does not erase resource OM/WM.
+- `purge-resource` erases a whole resource.
+- Close order: close the storage adapter only after `HostMemory.close()` joins the native and provider lifetimes; closing earlier fences required native flag-clear writes.
+  - The adapter drains its operations first. Their failures keep their causes and are the run's outcome (`memory.settlement.failed`); the run is released.
+  - Only a failed close of the storage itself makes close fail with ownership retained.
 
-Native OM includes public `Extractor` instances in its resolved configuration.
-The writer stores their data descriptors alongside model descriptors; executable
-schemas and hooks stay in the run's public Memory configuration. Persisted
-descriptors never reconstruct a model, schema or hook on reopen.
+## Vendor patches
 
-`new StateStoreMemoryStorage(resourceId, writer, { read })` implements the
-public native `MemoryStorage`. `read(): Promise<readonly MastraDBMessage[]>`
-must return a consistent committed host projection with stable canonical IDs.
-Native `saveMessages` verifies those identities and returns canonical rows.
-Transcript mutation/deletion/copy remains host-owned. Functional metadata
-updates use an explicit revision comparison and atomic writer commit.
+`pnpm-workspace.yaml` registers patches for `@mastra/memory` and `@mastra/core` (BST-2070); the lockfile pins their hashes. Never describe memory as patch-free while they exist.
 
-`purge-thread` requires an explicit shared-resource policy: `clear` erases
-shared resource WM and OM; `preserve` is only a component operation and cannot
-establish strict erasure of a thread already included in shared observations.
-Studio's strict purge owner chooses full affected-resource erasure or fails
-closed. Ordinary canonical FK deletion alone does not erase resource OM/WM.
+- Memory patch:
+  - Forwards owner/call abort signals into native observation/reflection work, which the public barrier lacks.
+  - Retains independent background failures, joins sibling branches and cleanup tails, and rejects incomplete settlement without dropping still-owned work. (Upstream's barrier swallows registered job failures and can return after 100 drain waves while a job is still owned.)
+  - Builds on upstream's `runOMCommit` queue and turn signal; also fixes resource-group serialization indexing and single escape/decode of group attributes.
+- Core patch: `AgentThreadStreamRuntime` forwards the caller's abort reason to Memory's internal observer/reflector streams.
+- The alternative, a Worker enclosure with storage/model/stream RPC, was rejected as far more machinery.
+- Removal condition: upstream (or a reduced in-house implementation) passes the same ESM/CJS cancellation, join and error regressions without the patch (`packages/agent-host/__tests__/memory-public-lifecycle.test.ts`), plus composed WM/OM, usage, strict purge/reset and reopen checks. Remove the patch registration and patch file together.
 
-Close the storage adapter after `HostMemory.close()` joins the native and raw
-provider lifetime; earlier closure would fence required native flag-clear writes.
-Failed storage work retains its original cause and makes close fail. Root/run
-ownership must stay retained whenever close fails.
+## Coverage limits
 
-## Why the temporary patch
-
-The public barrier, unchanged in Memory 1.38, consumes registered job failures and
-can return after 100 drain waves while a job remains owned. It also lacks a
-run-owned signal at the required native observation/reflection boundaries. A
-public-only physical enclosure requires a Worker and storage/model/stream RPC,
-introducing substantial machinery solely to contain these hidden native jobs.
-
-The reviewed lifecycle patch is the simpler M3 route. It forwards owner/call
-signals into existing native work, retains independent failures, joins sibling
-branches and cleanup tails, and rejects incomplete settlement without dropping
-the still-owned work. Two additional narrow fixes index the exact persisted
-resource-group serialization and escape/decode native group attributes once,
-preserving Core's original JSON-array message cursors. These changes are mirrored
-in the pinned ESM/CJS builds;
-the host remains the actor/approval/transcript authority. The existing public
-provider wrapper still joins raw promises, original sources and actual usage
-receipts, and retains cancel/receipt failures even when they have abort names.
-
-BST-2070 rebased the patch onto Memory 1.38's `runOMCommit` commit queue: flag
-writes keep the queue, and the patch adds ownership, joins and failure
-retention on top of it. Core 1.78 carries one patch hunk: its
-`AgentThreadStreamRuntime` forwards the caller's abort reason to Memory's
-internal observer/reflector streams.
-
-Owner: the M3 memory leaf worker, integrated by Studio under the parent M3 work.
-Pinned versions: Memory 1.38.0 and Core 1.78.0, both patched; this closure must
-not be described as patch-free.
-Memory patch SHA-256: `35ea84f8ad38fd6e9a2c9952cc4727bafcbe563b01a14832414f84c7a6fea188`.
-Core patch SHA-256: `bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53`.
-
-The pnpm patch map registers `@mastra/memory@1.38.0` and `@mastra/core@1.78.0`;
-the lockfile pins each patch hash. An official frozen offline install
-applies that registration with normal scripts. Qualification uses
-`pnpm_config_verify_deps_before_run=error` under the qualified pnpm runtime.
-
-Removal condition under the existing M3/M4 work: the pinned upstream memory API
-or the planned reduced memory implementation must pass the same public ESM/CJS
-cancellation/join/error regressions without the patch, plus composed host
-recall/WM/OM, usage, strict purge/reset and reopen checks. No deletion date is
-invented. Remove patch registration and the patch together when that condition
-is demonstrated.
-
-## Qualification limits
-
-The component includes seven actual native observation writer cases and five
-call-recording cases, plus unchanged native ESM/CJS lifecycle controls. Core's
-trusted producer exports observation groups and native chunks together on the
-existing state projection; the derived writer verifies every group against its
-same-transaction native record and relational thread/resource owners. Native
-records/history remain outside the transcript. The production host composes
-Memory's own `listTools()` tools and stores recall/observation vectors in its
-state index under the state root, acquired per memory resource; Main lends its
-hidden llm-host and embedding host to a thread's admitted local observer and
-recall embedder (ADR-0007). Component evidence does not establish physical
-Stop/delete retirement under load, populated current-schema reopen, or the full M3
-regression. Those composed acceptance checks require their own evidence.
-[ADR-0020](../../../../docs/adr/0020-greenfield-data-lifecycle.md) removes populated
-old-schema upgrade from acceptance: Brainstrike has no users and no legacy-data
-migration obligation. Current Memory recall, working/observational memory, strict
-purge and factory reset remain required; this ruling does not claim legacy code
-has already been removed.
-
-CI is disabled due to cost; validation must run locally.
+- Component tests cover native observation writes, call recording and ESM/CJS lifecycle controls; the derived writer verifies every observation group against its same-transaction native record and thread/resource owners.
+- The host composes Memory's own `listTools()` tools. Memory has no vector store or embedder: semantic recall and vector observation retrieval are off (the retrieval decision, BST-2428).
+- Component tests do not prove physical Stop/delete retirement under load or populated reopen; those need composed evidence.
+- No old-schema upgrade is required ([ADR-0020](../../../../docs/adr/0020-greenfield-data-lifecycle.md)).

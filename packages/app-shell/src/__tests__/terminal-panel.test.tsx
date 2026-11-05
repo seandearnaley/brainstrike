@@ -1,6 +1,7 @@
 import { type BoundaryFailure, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act } from '@brainstrike/test-utils/react-act';
+import { type SavedAppearance, ThemeProvider } from '@brainstrike/ui';
 import { render as renderElement, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactElement, type ReactNode, StrictMode } from 'react';
@@ -18,6 +19,7 @@ import type {
   TerminalExitEvent,
 } from '../terminal-panel/terminal-bridge';
 import { TerminalPanel } from '../terminal-panel/terminal-panel';
+import { XTERM_DARK_THEME, XTERM_LIGHT_THEME } from '../terminal-panel/xterm-theme';
 import {
   NO_WORKSPACE_TERMINAL_SERVICES,
   type WorkspaceTerminalServices,
@@ -73,6 +75,12 @@ interface FakeTerminal {
   loadAddon: ReturnType<typeof vi.fn>;
   onData: (cb: (data: string) => void) => { dispose: () => void };
   open: ReturnType<typeof vi.fn>;
+  /** The options the terminal was constructed with, updated by later assignments. */
+  options: Record<string, unknown> & {
+    cursorBlink?: boolean;
+    minimumContrastRatio?: number;
+    theme?: { background?: string; foreground?: string };
+  };
   rows: number;
   write: ReturnType<typeof vi.fn>;
 }
@@ -92,6 +100,7 @@ vi.mock('@xterm/xterm', () => {
   class MockTerminal {
     cols = 80;
     rows = 24;
+    options: Record<string, unknown>;
     open = vi.fn();
     write = vi.fn();
     loadAddon = vi.fn();
@@ -105,7 +114,8 @@ vi.mock('@xterm/xterm', () => {
     emitInput(data: string) {
       this.inputCb?.(data);
     }
-    constructor() {
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = { ...options };
       terminals.push(this as unknown as FakeTerminal);
     }
   }
@@ -284,6 +294,32 @@ describe('TerminalPanel', () => {
     );
     // The captured Terminal was opened on the host element.
     await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+  });
+
+  it('uses the code font and size from Settings > Appearance, and follows a change without restarting the shell', async () => {
+    const bridge = installBridge();
+    const appearance: SavedAppearance = { codeFont: 'jetbrains-mono', codeFontSize: 15 };
+    const { rerender } = render(
+      <ThemeProvider appearance={appearance}>
+        <TerminalPanel />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(bridge.create).toHaveBeenCalled());
+    const term = lastTerminal();
+    await waitFor(() => expect(term.options['fontSize']).toBe(15));
+    expect(term.options['fontFamily']).toMatch(/^"JetBrains Mono Variable"/u);
+
+    rerender(
+      <ThemeProvider
+        appearance={{ ...appearance, codeFontSize: 12, customCodeFont: 'Berkeley Mono' }}
+      >
+        <TerminalPanel />
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(term.options['fontSize']).toBe(12));
+    expect(term.options['fontFamily']).toMatch(/^"Berkeley Mono", "JetBrains Mono Variable"/u);
+    expect(terminals).toHaveLength(1);
+    expect(bridge.create).toHaveBeenCalledTimes(1);
   });
 
   it('writes pty onData chunks into the terminal', async () => {
@@ -829,5 +865,91 @@ describe('TerminalPanel', () => {
 
     await waitFor(() => expect(commandSessions.list).toHaveBeenCalledWith({ rootId: 'root-1' }));
     expect(commandSessions.list).not.toHaveBeenCalledWith({ rootId: 'root-2' });
+  });
+});
+
+describe('TerminalPanel appearance', () => {
+  beforeEach(() => {
+    mockRoot.handle = {
+      kind: 'directory',
+      name: 'repo',
+      path: '/abs/repo',
+      platform: 'electron',
+      rootId: 'root-1',
+    };
+    terminals.length = 0;
+    useTerminalTargetStore.getState().reset();
+    (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+      observe() {
+        /* no-op */
+      }
+      disconnect() {
+        /* no-op */
+      }
+      unobserve() {
+        /* no-op */
+      }
+    };
+  });
+
+  afterEach(() => {
+    document.documentElement.classList.remove('dark');
+    services = NO_WORKSPACE_TERMINAL_SERVICES;
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('paints the light palette in the light theme and enforces a 4.5:1 contrast floor', async () => {
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+
+    expect(lastTerminal().options.theme?.foreground).toBe(XTERM_LIGHT_THEME.foreground);
+    expect(lastTerminal().options.minimumContrastRatio).toBe(4.5);
+  });
+
+  it('paints the dark palette in the dark theme and follows a switch back to light', async () => {
+    document.documentElement.classList.add('dark');
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+    expect(lastTerminal().options.theme?.foreground).toBe(XTERM_DARK_THEME.foreground);
+
+    document.documentElement.classList.remove('dark');
+
+    await waitFor(() =>
+      expect(lastTerminal().options.theme?.foreground).toBe(XTERM_LIGHT_THEME.foreground)
+    );
+  });
+
+  it('keeps the cursor still when the user asks for reduced motion', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      (query: string) =>
+        ({
+          addEventListener: () => {},
+          matches: query === '(prefers-reduced-motion: reduce)',
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList
+    );
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+
+    expect(lastTerminal().options.cursorBlink).toBe(false);
+  });
+
+  it('stops the cursor blinking when Reduced motion is turned on while it is open', async () => {
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+    expect(lastTerminal().options.cursorBlink).toBe(true);
+
+    document.documentElement.dataset['motion'] = 'reduce';
+    try {
+      await waitFor(() => expect(lastTerminal().options.cursorBlink).toBe(false));
+    } finally {
+      document.documentElement.removeAttribute('data-motion');
+    }
   });
 });

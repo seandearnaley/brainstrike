@@ -29,7 +29,7 @@ describe('persisted store hydration at module load', () => {
     expect(knownToolId).toBeTypeOf('string');
 
     localStorage.setItem(
-      'native-tool-preferences.v1',
+      'brainstrike:native-tool-preferences.v1',
       JSON.stringify({
         state: {
           toolStates: {
@@ -54,7 +54,7 @@ describe('persisted store hydration at module load', () => {
 
   it('remaps a dropped memory model target during the module-load hydration', async () => {
     localStorage.setItem(
-      'assistant-memory-preferences.v1',
+      'brainstrike:assistant-memory-preferences.v1',
       JSON.stringify({
         state: {
           observationalMemory: {
@@ -66,13 +66,6 @@ describe('persisted store hydration at module load', () => {
             observationTokens: 4000,
             retrievalMode: 'off',
             scope: 'thread',
-          },
-          semanticRecall: {
-            embeddingModelTarget: 'openai/text-embedding-3-small',
-            enabled: false,
-            messageRange: 2,
-            scope: 'thread',
-            topK: 5,
           },
         },
         version: 2,
@@ -86,40 +79,5 @@ describe('persisted store hydration at module load', () => {
 
     expect(state.observationalMemory.modelTarget).toBe('anthropic/claude-opus-4-8');
     expect(state.hasHydrated).toBe(true);
-  });
-  it('preserves edits made while an async (Electron) storage read is still pending on a first run', async () => {
-    // Desktop: the storage bridge is promise-based, so hydration resolves AFTER
-    // the store is usable. A first-run profile has no snapshot (`null`), and a
-    // `merge` that spreads defaults over `currentState` would revert any edit
-    // made before the IPC read completes.
-    const { promise: pendingRead, resolve: resolveRead } = Promise.withResolvers<string | null>();
-    const electronAPI = {
-      storage: {
-        getItem: () => pendingRead,
-        removeItem: () => Promise.resolve(),
-        setItem: () => Promise.resolve(),
-      },
-    };
-    Object.defineProperty(window, 'electronAPI', { configurable: true, value: electronAPI });
-    try {
-      const { useAssistantMemoryPreferencesStore } = await import(
-        '../stores/assistant-memory-preferences-store.ts'
-      );
-      const before = useAssistantMemoryPreferencesStore.getState();
-      expect(before.hasHydrated).toBe(false);
-      useAssistantMemoryPreferencesStore.setState({
-        observationalMemory: { ...before.observationalMemory, messageTokens: 9999 },
-      });
-
-      resolveRead(null);
-      await vi.waitFor(() =>
-        expect(useAssistantMemoryPreferencesStore.getState().hasHydrated).toBe(true)
-      );
-      expect(useAssistantMemoryPreferencesStore.getState().observationalMemory.messageTokens).toBe(
-        9999
-      );
-    } finally {
-      Reflect.deleteProperty(window, 'electronAPI');
-    }
   });
 });

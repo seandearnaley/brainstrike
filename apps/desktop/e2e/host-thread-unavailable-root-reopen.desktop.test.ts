@@ -7,6 +7,8 @@ import { configureAssistantProvider, enableAssistantCatalogModel } from './utils
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-root-restore';
+/** Opening the thread tried its folder: the chip says where the folder was. */
+const MISSING = /\(can't be opened: The folder is no longer at /u;
 const MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -73,11 +75,11 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     const folder = reopened
       .getByRole('region', { exact: true, name: 'Assistant' })
       .getByTestId('workspace-bar-folder-chip');
-    await expect(folder).toHaveAccessibleName(/removed from the workspace/u, { timeout: 30_000 });
+    await expect(folder).toHaveAccessibleName(MISSING, { timeout: 30_000 });
     await folder.click();
     await reopened.getByTestId(`workspace-bar-root-${before.binding?.operatingRootId}`).focus();
     await reopened.keyboard.press('ArrowRight');
-    await expect(reopened.getByText('Re-add folder', { exact: true })).toBeVisible();
+    await expect(reopened.getByText('Try again', { exact: true })).toBeVisible();
     await reopened.keyboard.press('ArrowLeft');
     await reopened.keyboard.press('Escape');
 
@@ -103,13 +105,13 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     expect(starts?.[0]?.configuration['intent']).not.toHaveProperty('selectionFolderId');
     // Reconnect the original bound thread through its visible repair action.
     await reopened.locator(`#assistant-thread-tab-${boundThread.threadId}`).click();
-    await expect(folder).toHaveAccessibleName(/removed from the workspace/u);
+    await expect(folder).toHaveAccessibleName(MISSING);
     await rename(parkedPath, rootPath);
     parked = false;
     await folder.click();
     await reopened.getByTestId(`workspace-bar-root-${before.binding?.operatingRootId}`).focus();
     await reopened.keyboard.press('ArrowRight');
-    await reopened.getByText('Re-add folder', { exact: true }).click();
+    await reopened.getByText('Try again', { exact: true }).click();
     await expect(reopened.getByText('root-restore.txt').first()).toBeVisible();
     await expect(folder).toHaveAccessibleName(
       `Folder: ${before.binding?.operatingRootDisplayName}`

@@ -1,8 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  __resetNativeToolPreferencesStoreForTests,
-  useNativeToolPreferencesStore,
-} from '../stores/native-tool-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useNativeToolPreferencesStore } from '../stores/native-tool-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useNativeToolPreferencesStore as PersistApi<
@@ -10,10 +7,6 @@ const storeWithPersist = useNativeToolPreferencesStore as PersistApi<
 >;
 
 describe('native-tool-preferences-store', () => {
-  beforeEach(() => {
-    __resetNativeToolPreferencesStoreForTests();
-  });
-
   it('defaults to enabled for known tools', () => {
     const snapshot = useNativeToolPreferencesStore.getState();
     expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
@@ -36,20 +29,6 @@ describe('native-tool-preferences-store', () => {
 
     snapshot.resetTools();
     expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
-  });
-
-  it('does not persist default enabled tool state', () => {
-    const options = storeWithPersist.persist?.getOptions?.();
-    if (!(options?.storage && options.name)) {
-      throw new Error('persist storage unavailable for test');
-    }
-
-    const snapshot = useNativeToolPreferencesStore.getState();
-    snapshot.setToolEnabled('brainstrike.readWorkspaceFile', false);
-    expect(options.storage.getItem(options.name)).not.toBeNull();
-
-    snapshot.setToolEnabled('brainstrike.readWorkspaceFile', true);
-    expect(options.storage.getItem(options.name)).toBeNull();
   });
 
   it('supports batch toggles and no-op for empty tool lists', () => {
@@ -120,17 +99,5 @@ describe('native-tool-preferences-store', () => {
     expect(useNativeToolPreferencesStore.getState().toolStates).toEqual({
       'brainstrike.readWorkspaceFile': false,
     });
-  });
-
-  it('clears malformed persisted JSON before hydration', () => {
-    const options = storeWithPersist.persist?.getOptions?.();
-    if (!(options?.storage && options.name)) {
-      throw new Error('persist storage unavailable for test');
-    }
-
-    window.localStorage.setItem(options.name, '{not-valid-json');
-
-    expect(options.storage.getItem(options.name)).toBeNull();
-    expect(window.localStorage.getItem(options.name)).toBeNull();
   });
 });

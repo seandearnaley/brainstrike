@@ -157,9 +157,7 @@
             "brainstrike.findWorkspaceSymbol",
             "brainstrike.globWorkspace",
             "brainstrike.grepSearch",
-            "brainstrike.hybridSearch",
             "brainstrike.inspectCommandSessions",
-            "brainstrike.listEmbeddingSpaces",
             "brainstrike.listWorkspaceContext",
             "brainstrike.listWorktrees",
             "brainstrike.lspInspect",
@@ -168,7 +166,6 @@
             "brainstrike.manageTaskList",
             "brainstrike.manageWorktree",
             "brainstrike.queryDiagnostics",
-            "brainstrike.queryEmbeddingSpace",
             "brainstrike.readToolOutputArtifact",
             "brainstrike.readWorkspaceContext",
             "brainstrike.readWorkspaceDirectory",
@@ -200,13 +197,6 @@
               "observationTokens": 40000,
               "retrievalMode": "off",
               "scope": "thread"
-            },
-            "semanticRecall": {
-              "embeddingModelTarget": "openai/text-embedding-3-small",
-              "enabled": false,
-              "messageRange": 2,
-              "scope": "resource",
-              "topK": 5
             }
           },
           "modelConfiguration": {
@@ -286,9 +276,7 @@
           "brainstrike.findWorkspaceSymbol",
           "brainstrike.globWorkspace",
           "brainstrike.grepSearch",
-          "brainstrike.hybridSearch",
           "brainstrike.inspectCommandSessions",
-          "brainstrike.listEmbeddingSpaces",
           "brainstrike.listWorkspaceContext",
           "brainstrike.listWorktrees",
           "brainstrike.lspInspect",
@@ -297,7 +285,6 @@
           "brainstrike.manageTaskList",
           "brainstrike.manageWorktree",
           "brainstrike.queryDiagnostics",
-          "brainstrike.queryEmbeddingSpace",
           "brainstrike.readToolOutputArtifact",
           "brainstrike.readWorkspaceContext",
           "brainstrike.readWorkspaceDirectory",
@@ -329,13 +316,6 @@
             "observationTokens": 40000,
             "retrievalMode": "off",
             "scope": "thread"
-          },
-          "semanticRecall": {
-            "embeddingModelTarget": "openai/text-embedding-3-small",
-            "enabled": false,
-            "messageRange": 2,
-            "scope": "resource",
-            "topK": 5
           }
         },
         "modelConfiguration": {
@@ -416,9 +396,7 @@
               "brainstrike.findWorkspaceSymbol",
               "brainstrike.globWorkspace",
               "brainstrike.grepSearch",
-              "brainstrike.hybridSearch",
               "brainstrike.inspectCommandSessions",
-              "brainstrike.listEmbeddingSpaces",
               "brainstrike.listWorkspaceContext",
               "brainstrike.listWorktrees",
               "brainstrike.lspInspect",
@@ -427,7 +405,6 @@
               "brainstrike.manageTaskList",
               "brainstrike.manageWorktree",
               "brainstrike.queryDiagnostics",
-              "brainstrike.queryEmbeddingSpace",
               "brainstrike.readToolOutputArtifact",
               "brainstrike.readWorkspaceContext",
               "brainstrike.readWorkspaceDirectory",
@@ -459,13 +436,6 @@
                 "observationTokens": 40000,
                 "retrievalMode": "off",
                 "scope": "thread"
-              },
-              "semanticRecall": {
-                "embeddingModelTarget": "openai/text-embedding-3-small",
-                "enabled": false,
-                "messageRange": 2,
-                "scope": "resource",
-                "topK": 5
               }
             },
             "modelConfiguration": {
@@ -541,9 +511,7 @@
           "brainstrike_findWorkspaceSymbol": "brainstrike.findWorkspaceSymbol",
           "brainstrike_globWorkspace": "brainstrike.globWorkspace",
           "brainstrike_grepSearch": "brainstrike.grepSearch",
-          "brainstrike_hybridSearch": "brainstrike.hybridSearch",
           "brainstrike_inspectCommandSessions": "brainstrike.inspectCommandSessions",
-          "brainstrike_listEmbeddingSpaces": "brainstrike.listEmbeddingSpaces",
           "brainstrike_listWorkspaceContext": "brainstrike.listWorkspaceContext",
           "brainstrike_listWorktrees": "brainstrike.listWorktrees",
           "brainstrike_lspInspect": "brainstrike.lspInspect",
@@ -552,7 +520,6 @@
           "brainstrike_manageTaskList": "brainstrike.manageTaskList",
           "brainstrike_manageWorktree": "brainstrike.manageWorktree",
           "brainstrike_queryDiagnostics": "brainstrike.queryDiagnostics",
-          "brainstrike_queryEmbeddingSpace": "brainstrike.queryEmbeddingSpace",
           "brainstrike_readToolOutputArtifact": "brainstrike.readToolOutputArtifact",
           "brainstrike_readWorkspaceContext": "brainstrike.readWorkspaceContext",
           "brainstrike_readWorkspaceDirectory": "brainstrike.readWorkspaceDirectory",

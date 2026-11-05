@@ -13,10 +13,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
-  AssistantDetailLevelProvider,
-} from '../assistant-detail-level-context';
+import { setAssistantDetailLevel } from '../assistant-detail-level-store.ts';
 import { AssistantRunEventProvider } from '../assistant-run-event-context';
 import { AssistantRunTimelineDataPart } from '../assistant-run-timeline-data-part';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
@@ -63,13 +60,11 @@ function renderHydrated(
   messages: ThreadMessageLike[],
   detail: 'standard' | 'developer' = 'standard'
 ) {
-  window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, detail);
+  setAssistantDetailLevel(detail);
   return render(
-    <AssistantDetailLevelProvider>
-      <Harness adapter={neverRun} initialMessages={messages}>
-        {withRunEventContext}
-      </Harness>
-    </AssistantDetailLevelProvider>
+    <Harness adapter={neverRun} initialMessages={messages}>
+      {withRunEventContext}
+    </Harness>
   );
 }
 
@@ -251,7 +246,8 @@ describe('hydrated threads render no live indicator unless something is genuinel
         status: settled,
       },
     ]);
-    // The notice's actual heading copy is "Tool approval required" with a
+    // The notice's actual heading copy is "Allow brainstrike.executeCommand?" (the
+    // call carries no command to name) with a
     // "Pending" status chip (assistant-tool-approval-notice.tsx). The run-
     // timeline ROW below reads the raw event kind, 'tool.approval.requested',
     // only because this fixture's `runEventPart` sets `label` to the kind for
@@ -259,7 +255,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
     // label (e.g. "Awaiting your approval"); assert against this fixture's
     // actual, stable text rather than production copy this fixture never
     // sends.
-    expect(await screen.findByText('Tool approval required')).toBeInTheDocument();
+    expect(await screen.findByText('Allow brainstrike.executeCommand?')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.getByText('Approval requested')).toBeInTheDocument();
     expect(
@@ -358,7 +354,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
       'developer'
     );
 
-    await screen.findByText('Tool approval required');
+    await screen.findByText('Allow brainstrike.executeCommand?');
     const timelines = screen.getAllByTestId('timeline');
     expect(timelines).toHaveLength(3);
     const [messageA, , messageB] = timelines;
@@ -412,11 +408,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
       },
     };
     const user = userEvent.setup();
-    const { container } = render(
-      <AssistantDetailLevelProvider>
-        <Harness adapter={adapter}>{withRunEventContext}</Harness>
-      </AssistantDetailLevelProvider>
-    );
+    const { container } = render(<Harness adapter={adapter}>{withRunEventContext}</Harness>);
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     await screen.findByText('I found the issue.');

@@ -191,9 +191,8 @@ export function ModelCatalog({
       onToggleDetails: toggleDetails,
       query: deferredQuery,
       showTagline: tier !== 'narrow',
-      showTypeTag: filters.type === 'all',
     }),
-    [busyModelIds, deferredQuery, filters.type, onToggle, tier, toggleDetails]
+    [busyModelIds, deferredQuery, onToggle, tier, toggleDetails]
   );
 
   useEffect(() => {
@@ -237,7 +236,7 @@ export function ModelCatalog({
           </Button>
         }
         data-testid="model-catalog-empty"
-        description="Refresh the registry to load the catalogue."
+        description="Refresh the registry to load the catalog."
         title="No models are catalogued yet"
       />
     ) : (

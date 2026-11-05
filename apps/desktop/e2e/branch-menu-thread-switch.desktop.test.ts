@@ -23,7 +23,6 @@ test('selecting another thread closes the open branch menu', async ({
   test.setTimeout(120_000);
   const repo = freshRepo({ label: 'repo', prefix: 'bst-branch-menu-', tracker: tempDirs });
   await seedRoot(page, repo, {
-    disableBackgroundIndexing: true,
     reloadReason: 'branch-menu-thread-switch',
     rootId: 'branch-menu-thread-switch-root-0000-4000-8000-000000000001',
   });

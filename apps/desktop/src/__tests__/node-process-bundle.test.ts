@@ -11,7 +11,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 import { afterAll, describe, expect, it } from 'vitest';
-import { NODE_PROCESS_BUILD_OPTIONS } from '../../scripts/build-main-config.mjs';
+import {
+  NODE_PROCESS_BUILD_OPTIONS,
+  NODE_PROCESS_ENTRY_POINTS,
+} from '../../scripts/build-main-config.mjs';
 
 const nodeProcessBuild = NODE_PROCESS_BUILD_OPTIONS as esbuild.BuildOptions;
 const desktopRoot = path.resolve(import.meta.dirname, '../..');
@@ -39,8 +42,18 @@ describe('Node process bundle', () => {
       }
     }
     const duplicated = [...outputsByInput].filter(([, outputs]) => outputs.length > 1);
+    const outputs = Object.values(result.metafile.outputs);
 
-    expect(outputsByInput.size).toBeGreaterThan(1000);
+    // Not vacuous: every entry was bundled, and the entries share split chunks.
+    expect(outputs.map((output) => output.entryPoint)).toEqual(
+      expect.arrayContaining(
+        // esbuild's metafile names inputs with forward slashes on every platform.
+        Object.values(NODE_PROCESS_ENTRY_POINTS).map((entry) =>
+          path.relative(desktopRoot, path.resolve(desktopRoot, entry)).split(path.sep).join('/')
+        )
+      )
+    );
+    expect(outputs.some((output) => output.entryPoint === undefined)).toBe(true);
     expect(duplicated).toEqual([]);
   });
 

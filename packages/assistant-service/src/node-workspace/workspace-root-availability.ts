@@ -24,10 +24,10 @@ export class WorkspaceRootAvailability {
     }
   }
 
-  async tryMount(
-    entry: StoredWorkspaceRoot,
+  async tryMount<Entry extends StoredWorkspaceRoot>(
+    entry: Entry,
     pathExists: (rootPath: string) => Promise<boolean>,
-    mount: (entry: StoredWorkspaceRoot) => Promise<string>
+    mount: (entry: Entry) => Promise<string>
   ): Promise<{ canonicalPath: string; ok: true } | { ok: false }> {
     try {
       if (!(await pathExists(entry.path))) {

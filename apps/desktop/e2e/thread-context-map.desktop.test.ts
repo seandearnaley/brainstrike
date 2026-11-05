@@ -56,7 +56,6 @@ test('the Context tab shows the files a thread received and edited, the same fig
 }, testInfo) => {
   test.setTimeout(240_000);
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'context-map-root',
     rootId: randomUUID(),
   });

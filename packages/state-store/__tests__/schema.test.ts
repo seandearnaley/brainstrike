@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 import { migrate, SCHEMA_VERSION, UPGRADES } from '../src/schema.mjs';
 import { STATE_DB, StateStore } from '../src/state-store.js';
+import { WORKSPACE_ROOT_SCHEMA } from '../src/workspace-root-schema.mjs';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
 afterEach(() => cleanupDirs());
@@ -14,12 +15,9 @@ const C_SMALL = [
   'brainstrike_worktrees',
 ];
 const DESKTOP_CATALOG = [
-  'embedding_sets',
-  'file_records',
   'model_choices',
   'provider_choices',
   'roots',
-  'source_blob_gc',
   'thread_groups',
   'thread_pins',
   'thread_placements',
@@ -133,6 +131,50 @@ describe('state DB migrations', () => {
           .pluck()
           .get()
       ).toBe('brainstrike_mcp_tasks');
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile whose folders predate their grant-time identity opens and forgets those folders', () => {
+    const db = new Database(':memory:');
+    try {
+      db.pragma('foreign_keys = ON');
+      db.exec(UPGRADES.slice(0, 14).join(';'));
+      db.exec(`DROP TABLE IF EXISTS roots; CREATE TABLE roots (
+        id TEXT PRIMARY KEY NOT NULL, path TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
+        kind TEXT NOT NULL, status TEXT NOT NULL, created_at REAL NOT NULL, last_verified_at REAL NOT NULL
+      ) STRICT;
+      INSERT INTO roots VALUES ('r1', '/old', 'old', 'path', 'live', 1, 1);
+      -- The retired source catalog (version 8) of a profile from before BST-2436.
+      CREATE TABLE file_records (
+        id TEXT PRIMARY KEY NOT NULL, root_id TEXT REFERENCES roots(id) ON DELETE CASCADE
+      ) STRICT;
+      INSERT INTO file_records VALUES ('f1', 'r1');
+      INSERT INTO settings VALUES ('existing', 'preserved');
+      PRAGMA user_version = 14;`);
+      migrate(db);
+      expect(db.prepare('SELECT count(*) FROM roots').pluck().get()).toBe(0);
+      expect(db.prepare('SELECT count(*) FROM file_records').pluck().get()).toBe(0);
+      expect(db.prepare('SELECT value FROM settings').pluck().get()).toBe('preserved');
+      db.prepare(
+        "INSERT INTO roots (id, path, canonical_path, display_name, kind, status, open_position, created_at, last_verified_at) VALUES ('r2', '/new', '/new', 'new', 'path', 'live', 0, 1, 1)"
+      ).run();
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile whose folders already carry their grant-time identity keeps them', () => {
+    const db = new Database(':memory:');
+    try {
+      db.pragma('foreign_keys = ON');
+      db.exec(UPGRADES.slice(0, 14).join(';'));
+      db.exec(`DROP TABLE IF EXISTS roots;${WORKSPACE_ROOT_SCHEMA}
+      INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      PRAGMA user_version = 14;`);
+      migrate(db);
+      expect(db.prepare('SELECT canonical_path FROM roots').pluck().all()).toEqual(['/cur']);
     } finally {
       db.close();
     }

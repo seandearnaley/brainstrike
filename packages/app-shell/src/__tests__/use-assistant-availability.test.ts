@@ -1,10 +1,7 @@
-import {
-  __resetSecretsStoreForTests,
-  useSecretsStore,
-} from '@brainstrike/app-state/stores/secrets-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSISTANT_AVAILABILITY_OVERRIDE_EVENT,
   type AssistantAvailabilityStatus,
@@ -14,10 +11,6 @@ import {
 } from '../hooks/use-assistant-availability';
 
 describe('useAssistantAvailability', () => {
-  beforeEach(() => {
-    __resetSecretsStoreForTests();
-  });
-
   afterEach(() => {
     Reflect.deleteProperty(window, '__assistantAvailabilityOverride');
   });
@@ -434,24 +427,6 @@ describe('fetchAssistantStatusState', () => {
         signal: new AbortController().signal,
       })
     ).rejects.toThrowError('Invalid assistant provider list');
-  });
-
-  it('rejects an available hosted provider without a registry default model', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
-      json: async () => ({
-        enabled: true,
-        providerKeySources: [{ provider: 'cohere', source: 'stored' }],
-        providers: ['cohere'],
-      }),
-      ok: true,
-    } as unknown as Response);
-
-    await expect(
-      fetchAssistantStatusState({
-        fetchImpl,
-        signal: new AbortController().signal,
-      })
-    ).rejects.toThrowError('Assistant status provider cohere has no registry default model');
   });
 
   it('keeps a host with no keyed provider enabled, so the panel can ask for one', async () => {

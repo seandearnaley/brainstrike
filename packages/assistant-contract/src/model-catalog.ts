@@ -16,9 +16,8 @@ export interface CatalogProvider {
 export interface CatalogModel {
   bestFor: string[] | null;
   capabilities: {
-    type: 'llm' | 'embedding';
+    type: 'llm';
     streaming?: boolean;
-    defaultDimension?: number;
     /** Image-input support (LLM rows only; backfilled by migration 061). */
     vision?: boolean;
   };
@@ -79,18 +78,12 @@ function projectModel(
   const parameters = { ...presentation.parameters };
   return {
     bestFor: presentation.bestFor ? [...presentation.bestFor] : null,
-    capabilities:
-      model.type === 'embedding'
-        ? {
-            defaultDimension: model.defaultDimension,
-            type: 'embedding',
-          }
-        : {
-            streaming: model.supportsStreaming ?? provider.capabilities.streaming,
-            type: 'llm',
-            vision: model.vision === 'supported',
-            ...presentation.capabilities,
-          },
+    capabilities: {
+      streaming: model.supportsStreaming ?? provider.capabilities.streaming,
+      type: 'llm',
+      vision: model.vision === 'supported',
+      ...presentation.capabilities,
+    },
     description: presentation.description,
     icon: presentation.icon,
     id: model.id,

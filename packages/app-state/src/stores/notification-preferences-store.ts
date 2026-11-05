@@ -13,13 +13,9 @@
  * gesture, the focus/visibility gates, and the actual `new Notification(...)`
  * dispatch live in `../notifications/*` and the settings UI — this store never
  * calls a browser API itself, so it stays trivially testable and SSR-safe.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -49,7 +45,7 @@ interface NotificationPreferencesActions {
 export type NotificationPreferencesStore = NotificationPreferencesData &
   NotificationPreferencesActions;
 
-const STORE_NAME = 'notification-preferences.v1' as const;
+const STORE_NAME = 'brainstrike:notification-preferences.v1' as const;
 const STORE_VERSION = 1 as const;
 
 function defaultEvents(): NotificationEventToggles {
@@ -91,8 +87,6 @@ function sanitizeEvents(value: unknown): NotificationEventToggles {
   return result;
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
-
 function sanitizePersistedData(persistedState: unknown): NotificationPreferencesData {
   if (!(persistedState && typeof persistedState === 'object')) {
     return defaultData();
@@ -105,7 +99,8 @@ function sanitizePersistedData(persistedState: unknown): NotificationPreferences
 }
 
 export const useNotificationPreferencesStore = create<NotificationPreferencesStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       resetToDefaults: () => set(defaultData()),
@@ -116,12 +111,10 @@ export const useNotificationPreferencesStore = create<NotificationPreferencesSto
     {
       merge: createSanitizedPersistMerge(sanitizePersistedData),
       migrate: sanitizePersistedData,
-      name: STORE_NAME,
       partialize: (state) => ({
         events: state.events,
         masterEnabled: state.masterEnabled,
       }),
-      storage,
       version: STORE_VERSION,
     }
   )
@@ -133,18 +126,3 @@ export const notificationPreferencesSelectors = {
 };
 
 export { isNotificationEventKind };
-
-/** Test-only reset helper. */
-export function __resetNotificationPreferencesStoreForTests(): void {
-  try {
-    const persistApi = (
-      useNotificationPreferencesStore as typeof useNotificationPreferencesStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useNotificationPreferencesStore.setState(defaultData());
-}

@@ -1,10 +1,13 @@
 import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { NO_WORKSPACE_FOLDER_MESSAGE } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { StoredWorkspaceRoot } from './workspace-root-types.ts';
+
+/** What a workspace tool says when no folder is open. */
+export const NO_WORKSPACE_FOLDER_MESSAGE =
+  'No folder is open in the workspace. Add a folder in the left file tree first.';
 
 const logger = createLogger('AssistantWorkspaceRoots');
 // Process-lifetime revocation tombstones protect in-flight runtime snapshots.
@@ -57,8 +60,8 @@ function normalizeRoot(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot | null 
 
 /**
  * The active workspace roots available to the tools. `workspaceRoots` is
- * resolved server-side from the DB roots table, so the root ids match
- * `file_records.root_id`. `workspaceRootPath` is renderer-selected focus state,
+ * resolved server-side from the DB roots table, so the root ids are the durable
+ * `roots.id`. `workspaceRootPath` is renderer-selected focus state,
  * never an authorization source. Roots without an absolute path are dropped.
  */
 export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): RuntimeWorkspaceRoot[] {
@@ -354,8 +357,8 @@ export function resolveWorkspaceSearchScope(
 
 /**
  * Load the active, path-backed workspace roots from the DB `roots` table. The
- * `roots.id` here is the SAME id stored on `file_records.root_id`, so search
- * results and read tools resolve against one source of truth. Web (FSA) roots
+ * `roots.id` here is the durable root id, so search results and read tools
+ * resolve against one source of truth. Web (FSA) roots
  * have a null path and are excluded — the desktop fs tools can't address them.
  */
 export async function loadWorkspaceRootsFromDatabase(
@@ -409,10 +412,9 @@ export function recordWorkspaceRootDisconnections(rootIds: readonly string[]): v
 /**
  * Transition the root at `rootPath` to status 'disconnected' so the assistant
  * tools (which serve only `status = 'live'` rows) stop addressing it the moment
- * the user disconnects the folder. Disconnect ≠ delete: the row and its
- * file_records/file_chunks are deliberately kept, and `reconcileRoots`
- * (app-shell) path-matches the row on re-add and restores `status = 'live'`,
- * so a remount resumes without re-indexing.
+ * the user disconnects the folder. Disconnect ≠ delete: the row is
+ * deliberately kept, and `reconcileRoots` (app-shell) path-matches the row on
+ * re-add and restores `status = 'live'`, so a remount keeps its root id.
  *
  * Returns the durable ids of rows transitioned (via `RETURNING id`, since the DB
  * host protocol surfaces only `rows`, not `affectedRows`). No ids is legitimate
@@ -528,9 +530,9 @@ export async function recordRestoredWorkspaceRoots(
 /**
  * Converge the DB roots table on the AUTHORITATIVE mounted set: every
  * `status = 'live'` row whose `path` is not in `mountedPaths` is transitioned to
- * 'disconnected'. Same semantics as {@link markRootDisconnectedByPath} (rows and
- * their file_records are KEPT, so a re-add path-matches and resumes without
- * re-indexing) — this is the SET-shaped form of that transition.
+ * 'disconnected'. Same semantics as {@link markRootDisconnectedByPath} (rows are
+ * KEPT, so a re-add path-matches and keeps its root id) — this is the
+ * SET-shaped form of that transition.
  *
  * Why this exists: `reconcileRoots` (app-shell) only ever promotes
  * 'disconnected' → 'live'; the sole demotion was `fs:removeRoot`. Every path
@@ -638,7 +640,7 @@ function orderWorkspaceRootsForRuntime(
 /**
  * Enrich RuntimeData with the active workspace roots so the tools become
  * multi-root aware. We resolve roots server-side from the DB so each root id is
- * the DB `roots.id` that `file_records.root_id` references — the single id
+ * the DB `roots.id` — the single id
  * source shared by search-result `rootId`s and read-tool path resolution.
  * The loaded roots are then reordered so the client-declared MAIN root
  * (`mainRootId`/`mainRootPath`) is `roots[0]` (see `orderWorkspaceRoots`).

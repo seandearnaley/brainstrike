@@ -13,6 +13,7 @@ import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
 } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
+import type { LanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -20,6 +21,7 @@ import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostRunAdmissionRequest } from '../src/ports.js';
 import type { HostLogRow } from '../src/protocol.js';
 import {
+  blocked,
   type CallOptions,
   crashableStorePort,
   finished,
@@ -51,7 +53,13 @@ const WORKTREE = {
 };
 const CHILD_TASK = 'CHILD_TASK: make a worktree.';
 
-async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' | 'read' = 'read') {
+async function host(
+  model: MockLanguageModelV4,
+  offered: string[],
+  risk: 'edit' | 'read' = 'read',
+  /** Auto access mode's quick model: an edit is reviewed by it instead of asking. */
+  review?: LanguageModel
+) {
   const root = await mkdtemp(join(tmpdir(), 'bs-worktree-binding-'));
   const store = await StateStore.open(root);
   const requests: HostRunAdmissionRequest[] = [];
@@ -63,6 +71,7 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
     },
     maxSteps: 4,
     readPermissionPolicy: () => ({
+      ...(review ? { autoReview: { model: 'auto' } } : {}),
       policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask' },
       yolo: false,
     }),
@@ -79,6 +88,13 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
         inputSchema: z.object({}),
         risk,
       },
+      write_file: {
+        description: 'Write a workspace file',
+        execute: async () => ({ written: true }),
+        identity: 'native-write-generation-1',
+        inputSchema: z.object({ path: z.string() }),
+        risk: 'edit',
+      },
     },
     validateWorkspaceBinding: async () => undefined,
   };
@@ -92,12 +108,13 @@ async function host(model: MockLanguageModelV4, offered: string[], risk: 'edit' 
         throw new Error('No admission');
       }
       const rootId = request.workspaceBinding?.operatingRootId;
-      return rootId
-        ? {
-            ...admission,
-            configuration: { ...admission.configuration, boundWorkspaceRootId: rootId },
-          }
-        : admission;
+      return {
+        ...admission,
+        ...(rootId
+          ? { configuration: { ...admission.configuration, boundWorkspaceRootId: rootId } }
+          : {}),
+        ...(review ? { reviewModel: async () => review } : {}),
+      };
     },
   };
   let writer = crashableStorePort(store);
@@ -228,7 +245,8 @@ async function rootEntersWorktree(risk: 'edit' | 'read'): Promise<void> {
     expect(model.doStreamCalls).toHaveLength(2);
   }
   // The host started the next run, after the first, admitted in the worktree.
-  expect(next).toMatchObject({ parentMessageId: first });
+  // It records that the host wrote its prompt, so no reader takes it for the person's words.
+  expect(next).toMatchObject({ hostPrompt: true, parentMessageId: first });
   expect(rows.find(finished(next?.runId ?? ''))?.event).toMatchObject({ outcome: 'completed' });
   expect(requests.at(-1)?.workspaceBinding).toMatchObject({
     operatingRootId: WORKTREE.root.rootId,
@@ -242,6 +260,59 @@ test('a root run that creates a worktree ends there, and the next run works in i
 
 test('an approved worktree call ends its run there too, before any further step', async () => {
   await rootEntersWorktree('edit');
+});
+
+test("auto-review never reads the host's worktree continuation as the person's request", async () => {
+  const reviews: string[] = [];
+  const quick = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      reviews.push(JSON.stringify(options.prompt));
+      const answer = {
+        decision: 'approve',
+        rationale: 'The user asked for the fix.',
+        risk: 'low',
+        userAuthorization: 'high',
+      };
+      return {
+        content: [{ text: JSON.stringify(answer), type: 'text' }],
+        finishReason: { raw: 'stop', unified: 'stop' },
+        usage: {
+          inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+          outputTokens: { reasoning: 0, text: 1, total: 1 },
+        },
+        warnings: [],
+      };
+    },
+  });
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const answered = call.prompt.at(-1)?.role === 'tool';
+      if (userTexts(call).some((input) => input.includes(WORKTREE.root.path))) {
+        return stream(
+          answered ? text('Fixed.') : toolCall('write_file', { path: 'notes.md' }, 'write-1')
+        );
+      }
+      return stream(answered ? text('Moved.') : toolCall('create_worktree', {}, 'wt-call'));
+    },
+  });
+  const { core, threadId } = await host(model, [], 'read', quick);
+  const first = (
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Fix it.',
+      threadId,
+    })
+  ).runId;
+  await rowsWhere(core, threadId, (all) => {
+    const next = started(all).find((run) => run.runId !== first);
+    return next !== undefined && all.some(finished(next.runId));
+  });
+
+  const [review] = reviews;
+  expect(reviews).toHaveLength(1);
+  expect(review).toContain('USER: Fix it.');
+  expect(review).not.toContain('USER: Continue the task in the worktree');
 });
 
 test('a host restarted after an approved worktree entry ends that run there and continues in it', async () => {
@@ -351,4 +422,139 @@ test('a delegated child is never offered a worktree to move its parent into', as
   ).toBe(false);
   expect(started(rows)).toHaveLength(1);
   expect((await store.threads()).filter((id) => id !== threadId)).toHaveLength(1);
+});
+
+const BEFORE = 'BEFORE: work dispatched before the switch.';
+const AFTER = 'AFTER: work dispatched in the worktree.';
+const LEDGER = 'Background invocations of this turn';
+type Scripted = ReturnType<typeof stream>;
+
+/** The newest user message's text, and how many tool results answered it so far. */
+function latestTurn(call: CallOptions): { readonly answered: number; readonly text: string } {
+  const index = call.prompt.findLastIndex((message) => message.role === 'user');
+  const latest = call.prompt[index];
+  return {
+    answered: call.prompt.slice(index).filter((message) => message.role === 'tool').length,
+    text:
+      latest?.role === 'user'
+        ? latest.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n')
+        : '',
+  };
+}
+
+/**
+ * One request, as the debug pack of 4 Nov 2026 made it: the root dispatches a
+ * background worker, then enters a worktree; the run the host continues there
+ * dispatches another. A worker's context is its task alone.
+ */
+function fanOutAcrossWorktree(script: {
+  readonly continued: (call: CallOptions) => Scripted;
+  readonly worker: (task: string, call: CallOptions) => Promise<Scripted> | Scripted;
+}): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async (call) => {
+      const task = [BEFORE, AFTER].find((candidate) => userTexts(call)[0]?.includes(candidate));
+      if (task) {
+        return await script.worker(task, call);
+      }
+      const turn = latestTurn(call);
+      if (turn.text.includes(LEDGER)) {
+        return stream(text('Noted.'));
+      }
+      if (turn.text.includes(WORKTREE.root.path)) {
+        return turn.answered === 0
+          ? stream(toolCall('agent-worker', { prompt: AFTER }, 'call-after'))
+          : script.continued(call);
+      }
+      return stream(
+        turn.answered === 0
+          ? toolCall('agent-worker', { prompt: BEFORE }, 'call-before')
+          : toolCall('create_worktree', {}, 'wt-call')
+      );
+    },
+  });
+}
+
+const wakeLedgers = (rows: readonly HostLogRow[]): string[] =>
+  started(rows).flatMap((run) => (run.delivery?.via === 'wake' ? [run.prompt] : []));
+
+test('the run continued in a worktree is the same turn: one ledger reports workers from before and after the switch', {
+  timeout: 20_000,
+}, async () => {
+  const release = Promise.withResolvers<void>();
+  const model = fanOutAcrossWorktree({
+    continued: () => stream(text('Continuing in the worktree.')),
+    worker: async (task) => {
+      if (task === BEFORE) {
+        await release.promise;
+      }
+      return stream(text(`${task.slice(0, 6)} report.`));
+    },
+  });
+  const { core, threadId } = await host(model, []);
+  await core.startRun({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Fan out.',
+    threadId,
+  });
+
+  // The worker dispatched in the worktree reports while the earlier one still works.
+  const first = await rowsWhere(core, threadId, (all) => wakeLedgers(all).length === 1);
+  expect(wakeLedgers(first)[0]).toContain(
+    `${LEDGER} — 2 total: 1 returned, 0 failed, 0 cancelled, 1 still running.`
+  );
+  expect(wakeLedgers(first)[0]).not.toContain('earlier turns');
+
+  release.resolve();
+  const second = await rowsWhere(core, threadId, (all) => wakeLedgers(all).length === 2);
+  const ledger = wakeLedgers(second)[1];
+  expect(ledger).toContain(
+    `${LEDGER} — 2 total: 2 returned, 0 failed, 0 cancelled, 0 still running.`
+  );
+  expect(ledger).toContain(`returned. Prompt: "${BEFORE}"`);
+  expect(ledger).toContain(`returned. Prompt: "${AFTER}"`);
+});
+
+test('a Stop of the run continued in a worktree stops the workers dispatched before the switch too', {
+  timeout: 20_000,
+}, async () => {
+  const model = fanOutAcrossWorktree({
+    continued: (call) => blocked(call),
+    worker: (_task, call) => blocked(call),
+  });
+  const { core, crash, store, threadId } = await host(model, []);
+  const turn = (
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Fan out.',
+      threadId,
+    })
+  ).runId;
+  // Both workers and the continuation's next step are in flight: the root's
+  // two steps, the continuation's two and one call from each worker.
+  await expect.poll(() => model.doStreamCalls.length, { timeout: 15_000 }).toBe(6);
+  const continued = started(await core.read(threadId, 0)).find((run) => run.runId !== turn);
+  if (!continued) {
+    throw new Error('Expected the run continued in the worktree');
+  }
+
+  await core.stop({ commandId: randomUUID(), runId: continued.runId, threadId });
+  const children = (await store.threads()).filter((id) => id !== threadId);
+  const outcomes = await Promise.all(
+    children.map(async (child) =>
+      (await core.read(child, 0)).flatMap(({ event }) =>
+        event.type === 'run.finished' ? [event.outcome] : []
+      )
+    )
+  );
+  expect(outcomes).toEqual([['stopped'], ['stopped']]);
+  // The composer and the running-workers strip name one turn: the one the
+  // person's message started, which the committed log keeps across a restart.
+  const tree = core.trees.read(threadId);
+  expect(tree.thread.run?.turnId).toBe(turn);
+  expect(tree.descendants.map(({ origin }) => origin.turnId)).toEqual([turn, turn]);
+  const recovered = await crash();
+  expect(recovered.trees.read(threadId).thread.run?.turnId).toBe(turn);
 });

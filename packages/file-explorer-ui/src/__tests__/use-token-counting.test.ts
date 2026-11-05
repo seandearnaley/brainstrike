@@ -1,5 +1,4 @@
 import {
-  __resetTokenPreferencesStoreForTests,
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/app-state/stores/token-preferences-store';
@@ -57,7 +56,6 @@ function createTokenCacheContextValue(
 
 describe('useTokenCounting', () => {
   beforeEach(() => {
-    __resetTokenPreferencesStoreForTests();
     __resetTokenCountingRuntimeCacheForTests();
     vi.clearAllMocks();
     tokenCacheMocks.useOptionalTokenCacheContext.mockReset();

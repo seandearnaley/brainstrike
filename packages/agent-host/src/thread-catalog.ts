@@ -1,9 +1,12 @@
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
 import type { HostHookTrustStore } from './hook-trust.ts';
 import type { HostLogRow, HostResults } from './protocol.ts';
 
-type ListedThread = HostResults['thread/list']['threads'][number];
+const logger = createLogger('HostThreadCatalog');
+
+export type ListedThread = HostResults['thread/list']['threads'][number];
 
 /**
  * How a host reads its stored rows as host rows: desktop resolves their blobs
@@ -72,7 +75,10 @@ async function damaged(
  * A thread's hydration rows, decoded. Damage the store reports (a crc or seq failure) and a row the host cannot decode
  * (a missing or altered blob, an event its schema rejects) make the thread unreadable.
  */
-async function decodeThread(rows: HostRowReader, stored: HydrationThread): Promise<DecodedThread> {
+export async function decodeThread(
+  rows: HostRowReader,
+  stored: HydrationThread
+): Promise<DecodedThread> {
   if (stored.damage) {
     return damaged(rows, stored.damage.message, stored.rows[0]);
   }
@@ -103,7 +109,13 @@ export class HostThreadCatalog {
     threads: Set<string>,
     fold: (row: HostLogRow) => void
   ): Promise<void> {
-    for (const stored of await store.readHydration()) {
+    // Every Core method but `thread/list` waits on this (thread-listing.ts lists before it).
+    const started = performance.now();
+    let rowCount = 0;
+    let foldMs = 0;
+    const hydration = await store.readHydration();
+    const readMs = performance.now() - started;
+    for (const stored of hydration) {
       const { createdAt, threadId, updatedAt } = stored;
       threads.add(threadId);
       this.times.set(threadId, { createdAt, updatedAt });
@@ -115,10 +127,21 @@ export class HostThreadCatalog {
         }
         continue;
       }
+      const folding = performance.now();
       for (const row of decoded.rows) {
         fold(row);
       }
+      foldMs += performance.now() - folding;
+      rowCount += decoded.rows.length;
     }
+    logger.info('Hydrated the committed log', {
+      damaged: this.damaged.size,
+      foldMs: Math.round(foldMs),
+      readMs: Math.round(readMs),
+      rows: rowCount,
+      threads: threads.size,
+      totalMs: Math.round(performance.now() - started),
+    });
     if (this.damaged.size > 0) {
       this.releaseGc = store.holdBlobGc();
     }
@@ -186,6 +209,11 @@ export class HostThreadCatalog {
       );
     }
     return rows.readHistory(threads, threadId, fromSeq);
+  }
+
+  /** Whether hydration could not read the thread's history. */
+  isDamaged(threadId: string): boolean {
+    return this.damaged.has(threadId);
   }
 
   assertRunnable(threadId: string): void {

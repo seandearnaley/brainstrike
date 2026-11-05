@@ -1,8 +1,8 @@
 /**
  * Singleton store for the Explorer tree-grid column widths (BST-1208).
  *
- * Built from `createSingletonColumnSizesStore` so sanitization, migration and
- * persistence follow the shared TreeTable contract. Since BST-1211 retired the
+ * Built from `createTreeTableColumnSizesStore` so sanitization and persistence
+ * follow the shared TreeTable contract. Since BST-1211 retired the
  * context preview table (and its `context-preview-column-sizes.v1` store) this
  * is the factory's only surface; the factory stays generic because it is the
  * documented seam for the next resizable TreeTable.
@@ -12,12 +12,9 @@
  * columns are resizable, and the bounds below are the single source of truth
  * for both the persisted values and the `TreeTableColumn` definitions — a
  * mismatch would let the store clamp a width the column renderer would not.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 import {
-  createSingletonColumnSizesStore,
+  createTreeTableColumnSizesStore,
   type TreeTableColumnSizesStoreState,
 } from './tree-table-column-sizes-store.ts';
 
@@ -29,14 +26,9 @@ export const EXPLORER_COLUMN_BOUNDS = {
   type: { defaultWidth: 72, maxWidth: 160, minWidth: 48 },
 } as const;
 
-const STORE_NAME = 'explorer-column-sizes.v1' as const;
-const STORE_VERSION = 1 as const;
-const GLOBAL_KEY = '__brainstrike_explorer_column_sizes_store__' as const;
-
-export const useExplorerColumnSizesStore = createSingletonColumnSizesStore(GLOBAL_KEY, {
+export const useExplorerColumnSizesStore = createTreeTableColumnSizesStore({
   columnBounds: EXPLORER_COLUMN_BOUNDS,
-  storeName: STORE_NAME,
-  version: STORE_VERSION,
+  storeName: 'brainstrike:explorer-column-sizes.v1',
 });
 
 export type { TreeTableColumnSizesStoreState };

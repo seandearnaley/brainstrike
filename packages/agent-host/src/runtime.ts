@@ -8,12 +8,7 @@ import {
   secureDirectory,
   startHost,
 } from '@brainstrike/host-lease';
-import {
-  assertNotSyncedRoot,
-  type ClearContentResult,
-  StateStore,
-  StateStoreStartupError,
-} from '@brainstrike/state-store';
+import { assertNotSyncedRoot, StateStore, StateStoreStartupError } from '@brainstrike/state-store';
 import {
   createMessageConnection,
   type Message,
@@ -21,6 +16,7 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
+import { jsonRpcLogger } from './boundary-wire.ts';
 import { serveHostCatalog } from './catalog/transport.ts';
 import { bindHostConnection, type HostConnectionOptions, type HostIdentity } from './connection.ts';
 import { HostCore } from './core.ts';
@@ -31,7 +27,7 @@ import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } f
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
   bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
-  clearAndRetireContent(): Promise<ClearContentResult>;
+  clearAndRetireContent(): Promise<void>;
   readonly core: HostCore;
 }
 export interface HostStartupContext {
@@ -63,10 +59,12 @@ type PlatformClientService =
   | 'mcpPresentation'
   | 'mcpSettings'
   | 'providers'
-  | 'resolveMemoryEmbedder'
   | 'searchState'
-  | 'searchWorkspace'
   | 'terminals'
+  | 'fileReads'
+  | 'fileSearch'
+  | 'rootRegistry'
+  | 'fileWatches'
   | 'workspaceDiscovery';
 function platformClientServices(
   platform: HostPlatform | undefined
@@ -78,12 +76,12 @@ function platformClientServices(
     ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
-    ...(platform?.resolveMemoryEmbedder
-      ? { resolveMemoryEmbedder: platform.resolveMemoryEmbedder }
-      : {}),
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
-    ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.terminals ? { terminals: platform.terminals } : {}),
+    ...(platform?.fileReads ? { fileReads: platform.fileReads } : {}),
+    ...(platform?.fileSearch ? { fileSearch: platform.fileSearch } : {}),
+    ...(platform?.rootRegistry ? { rootRegistry: platform.rootRegistry } : {}),
+    ...(platform?.fileWatches ? { fileWatches: platform.fileWatches } : {}),
     ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
   };
 }
@@ -97,6 +95,32 @@ function announceClosing(connection: MessageConnection): void {
 /** `HOST_DRAINED_EVENT`, once every request the connection read is answered. */
 async function announceDrained(connection: MessageConnection): Promise<void> {
   await connection.sendNotification(HOST_DRAINED_EVENT).catch(() => undefined);
+}
+/**
+ * A client's retirement, from the moment its connection is bound. A client
+ * whose transport closed (or whose connection the host disposed) is gone: what
+ * it left unanswered is lost to it, and its side reads that loss. Neither that
+ * nor the announcement a gone connection refuses fails the host's close (BST-2442).
+ */
+function clientRetirement(
+  connection: MessageConnection,
+  retire: () => Promise<void>
+): () => Promise<void> {
+  let gone = false;
+  const ended = (): void => {
+    gone = true;
+  };
+  connection.onClose(ended);
+  connection.onDispose(ended);
+  return async () => {
+    try {
+      await retire();
+    } catch (cause) {
+      if (!gone) {
+        throw cause;
+      }
+    }
+  };
 }
 /** The owned facade forwards each optional capability the acquired platform supplies. */
 function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
@@ -184,6 +208,9 @@ function composeHostRoot(
   let catalogStore: StateStore | undefined;
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
+    get commandSessionExits(): HostPlatform['commandSessionExits'] {
+      return currentPlatform().commandSessionExits;
+    },
     get delegation(): HostPlatform['delegation'] {
       return currentPlatform().delegation;
     },
@@ -242,8 +269,8 @@ function composeHostRoot(
       let store: StateStore;
       try {
         store = await StateStore.open(root, {
-          // The writer worker imports this module itself, outside any
-          // transform: it has this module's extension, TypeScript source
+          // The memory calculator worker imports this module itself, outside
+          // any transform: it has this module's extension, TypeScript source
           // run by Node or the desktop bundle's emitted JS beside it.
           memoryCalculatorModule: fileURLToPath(
             new URL(
@@ -278,12 +305,12 @@ function composeHostRoot(
       try {
         signal.throwIfAborted();
         bindAcquiredPlatform(ownedPlatform, currentPlatform());
-        core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
-          core = acquired;
-          if (signal.aborted) {
-            cancelled();
-          }
-        });
+        // Core folds its log while the host serves its folders: thread reads and commands wait
+        // for `core.hydrated`, and each launcher joins its failure.
+        core = HostCore.start(store, ownedPlatform, retainRun);
+        if (signal.aborted) {
+          cancelled();
+        }
         signal.throwIfAborted();
       } catch (cause) {
         try {
@@ -311,8 +338,8 @@ function composeHostRoot(
 export interface OpenedAgentHost {
   /** Serves `connection` as `origin`. Holding the transport is the client's authority. */
   bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
-  /** Closes the host and deletes its content (ADR-0015); resolves with the committed receipt. */
-  clearAndRetireContent(): Promise<ClearContentResult>;
+  /** Closes the host and deletes its content (ADR-0015); resolves once the clear committed. */
+  clearAndRetireContent(): Promise<void>;
   /** Closes Core, then the store. No client is drained: every write is already committed. */
   close(): Promise<void>;
   readonly core: HostCore;
@@ -357,6 +384,21 @@ export async function openAgentHost(
     throw cause;
   }
   const { core, store } = opened;
+  // An in-process host has no window to serve early: it opens with its log folded, unless cancelled.
+  try {
+    await core.hydrated;
+    signal.throwIfAborted();
+  } catch (cause) {
+    try {
+      await closeHostStoreAfterCore(
+        () => core.close(),
+        () => store.close()
+      );
+    } catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], 'Host startup and its cleanup failed');
+    }
+    throw cause;
+  }
   const identity: HostIdentity = {
     hostVersion: HOST_VERSION,
     pid: process.pid,
@@ -364,14 +406,15 @@ export async function openAgentHost(
     start: store.lock.owner.start,
   };
   let clearContent = false;
-  let cleared: ClearContentResult | undefined;
+  let cleared = false;
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= closeHostStoreAfterCore(
       () => core.close(),
       async () => {
         if (clearContent) {
-          cleared = await store.clearContent();
+          await store.clearContent();
+          cleared = true;
           return;
         }
         await store.close();
@@ -392,9 +435,8 @@ export async function openAgentHost(
       clearContent = true;
       await close();
       if (!cleared) {
-        throw new Error('Host content clear did not produce a committed receipt');
+        throw new Error('Host content clear did not commit');
       }
-      return cleared;
     },
     close,
     core,
@@ -426,8 +468,8 @@ export async function startAgentHost(
     return privateClientsRetired;
   };
   let clearContent = false;
-  let cleared: ClearContentResult | undefined;
-  let clearing: Promise<ClearContentResult> | undefined;
+  let cleared = false;
+  let clearing: Promise<void> | undefined;
   signal.addEventListener('abort', cancelled, { once: true });
   try {
     runtime = await startHost(
@@ -448,7 +490,7 @@ export async function startAgentHost(
           const connection = createMessageConnection(
             reader,
             new StreamMessageWriter(socket),
-            undefined,
+            jsonRpcLogger('AgentHostConnection'),
             {
               messageStrategy: {
                 handleMessage: async (message, next) => {
@@ -488,7 +530,7 @@ export async function startAgentHost(
           // Keep refusing new requests while dispatched work joins. Once it
           // settles, stop reads before joining the received decode/dispatch tail:
           // an empty dispatch queue does not mean the reader is empty (BST-2282).
-          return async () => {
+          return clientRetirement(connection, async () => {
             announceClosing(connection);
             retiring.abort();
             await connection.drain();
@@ -496,7 +538,7 @@ export async function startAgentHost(
             await reader.drain();
             await connection.drain();
             await announceDrained(connection);
-          };
+          });
         },
         acquireRoot: async (retainRun) => {
           const { core, store } = await host.open(retainRun);
@@ -509,7 +551,8 @@ export async function startAgentHost(
                 () => core.close(),
                 async () => {
                   if (clearContent) {
-                    cleared = await store.clearContent();
+                    await store.clearContent();
+                    cleared = true;
                     return;
                   }
                   await store.close();
@@ -553,6 +596,17 @@ export async function startAgentHost(
   }
   const disconnected = (): void => signal.removeEventListener('abort', cancelled);
   runtime.closed.then(disconnected, disconnected);
+  const started = runtime;
+  // The host is ready before Core has folded its log; a fold that fails closes the host and is
+  // its failure.
+  const closed = Promise.all([
+    runtime.closed,
+    core.hydrated.catch((cause: unknown) => {
+      void started.close().catch(() => undefined);
+      throw cause;
+    }),
+  ]).then(() => undefined);
+  closed.catch(() => undefined);
   return {
     attachClient: () => runtime.attachClient(),
     bindClientConnection: (connection, origin) => {
@@ -569,13 +623,13 @@ export async function startAgentHost(
         },
         { origin, retiring: retiring.signal, ...host.clientCapabilities() }
       );
-      const retire = async (): Promise<void> => {
+      const retire = clientRetirement(connection, async () => {
         announceClosing(connection);
         retiring.abort();
         await connection.drain();
         // A frame read after this is refused, so nothing admitted is left unanswered.
         await announceDrained(connection);
-      };
+      });
       privateClients.add(retire);
       const closed = connection.onClose(() => {
         privateClients.delete(retire);
@@ -598,9 +652,8 @@ export async function startAgentHost(
       clearContent = true;
       clearing = runtime.close().then(() => {
         if (!cleared) {
-          throw new Error('Host content clear did not produce a committed receipt');
+          throw new Error('Host content clear did not commit');
         }
-        return cleared;
       });
       return clearing;
     },
@@ -608,7 +661,7 @@ export async function startAgentHost(
       return runtime.clientCount;
     },
     close: () => runtime.close(),
-    closed: runtime.closed,
+    closed,
     core,
     record: runtime.record,
     retainRun: () => runtime.retainRun(),

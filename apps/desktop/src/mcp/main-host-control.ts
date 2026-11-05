@@ -35,8 +35,16 @@ export class MainMcpHostControl {
     )(await this.#call(MCP_RUNTIME_METHODS.configPathPick, { path }));
   }
 
-  /** Factory reset: the host retires its MCP settings lifecycle and keeps a restore point. */
+  /**
+   * Factory reset: the host retires its MCP settings lifecycle and keeps a restore point.
+   * With no ready host (not started, still starting, or gone) there is no host-owned MCP
+   * state to retire: the reset's profile retirement joins a starting host before the wipe,
+   * and the wipe deletes the settings on disk. Every other failure stays the reset's failure.
+   */
   async resetSettings(): Promise<void> {
+    if (!this.#ready) {
+      return;
+    }
     await this.#call(MCP_RUNTIME_METHODS.settingsReset, {});
   }
 

@@ -5,7 +5,6 @@ export * from './agent-color.ts';
 export * from './assistant-provider-settings.ts';
 export * from './changeset.ts';
 export * from './database.ts';
-export * from './embedding-constants.ts';
 // Export types from other files
 export * from './errors.ts';
 export * from './file-explorer-constants.ts';
@@ -28,7 +27,5 @@ export type FileContents = Record<string, string>;
 // Global module augmentation moved to lucide-react.d.ts
 // declare module 'lucide-react';
 
-export type { CollectionMetadata, CollectionRecord } from './collection.ts';
-export type { ContentClearCapability, ContentClearResult } from './content-clear.ts';
-export type { SourceFileRecord } from './source-file.ts';
+export type { ContentClearCapability } from './content-clear.ts';
 export * from './thread-groups.ts';

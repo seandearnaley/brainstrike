@@ -1,11 +1,12 @@
 // Side-effect import, deliberately FIRST: wraps WebAssembly before any other
-// import (PGlite, tokenizers, xxhash-wasm) can instantiate a module.
+// import (tokenizers, xxhash-wasm) can instantiate a module.
 import './diagnostics/install-webassembly-counter';
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
+import { loadWorkspaceRootsFromCatalog } from '@brainstrike/assistant-service/node-workspace-services';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import {
@@ -15,16 +16,21 @@ import {
   initializeLogging,
   LogBuffer,
 } from '@brainstrike/logging';
-import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, session, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
-import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
+import { type AppLifetime, createAppLifetime } from './app-lifetime';
+import {
+  notify,
+  resolveBackgroundPresence,
+  resolveLoginItems,
+  wasLaunchedAtLogin,
+} from './app-lifetime-electron';
 import { createAppUpdates } from './app-update';
 import { checkForUpdatesFromMenu, offerMoveToApplicationsFolder } from './app-update-dialogs';
 import { readUpdatePreferences, writeUpdatePreferences } from './app-update-preferences';
@@ -39,10 +45,6 @@ import {
   releaseNotesUrl,
 } from './application-menu';
 import { registerAssetProtocol } from './asset-protocol';
-import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
-import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
-import { hasHostRunInWorktree } from './assistant-server/worktree-host-activity';
-import { createWorktreeLedger } from './assistant-server/worktree-ledger';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
 import {
   clearActiveBrowserPaneHost,
@@ -114,19 +116,20 @@ import {
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
-import { createWorkspaceRootResolver } from './git-ipc-handlers';
-import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
+import {
+  createHostProfileAdmission,
+  reportAgentHostStartupFailure as reportHostStartupFailure,
+} from './host-profile-admission';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
+import { registerAppLifetimeIpcHandlers } from './ipc-app-lifetime';
 import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
-import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
-import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
+import { pickWorkspaceFolder } from './ipc-domains/file-system-ipc';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
-import { registerIndexSearchIpcHandlers } from './ipc-index-search';
 import {
   cleanupMcpRuntimeForShutdown,
   registerMcpIpcHandlers,
@@ -138,7 +141,6 @@ import { registerModelCatalogIpc } from './ipc-model-catalog';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
-import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
 import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { registerLoggingIpcHandlers } from './logging-ipc';
@@ -151,7 +153,6 @@ import {
   createDesktopLoggingPreferencesController,
   readConsoleLevelOverride,
 } from './main/logging-preferences';
-import { prepareMainCatalogClose } from './main/main-catalog-close';
 import { installShutdownSignalHandlers } from './main/shutdown-signals';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
@@ -159,19 +160,6 @@ import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-
 import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platform';
 import { getMainMcpHostControl } from './mcp/main-host-control';
 import { createDesktopModelCatalog } from './model-catalog';
-import { createNativeIndexActivation } from './native-index-activation';
-import {
-  reportAgentHostStartupFailure as reportHostStartupFailure,
-  reportNativeIndexActivationError as reportNativeIndexFailure,
-} from './native-index-activation-error';
-import { observeNativeIndex } from './native-index-observations';
-import {
-  createNativeStartupFailureReporter,
-  observeNativeReaderStartup,
-} from './native-index-startup-window';
-import { createNativeRootDataDeletion } from './native-root-data-deletion';
-import { createNativeRootRegistration } from './native-root-registration';
-import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
@@ -179,7 +167,7 @@ import { registerRendererProtocol } from './renderer-protocol';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
-import { openIndexQuery } from './sqlite-query-host-manager';
+import { markRendererFirstPaint, readStartupTimeline } from './startup-timeline';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { resolveThirdPartyNoticesPath } from './third-party-notices-path';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
@@ -323,16 +311,15 @@ loggingPreferences.applyInitial();
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
 let developerDatabaseResetInFlight = false;
-// NOT a replay buffer, despite the name's "pending" framing: a grant recorded
-// before this is assigned (inside app.whenReady()'s menu block) is a silent
-// no-op for THIS subscriber specifically — it never queues and never fires
-// late. That's safe because the grant itself is durable regardless (the
-// ledger write in workspace-recent-roots.ts happens unconditionally, and the
-// next application-menu rebuild reads the ledger fresh), so the only thing a
-// pre-assignment grant misses is that one mount's app.addRecentDocument call
-// — relevant only to a renderer-less/background window mounting before the
-// visible-UI menu block runs, which does not happen in the normal boot path.
-let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
+// ADR-0029 stage 4: the agent host's recent-folders ledger, as it last told Main
+// (`platform/workspace/roots-changed`). The File menu reads this copy; the ledger
+// is the host's. A change before the menu exists is kept here and the menu's first
+// build reads it; only that grant's OS recent-document entry is not added.
+let workspaceRecentRootPaths: readonly string[] = [];
+/** The menu's follower of the host's changes: a grant's OS recent document, and a rebuild. */
+let workspaceRootsMenuSubscriber:
+  | ((change: { readonly grantedPath?: string; readonly recentChanged: boolean }) => void)
+  | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
@@ -351,6 +338,17 @@ let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
+// ADR-0033: whether the app stays running without a window, and its tray. Started at ready,
+// before the first window, so every window's close can ask it.
+let appLifetime: AppLifetime | undefined;
+function requireAppLifetime(): AppLifetime {
+  if (!appLifetime) {
+    throw new Error('The app lifetime starts once the app is ready.');
+  }
+  return appLifetime;
+}
+// Shows the app's window, opening one when none is open (tray, second launch). Set at ready.
+let openMainWindow: (() => void) | undefined;
 
 /** Every unload of a visible document flushes it first (ADR-0026 R1, `document-unload.ts`). */
 function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
@@ -358,8 +356,8 @@ function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
     // Resolved when a document unloads, not when its window is created.
     delays: { delay: (point) => lifecycleDelaySeam().delay(point) },
     isQuitting: isDesktopShuttingDown,
-    lastWindowQuits: process.platform !== 'darwin',
     quit: () => app.quit(),
+    quitsWithLastWindow: () => requireAppLifetime().quitsWithLastWindow(),
     visibleWindows: visibleDocumentWindows,
   };
 }
@@ -386,7 +384,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
     // `desktop-graceful-shutdown.ts` runs it after every ordered step settled.
     // `database-drain` has already stopped what issues database work, so this
     // is the host close alone.
-    closeDatabase: () => nativeIndexActivation.close(),
+    closeDatabase: () => hostProfile.retire(),
     // Runs last, after the aggregate failure warn (the shutdown module logs
     // it first): the durable NDJSON file is the last writer standing, so it
     // stays open to capture every earlier failure. The handle is nulled from
@@ -410,17 +408,16 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Finish accepted deletion; terminal quit cancels replacement startup.
       'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
-      'main-catalog': () =>
-        prepareMainCatalogClose(applicationIpcDomain.roots, workspaceRootCatalog),
-      // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
-      'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
-      'native-index': async () => {
+      'host-profile': async () => {
         await agentHostMainClient.close();
-        // Fence profile admission before joining the renderer's in-flight host connect:
+        // Retire the profile before joining the renderer's in-flight host connect:
         // a host start that fails during shutdown is then never retried as a second host.
-        await nativeIndexActivation.close();
+        await hostProfile.retire();
         await agentHostClientIpc.close();
       },
+      'main-catalog': () => workspaceRootCatalog.prepareClose(),
+      // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
+      'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Every window is joined to `closed`: a renderer that cannot
@@ -428,7 +425,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       renderers: async () => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
-        nativeIndexActivation.fenceTerminal();
+        hostProfile.fenceTerminal();
         await initialWindowCreation;
         const windows = BrowserWindow.getAllWindows();
         const preparations = await Promise.allSettled(
@@ -466,8 +463,12 @@ const gracefulShutdown = createDesktopGracefulShutdown({
   logger,
   markShuttingDown: markDesktopShuttingDown,
   planRun: planDesktopShutdownRun,
-  // Fence the current native/profile owner before any renderer can request more work.
-  retireBackgroundAdmission: () => nativeIndexActivation.fenceTerminal(),
+  // Fence the profile owner before any renderer can request more work. The tray goes with it,
+  // so its Open item cannot start a window once quit has begun.
+  retireBackgroundAdmission: () => {
+    hostProfile.fenceTerminal();
+    appLifetime?.close();
+  },
 });
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
@@ -518,32 +519,18 @@ function registerShutdownSignalHandlers(): void {
 }
 
 const fileSystem = new ElectronFileSystemAdapter();
-const storage = new ElectronStorageAdapter();
-
-const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
-  try {
-    return (await listRecentRootEntries(storage)).map((entry) => entry.path);
-  } catch (error) {
-    // A menu that cannot list recents still opens folders; a boot that dies
-    // on a storage read does not. Logged, never silent.
-    logger.warn('Could not read the recent workspace folders for the File menu', { error });
-    return [];
-  }
-};
 
 const profileReset = createDesktopProfileResetOwner({
   profilePath: () => {
     const location = resolveDesktopDatabaseLocation();
     return joinProfileDirectory(location.rootPath, location.profile);
   },
-  retireProfile: () => nativeIndexActivation.destroyAndRetireProfile(),
+  retireProfile: () => hostProfile.retire(),
 });
 
 const handleResetLocal = createDesktopFactoryResetHandler({
   clearRetainedContent: async () => {
-    await nativeIndexActivation.destroyNativeOwner();
-    await applicationIpcDomain.roots.clearForContent();
-    const result = await desktopBootstrap.profile.clearAndRetireContent();
+    const result = await hostProfile.clearAndRetireContent();
     for (const filePath of listErrorLogFilePaths(
       path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)
     )) {
@@ -567,15 +554,11 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   logger,
   prepareDatabaseProfileReset: () => profileReset.prepare(),
   resetLocalDatabase: (lease) => profileReset.clear(lease),
-  resetPersistentStorageAfterDataDeletion: () => storage.clear(),
   resumeAfterReset: createDesktopResetResume({
-    publishIndexConfig: () => indexConfig.publishSaved(),
-    resumeIndex: (signal) => nativeIndexActivation.resume(signal),
     resumeMcp: (outcome) => resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome),
+    resumeProfile: (signal) => hostProfile.resume(signal),
   }),
-  runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
-    { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
     {
       name: 'mcp-runtime',
       stop: async () => {
@@ -596,6 +579,13 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     {
       name: 'read-workspace-file-cursors',
       stop: clearReadWorkspaceFileCursorRegistry,
+    },
+    // The OS login item lives outside userData: a factory reset turns it off, its default.
+    // Clearing content keeps settings, so it keeps this one too.
+    {
+      name: 'app-lifetime',
+      stop: () => appLifetime?.factoryReset() ?? Promise.resolve(),
+      stopForContent: () => Promise.resolve(),
     },
     // electron-updater's cache (a downloaded update and its pending-install
     // record) lives outside userData. Clearing content retains it: an update
@@ -654,127 +644,72 @@ ipcDisposers.add(
   })
 );
 
-// Register IPC handlers early to avoid renderer calls racing registration during startup.
-const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(() =>
-  nativeIndexActivation.acquireProfile()
+// Settings › Startup (ADR-0033): keep running in the tray, open at login.
+ipcDisposers.add(
+  'app-lifetime',
+  registerAppLifetimeIpcHandlers({
+    setKeepRunningInTray: (enabled) => requireAppLifetime().setKeepRunningInTray(enabled),
+    setOpenAtLogin: (enabled) => requireAppLifetime().setOpenAtLogin(enabled),
+    settings: () => requireAppLifetime().settings(),
+  })
 );
+
+const hostProfile = createHostProfileAdmission(desktopBootstrap.profile);
+/**
+ * A factory reset retires the profile until it reopens it, after its replacement renderer is
+ * ready: a window's reads and clients wait for that reopen, not into the fence.
+ */
+async function acquireProfileAfterReset() {
+  await handleResetLocal.idle();
+  return await hostProfile.acquire();
+}
+// Register IPC handlers early to avoid renderer calls racing registration during startup.
+const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(acquireProfileAfterReset);
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
-const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, {
-  getRootsCatalog: async () => workspaceRootCatalog,
+const applicationIpcDomain = createApplicationIpcDomain({
   getUserDataPath: () => app.getPath('userData'),
-  // The host owns the worktree ledger and settings: it says whether a folder is a managed worktree.
-  managedWorktreeAuthorizer: async (candidate) =>
-    (await agentHostMainClient.request('worktrees/classify-path', { path: candidate }))
-      .classification,
   onClearContent: async () => {
     const result = await handleResetLocal.clearContent();
-    if (
-      !result.success ||
-      result.deletedFiles === undefined ||
-      result.deletedChunks === undefined
-    ) {
-      throw new Error(result.message ?? 'Content clearing did not return its completion receipt.');
+    if (!result.success) {
+      throw new Error(result.message ?? 'Content clearing failed.');
     }
-    return { deletedChunks: result.deletedChunks, deletedFiles: result.deletedFiles };
   },
-  onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
   onResetLocal: () => handleResetLocal.reset(),
-  onWorkspaceRootGranted: (grantedPath: string) => {
-    pendingRootGrantSubscriber?.(grantedPath);
-  },
-  onWorkspaceRootsChanged: () => {
-    // Not awaited, as a renderer's registration is not: the index status owns the outcome,
-    // and the registration reports its own failure.
-    nativeRootRegistration.rootsRegistered().catch(() => undefined);
-  },
 });
-function activateSavedNativeIndexSettings(): Promise<void> {
-  if (isDesktopShuttingDown()) {
-    return Promise.resolve();
-  }
-  const resetting = handleResetLocal.inFlight();
-  if (resetting) {
-    return resetting.then((result) => {
-      // The reset owner retains its original failed outcome; this notification
-      // must not start activation after an unsuccessful reset.
-      return result.success ? activateSavedNativeIndexSettings() : undefined;
-    });
-  }
-  return nativeRootDataDeletion.prepareTransition(
-    () => nativeIndexActivation.prepareSavedPause(),
-    (prepared) => (prepared ? prepared.complete() : nativeIndexActivation.reconfigure())
-  );
+/** The host's open folders changed (ADR-0029 stage 4): File > Open Recent follows. */
+function onWorkspaceRootsChanged(change: {
+  readonly grantedPath?: string;
+  readonly recentPaths: readonly string[];
+}): void {
+  // Any change to the ledger rebuilds File > Open Recent, granted or not: the host's first
+  // publish at launch, a removal, and the empty ledger after a factory reset.
+  const recentChanged =
+    change.recentPaths.length !== workspaceRecentRootPaths.length ||
+    change.recentPaths.some((recentPath, index) => recentPath !== workspaceRecentRootPaths[index]);
+  workspaceRecentRootPaths = change.recentPaths;
+  workspaceRootsMenuSubscriber?.({
+    ...(change.grantedPath ? { grantedPath: change.grantedPath } : {}),
+    recentChanged,
+  });
 }
-
 export function reportAgentHostStartupFailure(error: unknown): void {
   reportHostStartupFailure(error, isDesktopShuttingDown(), logger);
 }
-function reportNativeIndexActivationError(message: string, error: unknown): void {
-  reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
-}
 const agentHostPrivateClients = desktopBootstrap.privateClients;
-const nativeIndexActivation = createNativeIndexActivation({
-  application: applicationIpcDomain,
-  catalog: workspaceRootCatalog,
-  lifecycleDelays: lifecycleDelaySeam,
-  onError: (operation, error) =>
-    reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
-  onReceipt: (receipt) =>
-    logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
-  profile: desktopBootstrap.profile,
-  settings: () => indexConfig.nativeSettings(),
-});
-const indexConfig = createDesktopIndexConfig({
-  assertModel: assertRegisteredEmbeddingModel,
-  catalog: workspaceRootCatalog,
-  publish: (config) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        pushToRenderer(window.webContents, DESKTOP_IPC_CHANNELS.indexSearch.configChanged, config);
-      }
-    }
-  },
-  // A saved change joins the native owner's FIFO and `update` returns: the scan runs in the
-  // background, so a Pause saved meanwhile fences admission at once. During a factory reset a
-  // reconfigure waits for the reset while a rebuild or vector-space replacement joins the FIFO
-  // directly, so applies can run out of save order; each re-reads the saved config when it runs,
-  // so the index ends on the last save. Failures stay visible in the lifecycle observation and
-  // these reports.
-  rebuild: async () => {
-    nativeIndexSearch
-      .rebuild()
-      .catch((error: unknown) =>
-        reportNativeIndexActivationError('Search index rebuild for the new chunking failed', error)
-      );
-  },
-  reconfigure: async () => {
-    activateSavedNativeIndexSettings().catch((error: unknown) =>
-      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
-    );
-  },
-  replaceVectorSpace: (id) =>
-    nativeRootDataDeletion.transition(async () => {
-      await nativeIndexActivation.cleanupCollection(id);
-      await workspaceRootCatalog.collections({ id, operation: 'delete' });
-      await nativeIndexActivation.resume();
-    }),
-});
 // Main's own desktop-origin client: Settings credential writes reach the host,
 // their single owner, through it.
 const agentHostMainClient = createAgentHostMainClient(
-  nativeIndexActivation.acquireProfile,
+  hostProfile.acquire,
   agentHostPrivateClients.open
 );
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
   agentHostMainClient.request(method, params)
 );
-const agentHostClientIpc = registerAgentHostClientIpc(async () => {
-  // A factory reset retires the profile until it reopens it, after its replacement
-  // renderer is ready: that renderer's clients connect once it has, not into the fence.
-  await handleResetLocal.idle();
-  return await nativeIndexActivation.acquireProfile();
-}, agentHostPrivateClients.open);
+const agentHostClientIpc = registerAgentHostClientIpc(
+  acquireProfileAfterReset,
+  agentHostPrivateClients.open
+);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 // BST-1880: the damaged-store notice's actions. A restart stops the host this
 // app launched, which relaunches for the next client as after a crash, so its
@@ -784,7 +719,7 @@ ipcDisposers.add(
   registerAgentHostRecoveryIpcHandlers({
     restartHost: () =>
       restartLaunchedAgentHost({
-        acquireProfile: () => nativeIndexActivation.acquireProfile(),
+        acquireProfile: () => hostProfile.acquire(),
         logger,
         stopLaunchedHost: agentHostPrivateClients.stopForRelaunch,
       }),
@@ -795,67 +730,6 @@ ipcDisposers.add(
       }
     },
   })
-);
-const nativeRootDataDeletion = createNativeRootDataDeletion({
-  acquire: () => nativeIndexActivation.acquire(),
-  captureOwner: async () => {
-    await nativeIndexActivation.getSearchAuthority();
-    return nativeIndexActivation.captureAcknowledgedAuthority();
-  },
-  closeOwner: () => nativeIndexActivation.closeNativeOwner(),
-  deleteCanonicalRoot: async (mounted) => {
-    await workspaceRootCatalog.workspaceRoots({
-      operation: 'delete',
-      paths: [mounted.canonicalPath, mounted.presentationPath],
-      rootId: mounted.rootId,
-    });
-  },
-  reserveRoot: (rootId) => applicationIpcDomain.roots.reserveRootDataDeletion(rootId),
-  resume: () => nativeIndexActivation.resume(),
-  stopSources: () => nativeIndexActivation.stopSources(),
-});
-
-const nativeIndexSearch = createNativeScopedSearchCapability({
-  openQuery: openIndexQuery,
-  rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
-  withRead: nativeIndexActivation.withRead,
-});
-const nativeRootRegistration = createNativeRootRegistration({
-  isShuttingDown: isDesktopShuttingDown,
-  reconfigureRoots: () => nativeIndexActivation.reconfigureRoots(),
-  reportError: reportNativeIndexActivationError,
-  transition: (operation) => nativeRootDataDeletion.transition(operation),
-});
-const nativeLifecycleObserver = new AbortController();
-// Windows follow this push for the index's lifecycle, status and coverage; none of them polls.
-observeNativeIndex({
-  coverageBatch: nativeIndexSearch.coverageBatch,
-  observeChanges: nativeIndexActivation.observeChanges,
-  observeLifecycle: nativeIndexActivation.observeLifecycle,
-  publish: (observation) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        pushToRenderer(
-          window.webContents,
-          DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged,
-          observation
-        );
-      }
-    }
-  },
-  signal: nativeLifecycleObserver.signal,
-  status: nativeIndexSearch.status,
-}).catch((error: unknown) => {
-  if (error !== nativeLifecycleObserver.signal.reason) {
-    reportNativeIndexActivationError('Native lifecycle observer failed', error);
-  }
-});
-ipcDisposers.add('native-index-lifecycle', () =>
-  nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
-);
-ipcDisposers.add(
-  'index-search',
-  registerIndexSearchIpcHandlers(nativeIndexSearch, nativeRootRegistration, indexConfig)
 );
 ipcDisposers.add('main', () => {
   // The graceful filesystem step joins physical retirement. This late ledger
@@ -903,14 +777,9 @@ ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
 ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
 ipcDisposers.add('hooks', registerHooksIpcHandlers(desktopHookTrust, workspaceRootCatalog));
-ipcDisposers.add('context-files', registerContextFilesIpcHandlers(workspaceRootCatalog));
 ipcDisposers.add('thread-groups', registerThreadGroupsIpc(workspaceRootCatalog));
 ipcDisposers.add('view-filter-presets', registerViewFilterPresetsIpc(workspaceRootCatalog));
 ipcDisposers.add('model-catalog', registerModelCatalogIpc(modelCatalog));
-ipcDisposers.add(
-  'user-personas',
-  registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)
-);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -1039,19 +908,8 @@ if (singleInstanceLockAcquired) {
     });
   };
 
-  desktopBootstrap.bindSecondInstanceFocus(() => {
-    const existingWindow = BrowserWindow.getAllWindows()[0] ?? null;
-    if (!existingWindow) {
-      return;
-    }
-
-    if (typeof existingWindow.show === 'function') {
-      existingWindow.show();
-    }
-    if (typeof existingWindow.focus === 'function') {
-      existingWindow.focus();
-    }
-  });
+  // A second launch shows the app's window, opening one while the app runs in the tray.
+  desktopBootstrap.bindSecondInstanceFocus(() => openMainWindow?.());
 
   app.whenReady().then(async () => {
     if (isDesktopShuttingDown()) {
@@ -1084,30 +942,17 @@ if (singleInstanceLockAcquired) {
       });
       configureDesktopRendererTarget(rendererTarget);
       registerRendererProtocol(rendererTarget);
-      const reportInitialNativeFailure = createNativeStartupFailureReporter((error) =>
-        reportNativeIndexActivationError('Native index activation unavailable', error)
-      );
-      // Threads use the profile even when search has no selected catalog. Start
-      // its existing owner before catalog discovery and renderer hydration.
-      void nativeIndexActivation
-        .acquireProfile()
-        .catch((error: unknown) =>
-          reportNativeIndexActivationError('Agent host profile unavailable', error)
-        );
-      void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
-      void observeNativeReaderStartup(
-        nativeIndexActivation.acquireRead(),
-        reportInitialNativeFailure
-      ).then((outcome) =>
-        logger.info('Initial native reader startup settled', { kind: outcome.kind })
-      );
+      // Start the profile's host before catalog discovery and renderer hydration.
+      const agentHostProfile = hostProfile.acquire().catch(reportAgentHostStartupFailure);
       logger.debug('Configured desktop renderer target', { rendererTarget });
 
       // Register the root-validated `brainstrike-asset://` protocol now that the
       // app is ready (protocol.handle requires ready). The resolver validates
       // renderer-supplied paths against the DB `roots` table — the SAME source
       // the git/read/search tools use — resolving the DB lazily per request.
-      registerAssetProtocol(createWorkspaceRootResolver(workspaceRootCatalog));
+      registerAssetProtocol({
+        listRoots: () => loadWorkspaceRootsFromCatalog(workspaceRootCatalog),
+      });
 
       // Static Canvas sandbox shell (BST-1173); no DB dependency, serves one
       // reviewed document with its own CSP header (see canvas-protocol.ts).
@@ -1142,7 +987,7 @@ if (singleInstanceLockAcquired) {
       // DiagnosticSinkBridge stamps on its own `diagnostic_events` DB rows
       // (getDiagnosticSessionId() in packages/app-shell). This is
       // deliberate, per the Flight Recorder P2a design — the NDJSON
-      // backstop and the PGlite-backed DB sink are independent failure
+      // backstop and the database-backed sink are independent failure
       // domains — but it means a line in this file and a DB row cannot be
       // joined on `sessionId` alone.
       if (!disableFileLogs) {
@@ -1228,18 +1073,9 @@ if (singleInstanceLockAcquired) {
       const isMac = process.platform === 'darwin';
       app.setAboutPanelOptions(buildAboutPanelOptions(app.name, app.getVersion()));
       const editAndViewMenus: Electron.MenuItemConstructorOptions[] = [
-        {
-          label: 'Edit',
-          submenu: [
-            { role: 'undo' },
-            { role: 'redo' },
-            { type: 'separator' },
-            { role: 'cut' },
-            { role: 'copy' },
-            { role: 'paste' },
-            { role: 'selectAll' },
-          ],
-        },
+        // Electron's own Edit menu for the platform: Paste and Match Style and
+        // Speech on macOS, Delete everywhere.
+        { role: 'editMenu' },
         {
           label: 'View',
           submenu: [
@@ -1275,20 +1111,26 @@ if (singleInstanceLockAcquired) {
               },
               label: 'Reload',
             },
-            { role: 'toggleDevTools' },
             { type: 'separator' },
             { role: 'resetZoom' },
             { role: 'zoomIn' },
+            // The role's accelerator is ⌘/Ctrl+Plus, which needs Shift on most
+            // layouts; this hidden twin takes the unshifted ⌘/Ctrl+= as well.
+            { accelerator: 'CommandOrControl+=', role: 'zoomIn', visible: false },
             { role: 'zoomOut' },
             { type: 'separator' },
             { role: 'togglefullscreen' },
           ],
         },
       ];
+      // Only unpackaged builds show this menu, so a shipped app has no
+      // Developer Tools item or shortcut.
       const developerMenus: Electron.MenuItemConstructorOptions[] = [
         {
           label: 'Developer',
           submenu: [
+            { role: 'toggleDevTools' },
+            { type: 'separator' },
             {
               accelerator:
                 process.platform === 'darwin' ? 'Cmd+Shift+Backspace' : 'Ctrl+Shift+Backspace',
@@ -1328,17 +1170,14 @@ if (singleInstanceLockAcquired) {
                 try {
                   // BST-1330: same drains as shutdown/factory reset — a bare
                   // resetLocalDatabase() could race in-flight live refreshes.
-                  // Join native producers, readers, and writer before resetting this profile.
-                  await nativeRootDataDeletion.transition(async () => {
-                    await nativeIndexActivation.stopSources();
-                    const lease = await profileReset.prepare();
-                    try {
-                      await profileReset.clear(lease);
-                    } finally {
-                      lease.release();
-                    }
-                    await nativeIndexActivation.resume();
-                  });
+                  // Retire the host's writer before resetting this profile.
+                  const lease = await profileReset.prepare();
+                  try {
+                    await profileReset.clear(lease);
+                  } finally {
+                    lease.release();
+                  }
+                  await hostProfile.resume();
                   replaced = BrowserWindow.getAllWindows();
                   await dialog.showMessageBox({
                     buttons: ['OK'],
@@ -1350,7 +1189,7 @@ if (singleInstanceLockAcquired) {
                   const message = error instanceof Error ? error.message : String(error);
                   dialog.showErrorBox(
                     'Reset Failed',
-                    `The local database was not reset: ${message}\n\nIf background indexing kept the database busy, retry after it settles (or use Factory Reset in Settings, which stops background work first).`
+                    `The local database was not reset: ${message}\n\nRetry, or use Factory Reset in Settings, which stops background work first.`
                   );
                 } finally {
                   developerDatabaseResetInFlight = false;
@@ -1447,7 +1286,7 @@ if (singleInstanceLockAcquired) {
 
       let applicationMenuRebuildScheduled = false;
       const rebuildApplicationMenu = async (): Promise<void> => {
-        const recents = await listWorkspaceRecentRootPaths();
+        const recents = workspaceRecentRootPaths;
         const template: Electron.MenuItemConstructorOptions[] = [
           ...(isMac
             ? [
@@ -1502,12 +1341,16 @@ if (singleInstanceLockAcquired) {
         }, 250);
       };
 
-      pendingRootGrantSubscriber = (grantedPath: string) => {
-        // Spec §7's explicit ask. This feeds the macOS Dock menu and the
-        // Windows jump list, whose clicks arrive back as `open-file` / argv —
-        // the entry points Layer 3 handles.
-        app.addRecentDocument(grantedPath);
-        scheduleApplicationMenuRebuild();
+      workspaceRootsMenuSubscriber = ({ grantedPath, recentChanged }) => {
+        if (grantedPath) {
+          // Spec §7's explicit ask. This feeds the macOS Dock menu and the
+          // Windows jump list, whose clicks arrive back as `open-file` / argv —
+          // the entry points Layer 3 handles.
+          app.addRecentDocument(grantedPath);
+        }
+        if (recentChanged) {
+          scheduleApplicationMenuRebuild();
+        }
       };
 
       await rebuildApplicationMenu();
@@ -1567,8 +1410,66 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+        win.once('closed', () => {
+          if (
+            !isDesktopShuttingDown() &&
+            visibleDocumentWindows().every((other) => other === win)
+          ) {
+            requireAppLifetime().lastWindowClosed();
+          }
+        });
         return win;
       };
+
+      // One window at a time: a tray click during the first window's creation shows that window.
+      let windowOpening: Promise<void> | undefined;
+      const showOrOpenWindow = (): void => {
+        if (isDesktopShuttingDown()) {
+          return;
+        }
+        const show = (window: BrowserWindow): void => {
+          if (window.isMinimized()) {
+            window.restore();
+          }
+          window.show();
+          window.focus();
+        };
+        const existing = visibleDocumentWindows()[0];
+        if (existing) {
+          show(existing);
+          return;
+        }
+        windowOpening ??= (async () => {
+          await initialWindowCreation;
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          const opened = visibleDocumentWindows()[0];
+          if (opened) {
+            show(opened);
+          } else {
+            await createMainWindow();
+          }
+        })().finally(() => {
+          windowOpening = undefined;
+        });
+        windowOpening.catch((error: unknown) => {
+          logger.error('Could not open a Brainstrike window', { error });
+        });
+      };
+
+      const lifetimeStore = requireSettingsStore();
+      appLifetime = createAppLifetime({
+        loginItems: resolveLoginItems(),
+        notify,
+        openWindow: () => openMainWindow?.(),
+        presence: resolveBackgroundPresence(),
+        quit: () => app.quit(),
+        store: {
+          get: (key) => lifetimeStore.get(key),
+          set: (key, value) => lifetimeStore.set(key, value),
+        },
+      });
 
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
@@ -1693,17 +1594,38 @@ if (singleInstanceLockAcquired) {
           );
         },
         async () => {
+          if (isDesktopShuttingDown()) {
+            return;
+          }
+          // ADR-0033: a login launch starts in the Dock or tray, where the app stays reachable.
+          if (await requireAppLifetime().startsHidden(wasLaunchedAtLogin())) {
+            logger.info('Launched at login: starting without a window');
+            return;
+          }
           logger.debug('Creating main window...');
-          // Owner decision 7.3(i): the first window waits for neither the host nor
-          // the index; the renderer shows both as state while they start.
-          return isDesktopShuttingDown() ? undefined : await createMainWindow();
+          // Owner decision 7.3(i): the first window does not wait for the host;
+          // the renderer shows it as state while it starts.
+          return await createMainWindow();
         }
       );
+      // From here a tray click or a second launch joins the first window's creation.
+      openMainWindow = showOrOpenWindow;
       const mainWindow = await initialWindowCreation;
-      if (!mainWindow || isDesktopShuttingDown()) {
+      if (isDesktopShuttingDown()) {
         return;
       }
-      logger.debug('Main window created successfully');
+      logger.debug('Main window created successfully', { hidden: mainWindow === undefined });
+      // One line per launch, once the host and the first paint have settled.
+      void Promise.allSettled([
+        agentHostProfile,
+        mainWindow
+          ? markRendererFirstPaint(mainWindow.webContents).catch((error: unknown) =>
+              logger.warn('Could not read the renderer first paint for the startup timeline', {
+                error,
+              })
+            )
+          : undefined,
+      ]).then(() => logger.info('Startup timeline', readStartupTimeline()));
       appUpdates.start({
         publish: (status) => {
           for (const window of BrowserWindow.getAllWindows()) {
@@ -1718,9 +1640,13 @@ if (singleInstanceLockAcquired) {
         },
         settings: requireSettingsStore(),
       });
-      offerMoveToApplicationsFolder(requireSettingsStore(), mainWindow).catch((error: unknown) => {
-        logger.warn('The offer to move the app to Applications failed', { error });
-      });
+      if (mainWindow) {
+        offerMoveToApplicationsFolder(requireSettingsStore(), mainWindow).catch(
+          (error: unknown) => {
+            logger.warn('The offer to move the app to Applications failed', { error });
+          }
+        );
+      }
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
       // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`
@@ -1753,10 +1679,10 @@ if (singleInstanceLockAcquired) {
       });
 
       // Window focus/blur: throttle IPC traffic when backgrounded
-      mainWindow.on('blur', () => {
+      mainWindow?.on('blur', () => {
         logger.info('window:blur');
       });
-      mainWindow.on('focus', () => {
+      mainWindow?.on('focus', () => {
         logger.info('window:focus');
       });
 
@@ -1781,8 +1707,9 @@ if (singleInstanceLockAcquired) {
 }
 
 // Quit on the last visible window's close is decided where that close is intercepted, so the
-// quit prepares the window first (`installDocumentUnload`). Subscribing still matters: without a
-// listener Electron itself quits whenever every window has closed.
+// quit prepares the window first (`installDocumentUnload`); where the Dock or tray keeps the app
+// running it stays (ADR-0033). Subscribing still matters: without a listener Electron itself
+// quits whenever every window has closed.
 app.on('window-all-closed', () => undefined);
 
 // Crashpad leaves a minidump for a crashed child process; this record names the
@@ -1842,59 +1769,11 @@ app.on('will-quit', () => {
 });
 
 desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
-  const ledger = createWorktreeLedger(
-    async () => workspaceRootCatalog,
-    (id) =>
-      hasHostRunInWorktree(
-        {
-          readLedger: () => agentHostMainClient.request('ledger/read', {}),
-          readThread: async (threadId) =>
-            (await agentHostMainClient.request('thread/read', { fromSeq: 0, threadId })).rows,
-        },
-        id
-      )
-  );
-  const workspace = new DesktopWorkspaceBindingAuthority({
-    borrowRoot: (root) =>
-      applicationIpcDomain.roots.borrowSourceRootForPath(
-        root.path,
-        applicationIpcDomain.watches.subscribe.bind(applicationIpcDomain.watches)
-      ),
-    // BST-1990: names a removed folder in the refusal, whatever its status now.
-    readRootNames: async (ids) => {
-      const { roots } = await workspaceRootCatalog.workspaceRoots({ operation: 'list' });
-      return new Map(
-        roots.filter((root) => ids.includes(root.id)).map((root) => [root.id, root.displayName])
-      );
-    },
-    readRoots: async () => loadWorkspaceRootsFromCatalog(workspaceRootCatalog),
-    readWorktree: (id) => ledger.get(id),
-  });
   return bindDesktopPlatformPort(platformPort, {
-    ...productionDesktopCapabilities(
-      {
-        modelCatalog,
-        nativeIndexSearch,
-        retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),
-        workspaceRoots: workspaceRootCatalog,
-      },
-      undefined,
-      workspace
-    ),
-    // BST-1977: app-owned host/stop released Root with the native writer live.
-    // Retiring the profile here would wait on this same Core close request.
-    closeRootCapabilities: async (host) => {
-      const results = await Promise.allSettled([
-        workspace.close(),
-        nativeIndexActivation.closeRootCapabilities(host),
-      ]);
-      const failures = results.flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : []
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
-      }
-    },
+    ...productionDesktopCapabilities({
+      modelCatalog,
+      workspaceRoots: workspaceRootCatalog,
+    }),
     // ADR-0029: the host's sealed credential file borrows Main's safeStorage.
     credentialCipher: createSafeStorageCredentialCipher(),
     lifecycleDelays: lifecycleDelaySeam(),
@@ -1902,17 +1781,13 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
     // ADR-0017: the host reports its native processes; Main ends them if it dies.
     nativeChildren,
-    // The ledger authorizes a managed worktree's mount; no picker grant is needed.
-    // The window is then asked to show it, as for any folder Main opens.
-    openWorktreeFolder: async (path) => {
-      const root = await applicationIpcDomain.roots.addRootByPath(path);
-      desktopBootstrap.workspaceOpenQueue.enqueue({
-        origin: 'agent-worktree',
-        path: root.handle.path,
-      });
-      return { displayName: root.displayName, path: root.handle.path, rootId: root.rootId };
+    // ADR-0029 stage 4: the host owns the open folders; Main keeps the picker and the windows.
+    pickWorkspaceFolder: () => pickWorkspaceFolder(fileSystem),
+    // A worktree the host opened for an agent: the window shows it, as for any folder Main opens.
+    showWorkspaceFolder: (path) => {
+      desktopBootstrap.workspaceOpenQueue.enqueue({ origin: 'agent-worktree', path });
     },
-    refreshWorkspaceIndex: (rootId) => nativeIndexActivation.requestWorkspaceScan(rootId),
+    workspaceRootsChanged: onWorkspaceRootsChanged,
   });
 });
 

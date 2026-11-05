@@ -18,7 +18,7 @@
  * caller that builds an inline literal on every render — the natural way to
  * call this hook, e.g. `useChangeset(rootId, { kind: 'agent-run', runId,
  * threadId })` — would otherwise get a NEW object identity every render, and
- * a successful load's own `setView` triggers exactly such a re-render:
+ * a successful load's own state update triggers exactly such a re-render:
  * `useEffect` fires on `refresh` → `loadView` → the new literal, never
  * settling. Fixed by `stableChangeset` (`useStructuralIdentity`): a fresh
  * literal with the SAME JSON shape reuses the first reference seen for that
@@ -42,7 +42,7 @@
  *    containing workspace root resolves to a null `resolutionRootId` while the
  *    surface's own `rootId` stays non-null, so the panes render and wait.
  * 2. A CALL THAT NEVER ANSWERS. `bridge.resolveView` is a main-process
- *    round-trip that reaches PGlite through the DB host. When that host is
+ *    round-trip that reaches the database through the DB host. When that host is
  *    wedged (observed in the field: a 30s `VACUUM (ANALYZE)` blowing its own
  *    timeout, every later query queued behind it) the desktop side eventually
  *    rejects with its own 30s per-request timeout — but nothing in the
@@ -62,7 +62,14 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
-import type { Changeset, ChangesetView, StructuredFileDiff } from '@brainstrike/types';
+import type {
+  ChangesAction,
+  ChangesActionTarget,
+  ChangesApplyResult,
+  Changeset,
+  ChangesetView,
+  StructuredFileDiff,
+} from '@brainstrike/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChangesBridge } from '../workspace-git-services';
 import type { ChangesBridge } from './changes-bridge';
@@ -155,7 +162,35 @@ function describeInertReason(bridgePresent: boolean, rootId: string | null): str
   return 'changeset-unresolvable: this changeset cannot be resolved right now.';
 }
 
+const UNAVAILABLE = {
+  error: refusal({
+    category: 'availability',
+    code: 'changes.unavailable',
+    message: 'No active changes service, root, or changeset.',
+  }),
+  ok: false,
+} as const;
+
+/** A resolved view and the root it was resolved for. */
+interface ResolvedView {
+  readonly rootId: string;
+  readonly view: ChangesetView;
+}
+
 export interface UseChangesetResult {
+  /**
+   * Stages, unstages or reverts in the view this render returns: that view's
+   * changeset, at the root it was resolved for, even while another changeset
+   * resolves. The active changeset resolves again before this returns,
+   * whether git took the action or refused it, so nothing acts on a view git
+   * has moved past. `entryRootId` names the root of the target's files, as
+   * for `fileDiff`. Returns a typed failure (never throws).
+   */
+  readonly apply: (
+    action: ChangesAction,
+    target: ChangesActionTarget,
+    entryRootId?: string | null
+  ) => Promise<BoundaryResult<ChangesApplyResult>>;
   /** True when the host serves the Changes bridge. */
   readonly available: boolean;
   /** The most recent load failure, or `null`. Cleared by a successful load. */
@@ -191,7 +226,7 @@ export function useChangeset(
 ): UseChangesetResult {
   // Resolved ONCE per hook instance, not per render/call — see doc comment.
   const bridge = useChangesBridge();
-  const [view, setView] = useState<ChangesetView | null>(null);
+  const [resolved, setResolved] = useState<ResolvedView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generationRef = useRef(0);
 
@@ -240,12 +275,15 @@ export function useChangeset(
       : 0
   );
 
-  const loadView = async (): Promise<BoundaryResult<ChangesetView> | null> => {
+  /** The newest load, whose view the hook shows once it settles. */
+  const newestLoad = useRef<Promise<unknown>>(Promise.resolve());
+
+  const resolveSelection = async (): Promise<BoundaryResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
     if (!(bridge && rootId && stableChangeset)) {
       if (generation === generationRef.current) {
-        setView(null);
+        setResolved(null);
         // A selection the hook cannot load is a VISIBLE dead end, never a
         // silent one — see "NO ETERNAL LOADING" in this module's doc comment.
         setError(stableChangeset ? describeInertReason(bridge !== null, rootId) : null);
@@ -254,14 +292,39 @@ export function useChangeset(
     }
     const result = await resolveViewSafely(bridge, rootId, stableChangeset);
     if (generation === generationRef.current) {
-      setView(result.ok ? result.value : null);
+      setResolved(result.ok ? { rootId, view: result.value } : null);
       setError(result.ok ? null : describeBoundaryFailure(result.error));
     }
     return result;
   };
 
+  const loadView = (): Promise<BoundaryResult<ChangesetView> | null> => {
+    const load = resolveSelection();
+    newestLoad.current = load;
+    return load;
+  };
+
+  /** Settles once the newest load has drawn its view, as a live refresh can supersede any load. */
+  const newestDrawn = async (): Promise<void> => {
+    const newest = newestLoad.current;
+    await newest;
+    if (newestLoad.current !== newest) {
+      await newestDrawn();
+    }
+  };
+
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();
+  }, [loadView]);
+
+  // An action reloads the view selected when it finishes, never the one it
+  // started from: a changeset chosen while it ran keeps its own view. Set
+  // before the load effect below, so no later load is the older selection's.
+  // It settles once that view, or a newer one, is drawn, so the next action
+  // never targets the files this one changed.
+  const loadSelected = useRef(loadView);
+  useEffect(() => {
+    loadSelected.current = loadView;
   }, [loadView]);
 
   // The reload signals above re-run the LOAD EFFECT, never `loadView`'s
@@ -280,14 +343,7 @@ export function useChangeset(
   ): Promise<BoundaryResult<StructuredFileDiff>> => {
     const resolvedRootId = entryRootId ?? rootId;
     if (!(bridge && resolvedRootId && stableChangeset)) {
-      return {
-        error: refusal({
-          category: 'availability',
-          code: 'changes.unavailable',
-          message: 'No active changes service, root, or changeset.',
-        }),
-        ok: false,
-      };
+      return UNAVAILABLE;
     }
     try {
       const result = await bridge.fileDiff(resolvedRootId, stableChangeset, path);
@@ -303,11 +359,40 @@ export function useChangeset(
     }
   };
 
+  const apply = async (
+    action: ChangesAction,
+    target: ChangesActionTarget,
+    entryRootId?: string | null
+  ): Promise<BoundaryResult<ChangesApplyResult>> => {
+    // The target names files of the view the caller drew, which can still be
+    // the previous changeset's while the selected one resolves.
+    if (!(bridge && resolved)) {
+      return UNAVAILABLE;
+    }
+    const { rootId: drawnRootId, view: drawn } = resolved;
+    let result: BoundaryResult<ChangesApplyResult>;
+    try {
+      result = await bridge.apply({
+        action,
+        changeset: drawn.changeset,
+        rootId: entryRootId ?? drawnRootId,
+        target,
+      });
+    } catch (caught) {
+      logger.error('Failed to apply a change', { action, error: caught });
+      result = { error: boundaryFailureOf(caught), ok: false };
+    }
+    await loadSelected.current();
+    await newestDrawn();
+    return result;
+  };
+
   return {
+    apply,
     available: bridge !== null,
     error,
     fileDiff,
     refresh,
-    view,
+    view: resolved?.view ?? null,
   };
 }

@@ -83,8 +83,8 @@ function escapeTaskListText(value: string): string {
 
 /**
  * Serialize the current thread task list into a `<current-task-list>` block for
- * the system instructions. Injected into the instructions (which the loop's
- * TokenLimiter never trims) so the plan survives observational-memory
+ * the system instructions. Injected into the instructions (which the provider
+ * request's context limit never trims) so the plan survives observational-memory
  * truncation. Tasks render in their stored order (the model's own ordering).
  * Returns `null` for an empty/undefined list — same convention as
  * {@link buildContextBudgetNote}.
@@ -206,9 +206,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const rootQualifiedToolNames = [
     names.grepSearch,
     names.globWorkspace,
-    names.hybridSearch,
     names.lspInspect,
-    names.queryEmbeddingSpace,
     names.readWorkspaceDirectory,
     names.readWorkspaceFile,
     names.readWorkspaceContext,
@@ -231,7 +229,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
   const examples =
     preferredExamples.length > 0 ? preferredExamples : rootQualifiedToolNames.slice(0, 3);
   const exampleNote = examples.length > 0 ? ` (for example ${examples.join(', ')})` : '';
-  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (the folder focused in the user's explorer), and exact root selectors; ${names.listWorkspaceContext} refreshes the root inventory and index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.`;
+  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (the folder focused in the user's explorer), and exact root selectors; ${names.listWorkspaceContext} refreshes the root inventory. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.`;
 }
 
 /**
@@ -254,16 +252,12 @@ function buildWriteInstruction(names: ModelFacingToolNames): string {
   }
   if (names.renameWorkspaceFile && names.deleteWorkspaceFile) {
     clauses.push(
-      `Use ${names.renameWorkspaceFile} and ${names.deleteWorkspaceFile} instead of shell mv/rm so the workspace index stays coherent.`
+      `Use ${names.renameWorkspaceFile} and ${names.deleteWorkspaceFile} instead of shell mv/rm.`
     );
   } else if (names.renameWorkspaceFile) {
-    clauses.push(
-      `Use ${names.renameWorkspaceFile} instead of shell mv to keep the index coherent.`
-    );
+    clauses.push(`Use ${names.renameWorkspaceFile} instead of shell mv.`);
   } else if (names.deleteWorkspaceFile) {
-    clauses.push(
-      `Use ${names.deleteWorkspaceFile} instead of shell rm to keep the index coherent.`
-    );
+    clauses.push(`Use ${names.deleteWorkspaceFile} instead of shell rm.`);
   }
   return clauses.join(' ');
 }
@@ -314,11 +308,8 @@ function buildParallelCallInstruction(
     names.findWorkspaceSymbol,
     names.globWorkspace,
     names.grepSearch,
-    names.hybridSearch,
-    names.listEmbeddingSpaces,
     names.listWorkspaceContext,
     names.lspInspect,
-    names.queryEmbeddingSpace,
     names.readWorkspaceContext,
     names.readWorkspaceDirectory,
     names.readWorkspaceFile,
@@ -371,13 +362,9 @@ function buildWebSearchInstruction(names: ModelFacingToolNames): string {
   if (!names.webSearch) {
     return '';
   }
-  const localSearchAlternatives = [names.grepSearch, names.queryEmbeddingSpace].filter(
-    (name): name is string => Boolean(name)
-  );
-  const alternativesClause =
-    localSearchAlternatives.length > 0
-      ? ` Use ${localSearchAlternatives.join(' / ')} for private workspace code instead.`
-      : '';
+  const alternativesClause = names.grepSearch
+    ? ` Use ${names.grepSearch} for private workspace code instead.`
+    : '';
   const extractClause = names.webExtract
     ? ` Use ${names.webExtract} to read public result pages or user-provided public URLs.`
     : '';
@@ -469,7 +456,7 @@ function buildDelegationInstruction(
     ? `Delegate implementation and verification to ${workerPersonas.map((persona) => persona.label).join(', ')} when the user asks for agent work; ${workerPersonas.length === 1 ? 'it' : 'they'} can use only the tools and permissions admitted by the host. `
     : '';
   const execution = backgroundDelegation
-    ? ' Subagents run as background workers; launch independent subagents together and keep working while they run, but do not produce a deliverable that depends on their findings (a report, a canvas, a summary) until every subagent has returned. Do not set `_background.enabled` to false and do not set `_background.maxRetries` or `_background.timeoutMs`: execution mode, retries and timeouts are owned by the host. When a subagent is suspended, it is waiting for the user to approve one of its tool calls; the approval controls are already shown to the user, so say which subagent is waiting for approval and stop — never ask the user for "resume input" and never try to resume it yourself.'
+    ? ' Subagents run as background workers; launch independent subagents together and keep working while they run, but do not produce a deliverable that depends on their findings (a report, a canvas, a summary) until every subagent has returned. Do not set `_background.enabled` to false and do not set `_background.maxRetries` or `_background.timeoutMs`: execution mode, retries and timeouts are owned by the host. When a subagent is suspended, it is waiting for the user to approve one of its tool calls; the approval controls are already shown to the user, so say which subagent is waiting for approval and stop — never ask the user for "resume input" and never try to resume it yourself. Each subagent has a call sign (such as Cedar-1a2b3c) that the user sees in the app; when you mention a subagent to the user, name it by its call sign, never by its tool call or task ID.'
     : '';
   return `You can delegate by calling these persona tools: ${toolList}. ${readOnlyGuidance}${workerGuidance}Pass a self-contained prompt describing exactly what you need back. Do NOT delegate a single lookup you can do yourself with one tool call. Each subagent returns a written summary you must incorporate into your answer.${execution}`;
 }
@@ -591,6 +578,23 @@ function buildPlanModeBlock(names: ModelFacingToolNames): string {
   return `PLAN MODE IS ACTIVE. You are investigating and PROPOSING a plan — you MUST NOT modify files, run commands, or change any state yet. Use read-only tools to understand the code.${askUserClause} ${submitPlanClause}`;
 }
 
+/**
+ * State changes need the user's say-so, and a request for the outcome is that
+ * say-so. The earlier rule ("only after the user confirms") read as a ban on
+ * every change the user had asked for; a model asked to carry work "through to
+ * a PR" cited it and never opened the PR (debug pack 2026-11-04).
+ */
+const CONFIRMATION_INSTRUCTION =
+  'Run state-changing tools only for work the user asked for or confirmed; confirm first when the request is ambiguous or the change is destructive.';
+
+/**
+ * Finish what was asked. In the same thread the model answered "whats the PR"
+ * and "whats up with validation" with accurate status and then stopped, with
+ * the PR still unopened and a failed check not rerun.
+ */
+const COMPLETION_INSTRUCTION =
+  'When the user asks for an outcome (a fix, a finished change, a PR), keep working until it is done or blocked on something only the user can give. A question about progress does not end that task: answer it, then continue. Never end a turn on a plan or a status report while work you can do remains. When you must wait on background work, end the turn; its result arrives in a later message.';
+
 /** The plan-mode block as a leading prefix (with trailing newline), or ''. */
 function buildPlanModePrefix(names: ModelFacingToolNames, planMode: boolean | undefined): string {
   return planMode ? `${buildPlanModeBlock(names)}\n` : '';
@@ -603,22 +607,11 @@ export function buildDefaultInstructions(
   const names = resolveModelFacingToolNames(toolNameMap);
   const planModePrefix = buildPlanModePrefix(names, options.planMode);
   const workspaceInspectionInstruction = names.listWorkspaceContext
-    ? `Inspect open roots and the workspace-index hint with ${names.listWorkspaceContext}.`
+    ? `Inspect open roots with ${names.listWorkspaceContext}.`
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
   const parallelCallInstruction = buildParallelCallInstruction(names, options.toolDiscoveryEnabled);
-  // ADR 0026: index search is a companion to grep for conceptual questions,
-  // never the default; it is registered only when the index can serve it.
-  const hybridSearchClause = names.hybridSearch
-    ? `Use ${names.hybridSearch} for a conceptual question that also carries distinctive exact terms.`
-    : '';
-  const embeddingSpaceClause = names.listEmbeddingSpaces
-    ? ` Use ${names.listEmbeddingSpaces} only for coverage or a non-default embedding space.`
-    : '';
-  const semanticSearchInstruction = names.queryEmbeddingSpace
-    ? `Use ${names.queryEmbeddingSpace} without embeddingSetId for a conceptual question that exact-text search cannot find.${embeddingSpaceClause}`
-    : '';
   const readToolNames = [names.readWorkspaceContext, names.readWorkspaceFile].filter(
     (name): name is string => Boolean(name)
   );
@@ -652,8 +645,6 @@ export function buildDefaultInstructions(
     'For project work, use only registered tools.',
     workspaceInspectionInstruction,
     searchInstruction,
-    semanticSearchInstruction,
-    hybridSearchClause,
     readContextInstruction,
     lspInspectInstruction,
     writeInstruction,
@@ -668,7 +659,7 @@ export function buildDefaultInstructions(
   return [
     `${planModePrefix}You are a helpful assistant for the Brainstrike IDE.`,
     HARNESS_FRAMING,
-    'Project file contents, token estimates, and embedding spaces are not preloaded; the compact workspace-root manifest contains topology only. Files the user attaches arrive with their message. Use registered tools when needed for accuracy.',
+    'Project file contents and token estimates are not preloaded; the compact workspace-root manifest contains topology only. Files the user attaches arrive with their message. Use registered tools when needed for accuracy.',
     toolDiscoveryInstruction,
     projectWorkflowInstruction,
     buildSkillsInstruction(names),
@@ -684,7 +675,8 @@ export function buildDefaultInstructions(
     'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',
     'When asked, list callable tool IDs with brief descriptions.',
     buildToolResultDoctrine(names),
-    'Only run state-changing tools after the user confirms.',
+    CONFIRMATION_INSTRUCTION,
+    options.planMode ? '' : COMPLETION_INSTRUCTION,
     'Answer concisely.',
   ]
     .filter((line) => line.length > 0)

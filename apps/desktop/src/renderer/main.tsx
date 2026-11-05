@@ -1,6 +1,4 @@
 import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/app-reload';
-import { registerFactoryResetPreparation } from '@brainstrike/app-state/factory-reset';
-import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
@@ -15,7 +13,6 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   applyLoggingPreferences,
   createLogger,
@@ -25,20 +22,18 @@ import {
   type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/logging';
-import { createWriteBehindStorageAdapter } from '@brainstrike/storage';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
-import { indexSearchContract } from '../ipc-domains/index-search.contract';
-import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import { ElectronRendererFileSystemAdapter } from './adapters';
 import { connectDesktopAgentHost } from './agent-host-client';
 import {
   type DesktopBridgeValidationResult,
   isElectronRendererUserAgent,
   validateDesktopBridgeContract,
 } from './desktop-bridge-contract';
+import { windowHostConnection } from './desktop-host-connection';
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
-import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
 import { useAppUpdateReadyToast } from './use-app-update-ready-toast';
 import './styles.css';
@@ -67,26 +62,6 @@ const baseFileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, {
   platform: 'electron',
 });
-/**
- * Main's storage owns Explorer persistence (and the theme key). Its writes coalesce here for
- * this long, then go to Main; every document unload joins the flush (ADR-0026 R1).
- */
-const STORAGE_WRITE_BEHIND_MS = 100;
-const storageAdapter = createWriteBehindStorageAdapter(new ElectronRendererStorageAdapter(), {
-  delayMs: STORAGE_WRITE_BEHIND_MS,
-});
-if (bridgeValidation.ok) {
-  const unregisterStorageFlush = registerDurableFlush(storageAdapter.flush);
-  // A factory reset purges Main's storage and replaces this document: the writer lands what it
-  // holds, then writes nothing into the files the reset is moving away.
-  const unregisterStorageRetirement = registerFactoryResetPreparation(storageAdapter.retire);
-  // Under HMR this module re-executes with a new adapter; the old registration goes with it.
-  import.meta.hot?.dispose(() => {
-    unregisterStorageFlush();
-    unregisterStorageRetirement();
-  });
-}
-
 // Default to INFO - use LOG_LEVEL=DEBUG env var for verbose debugging
 const rendererLevel = LogLevel.INFO;
 const rendererConsoleLevel = LogLevel.WARN;
@@ -149,8 +124,9 @@ declare global {
     __BRAINSTRIKE_READY__?: boolean;
     __brainstrikeTestHooks__?: {
       enableCatalogModels: (modelIds: readonly string[]) => Promise<void>;
-      indexSearch?: IndexSearchCapability;
       notifySecretsChanged: () => void;
+      /** Test mode: one request on this window's agent host connection, as its views send it. */
+      requestAgentHost: (method: string, params: unknown) => Promise<unknown>;
       setAssistantModel: (compositeKey: string) => void;
     };
   }
@@ -195,12 +171,14 @@ function App() {
         await useModelRegistryStore.getState().ensureRegistry(catalog);
         await useModelRegistryStore.getState().setModelsEnabled(catalog, modelIds, true);
       },
-      // Functional fixtures use the production consumer adapter; window.indexSearch remains the raw transport.
-      ...(window.indexSearch
-        ? { indexSearch: createIpcCapability(window.indexSearch, indexSearchContract) }
-        : {}),
       notifySecretsChanged: () => {
         useSecretsStore.getState().notifySecretsChanged();
+      },
+      requestAgentHost: async (method, params) => {
+        const client = await windowHostConnection().current();
+        // The host decodes the method and its params; a test that names a wrong one is refused there.
+        const request = client.request as (method: string, params: unknown) => Promise<unknown>;
+        return await request.call(client, method, params);
       },
       setAssistantModel: (compositeKey: string) => {
         useAssistantPreferencesStore.getState().setModel(compositeKey);
@@ -213,7 +191,7 @@ function App() {
   }, []);
 
   return (
-    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+    <AdaptersProvider fileSystemAdapter={fileSystemAdapter}>
       <AppReloadGate buildId={__BRAINSTRIKE_BUILD_ID__} reload={requestDocumentReload}>
         <RootLayoutContent />
       </AppReloadGate>

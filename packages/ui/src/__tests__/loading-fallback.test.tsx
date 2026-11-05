@@ -5,7 +5,7 @@ import { LoadingFallback } from '../loading-fallback';
 describe('LoadingFallback', () => {
   it('renders default loading message', () => {
     const { getByText, container } = render(<LoadingFallback />);
-    expect(getByText('Loading...')).toBeInTheDocument();
+    expect(getByText('Loading…')).toBeInTheDocument();
     // Container should have correct layout classes
     const root = container.firstChild as HTMLElement;
     expect(root).toHaveClass('flex');

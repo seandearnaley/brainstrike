@@ -39,8 +39,3 @@ export const useDiagnosticSinkHealthStore = create<DiagnosticSinkHealthState>((s
     set({ disabledReason: reason });
   },
 }));
-
-/** Clears the sink-health flag (session reset / factory reset). */
-export function resetDiagnosticSinkHealthStore(): void {
-  useDiagnosticSinkHealthStore.setState(initialDiagnosticSinkHealthState);
-}

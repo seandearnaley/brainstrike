@@ -10,15 +10,17 @@ import { Layers } from 'lucide-react';
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
-type Field = Exclude<keyof RuntimeSubagentSettings, 'maxChildRuntimeMs'>;
+/** Output caps whose empty field is Off, like the runtime limit. */
+type CapField = 'maxStepOutputTokens' | 'synthesisOutputTokens';
+type Field = Exclude<keyof RuntimeSubagentSettings, 'maxChildRuntimeMs' | CapField>;
 
 const MS_PER_MINUTE = 60_000;
 /** The runtime field's own unit: whole minutes up to the longest Node timer. */
 const MAX_RUNTIME_MINUTES = Math.floor(NODE_TIMER_MAX_MS / MS_PER_MINUTE);
 const RUNTIME_ID = 'subagent-max-child-runtime';
 
-interface FieldSpec {
-  readonly field: Field;
+interface FieldSpec<Name extends string = Field> {
+  readonly field: Name;
   readonly help: string;
   readonly id: string;
   readonly label: string;
@@ -44,12 +46,6 @@ const TURN_FIELDS: readonly FieldSpec[] = [
     id: 'subagent-max-concurrent-work',
     label: 'Subagent work at once',
   },
-  {
-    field: 'maxTreeOutputTokens',
-    help: 'Output all subagents in one turn may produce together. The default never binds before the per-subagent budgets do; lower it to cap cost.',
-    id: 'subagent-max-tree-output-tokens',
-    label: 'Max output tokens per turn',
-  },
 ];
 
 const CHILD_FIELDS: readonly FieldSpec[] = [
@@ -59,21 +55,18 @@ const CHILD_FIELDS: readonly FieldSpec[] = [
     id: 'subagent-max-child-steps',
     label: 'Max steps per subagent',
   },
+];
+
+const CAP_FIELDS: readonly FieldSpec<CapField>[] = [
   {
     field: 'synthesisOutputTokens',
-    help: 'Output reserved for the final summary when a subagent runs out of steps or tokens. A summary the model cuts here returns as a truncated result, not a failure.',
+    help: "Output the final summary step may produce when a subagent runs out of steps. Empty is Off (the default): the model's own limit. A summary the model cuts here returns as a truncated result, not a failure.",
     id: 'subagent-synthesis-output-tokens',
     label: 'Summary output tokens',
   },
   {
-    field: 'maxChildOutputTokens',
-    help: 'Output one subagent may produce in a turn; it cannot exceed the output budget for the whole turn.',
-    id: 'subagent-max-child-output-tokens',
-    label: 'Max output tokens per subagent',
-  },
-  {
     field: 'maxStepOutputTokens',
-    help: 'Output one working step may produce.',
+    help: "Output one working step may produce. Empty is Off (the default): the model's own limit. A step cut short here ends the subagent as failed.",
     id: 'subagent-max-step-output-tokens',
     label: 'Max output tokens per step',
   },
@@ -153,26 +146,24 @@ export function SubagentSettingsSection() {
   const store = useAssistantSubagentPreferencesStore(
     useShallow((state) => ({
       resetToDefaults: state.resetToDefaults,
-      setMaxChildOutputTokens: state.setMaxChildOutputTokens,
       setMaxChildRuntimeMs: state.setMaxChildRuntimeMs,
       setMaxChildSteps: state.setMaxChildSteps,
       setMaxConcurrentWork: state.setMaxConcurrentWork,
       setMaxDepth: state.setMaxDepth,
       setMaxInvocations: state.setMaxInvocations,
       setMaxStepOutputTokens: state.setMaxStepOutputTokens,
-      setMaxTreeOutputTokens: state.setMaxTreeOutputTokens,
       setSynthesisOutputTokens: state.setSynthesisOutputTokens,
       settings: state.settings,
     }))
   );
   const setters: Record<Field, (value: number) => void> = {
-    maxChildOutputTokens: store.setMaxChildOutputTokens,
     maxChildSteps: store.setMaxChildSteps,
     maxConcurrentWork: store.setMaxConcurrentWork,
     maxDepth: store.setMaxDepth,
     maxInvocations: store.setMaxInvocations,
+  };
+  const capSetters: Record<CapField, (value: number | null) => void> = {
     maxStepOutputTokens: store.setMaxStepOutputTokens,
-    maxTreeOutputTokens: store.setMaxTreeOutputTokens,
     synthesisOutputTokens: store.setSynthesisOutputTokens,
   };
   // Reset remounts the fields, which discards every pending draft and message.
@@ -190,6 +181,14 @@ export function SubagentSettingsSection() {
     }
     return refusalOf(() => store.setMaxChildRuntimeMs(minutes * MS_PER_MINUTE));
   };
+
+  // As the runtime field: only a genuinely EMPTY field means Off.
+  const commitCap =
+    (field: CapField) =>
+    ({ badInput, text }: DraftInput): string | undefined =>
+      !badInput && text.trim().length === 0
+        ? refusalOf(() => capSetters[field](null))
+        : refusalOf(() => capSetters[field](badInput ? Number.NaN : parseNumberInput(text)));
 
   const runtimeMs = store.settings.maxChildRuntimeMs;
   const renderField = ({ field, help, id, label }: FieldSpec) => (
@@ -235,6 +234,21 @@ export function SubagentSettingsSection() {
       <h4 className="text-sm font-medium">Each subagent</h4>
       <div className="grid gap-4 md:grid-cols-2">
         {CHILD_FIELDS.map(renderField)}
+        {CAP_FIELDS.map(({ field, help, id, label }) => {
+          const cap = store.settings[field];
+          return (
+            <BudgetField
+              help={help}
+              id={id}
+              key={`${field}:${generation}`}
+              label={label}
+              limits={SUBAGENT_SETTINGS_LIMITS[field]}
+              onCommit={commitCap(field)}
+              placeholder="Off"
+              value={cap === null ? '' : String(cap)}
+            />
+          );
+        })}
         <BudgetField
           help="Wall-clock limit on one subagent run. Empty is Off (the default): a subagent runs until it finishes or you stop it, and stalls are caught by the inactivity watchdog."
           id={RUNTIME_ID}

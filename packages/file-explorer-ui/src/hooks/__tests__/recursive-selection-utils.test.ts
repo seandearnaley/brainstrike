@@ -4,7 +4,6 @@ import {
   applyExplicitSelection,
   buildQuerySelectionDescriptor,
   collectAncestorDirectories,
-  hasPersistApi,
   yieldToBrowser,
 } from '../recursive-selection-utils';
 
@@ -30,19 +29,6 @@ describe('recursive-selection-utils', () => {
 
     expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
     expect(yielded).toHaveBeenCalledTimes(1);
-  });
-
-  it('detects stores with a persist api', () => {
-    expect(hasPersistApi(() => undefined)).toBe(false);
-    expect(
-      hasPersistApi(
-        Object.assign(() => undefined, {
-          persist: {
-            getOptions: () => ({}),
-          },
-        })
-      )
-    ).toBe(true);
   });
 
   it('applies small explicit selections in a single call', async () => {

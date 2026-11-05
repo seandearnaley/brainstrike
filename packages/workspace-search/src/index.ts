@@ -1,41 +1,21 @@
-export {
-  type FileSelectionState,
-  type SearchSelectionBridge,
-  useSearchSelectionBridge,
-} from './bridge/use-search-selection-bridge';
 export type {
-  ResultProvenance,
-  WorkspaceSearchChild,
-  WorkspaceSearchChunkHit,
   WorkspaceSearchFileResult,
-  WorkspaceSearchMode,
-  WorkspaceSearchNotices,
-  WorkspaceSearchResults,
-  WorkspaceSearchTextMatch,
+  WorkspaceSearchHit,
+  WorkspaceSearchMatch,
+  WorkspaceSearchSummary,
 } from './core';
-export {
-  buildGrepPattern,
-  escapeRegExpLiteral,
-  type TextSearchRequest,
-  useWorkspaceSearchStore,
-  type WorkspaceSearchStatus,
-} from './core';
+export { useWorkspaceSearchStore, type WorkspaceSearchStatus } from './core';
 export {
   buildSearchTreeNodes,
-  childNodeId,
-  fileNodeId,
+  type FileSelectionState,
   type HeadlineSegment,
   highlightQuery,
-  SearchCoverageBanner,
-  type SearchCoverageBannerProps,
-  SearchInputBar,
-  type SearchInputBarProps,
-  SearchModeToggle,
+  matchNodeId,
   type SearchNodeData,
+  type SearchOpenTarget,
   SearchResultsTree,
   type SearchResultsTreeProps,
-  splitHeadline,
-  textChunkNodeId,
+  type SearchSelectionBridge,
   WorkspaceSearchPanel,
   type WorkspaceSearchPanelProps,
 } from './panel';

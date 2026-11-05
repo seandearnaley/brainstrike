@@ -1,5 +1,6 @@
 import type { PartState } from '@assistant-ui/react';
 import { readMcpTaskToolInvocationResult } from '@brainstrike/assistant-contract';
+import { prefersReducedMotion } from '@brainstrike/ui';
 import {
   type KeyboardEvent,
   type RefObject,
@@ -24,6 +25,7 @@ import {
   type RunStripMark,
 } from './activity-group-view-model';
 import type { ActivityStep } from './activity-trace-model';
+import { isSettledCommandApproval } from './assistant-activity-grouping';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { extractResolvedRootName } from './tool-fallback-state';
 import { useStableByKey } from './use-stable-by-key';
@@ -70,7 +72,10 @@ function keepsItsOwnCard(part: PartState, renderers: readonly ToolResultRenderer
   if (part.type !== 'tool-call') {
     return false;
   }
-  if (part.approval !== undefined || isSubagentDelegationToolName(part.toolName)) {
+  if (
+    (part.approval !== undefined && !isSettledCommandApproval(part)) ||
+    isSubagentDelegationToolName(part.toolName)
+  ) {
     return true;
   }
   if (part.result === undefined) {
@@ -94,10 +99,6 @@ function clusterKey(clusters: readonly ActivityCluster[]): string {
       cluster.durationMs ?? null,
     ])
   );
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 /**

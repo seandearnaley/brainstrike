@@ -3,10 +3,7 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { ThemeProvider } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -61,12 +58,6 @@ function createHost(
   };
 }
 
-const themeStorageAdapter = {
-  getItem: () => Promise.resolve('light'),
-  removeItem: () => Promise.resolve(),
-  setItem: () => Promise.resolve(),
-};
-
 /** The workspace's view of every open canvas tab: its label and its body. */
 function CanvasTabs({ autoOpen = false }: { readonly autoOpen?: boolean }) {
   useCanvasAutoOpen(autoOpen);
@@ -84,7 +75,7 @@ function CanvasTabs({ autoOpen = false }: { readonly autoOpen?: boolean }) {
 
 function renderTabs(host: AssistantThreadHostCapability, autoOpen = false) {
   return render(
-    <ThemeProvider storageAdapter={themeStorageAdapter}>
+    <ThemeProvider defaultMode="light">
       <AssistantThreadHostContext.Provider value={host}>
         <CanvasTabs autoOpen={autoOpen} />
       </AssistantThreadHostContext.Provider>
@@ -104,7 +95,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 describe('canvas workspace tabs', () => {

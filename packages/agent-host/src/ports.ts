@@ -5,6 +5,8 @@ import type {
   ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent/tool-runtime';
 import type {
+  ApprovalFileChange,
+  AssistantPersonasListResult,
   McpElicitationPresentationWire,
   McpElicitationSettlement,
   McpHostCloseReport,
@@ -27,9 +29,7 @@ import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-pre
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
-import type { MemoryRecallTelemetry } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
-import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import type {
   FlexibleSchema,
   LanguageModel,
@@ -41,7 +41,6 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.ts';
-import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.ts';
 import type {
   HostApprovalTargetRoot,
   HostEditOp,
@@ -58,11 +57,17 @@ import type {
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
 } from './protocol.ts';
+import type { FileSearchBatch } from './protocol-file-search.ts';
 import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol-git-workspace.ts';
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
 import type { TERMINAL_METHOD_SCHEMAS, TerminalEvent } from './protocol-terminals.ts';
 import type { HostWorkspaceTrustRoot } from './protocol-workspace-discovery.ts';
+import type {
+  WORKSPACE_FILES_METHOD_SCHEMAS,
+  WorkspaceFilesEvent,
+} from './protocol-workspace-files.ts';
+import type { WORKSPACE_ROOTS_METHOD_SCHEMAS } from './protocol-workspace-roots.ts';
 import type { HostStateSearch } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -195,7 +200,7 @@ export interface HostRunContext {
   recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */
   recordObserverUsage?(receipt: {
-    readonly kind: 'observation' | 'reflection' | 'embedding';
+    readonly kind: 'observation' | 'reflection';
     readonly modelId: string;
     readonly usage: LanguageModelUsage;
   }): Promise<void>;
@@ -206,16 +211,6 @@ export interface HostRunContext {
     readonly provider: string;
     readonly toolCallWindow: PromptToolCallWindow;
   }): Promise<void>;
-  /**
-   * One semantic recall's diagnostics (BST-2225), sent live on the run's
-   * stream as uncommitted `run/telemetry` (ADR-0011 amendment).
-   */
-  recordRecall?(recall: MemoryRecallTelemetry): void;
-  /**
-   * A failed semantic recall's typed detail (BST-2202): the turn answers
-   * without recall, and Core commits this as the run's notice.
-   */
-  recordRecallFailed?(detail: string): Promise<void>;
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;
@@ -229,22 +224,20 @@ export interface HostRunContext {
 export interface HostPreparedStep {
   /**
    * The earlier committed turns (their run ids) whose messages this request
-   * holds, from the branch or recalled. Pre-request compaction measures this
-   * request, and only this thread's branch turns among them can leave it
-   * (ADR-0013): a turn recalled from another thread is that thread's history.
+   * holds, from the branch. Pre-request compaction measures this request, and
+   * only these turns can leave it (ADR-0013).
    */
   readonly historyRunIds: ReadonlySet<string>;
   readonly messages: ModelMessage[];
   /**
    * The same step's request reassembled from the committed log after Core
    * committed a compaction, so the compacted turns leave it. Memory's own step
-   * preparation and recall do not run again.
+   * preparation does not run again.
    */
   rebuild(): Promise<HostPreparedStep>;
   /**
    * The committed tool-output rewrites the provider request applies to these
-   * messages, from every thread the request reads (resource-wide with
-   * resource-scoped recall), so the request is measured as it is sent.
+   * messages, so the request is measured as it is sent.
    */
   readonly rewrites: ReadonlyMap<string, HostProjectionRewrite>;
   readonly system?: string;
@@ -411,7 +404,7 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
-  /** The observer and embedder this admission's memory uses, for `thread/memory/read`. */
+  /** The observer this admission's memory uses, for `thread/memory/read`. */
   readonly memoryModels?: HostMemoryModels;
   readonly model: LanguageModel;
   /**
@@ -592,6 +585,13 @@ export interface HostTool {
    * undefined. The policy still decides whether the call asks at all.
    */
   readonly personApproval?: (input: unknown) => string | undefined;
+  /**
+   * ADR-0036: the file text this call would change, read now through the same
+   * resolution and matcher its execute uses. It never writes, and nothing
+   * durable holds it. A call it cannot preview is a typed refusal that says
+   * why. The desktop's card asks for it through `interaction/preview`.
+   */
+  readonly proposedChange?: (input: unknown, signal: AbortSignal) => Promise<ApprovalFileChange>;
   /** Tool-owned recovery of runtime meaning that JSON cannot retain. */
   reconstructApprovalInput?(rawInput: unknown): Promise<unknown>;
   readonly risk: ToolRiskCategory;
@@ -609,17 +609,6 @@ export interface HostTool {
  * Provider reads a client makes by id: availability, a credential probe and
  * OpenRouter model metadata. Keys resolve inside the host and never cross.
  */
-/** What `memory/embedder/probe` asks a platform to resolve (BST-2227). */
-export interface HostMemoryEmbedderRequest {
-  /** The client's Assistant Memory settings, as a run's configuration carries them. */
-  readonly memorySettings: Readonly<Record<string, unknown>>;
-  readonly signal: AbortSignal;
-}
-/** A resolved memory embedder and the identity its failures name. */
-export interface HostMemoryEmbedderTarget {
-  readonly embedder: MastraEmbeddingModel<string>;
-  readonly identity: HostMemoryEmbedderIdentity;
-}
 export interface HostProviderService {
   /** `signal` is the request's: its abort cancels this caller's network wait with its reason. */
   openRouterModel(modelId: string, signal: AbortSignal): Promise<OpenRouterModelMetadataSnapshot>;
@@ -635,6 +624,10 @@ export interface HostProviderService {
  */
 export interface HostWorkspaceDiscovery {
   commands(signal: AbortSignal): Promise<UserSlashCommandsListResult>;
+  /** Stage 2a: each trusted root's workspace instructions file, for Settings. */
+  contextFiles(signal: AbortSignal): Promise<HostResults['workspace/context-files']>;
+  /** Stage 2a: every persona with the host's preflight facts, for Settings › Subagents. */
+  personas(signal: AbortSignal): Promise<AssistantPersonasListResult>;
   skills(signal: AbortSignal): Promise<SkillsScanResultSummary>;
   /** Each live root's trust and what trusting it would load, for the composer and Settings. */
   trust(signal: AbortSignal): Promise<{ readonly roots: HostWorkspaceTrustRoot[] }>;
@@ -691,11 +684,60 @@ export type HostTerminals = HostCommandSessionMethods & {
   open(send: (event: TerminalEvent) => void): HostTerminalSession;
 };
 
-/** Core's reads of its threads, for a platform service that asks which runs are live. */
+/** The Explorer's reads: answered from the host's live roots, holding nothing between calls. */
+export type HostFileReadMethod =
+  | 'workspace/files/exists'
+  | 'workspace/files/list'
+  | 'workspace/files/read';
+/** ADR-0029 stage 4: the Explorer's reads of live workspace roots. */
+export type HostFileReads = {
+  readonly [M in HostFileReadMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+
+export type HostFileWatchMethod = Exclude<
+  keyof typeof WORKSPACE_FILES_METHOD_SCHEMAS,
+  HostFileReadMethod
+>;
+export type HostFileWatchSessionMethods = {
+  readonly [M in HostFileWatchMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+/** One client's root watches: their events go only to it, and they end when it closes. */
+export type HostFileWatchSession = HostFileWatchSessionMethods & {
+  /** Stops every watch this client holds and joins their native retirement. */
+  close(): Promise<void>;
+};
+
+/** ADR-0029 stage 4: the desktop workspace's open folders, which the host's registry owns. */
+export type HostRootRegistry = {
+  readonly [M in keyof typeof WORKSPACE_ROOTS_METHOD_SCHEMAS]: (
+    params: HostParams<M>
+  ) => Promise<HostResults[M]>;
+};
+
+/** ADR-0029 stage 4: the Explorer's recursive watches on live workspace roots. */
+export interface HostFileWatches {
+  /** Opens one client's watches; each of their events goes to `send`. */
+  open(send: (event: WorkspaceFilesEvent) => void): HostFileWatchSession;
+}
+
+/**
+ * The Explorer's Search tab: a live text search of the host's live roots.
+ * Each batch of matches goes to `send` as ripgrep finds it; the answer names
+ * every cap the search hit. `signal` ends the search, after which nothing is sent.
+ */
+export interface HostFileSearch {
+  search(
+    params: HostParams<'workspace/files/search'>,
+    signal: AbortSignal,
+    send: (matches: FileSearchBatch['matches']) => void
+  ): Promise<HostResults['workspace/files/search']>;
+}
+
+/** Core's thread reads for a platform service that asks which runs are live; each answers once Core has folded its log. */
 export interface HostThreadReads {
-  listThreads(): HostResults['thread/list']['threads'];
+  listThreads(): Promise<HostResults['thread/list']['threads']>;
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]>;
-  readLedger(): HostResults['ledger/read'];
+  readLedger(): Promise<HostResults['ledger/read']>;
 }
 
 /**
@@ -803,6 +845,23 @@ export interface HostRewindFiles {
   }): Promise<readonly HostRewindConflict[]>;
 }
 
+/**
+ * A command session a run started that ended by itself. It names no command
+ * and carries no output: both stay out of durable history, and the model reads
+ * the output with the session tool up to `outputCursor`.
+ */
+export interface HostCommandSessionExit {
+  readonly createdAt: number;
+  readonly exitCode: number;
+  readonly exitedAt: number;
+  readonly outputCursor: number;
+  readonly rootId: string;
+  readonly sessionId: string;
+  readonly signal: number | null;
+  /** The thread whose run started the session. */
+  readonly threadId: string;
+}
+
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   /**
@@ -810,13 +869,28 @@ export interface HostPlatform {
    * bound, when it opens and before any run can discover MCP tools (BST-1930 c3).
    */
   attachMcpTaskOwner?(owner: McpHostTaskOwner): void;
-  /** Core hands its thread reads to the platform once it has hydrated them. */
+  /** Core hands its thread reads to the platform at start; each read waits for the fold. */
   attachThreadReads?(reads: HostThreadReads): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
   close(): Promise<void>;
+  /**
+   * The command sessions this host's runs start that end by themselves, until
+   * the returned function unsubscribes. Absent where runs start no sessions.
+   */
+  readonly commandSessionExits?:
+    | {
+        subscribe(listener: (exit: HostCommandSessionExit) => void): () => void;
+      }
+    | undefined;
   /** The default admission's delegation capability; `admitRun` sets it per admission. */
   readonly delegation?: HostDelegation | undefined;
+  /** The desktop Explorer's reads; absent where no window shows an Explorer (the CLI). */
+  readonly fileReads?: HostFileReads;
+  /** The desktop Explorer's Search tab; absent where no window shows an Explorer (the CLI). */
+  readonly fileSearch?: HostFileSearch;
+  /** The desktop Explorer's root watches; absent where no window shows an Explorer (the CLI). */
+  readonly fileWatches?: HostFileWatches;
   /** Purge process-local caches scoped to a thread Core just deleted. */
   forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
@@ -849,13 +923,6 @@ export interface HostPlatform {
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
-  /**
-   * BST-2227 `memory/embedder/probe`: the embedder these memory settings
-   * select, resolved and credentialed as a run's admission resolves it, with
-   * the identity its failures are read against. Absent where the host has no
-   * composer.
-   */
-  resolveMemoryEmbedder?(request: HostMemoryEmbedderRequest): Promise<HostMemoryEmbedderTarget>;
   resolveModel?(modelId: string): Promise<LanguageModel>;
   /**
    * The live absolute path of a mounted workspace root, for revert
@@ -867,13 +934,10 @@ export interface HostPlatform {
   }): Promise<string>;
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
   readonly rewindFiles?: HostRewindFiles | undefined;
+  /** The desktop workspace's open folders; absent where no window shows them (the CLI). */
+  readonly rootRegistry?: HostRootRegistry;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
-  /** Read scoped source text from the composing platform's existing native index. */
-  searchWorkspace?(
-    request: HostParams<'workspace/search'>,
-    signal: AbortSignal
-  ): Promise<HostResults['workspace/search']>;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest

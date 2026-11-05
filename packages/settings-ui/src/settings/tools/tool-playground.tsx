@@ -14,35 +14,8 @@ import {
 import { Badge, Button } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Play, Sparkles } from 'lucide-react';
 import { useId, useState } from 'react';
+import { saveToolPlaygroundInput, useToolPlaygroundInputsStore } from './tool-playground-store.ts';
 import type { ToolExecutionResult, ToolPlaygroundProps } from './types';
-
-/**
- * Get stored input from localStorage.
- */
-function getStoredInput(toolId: string): string {
-  if (typeof window === 'undefined') {
-    return '{}';
-  }
-  try {
-    return localStorage.getItem(`tool-playground-${toolId}`) ?? '{}';
-  } catch {
-    return '{}';
-  }
-}
-
-/**
- * Store input to localStorage.
- */
-function storeInput(toolId: string, input: string): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    localStorage.setItem(`tool-playground-${toolId}`, input);
-  } catch {
-    // Ignore storage errors
-  }
-}
 
 /**
  * Format a range label from min/max values.
@@ -187,7 +160,7 @@ export function ToolPlayground({
   inputSchema: _inputSchema,
   onExecute,
 }: ToolPlaygroundProps) {
-  const [input, setInput] = useState(() => getStoredInput(toolId));
+  const input = useToolPlaygroundInputsStore((state) => state.inputsByToolId[toolId] ?? '{}');
   const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState<ToolExecutionResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -196,8 +169,7 @@ export function ToolPlayground({
   const schemaDisplay = getToolSchemaDisplay(toolId);
 
   const handleInputChange = (value: string) => {
-    setInput(value);
-    storeInput(toolId, value);
+    saveToolPlaygroundInput(toolId, value);
     setParseError(null);
   };
 
@@ -275,7 +247,7 @@ export function ToolPlayground({
               size="sm"
             >
               <Play className="mr-1 h-3 w-3" />
-              {executing ? 'Running...' : 'Run'}
+              {executing ? 'Running…' : 'Run'}
             </Button>
           </div>
         </div>
@@ -301,7 +273,7 @@ export function ToolPlayground({
         <div
           className={`rounded-md border p-2 ${
             result.success
-              ? 'border-green-500/50 bg-green-500/5'
+              ? 'border-success/50 bg-success/5'
               : 'border-destructive/50 bg-destructive/5'
           }`}
           data-testid="execution-result"

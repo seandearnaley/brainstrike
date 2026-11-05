@@ -22,9 +22,9 @@ function wrap(ui: ReactElement) {
 
 describe('extractPrimaryArg display truncation (BST-949)', () => {
   it('passes short values through with whitespace collapsed', () => {
-    expect(extractPrimaryArg({ query: '  hybrid\n search ' }, undefined)).toEqual({
-      display: 'hybrid search',
-      full: 'hybrid search',
+    expect(extractPrimaryArg({ query: '  composer\n dock ' }, undefined)).toEqual({
+      display: 'composer dock',
+      full: 'composer dock',
     });
   });
 
@@ -270,14 +270,14 @@ describe('ToolFallback', () => {
       wrap(
         <ToolFallback
           {...mockBaseProps}
-          result={{ error: 'Select an active embedding set to enable retrieval.' }}
+          result={{ error: 'Choose a folder before searching.' }}
           status={{ type: 'complete' }}
         />
       );
 
       expect(screen.getByLabelText(/Failed/u)).toBeInTheDocument();
       expect(screen.getByTestId('tool-failure-reason')).toHaveTextContent(
-        '· Select an active embedding set to enable retrieval.'
+        '· Choose a folder before searching.'
       );
     });
 

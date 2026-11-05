@@ -5,15 +5,12 @@ import {
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
-import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import {
   PlatformMemoryOptionsSchema,
   PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
 } from './platform-client-configuration';
-import { QueryEmbeddingPayloadSchema } from './retrieval-wire';
 
 export {
   PlatformClientConfigurationSchema,
@@ -24,7 +21,7 @@ export {
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
- * BST-2202: the agent host's error and fatal log records reach Main's
+ * BST-2202: the agent host's warn, error and fatal log records reach Main's
  * diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
  * correlation id names is in the desktop log and debug bundle.
  */
@@ -34,7 +31,7 @@ export const PlatformDiagnosticRecordSchema = Schema.Struct({
   record: Schema.Struct({
     args: Schema.mutable(Schema.Array(Schema.MutableJson)),
     bindings: Schema.Record(Schema.String, Schema.MutableJson),
-    level: Schema.Literals(['error', 'fatal']),
+    level: Schema.Literals(['warn', 'error', 'fatal']),
     message: Schema.optional(Schema.String),
     scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
     timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -49,22 +46,7 @@ export const PlatformNativeChildSchema = Schema.Struct({
   pid: Schema.Int.check(Schema.isGreaterThan(0)),
   start: Schema.String.check(Schema.isMinCodePoints(1)),
 });
-export const PlatformWorkspaceBindingRequestSchema = Schema.Struct({
-  binding: ThreadWorkspaceBindingSchema,
-  threadId: Id,
-});
-/** The indexer's one vector profile rule validates a recall embedding profile. */
-const PlatformVectorProfileSchema = Schema.declare(
-  (input: unknown): input is VectorProfile => {
-    try {
-      vectorProfileHash(input);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  { message: 'Memory vectors require a supported embedding profile' }
-);
+
 /** A resolved persona crossing from Main's persona owner to the host. */
 const PlatformPersonaSchema = Schema.Struct({
   allowedToolIds: Schema.mutable(Schema.Array(Id)),
@@ -100,7 +82,6 @@ export const PlatformAdmittedSkillSchema = Schema.Struct({
 export const PlatformNativeRuntimeSchema = Schema.Struct({
   boundWorkspaceRootId: Schema.optional(Id),
   provider: Id,
-  retrievalRootsOnly: Schema.optional(Schema.Literal(true)),
   selectionFolderId: Schema.optional(Id),
   skills: Schema.optional(Schema.mutable(Schema.Array(PlatformAdmittedSkillSchema))),
   workspaceRootPath: Schema.optional(Id),
@@ -123,7 +104,6 @@ export const PlatformSelectionSchema = Schema.Struct({
     observerAwaiting: Schema.optional(Schema.Literals(HOST_OBSERVER_AWAITING_REASONS)),
     options: PlatformMemoryOptionsSchema,
     settings: PlatformMemorySettingsSchema,
-    vectorProfile: Schema.optional(PlatformVectorProfileSchema),
   }),
   nativeRuntime: PlatformNativeRuntimeSchema,
   referencedFileFailures: Schema.optional(
@@ -136,16 +116,8 @@ export const PlatformSelectionSchema = Schema.Struct({
     Schema.Struct({
       description: Schema.String,
       identity: Id,
-      inputSchema: Schema.Record(Schema.String, Schema.MutableJson),
-      interaction: Schema.optional(
-        Schema.Struct({
-          kind: Schema.Literals(['question', 'plan']),
-          resumeSchema: Schema.Record(Schema.String, Schema.MutableJson),
-        })
-      ),
       permissionToolId: Id,
       risk: Schema.Literals(TOOL_RISK_CATEGORIES),
-      strict: Schema.optional(Schema.Boolean),
     })
   ),
   toolTimeoutMs: Schema.Finite.check(Schema.isGreaterThan(0)),
@@ -153,20 +125,21 @@ export const PlatformSelectionSchema = Schema.Struct({
     Schema.Struct({ boundWorkspaceRootId: Id, roots: CliWorkspaceRootsSchema })
   ),
 });
+/** ADR-0029 stage 4: a folder the host opened that the focused window should show. */
+export const PlatformShowFolderSchema = Schema.Struct({ path: Id });
+/** Main's native folder picker: the chosen folder, or the person's cancel. */
+export const PlatformPickFolderResultSchema = Schema.Union(
+  [Schema.Struct({ path: Id }), Schema.Struct({ cancelled: Schema.Literal(true) })],
+  { mode: 'oneOf' }
+);
 /**
- * A retrieval tool's query, which Main embeds with the index's hosted model; Main
- * answers the vector, or its refusal as data (`RefusableOutcomeSchema`, BST-1996).
+ * The host's open folders changed: the OS recent documents and File > Open Recent follow the
+ * recent-folders ledger.
  */
-export const PlatformEmbeddingQuerySchema = Schema.Struct({ request: QueryEmbeddingPayloadSchema });
-/** A worktree an agent created, mounted by Main as a workspace folder (ADR-0028 step 3). */
-export const PlatformWorktreeFolderSchema = Schema.Struct({ path: Id });
-export const PlatformWorktreeFolderResultSchema = Schema.Struct({
-  displayName: Schema.String,
-  path: Id,
-  rootId: Id,
+export const PlatformRootsChangedSchema = Schema.Struct({
+  grantedPath: Schema.optionalKey(Id),
+  recentPaths: Schema.Array(Id),
 });
-/** A root a rewind restored, for Main's native index to rescan. */
-export const PlatformIndexRefreshSchema = Schema.Struct({ rootId: Id });
 export type PlatformSelection = (typeof PlatformSelectionSchema)['Type'];
 /**
  * thread/memory/read: the admission's pure preconditions, with nothing
@@ -192,17 +165,3 @@ export const PlatformObserverCandidatesSchema = Schema.Struct({
   candidates: Schema.mutable(Schema.Array(Id)),
 });
 export const PlatformObserverCandidatesResultSchema = Schema.mutable(Schema.Array(Id));
-export const PlatformMemoryVectorsSchema = Schema.Struct({
-  settings: PlatformMemorySettingsSchema,
-});
-export const PlatformMemoryVectorsResultSchema = Schema.NullOr(PlatformVectorProfileSchema);
-export const PlatformWorkspaceLeaseSchema = Schema.Struct({
-  leaseId: Schema.String.check(Schema.isUUID()),
-});
-export const PlatformWorkspaceAcquireSchema = Schema.Struct({
-  ...PlatformWorkspaceLeaseSchema.fields,
-  ...{ binding: ThreadWorkspaceBindingSchema, threadId: Id },
-});
-export const PlatformWorkspaceAcquireResultSchema = Schema.Struct({
-  roots: CliWorkspaceRootsSchema,
-});

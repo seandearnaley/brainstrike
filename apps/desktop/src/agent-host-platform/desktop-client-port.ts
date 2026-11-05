@@ -29,7 +29,7 @@ export function bindDesktopClientPort(input: unknown, host: AgentHost | undefine
     throw new Error('Desktop client message has no transferred port');
   }
   if (!host) {
-    // Main hands ports over only after readiness; closing tells its relay.
+    // Main hands ports over only after readiness; one that arrives earlier is closed.
     port.close();
     return true;
   }

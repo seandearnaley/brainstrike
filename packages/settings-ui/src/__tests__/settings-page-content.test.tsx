@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
-  createSearchIndexingSettingsCategory,
 } from '../settings-category-factories';
 import { type SettingsCategory, SettingsPageContent } from '../settings-page-content';
 
@@ -21,12 +20,6 @@ vi.mock('@brainstrike/ui', () => {
 vi.mock('../settings/system/factory-reset-settings-section', () => ({
   FactoryResetSettingsSection: () => (
     <div data-testid="factory-reset-settings-section">Factory Reset Settings</div>
-  ),
-}));
-
-vi.mock('../settings/system/search-index-settings-section', () => ({
-  SearchIndexSettingsSection: () => (
-    <div data-testid="search-indexing-settings-section">Search Indexing Settings</div>
   ),
 }));
 
@@ -231,14 +224,9 @@ describe('createFactoryResetSettingsCategory', () => {
 
   it('returns a category with correct keywords', () => {
     const category = createFactoryResetSettingsCategory();
-    expect(category.keywords).toEqual([
-      'factory',
-      'reset',
-      'resetting',
-      'wipe',
-      'preferences',
-      'stored folders',
-    ]);
+    expect(category.keywords).toEqual(
+      expect.arrayContaining(['factory', 'reset', 'wipe', 'stored folders', 'clear content'])
+    );
   });
 
   it('returns a category with an icon', () => {
@@ -285,6 +273,46 @@ describe('createFactoryResetSettingsCategory', () => {
     expect(window.location.hash).toBe('#settings/factory-reset');
   });
 
+  it('finds a category by a setting it holds, not only by its title', () => {
+    render(
+      <SettingsPageContent
+        categories={[createAppearanceSettingsCategory(), createFactoryResetSettingsCategory()]}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('searchbox', { name: /search settings/iu }), {
+      target: { value: 'Clear content' },
+    });
+
+    expect(screen.getByRole('button', { name: /Factory Reset/iu })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Appearance/iu })).not.toBeInTheDocument();
+  });
+
+  it('clears the search from its clear button or with Escape', () => {
+    render(
+      <SettingsPageContent
+        categories={[
+          createAppearanceSettingsCategory(),
+          { content: <div />, id: 'privacy', title: 'Privacy' },
+        ]}
+      />
+    );
+    const searchbox = screen.getByRole('searchbox', { name: /search settings/iu });
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+
+    fireEvent.change(searchbox, { target: { value: 'privacy' } });
+    expect(screen.queryByRole('button', { name: /Appearance/iu })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(searchbox).toHaveValue('');
+    expect(searchbox).toHaveFocus();
+    expect(screen.getByRole('button', { name: /Appearance/iu })).toBeInTheDocument();
+
+    fireEvent.change(searchbox, { target: { value: 'privacy' } });
+    fireEvent.keyDown(searchbox, { key: 'Escape' });
+    expect(searchbox).toHaveValue('');
+    expect(screen.getByRole('button', { name: /Appearance/iu })).toBeInTheDocument();
+  });
+
   it('is discoverable via search keywords', () => {
     render(
       <SettingsPageContent
@@ -300,28 +328,5 @@ describe('createFactoryResetSettingsCategory', () => {
       fireEvent.change(searchbox, { target: { value: keyword } });
       expect(screen.getByRole('button', { name: /Factory Reset/iu })).toBeInTheDocument();
     }
-  });
-});
-
-describe('createSearchIndexingSettingsCategory', () => {
-  it('returns the managed search/indexing category metadata and content', () => {
-    const category = createSearchIndexingSettingsCategory();
-
-    expect(category.id).toBe('search-indexing');
-    expect(category.title).toBe('Search & Indexing');
-    expect(category.description).toMatch(/how your folders are searched/iu);
-    expect(category.keywords).toEqual([
-      'search',
-      'indexing',
-      'semantic',
-      'embeddings',
-      'chunking',
-      'model',
-    ]);
-
-    const { container } = render(category.content as React.ReactElement);
-    expect(
-      container.querySelector('[data-testid="search-indexing-settings-section"]')
-    ).toBeTruthy();
   });
 });

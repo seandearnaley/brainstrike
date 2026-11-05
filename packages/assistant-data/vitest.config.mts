@@ -1,30 +1,28 @@
-import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
+import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
 import { reactCompiler } from '@brainstrike/test-utils/vitest-react-compiler';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, mergeConfig } from 'vitest/config';
 
-export default defineConfig({
-  plugins: [reactCompiler()],
-  test: {
-    coverage: {
-      exclude: ['**/__tests__/**', '**/*.d.ts', '**/dist/**', '**/index.ts'],
-      include: ['src/**/*.{ts,tsx}'],
+export default mergeConfig(
+  sharedConfig,
+  defineConfig({
+    plugins: [reactCompiler()],
+    test: {
+      coverage: {
+        exclude: ['**/__tests__/**', '**/*.d.ts', '**/dist/**', '**/index.ts'],
+        include: ['src/**/*.{ts,tsx}'],
+      },
+      // jsdom + unstubGlobals match app-shell, where these suites lived — the
+      // move stays behavior-preserving down to the DOM implementation.
+      environment: 'jsdom',
+      // These suites ran with these ceilings in app-shell;
+      // vitest's 5s default times them out on CI's 2-vCPU runners (proven in
+      // #2308's Coverage lane, which runs test:coverage over ALL suites).
+      hookTimeout: 30_000,
+      include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
+      maxWorkers: process.env['CI'] ? '50%' : '100%',
+      setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
+      testTimeout: 30_000,
+      unstubGlobals: true,
     },
-    // jsdom + unstubGlobals match app-shell, where these suites lived — the
-    // move stays behavior-preserving down to the DOM implementation.
-    environment: 'jsdom',
-    exclude: ['node_modules', 'dist'],
-    // One module cache per package, so parallel lanes never clear a shared one.
-    fsModuleCachePath: 'node_modules/.vitest-cache',
-    globals: true,
-    // The PGlite integration suites ran with these ceilings in app-shell;
-    // vitest's 5s default times them out on CI's 2-vCPU runners (proven in
-    // #2308's Coverage lane, which runs test:coverage over ALL suites).
-    hookTimeout: 30_000,
-    include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
-    maxWorkers: process.env['CI'] ? '50%' : '100%',
-    reporters: ['default', new LostTestFileReporter()],
-    setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
-    testTimeout: 30_000,
-    unstubGlobals: true,
-  },
-});
+  })
+);

@@ -11,7 +11,6 @@ import {
   fileWindowTokens,
   type ThreadContextAtTurn,
 } from '@brainstrike/assistant-ui/thread-context-fold';
-import type { IndexerFileChunkBounds } from '@brainstrike/indexing-contract/indexer-client';
 
 export type ContextMapMode = 'all' | 'window';
 
@@ -63,7 +62,6 @@ export const KIND_PRIORITY: Readonly<Record<ContextSpanKind, number>> = {
   grep: 1,
   pinned: 4,
   read: 3,
-  semantic: 2,
 };
 
 function fileKey(span: Pick<ContextSpan, 'path' | 'rootId' | 'rootName'>): string {
@@ -203,23 +201,26 @@ export function contextMapTotals(
   };
 }
 
+/** A run of a file's lines the map draws as one cell. */
+export interface LineBand {
+  readonly chunkId: string;
+  readonly endLine: number;
+  readonly startLine: number;
+}
+
 export interface ChunkCell {
-  readonly chunk: IndexerFileChunkBounds;
+  readonly chunk: LineBand;
   /** Share of the chunk's lines the drawn spans cover, 0 to 1. */
   readonly coverage: number;
   /** Every overlapping span has left the window. */
   readonly gone: boolean;
   /** The highest-priority kind drawn; null when no span reached the chunk. */
   readonly kind: ContextSpanKind | null;
-  readonly partial: boolean;
   readonly spans: readonly ContextFileSpan[];
 }
 
-function overlaps(entry: ContextFileSpan, chunk: IndexerFileChunkBounds): boolean {
+function overlaps(entry: ContextFileSpan, chunk: LineBand): boolean {
   const { span } = entry;
-  if (span.chunkId !== undefined && span.startLine === undefined) {
-    return span.chunkId === chunk.chunkId;
-  }
   if (span.wholeFile) {
     return true;
   }
@@ -242,12 +243,12 @@ function topKind(entries: readonly ContextFileSpan[]): ContextSpanKind | null {
 }
 
 /**
- * Each index chunk with the spans that reached it. In window mode a chunk is
+ * Each line band with the spans that reached it. In window mode a chunk is
  * colored by its live spans, and reads as gone when only departed spans
  * reached it; in "everything" mode it takes the kind of every span.
  */
 export function chunkCells(
-  chunks: readonly IndexerFileChunkBounds[],
+  chunks: readonly LineBand[],
   spans: readonly ContextFileSpan[],
   mode: ContextMapMode
 ): ChunkCell[] {
@@ -256,12 +257,7 @@ export function chunkCells(
     const live = reached.filter((entry) => isLive(entry.at.state));
     const drawn = mode === 'window' && live.length > 0 ? live : reached;
     const length = chunk.endLine - chunk.startLine + 1;
-    const fullChunk = drawn.some(
-      (entry) =>
-        entry.span.wholeFile ||
-        (entry.span.chunkId === chunk.chunkId && entry.span.startLine === undefined)
-    );
-    const coverage = fullChunk
+    const coverage = drawn.some((entry) => entry.span.wholeFile)
       ? 1
       : coveredLines(
           drawn.map((entry) => entry.span),
@@ -273,18 +269,17 @@ export function chunkCells(
       coverage,
       gone: reached.length > 0 && live.length === 0,
       kind: topKind(drawn),
-      partial: drawn.some((entry) => entry.span.partial === true),
       spans: reached,
     };
   });
 }
 
-/** Equal line bands for a file the index does not cover, so its spans still draw to scale. */
-export function lineBands(maxLine: number, bands = 8): IndexerFileChunkBounds[] {
+/** Equal line bands for a file, so its spans draw to scale. */
+export function lineBands(maxLine: number, bands = 8): LineBand[] {
   const count = Math.max(1, Math.min(bands, maxLine));
   return Array.from({ length: count }, (_, index) => {
     const startLine = Math.floor((index * maxLine) / count) + 1;
     const endLine = Math.floor(((index + 1) * maxLine) / count);
-    return { chunkId: `band:${index}`, contentHash: '', endLine, startLine, tokenCount: null };
+    return { chunkId: `band:${index}`, endLine, startLine };
   });
 }

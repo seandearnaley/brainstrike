@@ -2,10 +2,7 @@
  * Reciprocal Rank Fusion (RRF) Algorithm
  *
  * RRF is a technique for combining multiple ranked lists into a single ranking.
- * It's particularly effective for hybrid search where we combine:
- * - Vector similarity search (semantic relevance)
- * - Full-text search (keyword matching)
- * - Other ranking signals (recency, popularity, etc.)
+ * Thread search uses it to fuse its content and title matches.
  *
  * Formula: RRF_score(d) = Σ 1/(k + rank_i(d))
  * Where:
@@ -37,7 +34,7 @@ export interface RankedItem<T = string> {
 }
 
 /**
- * A ranked list from a single source (e.g., vector search, full-text search)
+ * A ranked list from a single source (e.g., full-text search)
  */
 export interface RankedList<T = string> {
   /** Items in rank order (first = rank 1, best match) */

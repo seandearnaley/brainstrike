@@ -28,8 +28,7 @@ export interface AgentHostLogSummary {
  * waits for the host's `ready` report, and the host publishes host.json before that.
  * Call it after a launch or restart before any reader below: the record does not exist
  * until then. Do not poll a reader instead: in Playwright 1.64, a throwing `expect.poll`
- * callback ends the poll rather than retrying. The probe client this opens is closed, and
- * Main's relay for it retired, before this returns.
+ * callback ends the poll rather than retrying. The probe's port is closed before this returns.
  */
 export async function waitForAppHost(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -43,7 +42,6 @@ export async function waitForAppHost(page: Page): Promise<void> {
     }
     const requestId = crypto.randomUUID();
     const connected = Promise.withResolvers<MessagePort>();
-    const disconnected = Promise.withResolvers<void>();
     const receive = (event: MessageEvent<unknown>): void => {
       const data = event.data;
       if (
@@ -58,7 +56,6 @@ export async function waitForAppHost(page: Page): Promise<void> {
         return;
       }
       if (data.type === 'agent-host/disconnected') {
-        disconnected.resolve();
         connected.reject(new Error('Agent host client disconnected before attach'));
       } else if (data.type === 'agent-host/connected') {
         const port = event.ports[0];
@@ -77,8 +74,8 @@ export async function waitForAppHost(page: Page): Promise<void> {
       if (!result.ok) {
         throw new Error(`Agent host attach refused: ${result.error.message}`);
       }
+      // Closing its port is the whole detach; Main reports no close the frame makes.
       (await connected.promise).close();
-      await disconnected.promise;
     } finally {
       window.removeEventListener('message', receive);
     }
@@ -299,6 +296,31 @@ export async function readHostThreadTree(userDataDir: string): Promise<readonly 
     return logs;
   } finally {
     await client.close();
+  }
+}
+
+/**
+ * The folders open in a host Root's workspace, in their order: the host's root registry commits
+ * them (`roots.open_position`), so a test outside test mode reads them from its own disposable
+ * profile's store.
+ */
+export function readOpenWorkspaceFolders(
+  hostRoot: string
+): readonly { id: string; path: string; status: string }[] {
+  const db = new DatabaseSync(path.join(hostRoot, 'state.db'), { readOnly: true });
+  try {
+    return db
+      .prepare(
+        'SELECT id, path, status FROM roots WHERE open_position IS NOT NULL ORDER BY open_position'
+      )
+      .all()
+      .map((row) => ({
+        id: String(row['id']),
+        path: String(row['path']),
+        status: String(row['status']),
+      }));
+  } finally {
+    db.close();
   }
 }
 

@@ -1,5 +1,5 @@
 import { redactSensitiveLogValue } from '@brainstrike/logging';
-import { scrubLikelySecretValues } from './secret-scrub';
+import { scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import type { ThreadDebugHostProbe } from './thread-debug-host-probe';
 
 const REPEATED_VALUE_MARKER = '[REPEATED OR CIRCULAR]';
@@ -8,7 +8,7 @@ const HOST_WINDOW_MAX_MS = 24 * 60 * 60 * 1000;
 /** The newest retained diagnostic events a pack carries (BST-2347). */
 const DIAGNOSTIC_EVENTS_LIMIT = 50;
 const NO_BRIDGE_REASON =
-  'no desktop diagnostics bridge exposing listCrashDumps, queryEvents, readMainLogWindow and readProcessCounters (web build or older preload)';
+  'no desktop diagnostics bridge exposing listCrashDumps, queryEvents, readMainLogWindow and readProcessCounters (older preload)';
 /** One piece of desktop host evidence, fetched when the pack is built, never persisted. */
 export type ThreadDebugHostItem =
   | { readonly status: 'included'; readonly value: Readonly<Record<string, unknown>> }

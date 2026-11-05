@@ -1,13 +1,15 @@
+import {
+  listProviderLlmModels,
+  listProviders,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
-  createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
   getDefaultModel,
 } from '../providers/provider-factory';
-import { listProviderModels, listProviders } from '../providers/registry';
 
 describe('provider-factory', () => {
   describe('createProvider', () => {
@@ -161,9 +163,9 @@ describe('provider-factory', () => {
     });
 
     it('rejects providers outside the persistent-memory model boundary', () => {
-      expect(() => createLanguageModelProvider('cohere', 'test-key', 'command-r')).toThrow(
-        /does not support provider: cohere/iu
-      );
+      expect(() =>
+        createLanguageModelProvider('bedrock', 'test-key', 'anthropic.claude-sonnet-5')
+      ).toThrow(/does not support provider: bedrock/iu);
     });
   });
 
@@ -187,76 +189,12 @@ describe('provider-factory', () => {
     it('throws for an unsupported provider', () => {
       expect(() => getDefaultModel('unsupported')).toThrow(/Unsupported provider/u);
     });
-
-    it('returns an explicit unset default for an embeddings-only provider', () => {
-      expect(getDefaultModel('cohere')).toBe('');
-    });
   });
 
-  describe('createEmbeddingProvider', () => {
-    it('creates OpenAI embedding provider with the requested model', () => {
-      const model = createEmbeddingProvider('openai', 'test-key', 'text-embedding-3-small') as {
-        modelId: string;
-      };
-
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('text-embedding-3-small');
-    });
-
-    it('creates Google embedding provider with the requested model', () => {
-      const model = createEmbeddingProvider('google', 'test-key', 'gemini-embedding-001') as {
-        modelId: string;
-      };
-
-      expect(model).toBeDefined();
-      expect(model.modelId).toBe('gemini-embedding-001');
-    });
-
-    it('throws MastraAgentError for unsupported embedding provider names', () => {
-      try {
-        createEmbeddingProvider('unsupported', 'test-key', 'model');
-        throw new Error('Expected unsupported embedding provider to throw');
-      } catch (error) {
-        expect(isMastraAgentError(error)).toBe(true);
-        if (isMastraAgentError(error)) {
-          expect(error.code).toBe('mastra_agent_unsupported_provider');
-          expect(error.context).toEqual(
-            expect.objectContaining({
-              provider: 'unsupported',
-              supportedProviders: expect.arrayContaining(['openai', 'google']),
-            })
-          );
-        }
-      }
-    });
-
-    it('throws MastraAgentError for providers without hosted Mastra embedders', () => {
-      try {
-        createEmbeddingProvider('anthropic', 'test-key', 'claude-embedding');
-        throw new Error('Expected unsupported Mastra embedder provider to throw');
-      } catch (error) {
-        expect(isMastraAgentError(error)).toBe(true);
-        if (isMastraAgentError(error)) {
-          expect(error.code).toBe('mastra_agent_unsupported_provider');
-          expect(error.context).toEqual(
-            expect.objectContaining({
-              provider: 'anthropic',
-              supportedProviders: expect.arrayContaining(['openai', 'google']),
-            })
-          );
-        }
-      }
-    });
-  });
-
-  it('exposes a single default model per provider and type', () => {
+  it('exposes a single default model per provider', () => {
     for (const provider of listProviders()) {
-      const llmDefaults = listProviderModels(provider.id, 'llm').filter((model) => model.default);
+      const llmDefaults = listProviderLlmModels(provider.id).filter((model) => model.default);
       expect(llmDefaults.length).toBeLessThanOrEqual(1);
-      const embeddingDefaults = listProviderModels(provider.id, 'embedding').filter(
-        (model) => model.default
-      );
-      expect(embeddingDefaults.length).toBeLessThanOrEqual(1);
     }
   });
 });

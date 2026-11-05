@@ -1,13 +1,11 @@
 /**
- * Desktop E2E for the tab keyboard chords (BST-1842, spec §9), on the assistant
- * thread strip against the real renderer, stores and PGlite threads:
- *
- * - ⌘/Ctrl+W closes the active tab and NOT the window. The application menu
- *   has no `close`/`fileMenu`/`windowMenu` role and no W accelerator, so the
- *   keystroke reaches the renderer; the test asserts that menu shape in main,
- *   because a CDP key press never reaches a native menu accelerator.
- * - ⌘/Ctrl+Shift+T restores the closed tab at its old index and activates it.
- * - Ctrl+Tab / Ctrl+Shift+Tab cycle by position and wrap (D7).
+ * Desktop E2E for the tab keyboard chords (BST-1842, spec §9): ⌘/Ctrl+W closes
+ * the active assistant thread tab and NOT the window. The application menu has
+ * no `close`/`fileMenu`/`windowMenu` role and no W accelerator, so the keystroke
+ * reaches the renderer; the test asserts that menu shape in main, because a CDP
+ * key press never reaches a native menu accelerator. Reopen, cycling and focus
+ * return are the chord router's own behaviour, pinned by its component tests
+ * (`use-tab-chords`, `assistant-thread-tabs-chords`).
  */
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -48,18 +46,13 @@ async function tabIds(strip: Locator): Promise<readonly string[]> {
   return ids;
 }
 
-async function selectedTabId(strip: Locator): Promise<string> {
-  const id = await strip.locator('[role="tab"][aria-selected="true"]').getAttribute('id');
-  return (id ?? '').replace('assistant-thread-tab-', '');
-}
-
-async function openThreeThreads(page: Page): Promise<Locator> {
+async function openTwoThreads(page: Page): Promise<Locator> {
   await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   const strip = page.getByRole('tablist', { name: 'Open assistant threads' });
   await expect(strip).toBeVisible({ timeout: 30_000 });
   // Each thread is created by its first send.
-  for (let count = await strip.getByRole('tab').count(); count < 3; count += 1) {
+  for (let count = await strip.getByRole('tab').count(); count < 2; count += 1) {
     await startThread(page, `Thread ${count + 1}`);
     await expect(strip.getByRole('tab')).toHaveCount(count + 1, { timeout: 15_000 });
   }
@@ -67,10 +60,7 @@ async function openThreeThreads(page: Page): Promise<Locator> {
 }
 
 test.describe('Tab keyboard chords (desktop)', () => {
-  test('⌘W closes a tab, not the window; ⌘⇧T restores it; Ctrl+Tab cycles by position', async ({
-    electronApp,
-    window: page,
-  }) => {
+  test('⌘W closes a tab, not the window', async ({ electronApp, window: page }) => {
     test.setTimeout(120_000);
     const app = electronApp.app;
 
@@ -99,78 +89,26 @@ test.describe('Tab keyboard chords (desktop)', () => {
       )
     ).toEqual([]);
 
-    const strip = await openThreeThreads(page);
-    const [first, middle, last] = await tabIds(strip);
-    if (!(first && middle && last)) {
-      throw new Error('expected three thread tabs');
+    const strip = await openTwoThreads(page);
+    const [first, last] = await tabIds(strip);
+    if (!(first && last)) {
+      throw new Error('expected two thread tabs');
     }
     const windowsBefore = await liveWindowCount(app);
     expect(windowsBefore).toBeGreaterThan(0);
 
-    // Focus inside the assistant panel scopes the chords to its strip.
-    await strip.locator(`#assistant-thread-tab-${middle}`).click();
-    await expect(strip.locator(`#assistant-thread-tab-${middle}`)).toHaveAttribute(
+    // Focus inside the assistant panel scopes the chord to its strip.
+    await strip.locator(`#assistant-thread-tab-${last}`).click();
+    await expect(strip.locator(`#assistant-thread-tab-${last}`)).toHaveAttribute(
       'aria-selected',
       'true'
     );
 
     await page.keyboard.press('ControlOrMeta+w');
-    await expect.poll(() => tabIds(strip)).toEqual([first, last]);
+    await expect.poll(() => tabIds(strip)).toEqual([first]);
     expect(page.isClosed()).toBe(false);
     expect(await liveWindowCount(app)).toBe(windowsBefore);
     expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
     await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible();
-
-    await page.keyboard.press('ControlOrMeta+Shift+T');
-    await expect.poll(() => tabIds(strip)).toEqual([first, middle, last]);
-    await expect.poll(() => selectedTabId(strip)).toBe(middle);
-
-    await page.keyboard.press('Control+Tab');
-    await expect.poll(() => selectedTabId(strip)).toBe(last);
-    await page.keyboard.press('Control+Tab');
-    await expect.poll(() => selectedTabId(strip)).toBe(first);
-    await page.keyboard.press('Control+Shift+Tab');
-    await expect.poll(() => selectedTabId(strip)).toBe(last);
-
-    // From the composer: each switch hides the panel that held focus, and focus
-    // stays in the strip, so repeated chords keep cycling threads.
-    await page
-      .getByTestId('assistant-thread-tabs-workspace')
-      .locator('[role="tabpanel"]:not([hidden])')
-      .getByRole('textbox', { name: 'Message input' })
-      .click();
-    await page.keyboard.press('Control+PageDown');
-    await expect.poll(() => selectedTabId(strip)).toBe(first);
-    await page.keyboard.press('Control+PageDown');
-    await expect.poll(() => selectedTabId(strip)).toBe(middle);
-
-    // The workspace strip scopes by fallback (no panel), but a ⌘W on one of
-    // its tabs still returns focus to its new selected tab, not to body.
-    const workspace = page.getByRole('tablist', { name: 'Workspace tabs' });
-    for (const appId of ['changes', 'logs']) {
-      await page.getByTestId('workspace-add-tab').click();
-      await page.getByTestId(`workspace-add-tab-${appId}`).click();
-      // The menu dismisses after the pick (exit animation, then focus returns
-      // to "+"); reopening inside that window is closed by the returning focus.
-      await expect(page.getByRole('menu')).toHaveCount(0);
-    }
-    const logsTab = workspace.getByTestId('workspace-app-tab-logs');
-    await logsTab.click();
-    await expect(logsTab).toHaveAttribute('aria-selected', 'true');
-    await logsTab.focus();
-    await page.keyboard.press('ControlOrMeta+w');
-    await expect(logsTab).toHaveCount(0);
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const active = document.activeElement;
-          return active?.getAttribute('role') === 'tab' &&
-            active.getAttribute('aria-selected') === 'true' &&
-            active.closest('[role="tablist"]')?.getAttribute('aria-label') === 'Workspace tabs'
-            ? active.textContent
-            : `not a selected workspace tab: ${active?.tagName}`;
-        })
-      )
-      .toBe('Changes');
   });
 });

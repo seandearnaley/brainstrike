@@ -1,7 +1,7 @@
 import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
+import { persistDurable } from '@brainstrike/storage';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import {
   type AssistantMemoryThread,
   type AssistantThreadCatalogRepository,
@@ -376,7 +376,8 @@ function releaseResourceThreadLoad(resourceId: string, loadGeneration: number): 
 }
 
 export const useAssistantThreadStore = create<AssistantThreadState>()(
-  persist(
+  persistDurable(
+    'brainstrike:assistant-threads.v1',
     (set, get) => ({
       activeThreadIdByResourceId: {},
       closeAllThreadTabs: (resourceId: string) => {
@@ -979,7 +980,6 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
     }),
     {
       migrate: migrateAssistantThreadPersistedState,
-      name: 'brainstrike-assistant-threads-v1',
       partialize: (state): PersistedAssistantThreadState => ({
         activeThreadIdByResourceId: state.activeThreadIdByResourceId,
         draftRuntimeByThreadId: state.draftRuntimeByThreadId,

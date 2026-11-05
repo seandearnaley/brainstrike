@@ -2,8 +2,8 @@
  * Session scroll restore: the explorer scroll position survives a restart.
  *
  * Seeds a root with many files (a tall, scrollable tree), scrolls the explorer
- * container down, then reloads the renderer (main-process storage persists —
- * the restart proxy) and asserts the container comes back at the same offset.
+ * container down, then reloads the renderer (the renderer's `localStorage`
+ * persists — the restart proxy) and asserts the container comes back at the same offset.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -11,8 +11,8 @@ import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { seedWorkspaceFolders } from './utils/seed-root';
 
 let ROOT_DIR: string;
 
@@ -33,18 +33,10 @@ test.afterAll(() => {
 
 const SCROLL_SELECTOR = '[data-testid="explorer-scroll-root"]';
 
-/** The offset the explorer's durable writer last stored, which a restart restores. */
+/** The offset the explorer last saved in the renderer's `localStorage`, which a restart restores. */
 async function persistedScrollTop(page: Page): Promise<unknown> {
-  return await page.evaluate(async (key) => {
-    const storage = (
-      globalThis as typeof globalThis & {
-        electronAPI?: { storage?: { getItem?: (k: string) => Promise<string | null> } };
-      }
-    ).electronAPI?.storage;
-    if (!storage?.getItem) {
-      throw new Error('electronAPI.storage.getItem is unavailable');
-    }
-    const stored = await storage.getItem(key);
+  return await page.evaluate((key) => {
+    const stored = localStorage.getItem(key);
     return stored === null
       ? null
       : (JSON.parse(stored) as { state?: { explorerScrollTop?: unknown } }).state
@@ -73,25 +65,7 @@ test.describe('Explorer scroll restore', () => {
   }) => {
     test.setTimeout(3 * 60 * 1000);
 
-    await page.evaluate(
-      async ({ root }) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-          }
-        ).electronAPI?.storage;
-        if (!storage?.setItem) {
-          throw new Error('electronAPI.storage.setItem is unavailable');
-        }
-        await storage.setItem('lastFolderPath', root);
-        await storage.setItem(
-          'rootsList',
-          JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId: 'scroll-root-1' }])
-        );
-      },
-      { root: ROOT_DIR }
-    );
-    await updateIndexConfig(page, { paused: true });
+    await seedWorkspaceFolders(page, { roots: [{ path: ROOT_DIR, rootId: 'scroll-root-1' }] });
 
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'scroll-restore-seeded');
@@ -120,7 +94,7 @@ test.describe('Explorer scroll restore', () => {
     expect(scrollTarget?.scrollTop ?? 0).toBeGreaterThan(0);
     const savedOffset = scrollTarget?.scrollTop ?? 0;
 
-    // The capture commits the resting offset through the explorer's durable writer.
+    // The capture saves the resting offset in the explorer's persisted state.
     await expect.poll(() => persistedScrollTop(page)).toBe(savedOffset);
 
     await reloadRenderer(page, 'scroll-restore-reloaded');

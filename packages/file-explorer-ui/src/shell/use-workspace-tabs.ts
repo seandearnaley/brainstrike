@@ -5,6 +5,7 @@ import type { OpenFileInTab } from '@brainstrike/ui';
 import { createContext, useContext } from 'react';
 import type { FileTab } from '../hooks/use-tab-manager';
 import type { WorkspaceTabSelection } from '../stores/workspace-tab-selection-store';
+import type { FileFolderStatus } from './file-folder-status.ts';
 import type { WorkspaceApp, WorkspaceLaunchAction } from './workspace-app';
 
 /** A workspace strip tab by id and label, app or file. */
@@ -20,6 +21,8 @@ export interface WorkspaceTabsValue {
   readonly apps: readonly WorkspaceApp[];
   readonly fileContentErrors: ReadonlyMap<string, Error>;
   readonly fileContents: { readonly [key: string]: string };
+  /** Where a file tab's folder stands: only an open folder's files can load. */
+  readonly fileFolderStatus: (compositeKey: string) => FileFolderStatus;
   readonly getTabStatusMessage: (compositeKey: string) => string | null;
   /** The registered open-file seam — `WorkspaceOpenFileBridge` registers it. */
   readonly handleOpenFileInTab: OpenFileInTab;
@@ -62,6 +65,8 @@ export interface WorkspaceTabsValue {
   readonly onSelectFileTab: (tabId: string) => void | Promise<void>;
   /** Registry ∩ openAppIds, in registry order — what the strip renders. */
   readonly openApps: readonly WorkspaceApp[];
+  /** Reopen a closed file's folder by its path; absent where the platform cannot. */
+  readonly reopenFolder: ((path: string) => void) | undefined;
   readonly rootDescriptors: FileExplorerState['rootDescriptors'];
   readonly selection: WorkspaceTabSelection;
   /** Every tab in strip order: pinned apps, child conversations, then files. */

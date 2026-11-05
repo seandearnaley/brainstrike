@@ -1,6 +1,6 @@
-import type { LoggingPreferences } from '@brainstrike/logging';
+import type { LoggingPreferences, LoggingPreferencesPatch } from '@brainstrike/logging';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
-import { Predicate } from 'effect';
+import { Schema } from 'effect';
 import { DESKTOP_IPC_CHANNELS } from './desktop-ipc-channels';
 
 export const LOGGING_API_CHANNELS = DESKTOP_IPC_CHANNELS.logging;
@@ -23,68 +23,6 @@ function assertLogLevel(value: unknown, message: string): LogLevel {
     throw new Error(message);
   }
   return value as LogLevel;
-}
-
-function assertBoolean(value: unknown, message: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(message);
-  }
-  return value;
-}
-
-function assertStringArray(value: unknown, message: string): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new Error(message);
-  }
-  if (value.length > MAX_REDACT_PATHS) {
-    throw new Error(`Logging preferences redactPaths cannot exceed ${MAX_REDACT_PATHS} entries.`);
-  }
-
-  for (let index = 0; index < value.length; index += 1) {
-    if (!Object.hasOwn(value, index)) {
-      throw new Error(message);
-    }
-
-    const entry = value[index];
-    if (typeof entry !== 'string') {
-      throw new Error(message);
-    }
-    if (entry.length > MAX_REDACT_PATH_LENGTH) {
-      throw new Error(
-        `Logging preferences redactPaths entries cannot exceed ${MAX_REDACT_PATH_LENGTH} characters.`
-      );
-    }
-  }
-
-  return [...value];
-}
-
-function assertNullableDestinationString(
-  value: unknown,
-  invalidTypeMessage: string,
-  label: string
-): string | null {
-  if (value === null) {
-    return value;
-  }
-  if (typeof value !== 'string') {
-    throw new Error(invalidTypeMessage);
-  }
-  if (value.includes('\0')) {
-    throw new Error(`${label} cannot contain null bytes.`);
-  }
-  if (value.length > MAX_LOGGING_DESTINATION_LENGTH) {
-    throw new Error(`${label} cannot exceed ${MAX_LOGGING_DESTINATION_LENGTH} characters.`);
-  }
-  return value;
-}
-
-export function assertLoggingOpenDestinationTarget(value: unknown): string | null {
-  return assertNullableDestinationString(
-    value,
-    'Logging open-destination target must be a string or null.',
-    'Logging open-destination target'
-  );
 }
 
 export function assertBufferedLogRecord(payload: unknown): LogRecord {
@@ -124,65 +62,50 @@ export function assertBufferedLogRecord(payload: unknown): LogRecord {
   } satisfies LogRecord;
 }
 
-/** Merges a renderer's patch into the preferences Main holds, then validates the whole record. */
+const LogLevelSchema = Schema.Literals([
+  LogLevel.TRACE,
+  LogLevel.DEBUG,
+  LogLevel.INFO,
+  LogLevel.WARN,
+  LogLevel.ERROR,
+  LogLevel.FATAL,
+  LogLevel.SILENT,
+]);
+const DestinationSchema = Schema.NullOr(
+  Schema.String.check(
+    Schema.isMaxLength(MAX_LOGGING_DESTINATION_LENGTH),
+    Schema.makeFilter((value) => !value.includes('\0'), { expected: 'no null bytes' })
+  )
+);
+
+/** A renderer's change to some logging preferences; Main merges it into the record it holds. */
+export const LoggingPreferencesPatchSchema = Schema.Struct({
+  consoleEnabled: Schema.optionalKey(Schema.Boolean),
+  consoleLevel: Schema.optionalKey(LogLevelSchema),
+  file: Schema.optionalKey(
+    Schema.Struct({
+      append: Schema.optionalKey(Schema.Boolean),
+      destination: Schema.optionalKey(DestinationSchema),
+      enabled: Schema.optionalKey(Schema.Boolean),
+      level: Schema.optionalKey(LogLevelSchema),
+      mkdir: Schema.optionalKey(Schema.Boolean),
+    })
+  ),
+  includeTimestamp: Schema.optionalKey(Schema.Boolean),
+  level: Schema.optionalKey(LogLevelSchema),
+  redactPaths: Schema.optionalKey(
+    Schema.Array(Schema.String.check(Schema.isMaxLength(MAX_REDACT_PATH_LENGTH))).check(
+      Schema.isMaxLength(MAX_REDACT_PATHS)
+    )
+  ),
+});
+
+export const OpenDestinationArgs = Schema.Tuple([DestinationSchema]);
+
+/** Merges a decoded patch into the preferences Main holds. */
 export function mergeLoggingPreferencesPatch(
   current: LoggingPreferences,
-  patch: unknown
+  patch: LoggingPreferencesPatch
 ): LoggingPreferences {
-  if (!Predicate.isObject(patch)) {
-    throw new Error('Logging preferences patch must be an object.');
-  }
-  const file = patch['file'];
-  if (file !== undefined && !Predicate.isObject(file)) {
-    throw new Error('Logging file preferences must be an object.');
-  }
-  return assertLoggingPreferences({ ...current, ...patch, file: { ...current.file, ...file } });
-}
-
-export function assertLoggingPreferences(value: unknown): LoggingPreferences {
-  if (!Predicate.isObject(value)) {
-    throw new Error('Logging preferences must be an object.');
-  }
-  if (!Predicate.isObject(value['file'])) {
-    throw new Error('Logging file preferences must be an object.');
-  }
-
-  const file = value['file'];
-
-  return {
-    consoleEnabled: assertBoolean(
-      value['consoleEnabled'],
-      'Logging preferences consoleEnabled must be a boolean.'
-    ),
-    consoleLevel: assertLogLevel(
-      value['consoleLevel'],
-      'Logging preferences consoleLevel must be a valid log level.'
-    ),
-    file: {
-      append: assertBoolean(file['append'], 'Logging file preferences append must be a boolean.'),
-      destination: assertNullableDestinationString(
-        file['destination'],
-        'Logging file preferences destination must be a string or null.',
-        'Logging file preferences destination'
-      ),
-      enabled: assertBoolean(
-        file['enabled'],
-        'Logging file preferences enabled must be a boolean.'
-      ),
-      level: assertLogLevel(
-        file['level'],
-        'Logging file preferences level must be a valid log level.'
-      ),
-      mkdir: assertBoolean(file['mkdir'], 'Logging file preferences mkdir must be a boolean.'),
-    },
-    includeTimestamp: assertBoolean(
-      value['includeTimestamp'],
-      'Logging preferences includeTimestamp must be a boolean.'
-    ),
-    level: assertLogLevel(value['level'], 'Logging preferences level must be a valid log level.'),
-    redactPaths: assertStringArray(
-      value['redactPaths'],
-      'Logging preferences redactPaths must be a string array.'
-    ),
-  };
+  return { ...current, ...patch, file: { ...current.file, ...patch.file } };
 }

@@ -1,4 +1,5 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { act } from '@brainstrike/test-utils/react-act';
 import type {
   ChangedFileEntry,
   Changeset,
@@ -7,6 +8,7 @@ import type {
   GitRepository,
   GitStatus,
 } from '@brainstrike/types';
+import { resetToastStore, Toaster } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,7 +55,13 @@ function installChangesBridge(): void {
   });
   installed = {
     ...installed,
-    changes: { fileDiff: unused, inventory: unused, onInvalidated: unused, resolveView: unused },
+    changes: {
+      apply: unused,
+      fileDiff: unused,
+      inventory: unused,
+      onInvalidated: unused,
+      resolveView: unused,
+    },
   };
 }
 
@@ -123,11 +131,13 @@ const GIT_SCOPE_CHANGESET: Changeset = {
 };
 
 const FILE: ChangedFileEntry = {
+  actions: [],
   additions: 3,
   deletions: 1,
+  patch: null,
   path: 'src/index.ts',
   repositoryRoot: '/repo',
-  revertible: true,
+  revision: 'r1',
   rootId: 'root-1',
   status: 'modified',
   worktreePath: '/repo',
@@ -140,7 +150,6 @@ function baseProps(overrides: Partial<React.ComponentProps<typeof ChangesetHeade
     inventory: null,
     inventoryError: null,
     latestRunId: null,
-    loading: false,
     onSelectChangeset: vi.fn(),
     onSelectLastTurn: vi.fn(),
     rootId: 'root-1',
@@ -228,29 +237,6 @@ describe('ChangesetHeader', () => {
     );
     screen.getByRole('button', { name: /retry/iu }).click();
     expect(onRetry).toHaveBeenCalledOnce();
-  });
-
-  it('renders the honest empty state only for a RESOLVED view with zero files', () => {
-    const emptyView: ChangesetView = {
-      changeset: AGENT_RUN_CHANGESET,
-      files: [],
-      totalAdditions: null,
-      totalDeletions: null,
-    };
-    render(
-      <ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: emptyView })} />,
-      { wrapper: workspaceHost() }
-    );
-    expect(screen.getByTestId('changeset-header-empty')).toHaveTextContent(
-      'No changes in this changeset'
-    );
-  });
-
-  it('does NOT render the empty state when the view has not resolved (null)', () => {
-    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: null })} />, {
-      wrapper: workspaceHost(),
-    });
-    expect(screen.queryByTestId('changeset-header-empty')).toBeNull();
   });
 
   it('shows an actionable message instead of a blank header when no workspace root is open', () => {
@@ -404,6 +390,80 @@ describe('ChangesetHeader', () => {
     );
 
     expect(screen.getByTestId('changeset-git-scope-actions')).toBeInTheDocument();
+  });
+
+  describe('commit form', () => {
+    const ACTIVE_INVENTORY: GitInventory = {
+      errors: [],
+      repositories: [
+        {
+          identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
+          worktrees: [
+            {
+              bare: false,
+              branch: 'main',
+              containment: ['root-1'],
+              current: true,
+              detached: false,
+              head: 'a',
+              lockedReason: null,
+              name: 'repo',
+              path: '/repo',
+              provenance: 'scanned',
+              prunableReason: null,
+              trust: 'validated',
+              trustReason: null,
+            },
+          ],
+        },
+      ],
+    };
+
+    afterEach(() => {
+      act(() => resetToastStore());
+    });
+
+    function renderActiveHeader() {
+      installGitBridge();
+      render(
+        <>
+          <ChangesetHeader
+            {...baseProps({ changeset: GIT_SCOPE_CHANGESET, inventory: ACTIVE_INVENTORY })}
+          />
+          <Toaster />
+        </>,
+        { wrapper: workspaceHost() }
+      );
+    }
+
+    it('commits on Enter and says which commit it made', async () => {
+      const user = userEvent.setup();
+      renderActiveHeader();
+
+      await user.click(screen.getByRole('button', { name: 'Commit' }));
+      await user.type(
+        screen.getByRole('textbox', { name: 'Commit message' }),
+        'Fix the header{Enter}'
+      );
+
+      expect(installed.git?.commit).toHaveBeenCalledExactlyOnceWith('root-1', {
+        summary: 'Fix the header',
+      });
+      expect(await screen.findByText('Committed abc1234')).toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: 'Commit message' })).not.toBeInTheDocument();
+    });
+
+    it('cancels on Escape without committing', async () => {
+      const user = userEvent.setup();
+      renderActiveHeader();
+
+      await user.click(screen.getByRole('button', { name: 'Commit' }));
+      await user.type(screen.getByRole('textbox', { name: 'Commit message' }), 'Half a thought');
+      await user.keyboard('{Escape}');
+
+      expect(screen.queryByRole('textbox', { name: 'Commit message' })).not.toBeInTheDocument();
+      expect(installed.git?.commit).not.toHaveBeenCalled();
+    });
   });
 
   // ===== Conversation Rewind entry point (BST-1115 W5 T4, Amendment 1 A1.3) =====

@@ -354,7 +354,7 @@ describe('LogViewer', () => {
       expect(argumentSerializations).toBe(1);
       expect(bindingSerializations).toBe(1);
 
-      const searchInput = screen.getByPlaceholderText('Search logs...');
+      const searchInput = screen.getByPlaceholderText('Search logs…');
       fireEvent.change(searchInput, { target: { value: 'needle' } });
       fireEvent.change(searchInput, { target: { value: 'needle detail' } });
 
@@ -570,7 +570,7 @@ describe('LogViewer', () => {
 
     await waitFor(() => expect(screen.getByText('Apple')).toBeInTheDocument());
 
-    const searchInput = screen.getByPlaceholderText('Search logs...');
+    const searchInput = screen.getByPlaceholderText('Search logs…');
     expect(searchInput).toHaveClass('pl-10');
     // Authored inline in rem (SETTINGS_SEARCH_INPUT_STYLE /
     // SETTINGS_SEARCH_ICON_LEFT_INSET), so read `.style` rather than
@@ -716,7 +716,7 @@ describe('LogViewer', () => {
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
     await waitFor(() => expect(screen.getByText('Main needle')).toBeInTheDocument());
-    fireEvent.change(screen.getByPlaceholderText('Search logs...'), {
+    fireEvent.change(screen.getByPlaceholderText('Search logs…'), {
       target: { value: 'needle' },
     });
     openFilters();

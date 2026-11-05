@@ -190,7 +190,7 @@ describe('ToolsFilterBar', () => {
       render(<ToolsFilterBar {...defaultProps} />);
 
       const input = screen.getByTestId('search-input');
-      expect(input).toHaveAttribute('placeholder', 'Search tools...');
+      expect(input).toHaveAttribute('placeholder', 'Search tools…');
       expect(input).toHaveClass('pl-10');
       // Authored inline in rem (SETTINGS_SEARCH_INPUT_STYLE /
       // SETTINGS_SEARCH_ICON_LEFT_INSET), so read `.style` rather than

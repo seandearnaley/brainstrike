@@ -2,10 +2,7 @@
  * Tests for SystemDiagnosticsPanel (BST-181)
  */
 
-import {
-  __resetDatabaseStatusStoreForTests,
-  useDatabaseStatusStore,
-} from '@brainstrike/app-state/stores/database-status-store';
+import { useDatabaseStatusStore } from '@brainstrike/app-state/stores/database-status-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -22,13 +19,11 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
 
 describe('SystemDiagnosticsPanel', () => {
   beforeEach(() => {
-    __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
   });
 
   afterEach(() => {
-    __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
     vi.unstubAllGlobals();
@@ -55,7 +50,7 @@ describe('SystemDiagnosticsPanel', () => {
       render(<SystemDiagnosticsPanel />);
 
       expect(screen.getByText('Database')).toBeInTheDocument();
-      expect(screen.getByText('PGlite database connection')).toBeInTheDocument();
+      expect(screen.getByText('Local SQLite database')).toBeInTheDocument();
     });
 
     it('renders token cache worker section', () => {
@@ -231,39 +226,6 @@ describe('SystemDiagnosticsPanel', () => {
               rendererReloadAttemptCount: 0,
               suppressedRendererReloadCount: 0,
             },
-            indexing: {
-              databaseWork: {
-                runningLabel: 'background-indexing-backfill',
-                runningPriority: 'background',
-              },
-              dimensionIndexMaintenance: {
-                maintenance: [
-                  {
-                    attempts: 1,
-                    completedAt: null,
-                    dimension: 384,
-                    lastDurationMs: null,
-                    lastError: null,
-                    lastForegroundProbeMaxMs: null,
-                    lastForegroundProbeP95Ms: null,
-                    lastInvalidIndexName: null,
-                    nextRunAt: '2026-05-20T00:02:00.000Z',
-                    reason: 'embedding-backfill:set-1',
-                    requestedAt: '2026-05-20T00:01:00.000Z',
-                    startedAt: null,
-                    state: 'pending',
-                    strategy: 'regular',
-                  },
-                ],
-                suspensions: [
-                  {
-                    dimension: 384,
-                    reason: 'nonblocking-background-indexing',
-                    suspendedAt: '2026-05-20T00:00:59.000Z',
-                  },
-                ],
-              },
-            },
             migration: {
               attemptCount: 2,
               inFlight: false,
@@ -288,10 +250,6 @@ describe('SystemDiagnosticsPanel', () => {
 
       expect(await screen.findByText('Desktop Platform')).toBeInTheDocument();
       expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
-      // Desktop has no backfill queue; native indexing reports its own activity.
-      expect(screen.queryByText('Active Backfills')).not.toBeInTheDocument();
-      expect(screen.getByText('Dimension Maintenance')).toBeInTheDocument();
-      expect(screen.getByText('1 pending / 1 suspended')).toBeInTheDocument();
       expect(screen.getByText('Migration')).toBeInTheDocument();
       expect(screen.getByText('2 attempts')).toBeInTheDocument();
       expect(screen.getByText('Crash Recovery')).toBeInTheDocument();
@@ -324,7 +282,7 @@ describe('SystemDiagnosticsPanel', () => {
       useDatabaseStatusStore.getState().setLoading();
       render(<SystemDiagnosticsPanel />);
 
-      expect(screen.getByText('Connecting...')).toBeInTheDocument();
+      expect(screen.getByText('Connecting…')).toBeInTheDocument();
     });
 
     it('shows connected state with location', () => {
@@ -430,12 +388,10 @@ describe('SystemDiagnosticsPanel', () => {
 
 describe('createSystemDiagnosticsSettingsCategory', () => {
   beforeEach(() => {
-    __resetDatabaseStatusStoreForTests();
     mockUseOptionalTokenCacheContext.mockReturnValue(null);
   });
 
   afterEach(() => {
-    __resetDatabaseStatusStoreForTests();
     vi.clearAllMocks();
   });
 

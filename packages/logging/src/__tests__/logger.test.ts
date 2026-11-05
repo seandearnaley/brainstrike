@@ -94,6 +94,24 @@ describe('logger', () => {
       ]);
     });
 
+    it('logs a boundary refusal at warn and a fault at error', () => {
+      class RefusalLike extends Error {
+        readonly failure = { category: 'availability', code: 'host.closing', kind: 'refusal' };
+      }
+      const fault = { failure: { category: 'internal', code: 'host.failed', kind: 'fault' } };
+      const records = collectLogs(() => {
+        error('the host refused', { error: new RefusalLike('closing') });
+        createLogger('scoped').error('the host refused', new RefusalLike('closing'));
+        error('the host failed', { error: fault });
+      });
+
+      expect(records.map((record) => record.level)).toEqual([
+        LogLevel.WARN,
+        LogLevel.WARN,
+        LogLevel.ERROR,
+      ]);
+    });
+
     it('enables debug logging when configured with an explicit level', () => {
       configureLogger({ level: LogLevel.DEBUG });
 

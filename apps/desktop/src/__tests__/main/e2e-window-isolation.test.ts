@@ -75,14 +75,6 @@ vi.mock('@brainstrike/file-system/electron', () => {
   return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage/electron', () => {
-  const MockAdapter = vi.fn();
-  MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { ElectronStorageAdapter: MockAdapter };
-});
-
 vi.mock('../../create-window', () => ({
   createWindow: vi.fn(async () => ({
     getBounds: vi.fn(() => ({ height: 800, width: 1280, x: 0, y: 0 })),
@@ -103,17 +95,6 @@ vi.mock('../../window-state', () => ({
   readStoredWindowState: vi.fn(() => null),
   registerWindowStatePersistence: vi.fn(),
 }));
-
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {
-      get: vi.fn(),
-      set: vi.fn(),
-    });
-  });
-  return { default: MockElectronStore };
-});
 
 const ORIGINAL_ARGV = [...process.argv];
 const ORIGINAL_AGENT_DEVTOOLS = process.env['BRAINSTRIKE_AGENT_DEVTOOLS'];

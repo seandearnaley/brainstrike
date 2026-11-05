@@ -35,15 +35,13 @@ async function writer(events: Readonly<Record<string, number>>) {
   }
   const options = {
     dbPath: path.join(root, 'index.sqlite'),
-    embedding: { indexMode: 'text-only' },
-    rootIds: ['canonical'],
     stateProjection: { mode: 'dev', module: producer },
     stateRoot: root,
   } as const;
   const projection = await loadStateProjection(options.stateProjection, root);
-  const index = new IndexWriter(options, openDesktopIndex(options, projection), projection);
+  const index = new IndexWriter(options, openDesktopIndex(options), projection);
   owned.push(() => index.close());
-  return { log, state: index.requireState() };
+  return { log, state: index.state };
 }
 
 /** Counts the store's authoritative watermark reads, one per thread visit. */

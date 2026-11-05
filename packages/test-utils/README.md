@@ -1,46 +1,25 @@
 # @brainstrike/test-utils
 
-Shared test configuration, explicit mocks, render-wrapper composition, recorded
-fixtures and async/timeout helpers. The export map in
-[`package.json`](package.json) is authoritative; older examples named helpers
-that this package does not export.
+Shared test configuration, explicit mocks, render-wrapper composition, recorded fixtures and async/timeout helpers. The export map in [`package.json`](package.json) is authoritative.
 
 ## Configuration
 
-The `/vitest.base` entry exports `testBase`, which is a **test-options** object:
+- `/vitest.base` exports `sharedConfig`, merged into every package's Vitest config with Vitest's `mergeConfig`, plus `integrationLane` and `coverageEnabled`:
 
-```ts
-import { testBase } from '@brainstrike/test-utils/vitest.base';
-import { defineConfig } from 'vitest/config';
+  ```ts
+  import { sharedConfig } from '@brainstrike/test-utils/vitest.base';
+  import { defineConfig, mergeConfig } from 'vitest/config';
 
-export default defineConfig({ test: { ...testBase } });
-```
+  export default mergeConfig(sharedConfig, defineConfig({ test: { include: ['src/**/*.test.ts'] } }));
+  ```
 
-Use the existing setup entries for unit/browser environments. Versions, worker
-settings, coverage and timeout policy belong to those sources and the owning
-runner, not a copied configuration table. A mocked capability does not qualify
-the real native/browser/provider boundary.
+- Setup entries for unit, DOM-aware and browser environments are separate subpaths (`/vitest.setup`, `/vitest.dom-aware.setup`, `/vitest.browser.setup`, ...).
+- A mocked capability never qualifies the real native, browser or provider boundary.
 
-## Compose explicit helpers
+## Helpers
 
-- `makeRenderWithProviders(Wrapper)` creates a render function for a caller-owned
-  wrapper. `composeWrappers` and `NoopWrapper` help compose it. No default React
-  Query/router provider stack is installed for every component.
-- Electron helpers create specific IPC/app/context-bridge mocks or install the
-  existing module mocks. Worker helpers expose `installMockWorkers`.
-- `flushMicrotasks` and `flushAllTimersAndMicrotasks` handle controlled async work;
-  they do not join real I/O or retire an application resource.
-- `TEST_TIMEOUTS`, `getAdjustedTimeout` and `getAsyncUtilTimeout` serve their
-  documented test/async purposes. Do not replace missing progress with a larger
-  timeout or an unbounded retry.
-
-The committed-host and other recorded fixtures are explicit subpath exports.
-Select a fixture representing the actual runtime shape. Helper signatures live
-in [`src`](src/) and the declared setup/reporter files.
-
-## Development
-
-Use the package's existing scripts for changes to these helpers. Validation
-selection and failure/quarantine policy live in
-`pnpm check`, rather than another
-package-specific test campaign.
+- `makeRenderWithProviders(Wrapper)` builds a render function for a caller-owned wrapper; `composeWrappers` and `NoopWrapper` help compose it. No default provider stack is installed.
+- Electron helpers create specific IPC/app/context-bridge mocks; `installMockWorkers` mocks workers.
+- `flushMicrotasks` and `flushAllTimersAndMicrotasks` drive controlled async work; they don't join real I/O.
+- `TEST_TIMEOUTS`, `getAdjustedTimeout` and `getAsyncUtilTimeout` scale timeouts. Never paper over missing progress with a larger timeout or an unbounded retry.
+- Recorded committed-host fixtures are `/fixtures/*.json` subpaths; pick the one matching the real runtime shape.

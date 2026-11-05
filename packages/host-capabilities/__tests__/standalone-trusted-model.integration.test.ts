@@ -5,148 +5,15 @@
  * injected model runs under its own identity, which `run.started` and each
  * `model.step` name, and no catalog model runs beside it.
  */
-import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
-import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
-import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
-import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
-import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
-import { z } from 'zod';
+import {
+  drainCleanup,
+  refusingProvider,
+  standaloneHost,
+  trustedPlatformModule,
+} from './fixtures/standalone-trusted-host.ts';
 
-const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
-const platform = pathToFileURL(fileURLToPath(new URL('../src/platform.ts', import.meta.url))).href;
-const cleanup: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  for (const close of cleanup.splice(0).reverse()) {
-    await close();
-  }
-});
-
-/** A loopback OpenAI stand-in that refuses every request and keeps what it was sent. */
-async function refusingProvider() {
-  const requests: { body: Record<string, unknown>; url: string }[] = [];
-  const server = createServer((request, response) => {
-    let text = '';
-    request.on('data', (chunk) => {
-      text += String(chunk);
-    });
-    request.on('end', () => {
-      requests.push({ body: JSON.parse(text || '{}'), url: request.url ?? '' });
-      response.writeHead(401, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ error: { message: 'trusted-model fixture refuses' } }));
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  cleanup.push(() => new Promise((resolve) => server.close(() => resolve())));
-  const address = server.address();
-  if (!(address && typeof address === 'object')) {
-    throw new Error('No fixture port');
-  }
-  return { baseUrl: `http://127.0.0.1:${address.port}/v1`, requests };
-}
-
-async function standaloneHost(env: Readonly<Record<string, string>>, platformModule?: string) {
-  const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-trusted-model-data-'));
-  const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-trusted-model-ws-')));
-  const command = (args: readonly string[]) =>
-    new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
-      execFile(
-        process.execPath,
-        [bin, '--data-root', dataRoot, ...args],
-        {
-          cwd: tmpdir(),
-          env: { ...env, LC_ALL: 'C', PATH: process.env['PATH'], TZ: 'UTC' },
-          timeout: 60_000,
-        },
-        (cause, stdout, stderr) => {
-          if (!cause) {
-            resolve({ code: 0, stderr, stdout });
-          } else if (typeof cause.code === 'number') {
-            resolve({ code: cause.code, stderr, stdout });
-          } else {
-            reject(cause);
-          }
-        }
-      );
-    });
-  cleanup.push(async () => {
-    const owner = RootLock.inspect(dataRoot)?.owner;
-    if (owner && !owner.released) {
-      const { pid } = decodeHostRecord(
-        JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))
-      );
-      expect(await command(['host', 'stop'])).toMatchObject({ code: 0 });
-      await expect.poll(() => processStartTime(pid), { timeout: 30_000 }).toBeNull();
-    }
-    await rm(workspace, { force: true, recursive: true });
-    await removeFixtureRoot(dataRoot);
-  });
-  const started = await command([
-    'host',
-    'start',
-    '--workspace',
-    workspace,
-    ...(platformModule ? ['--platform', platformModule] : []),
-  ]);
-  const run = async (model: string) => {
-    const result = await command([
-      'run',
-      'Say hello.',
-      '--model',
-      model,
-      '--json',
-      '--non-interactive',
-    ]);
-    const identity = z
-      .object({ runId: z.string(), threadId: z.string() })
-      .safeParse(JSON.parse(result.stdout.split('\n')[0] || 'null'));
-    if (!identity.success) {
-      return { result };
-    }
-    const shown = await command(['threads', 'show', '--thread', identity.data.threadId]);
-    const { rows } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(JSON.parse(shown.stdout));
-    return { result, rows };
-  };
-  return { run, started };
-}
-
-/** A trusted `--platform` module: the standalone platform with the scripted fixture as `provider::probe`. */
-async function trustedPlatformModule(provider: string): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'bs-trusted-model-module-'));
-  cleanup.push(() => rm(directory, { force: true, recursive: true }));
-  const scripted = pathToFileURL(
-    createRequire(import.meta.url).resolve('@brainstrike/agent-host/test-fixtures/scripted-model')
-  ).href;
-  const module = join(directory, 'trusted-platform.mjs');
-  await writeFile(
-    module,
-    `import { createHostPlatform as standalone } from ${JSON.stringify(platform)};
-import { scriptedModel } from ${JSON.stringify(scripted)};
-const fixture = scriptedModel();
-const model = {
-  doGenerate: (options) => fixture.doGenerate(options),
-  doStream: (options) => fixture.doStream(options),
-  modelId: 'probe',
-  provider: ${JSON.stringify(provider)},
-  specificationVersion: fixture.specificationVersion,
-  supportedUrls: fixture.supportedUrls,
-};
-export const createHostPlatform = (options, startup, launch) =>
-  standalone(options, startup, launch, { models: [{ budgets: 'openai::gpt-6-luna', model }] });
-`
-  );
-  return module;
-}
+afterEach(drainCleanup);
 
 test('without the seam, --model resolves through the catalog and cannot name a trusted model', {
   timeout: 120_000,

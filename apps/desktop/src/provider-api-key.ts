@@ -9,15 +9,12 @@ import {
   inspectProviderKeys as inspectStoredProviderKeys,
   type ProviderKeyInspection,
 } from '@brainstrike/host-capabilities/provider-status';
-import { createLogger } from '@brainstrike/logging';
 import { getSecretsService } from './secrets';
 
 export {
   type ResolvedDesktopProviderCredential,
   resolveAwsEnvChainCredential,
 } from '@brainstrike/host-capabilities/provider-credentials';
-
-const logger = createLogger('ProviderApiKey');
 
 export interface ResolvedProviderEnvCredential {
   readonly envVar: string;
@@ -35,32 +32,6 @@ export function resolveProviderEnvCredential(
     }
   }
   return;
-}
-
-export function resolveProviderEnvKey(provider: SupportedProvider): string | undefined {
-  return resolveProviderEnvCredential(provider)?.value;
-}
-
-export async function readProviderSecretKey(
-  provider: SupportedProvider
-): Promise<string | undefined> {
-  try {
-    const secretsService = getSecretsService();
-    const value = await secretsService.getKey(provider);
-    return normalizeSecretValue(value);
-  } catch (error) {
-    logger.error('Failed to read secrets entry for provider', { error, provider });
-    throw error;
-  }
-}
-
-/** A provider key: the environment first, then the keychain. Chat and hosted embeddings share it. */
-export async function readProviderApiKey(provider: SupportedProvider): Promise<string | undefined> {
-  const envValue = resolveProviderEnvKey(provider);
-  if (envValue) {
-    return envValue;
-  }
-  return await readProviderSecretKey(provider);
 }
 
 export async function readProviderCredential(

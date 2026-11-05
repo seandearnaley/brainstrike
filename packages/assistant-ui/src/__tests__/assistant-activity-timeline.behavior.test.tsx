@@ -299,8 +299,8 @@ describe('assistant activity chronology through the real runtime', () => {
     expect(second).toHaveAttribute('data-active', 'false');
     expect(first).toHaveTextContent('1 step');
     expect(second).toHaveTextContent('2 steps');
-    expect(first).toHaveTextContent('Worked for 2.0s');
-    expect(second).toHaveTextContent('Worked for 4.0s');
+    expect(first).toHaveTextContent('Worked for 2s');
+    expect(second).toHaveTextContent('Worked for 4s');
   });
 
   it('keeps every tool call of a run in ONE group when run events fence each call (field shape)', async () => {
@@ -318,8 +318,8 @@ describe('assistant activity chronology through the real runtime', () => {
     const { first, second } = expectChronologicalGroups();
     expect(first).toHaveTextContent('1 step');
     expect(second).toHaveTextContent('2 steps');
-    expect(first).toHaveTextContent('Worked for 2.0s');
-    expect(second).toHaveTextContent('Worked for 4.0s');
+    expect(first).toHaveTextContent('Worked for 2s');
+    expect(second).toHaveTextContent('Worked for 4s');
   });
 
   it('renders a trailing data-only group (run.finished after the final text) bare, not as an empty "0 steps" card', async () => {

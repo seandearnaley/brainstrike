@@ -22,30 +22,22 @@ import {
 import {
   GrepContentDeliverySchema,
   GrepFilesDeliverySchema,
-  HybridDeliverySchema,
-  PROJECTION_OMITTED_CONTEXT_CHARS,
   parseGrepContentProjectionPage,
-  parseProjectionShownCount,
   ReadDeliverySchema,
-  SemanticDeliverySchema,
   StringReplaceDeliverySchema,
   WriteDeliverySchema,
 } from '@brainstrike/assistant-contract/context-provenance';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { Schema } from 'effect';
 import type { CommittedAssistantLogRow } from './committed-assistant-log-projection';
-export type ContextSpanKind = 'edit' | 'grep' | 'pinned' | 'read' | 'semantic';
+export type ContextSpanKind = 'edit' | 'grep' | 'pinned' | 'read';
 /** One stretch of one file a tool call (or an attachment) delivered. */
 export interface ContextSpan {
-  /** Index chunk the span names, when the tool reported one. */
-  readonly chunkId?: string;
   /** The delivered lines as the model saw them (read gutters removed), for "changed since read". */
   readonly deliveredLines?: readonly string[];
-  /** Last line, 1-based inclusive; absent for a whole file or a chunk named only by id. */
+  /** Last line, 1-based inclusive; absent for a whole file. */
   readonly endLine?: number;
   readonly kind: ContextSpanKind;
-  /** The model received only part of this span: an excerpt, or text a projection cut. */
-  readonly partial?: boolean;
   /** Root-relative path, as the tool reported it. */
   readonly path: string;
   /** A read the tool answered with "unchanged since your last read", not the text again. */
@@ -189,72 +181,6 @@ function extractGrep(call: MutableCall): Extracted {
     })),
   };
 }
-function extractSemantic(call: MutableCall): Extracted {
-  const semantic = Schema.decodeUnknownResult(SemanticDeliverySchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(call.output);
-  if (!(semantic._tag === 'Success')) {
-    // An unavailable answer (no index, no vectors) carries no chunks.
-    return record(call.output)?.['chunks'] === undefined
-      ? NONE
-      : unmapped('The semantic result has an unexpected shape.');
-  }
-  const partial =
-    !semantic.success.chunkContentIncludedInContext ||
-    (call.modelText?.includes(PROJECTION_OMITTED_CONTEXT_CHARS) ?? false);
-  return {
-    spans: semantic.success.chunks.flatMap((chunk): ContextSpan[] => {
-      if (!chunk.filePath) {
-        return [];
-      }
-      const { lineRange, metadata } = chunk;
-      return [
-        {
-          chunkId: chunk.id,
-          kind: 'semantic',
-          path: chunk.filePath,
-          ...(lineRange ? { endLine: lineRange.end, startLine: lineRange.start } : {}),
-          ...(metadata?.rootId ? { rootId: metadata.rootId } : {}),
-          ...(metadata?.rootName ? { rootName: metadata.rootName } : {}),
-          ...(partial ? { partial: true } : {}),
-        },
-      ];
-    }),
-  };
-}
-function extractHybrid(call: MutableCall): Extracted {
-  const hybrid = Schema.decodeUnknownResult(HybridDeliverySchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(call.output);
-  if (!(hybrid._tag === 'Success')) {
-    return record(call.output)?.['results'] === undefined
-      ? NONE
-      : unmapped('The hybrid result has an unexpected shape.');
-  }
-  const shown =
-    call.modelText === undefined ? undefined : parseProjectionShownCount(call.modelText);
-  if (call.modelText !== undefined && shown === undefined) {
-    return unmapped('The delivered hybrid header is unreadable.');
-  }
-  // Each hit reaches the model as a clipped excerpt of its chunk.
-  return {
-    spans: hybrid.success.results.slice(0, shown).flatMap((item): ContextSpan[] =>
-      item.filePath
-        ? [
-            {
-              chunkId: item.id,
-              kind: 'semantic',
-              partial: true,
-              path: item.filePath,
-              ...(item.rootName ? { rootName: item.rootName } : {}),
-            },
-          ]
-        : []
-    ),
-  };
-}
 function extractStringReplace(call: MutableCall): Extracted {
   const edit = Schema.decodeUnknownResult(StringReplaceDeliverySchema, {
     errors: 'all',
@@ -292,8 +218,6 @@ function extractWrite(call: MutableCall): Extracted {
 /** Content-bearing tools; every other tool delivers no file lines. */
 const EXTRACTORS: Readonly<Record<string, (call: MutableCall) => Extracted>> = {
   'brainstrike.grepSearch': extractGrep,
-  'brainstrike.hybridSearch': extractHybrid,
-  'brainstrike.queryEmbeddingSpace': extractSemantic,
   'brainstrike.readWorkspaceFile': extractRead,
   'brainstrike.stringReplaceWorkspaceFile': extractStringReplace,
   'brainstrike.writeWorkspaceFile': extractWrite,

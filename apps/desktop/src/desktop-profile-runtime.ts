@@ -1,21 +1,19 @@
-import type { ClearContentResult } from '@brainstrike/state-store';
-
 interface ProfileOwner<Attachment> {
   acquire(): Promise<Attachment>;
-  clearAndRetireContent?(): Promise<ClearContentResult>;
+  clearAndRetireContent?(): Promise<void>;
   close(reason?: unknown): Promise<void>;
 }
 
 export interface DesktopProfileRuntime<Attachment> {
   acquire(signal?: AbortSignal): Promise<Attachment>;
-  clearAndRetireContent(): Promise<ClearContentResult>;
+  clearAndRetireContent(): Promise<void>;
   isRetiring(): boolean;
   retire(beforeClose?: Promise<void>, reason?: unknown): Promise<void>;
   retireFailed(): Promise<boolean>;
 }
 
 /**
- * One Main-owned profile lease, shared by bootstrap, clients and native indexing.
+ * One Main-owned profile lease, shared by bootstrap and clients.
  * `createOwner` receives `lost`, which the owner calls when its channel to its ready
  * host closes without Main asking (BST-2004). That owner then fails like a failed start:
  * `retireFailed` joins its release before admission starts the next host. An
@@ -76,7 +74,7 @@ export function createDesktopProfileRuntime<Attachment>(
         return Promise.reject(new Error('Profile retirement is already in progress'));
       }
       retirementPending = true;
-      const clearing = (async (): Promise<ClearContentResult> => {
+      const clearing = (async (): Promise<void> => {
         await retireFailed();
         owner ??= create();
         const retained = owner;
@@ -85,18 +83,16 @@ export function createDesktopProfileRuntime<Attachment>(
         if (!retained.clearAndRetireContent) {
           throw new Error('This profile owner cannot clear content');
         }
-        const result = await retained.clearAndRetireContent();
+        await retained.clearAndRetireContent();
         owner = undefined;
         acquisition = undefined;
-        return result;
       })();
-      retirement = clearing.then(() => undefined);
+      retirement = clearing;
       retirement.catch(() => undefined);
       return clearing.then(
-        (result) => {
+        () => {
           retirementPending = false;
           retirement = undefined;
-          return result;
         },
         (cause: unknown) => {
           retirementPending = false;

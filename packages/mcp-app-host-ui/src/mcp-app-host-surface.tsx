@@ -1,4 +1,4 @@
-import type { McpAppToolCallAuthority } from '@brainstrike/mcp-app-host';
+import type { McpAppToolCallAuthority, McpAppToolRiskCategory } from '@brainstrike/mcp-app-host';
 import { Button } from '@brainstrike/ui';
 import {
   type KeyboardEvent,
@@ -29,6 +29,14 @@ const ERROR_MESSAGES: Readonly<Record<McpAppHostErrorCode, string>> = Object.fre
   'load-failed': 'The app resource could not be loaded safely.',
   'permission-failed': 'The app permission request could not be completed safely.',
   'protocol-failed': 'The app could not start safely.',
+});
+
+/** What allowing the call lets the app do, in plain words. */
+const RISK_SENTENCE: Readonly<Record<McpAppToolRiskCategory, string>> = Object.freeze({
+  edit: 'It can change files or data on your behalf.',
+  execute: 'It can run commands or take actions with effects outside this app.',
+  mcp: 'It runs a tool on the app’s server, which can act on your behalf.',
+  read: 'It can read files or data and pass them to the app.',
 });
 
 function focus(element: HTMLElement | null): void {
@@ -249,10 +257,10 @@ export function McpAppHostSurface({
           role="alertdialog"
         >
           <div className="border-border bg-card flex max-w-sm flex-col gap-3 rounded-lg border p-4 shadow-lg">
-            <p className="font-medium">Allow {approval.toolName}?</p>
-            <p className="text-muted-foreground text-sm">
-              This {approval.riskCategory} action requires your approval.
+            <p className="font-medium">
+              {appName} wants to run {approval.toolName}
             </p>
+            <p className="text-muted-foreground text-sm">{RISK_SENTENCE[approval.riskCategory]}</p>
             {authoritySnapshot.pendingApprovals.length > 1 ? (
               <p className="text-muted-foreground text-xs">
                 {authoritySnapshot.pendingApprovals.length - 1} more request

@@ -1,13 +1,17 @@
 // The shared change batcher (BST-568): 150ms trailing coalescing with a
 // bounded batch size. Engine-level behavior (event normalization, ignore
 // rules, health) lives in root-watchers.test.ts.
+
+import {
+  FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT,
+  type FileSystemChange,
+} from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFileSystemChangeBatcher,
   FS_WATCH_BATCH_WINDOW_MS,
   FS_WATCH_MAX_BATCH_SIZE,
 } from '../adapters/electron-watchers.js';
-import { FILE_SYSTEM_WATCH_FILTERED_BOUNDARY_LIMIT, type FileSystemChange } from '../types.js';
 
 function change(pathSuffix: number): FileSystemChange {
   return { kind: 'file', path: `/root/f${pathSuffix}.txt`, type: 'added' };

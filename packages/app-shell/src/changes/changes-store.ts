@@ -1,23 +1,18 @@
 /**
- * Thin session-only store for the Changes surface's tree state (BST-1114).
+ * Session-only view state for the Changes surface (BST-1114): which tree
+ * groups are expanded, the draft comments on each changeset's diff until
+ * they go into a message, and the files marked viewed (ADR-0036). The changeset, its `ChangesetView` and every file
+ * diff stay in `useChangeset`; duplicating server-resolved data here is how
+ * two sources of truth drift apart.
  *
- * Deliberately holds ONLY view state that two sibling panes must agree on —
- * which files are checked, and which tree groups are expanded. The changeset
- * itself, its resolved `ChangesetView`, and every per-file diff stay in
- * `useChangeset`/`useGitInventory`, not here: duplicating server-resolved data
- * into a store is how two sources of truth get out of sync.
- *
- * Split ownership: `changed-files-tree.tsx` writes, `changeset-diff-pane.tsx`
- * reads. Neither imports the other.
- *
- * SELECTION SEMANTICS (load-bearing): an EMPTY `selectedFileKeys` means "no
- * explicit selection — render every file in the changeset", not "render
- * nothing". A changeset that genuinely has no files is a different fact, and
- * it is `ChangesetView.files` that reports it. `hasExplicitSelection` exists so
- * consumers state which of the two they mean instead of re-deriving `.size > 0`
- * and getting it backwards.
+ * Drafts and viewed marks are keyed by changeset, so switching source keeps
+ * them. A viewed mark holds the revision it was made at, so a file that
+ * changes after it is no longer viewed. Each draft
+ * keeps the file it quotes and the quoted lines, so it reads the same in the
+ * message even after a refresh moves or drops that file.
  */
 import type { ChangedFileEntry } from '@brainstrike/types';
+import type { DiffComment } from '@brainstrike/ui';
 import { create } from 'zustand';
 
 /**
@@ -38,43 +33,93 @@ export function changedFileKey(entry: ChangedFileEntry): string {
 }
 
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
+const NO_DRAFTS: ReadonlyMap<string, readonly DraftComment[]> = new Map();
+const NO_VIEWED: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map();
+
+/** A comment not yet in a message, with the file it was written on. */
+export interface DraftComment {
+  readonly comment: DiffComment;
+  readonly entry: Pick<ChangedFileEntry, 'oldPath' | 'path' | 'rootId'>;
+}
 
 export interface ChangesStoreState {
-  /** Clear the explicit selection, returning the pane to "render every file". */
-  readonly clearSelection: () => void;
+  readonly clearComments: (changesetKey: string) => void;
+  /** Draft comments by changeset key, in the order they were written. */
+  readonly commentsByChangeset: ReadonlyMap<string, readonly DraftComment[]>;
+  readonly deleteComment: (changesetKey: string, id: string) => void;
   /** Collapsed/expanded tree group ids. Group ids are the tree adapter's own. */
   readonly expandedIds: ReadonlySet<string>;
-  /**
-   * True when the user has explicitly narrowed the view. Read this rather than
-   * `selectedFileKeys.size > 0` so the empty case stays unambiguous.
-   */
-  readonly hasExplicitSelection: boolean;
-  /**
-   * Factory-reset entry point (AGENTS.md invariant: "Any new persistent
-   * store/state must be wired into factory reset"). Clears BOTH the
-   * selection and the expanded-group ids — a stale selection from a wiped
-   * changeset can filter every file out of the diff pane, and stale
-   * expanded-group ids reference tree nodes that no longer exist.
-   */
+  /** Factory-reset entry point (AGENTS.md invariant). */
   readonly reset: () => void;
-  /** {@link changedFileKey} values the user checked. Empty ⇒ render everything. */
-  readonly selectedFileKeys: ReadonlySet<string>;
+  /** Adds a comment, or replaces the one with its id. */
+  readonly saveComment: (changesetKey: string, draft: DraftComment) => void;
   readonly setExpandedIds: (ids: ReadonlySet<string>) => void;
-  readonly setSelectedFileKeys: (keys: ReadonlySet<string>) => void;
+  /** Marks a file viewed at `revision`, or not viewed with null. */
+  readonly setViewed: (changesetKey: string, fileId: string, revision: string | null) => void;
   readonly toggleExpanded: (id: string) => void;
-  readonly toggleFileKey: (key: string) => void;
+  /** The revision each viewed file was marked at, by file id, per changeset key. */
+  readonly viewedByChangeset: ReadonlyMap<string, ReadonlyMap<string, string>>;
+}
+
+function withDrafts(
+  drafts: ReadonlyMap<string, readonly DraftComment[]>,
+  changesetKey: string,
+  next: readonly DraftComment[]
+): ReadonlyMap<string, readonly DraftComment[]> {
+  const copy = new Map(drafts);
+  if (next.length === 0) {
+    copy.delete(changesetKey);
+  } else {
+    copy.set(changesetKey, next);
+  }
+  return copy;
 }
 
 export const useChangesStore = create<ChangesStoreState>((set) => ({
-  clearSelection: () => set({ hasExplicitSelection: false, selectedFileKeys: EMPTY_KEYS }),
+  clearComments: (changesetKey) =>
+    set((state) => ({
+      commentsByChangeset: withDrafts(state.commentsByChangeset, changesetKey, []),
+    })),
+  commentsByChangeset: NO_DRAFTS,
+  deleteComment: (changesetKey, id) =>
+    set((state) => ({
+      commentsByChangeset: withDrafts(
+        state.commentsByChangeset,
+        changesetKey,
+        (state.commentsByChangeset.get(changesetKey) ?? []).filter(
+          (draft) => draft.comment.id !== id
+        )
+      ),
+    })),
   expandedIds: EMPTY_KEYS,
-  hasExplicitSelection: false,
   reset: () =>
-    set({ expandedIds: EMPTY_KEYS, hasExplicitSelection: false, selectedFileKeys: EMPTY_KEYS }),
-  selectedFileKeys: EMPTY_KEYS,
+    set({ commentsByChangeset: NO_DRAFTS, expandedIds: EMPTY_KEYS, viewedByChangeset: NO_VIEWED }),
+  saveComment: (changesetKey, draft) =>
+    set((state) => {
+      const current = state.commentsByChangeset.get(changesetKey) ?? [];
+      const id = draft.comment.id;
+      const next = current.some((saved) => saved.comment.id === id)
+        ? current.map((saved) => (saved.comment.id === id ? draft : saved))
+        : [...current, draft];
+      return { commentsByChangeset: withDrafts(state.commentsByChangeset, changesetKey, next) };
+    }),
   setExpandedIds: (ids) => set({ expandedIds: ids }),
-  setSelectedFileKeys: (keys) =>
-    set({ hasExplicitSelection: keys.size > 0, selectedFileKeys: keys }),
+  setViewed: (changesetKey, fileId, revision) =>
+    set((state) => {
+      const marks = new Map(state.viewedByChangeset.get(changesetKey));
+      if (revision === null) {
+        marks.delete(fileId);
+      } else {
+        marks.set(fileId, revision);
+      }
+      const next = new Map(state.viewedByChangeset);
+      if (marks.size === 0) {
+        next.delete(changesetKey);
+      } else {
+        next.set(changesetKey, marks);
+      }
+      return { viewedByChangeset: next };
+    }),
   toggleExpanded: (id) =>
     set((state) => {
       const next = new Set(state.expandedIds);
@@ -85,29 +130,5 @@ export const useChangesStore = create<ChangesStoreState>((set) => ({
       }
       return { expandedIds: next };
     }),
-  toggleFileKey: (key) =>
-    set((state) => {
-      const next = new Set(state.selectedFileKeys);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return { hasExplicitSelection: next.size > 0, selectedFileKeys: next };
-    }),
+  viewedByChangeset: NO_VIEWED,
 }));
-
-/**
- * Files the diff pane should render, in the changeset's own order.
- *
- * Pure (not a hook) so it can be unit-tested and memoized by the caller.
- */
-export function selectRenderedFiles(
-  files: readonly ChangedFileEntry[],
-  selectedFileKeys: ReadonlySet<string>
-): readonly ChangedFileEntry[] {
-  if (selectedFileKeys.size === 0) {
-    return files;
-  }
-  return files.filter((entry) => selectedFileKeys.has(changedFileKey(entry)));
-}

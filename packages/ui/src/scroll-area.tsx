@@ -54,7 +54,7 @@ const ScrollArea = ({
   >
     <ScrollAreaPrimitive.Viewport
       className={cn(
-        'focus-visible:ring-ring/50 size-full min-h-0 rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1',
+        'focus-visible:ring-ring size-full min-h-0 rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:ring-2 focus-visible:outline-1',
         // `& > div` is the content wrapper Radix renders inside every viewport.
         contentWidth === 'viewport' && '[&>div]:!block'
       )}

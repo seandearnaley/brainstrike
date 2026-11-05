@@ -1,51 +1,45 @@
+import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
 import {
-  __resetWorkspaceInstructionsPreferencesStoreForTests,
-  useWorkspaceInstructionsPreferencesStore,
-} from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
+  BoundaryFailureError,
+  type WorkspaceContextFileStatus,
+} from '@brainstrike/assistant-contract';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
-import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { WorkspaceContextFileStatus } from '@brainstrike/assistant-contract/context-files-bridge';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { WorkspaceInstructionsSettingsSection } = await import(
   '../settings/system/workspace-instructions-settings-section'
 );
 
-function stubBridge(statuses: WorkspaceContextFileStatus[]) {
-  Object.defineProperty(window, 'contextFiles', {
-    configurable: true,
-    value: { scan: vi.fn(async () => ({ ok: true, value: statuses })) },
-  });
+let scanContextFiles: (() => Promise<WorkspaceContextFileStatus[]>) | undefined;
+
+function stubHost(statuses: WorkspaceContextFileStatus[]) {
+  scanContextFiles = vi.fn(async () => statuses);
 }
 
-function stubRejectingBridge(error: Error) {
-  Object.defineProperty(window, 'contextFiles', {
-    configurable: true,
-    value: { scan: vi.fn(async () => Promise.reject(error)) },
-  });
+/** The section as the desktop composes it, over the host's scan. */
+function Section() {
+  return (
+    <WorkspaceInstructionsSettingsSection {...(scanContextFiles ? { scanContextFiles } : {})} />
+  );
 }
 
 describe('WorkspaceInstructionsSettingsSection', () => {
-  beforeEach(() => {
-    __resetWorkspaceInstructionsPreferencesStoreForTests();
-  });
-
   afterEach(() => {
-    Reflect.deleteProperty(window, 'contextFiles');
-    __resetWorkspaceInstructionsPreferencesStoreForTests();
+    scanContextFiles = undefined;
   });
 
-  it('renders the master toggle ON by default', () => {
-    stubBridge([]);
-    render(<WorkspaceInstructionsSettingsSection />);
+  it('renders the master toggle ON by default', async () => {
+    stubHost([]);
+    render(<Section />);
     expect(screen.getByTestId('context-files-master-toggle').getAttribute('aria-checked')).toBe(
       'true'
     );
+    await screen.findByTestId('context-files-no-roots');
   });
 
   it('lists a fits file as Injected with size + token estimate', async () => {
-    stubBridge([
+    stubHost([
       {
         approxTokens: 300,
         displayName: 'repo-a',
@@ -57,7 +51,7 @@ describe('WorkspaceInstructionsSettingsSection', () => {
         status: 'fits',
       },
     ]);
-    render(<WorkspaceInstructionsSettingsSection />);
+    render(<Section />);
 
     await waitFor(() => {
       expect(screen.getByTestId('context-files-root-root-a')).not.toBeNull();
@@ -72,7 +66,7 @@ describe('WorkspaceInstructionsSettingsSection', () => {
   });
 
   it('shows an oversized file as detected-but-not-injected with an opt-in toggle', async () => {
-    stubBridge([
+    stubHost([
       {
         approxTokens: 8000,
         displayName: 'repo-big',
@@ -84,7 +78,7 @@ describe('WorkspaceInstructionsSettingsSection', () => {
         status: 'oversized',
       },
     ]);
-    render(<WorkspaceInstructionsSettingsSection />);
+    render(<Section />);
 
     await waitFor(() => {
       expect(screen.getByTestId('context-files-root-root-big')).not.toBeNull();
@@ -107,7 +101,7 @@ describe('WorkspaceInstructionsSettingsSection', () => {
     // The last unpinned hop: a scan that returns a per-root status:'error' entry
     // must surface as the "Unavailable" badge + the destructive error detail in
     // the actual settings UI (not the whole-scan rejection banner).
-    stubBridge([
+    stubHost([
       {
         approxTokens: null,
         displayName: 'repo-broken',
@@ -120,7 +114,7 @@ describe('WorkspaceInstructionsSettingsSection', () => {
         status: 'error',
       },
     ]);
-    render(<WorkspaceInstructionsSettingsSection />);
+    render(<Section />);
 
     await waitFor(() => {
       expect(screen.getByTestId('context-files-root-root-broken')).not.toBeNull();
@@ -135,28 +129,22 @@ describe('WorkspaceInstructionsSettingsSection', () => {
 
   it('rescans on demand so a mid-session root change can be refreshed', async () => {
     const scan = vi
-      .fn<() => Promise<BoundaryResult<WorkspaceContextFileStatus[]>>>()
-      .mockResolvedValueOnce({ ok: true, value: [] })
-      .mockResolvedValueOnce({
-        ok: true,
-        value: [
-          {
-            approxTokens: 300,
-            displayName: 'repo-late',
-            fileName: 'AGENTS.md',
-            oversized: false,
-            path: 'AGENTS.md',
-            rootId: 'root-late',
-            sizeBytes: 1200,
-            status: 'fits',
-          },
-        ],
-      });
-    Object.defineProperty(window, 'contextFiles', {
-      configurable: true,
-      value: { scan },
-    });
-    render(<WorkspaceInstructionsSettingsSection />);
+      .fn<() => Promise<WorkspaceContextFileStatus[]>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          approxTokens: 300,
+          displayName: 'repo-late',
+          fileName: 'AGENTS.md',
+          oversized: false,
+          path: 'AGENTS.md',
+          rootId: 'root-late',
+          sizeBytes: 1200,
+          status: 'fits',
+        },
+      ]);
+    scanContextFiles = scan;
+    render(<Section />);
 
     await waitFor(() => {
       expect(screen.getByTestId('context-files-no-roots')).not.toBeNull();
@@ -170,37 +158,34 @@ describe('WorkspaceInstructionsSettingsSection', () => {
   });
 
   it('shows an empty state when no roots have a context file', async () => {
-    stubBridge([]);
-    render(<WorkspaceInstructionsSettingsSection />);
+    stubHost([]);
+    render(<Section />);
     await waitFor(() => {
       expect(screen.getByTestId('context-files-no-roots')).not.toBeNull();
     });
   });
 
   it('shows a distinct error state (not the empty state) when the scan rejects', async () => {
-    stubRejectingBridge(new Error('database unavailable'));
-    render(<WorkspaceInstructionsSettingsSection />);
+    // A failed host scan arrives as the host's fixed internal fault, never its cause.
+    scanContextFiles = vi.fn(async () => Promise.reject(new BoundaryFailureError(INTERNAL_FAULT)));
+    render(<Section />);
 
     await waitFor(() => {
       expect(screen.getByTestId('context-files-scan-error')).not.toBeNull();
     });
     const errorBanner = screen.getByTestId('context-files-scan-error');
     expect(errorBanner.textContent).toContain(INTERNAL_FAULT.message);
-    expect(errorBanner.textContent).not.toContain('database unavailable');
     // The failure must NOT masquerade as "no folders open".
     expect(screen.queryByTestId('context-files-no-roots')).toBeNull();
   });
 
   it('retries the scan and clears the error on success', async () => {
     const scan = vi
-      .fn<() => Promise<BoundaryResult<WorkspaceContextFileStatus[]>>>()
-      .mockRejectedValueOnce(new Error('transient failure'))
-      .mockResolvedValueOnce({ ok: true, value: [] });
-    Object.defineProperty(window, 'contextFiles', {
-      configurable: true,
-      value: { scan },
-    });
-    render(<WorkspaceInstructionsSettingsSection />);
+      .fn<() => Promise<WorkspaceContextFileStatus[]>>()
+      .mockRejectedValueOnce(new BoundaryFailureError(INTERNAL_FAULT))
+      .mockResolvedValueOnce([]);
+    scanContextFiles = scan;
+    render(<Section />);
 
     await waitFor(() => {
       expect(screen.getByTestId('context-files-scan-error')).not.toBeNull();

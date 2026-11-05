@@ -15,11 +15,7 @@ import {
   type StartupMessage,
 } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
-import {
-  CHILD_CLOSE_BUDGET_MS,
-  type ClearContentResult,
-  processStartTime,
-} from '@brainstrike/state-store';
+import { CHILD_CLOSE_BUDGET_MS, processStartTime } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { MessageChannelMain, type MessagePortMain } from 'electron';
 import {
@@ -111,7 +107,14 @@ export interface DesktopHostLeaseOptions {
 }
 export interface DesktopHostChild {
   readonly exited: Promise<number>;
+  /**
+   * Settles when its lifetime channel closes unasked (BST-2004): the host is gone, often
+   * before Electron reports its exit, at the moment its clients' ports close.
+   */
+  readonly lost: Promise<void>;
   postClientPort(port: MessagePortMain): void;
+  /** The record its ready report carried: which host this is. */
+  readonly record: HostRecord;
   /**
    * Asks this child to close for a user's restart over its own control port (no socket),
    * and joins its exit under the lease's one close ladder. Its channel's close takes the
@@ -122,13 +125,14 @@ export interface DesktopHostChild {
 }
 export interface DesktopHostLease {
   acquire(): Promise<HostAttachment>;
-  clearAndRetireContent(): Promise<ClearContentResult>;
+  clearAndRetireContent(): Promise<void>;
   close(reason?: unknown): Promise<void>;
 }
 
 interface OwnedChild {
+  /** The host reported that its content clear committed. */
+  cleared?: true;
   clearFailure?: unknown;
-  clearReceipt?: ClearContentResult;
   clearRequested?: boolean;
   /** The cooperative close was posted: by the lease close or by a relaunch, never twice. */
   closeAsked: boolean;
@@ -312,8 +316,8 @@ async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void>
     : await askCloseAndJoin(child, ladder);
   await releaseHostProcessJob(child.processJob);
   child.handle.off('exit', child.exitListener);
-  if (child.clearRequested && !child.clearReceipt) {
-    throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
+  if (child.clearRequested && !child.cleared) {
+    throw child.clearFailure ?? new Error('Owned host exited without reporting its content clear');
   }
   // A lost host's loss was reported when its channel closed, before its exit code was known,
   // and a kill this owner escalated to was logged then: neither is a failed close.
@@ -385,12 +389,17 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
     throw new RangeError('Host utility cooperative close must be positive and finite');
   }
   const scope = Scope.makeUnsafe();
+  // Forked first, so it closes last: Main's attachment outlives the host this lease
+  // launched. That host answers what it read, announces its drain and closes the
+  // socket itself, so a request Main still has in flight ends as its answer or its
+  // closing refusal, never as a lost connection (BST-2451).
+  const attachments = Scope.forkUnsafe(scope);
   const abort = new AbortController();
   let acquiring: Promise<HostAttachment> | undefined;
   let retired = false;
   let releasing: Promise<void> | undefined;
   let ownedChild: OwnedChild | undefined;
-  let clearing: Promise<ClearContentResult> | undefined;
+  let clearing: Promise<void> | undefined;
   /** A lost host's native processes, settled once their SIGTERM grace ran (ADR-0017). */
   let lostTail: Promise<void> | undefined;
   // One release join for every caller. It is finite because its child ladder is
@@ -486,7 +495,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           stall.unref();
           const settled = (): void => clearTimeout(stall);
           ready.then(settled, settled);
+          const lost = Promise.withResolvers<void>();
           await ownLifetime(scope, options, child, () => {
+            lost.resolve();
             // A lost host leaves its native processes to Main (ADR-0017).
             lostTail = nativeChildren?.retire();
             // A child lost before ready fails its acquisition instead.
@@ -503,7 +514,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           child.ready = true;
           options.onChildReady?.({
             exited: child.exited,
+            lost: lost.promise,
             postClientPort: (port) => child.handle.postMessage({ event: 'client-port' }, [port]),
+            record,
             stopForRelaunch: () => {
               // This child's own exit reads it: a later child's crash still warns.
               child.relaunchRequested = true;
@@ -518,7 +531,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           ? {}
           : { startupTimeoutMs: options.startupTimeoutMs }),
       });
-      await addFinalizer(scope, () => attachment.close());
+      await addFinalizer(attachments, () => attachment.close());
       if (retired) {
         throw abort.signal.reason;
       }
@@ -556,8 +569,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       child.clearRequested = true;
       const received = (input: unknown): void => {
         try {
-          const { event: _event, ...receipt } = decodeHostContentCleared(input);
-          child.clearReceipt = receipt;
+          decodeHostContentCleared(input);
+          child.cleared = true;
         } catch (cause) {
           child.clearFailure = cause;
         }
@@ -572,10 +585,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
         return Promise.reject(cause);
       }
       clearing = closeScope().then(() => {
-        if (!child.clearReceipt) {
-          throw new Error('Content clear receipt unavailable');
+        if (!child.cleared) {
+          throw new Error('The host did not report its content clear');
         }
-        return child.clearReceipt;
       });
       return clearing;
     },

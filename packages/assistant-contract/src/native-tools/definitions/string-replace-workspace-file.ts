@@ -5,6 +5,13 @@ import { StringReplaceWorkspaceFileInputSchema } from '../schemas/schemas-worksp
 // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
 // block and replaces it. Same edit-risk gating.
 export const stringReplaceWorkspaceFile = defineNativeTool({
+  activity: {
+    active: 'Editing',
+    countsFiles: 'always',
+    done: 'Edited',
+    family: 'edit',
+    request: 'Edit',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 160,

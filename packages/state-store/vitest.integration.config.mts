@@ -1,21 +1,4 @@
-// Integration lane for @brainstrike/state-store: the SIGKILL harness, the
-// large-thread purge/export/open-cost suites and the opt-in kernel-sync probe.
-// `test:integration` runs it through the root uncached `test:integration` task.
-// It reuses the base config and REPLACES only `test.include` with the
-// integration suffix, mirroring the pure lane's `--exclude`, so the two lanes
-// partition the suite.
-import { defineConfig } from 'vitest/config';
-import baseConfig from './vitest.config.mts';
+import { integrationLane } from '@brainstrike/test-utils/vitest.base';
+import config from './vitest.config.mts';
 
-const baseTest = baseConfig.test ?? {};
-
-export default defineConfig({
-  ...baseConfig,
-  test: {
-    // One module cache per package, so parallel lanes never clear a shared one.
-    fsModuleCachePath: 'node_modules/.vitest-cache',
-    ...baseTest,
-    coverage: { ...(baseTest.coverage ?? {}), enabled: false },
-    include: ['**/*.integration.test.?(c|m)[jt]s?(x)'],
-  },
-});
+export default integrationLane(config, ['**/*.integration.test.?(c|m)[jt]s?(x)']);

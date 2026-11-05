@@ -4,19 +4,14 @@
  * sanitization, and the factory-reset contract.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { PersistApi } from '../../__tests__/persist-api-test-helper.ts';
 import {
-  __resetSkillsPreferencesStoreForTests,
   buildSkillsContextRequest,
   useSkillsPreferencesStore,
 } from '../skills-preferences-store.ts';
 
 const storeWithPersist = useSkillsPreferencesStore as PersistApi<typeof useSkillsPreferencesStore>;
-
-afterEach(() => {
-  __resetSkillsPreferencesStoreForTests();
-});
 
 describe('skills preferences store', () => {
   it('defaults to master enabled with nothing disabled', () => {
@@ -77,17 +72,20 @@ describe('skills preferences store', () => {
       throw new Error('persist storage unavailable for test');
     }
 
-    await options.storage.setItem(options.name, {
-      state: {
-        disabledSkillKeys: {
-          'global:disabled': true,
-          'global:false-residue': false,
-          'global:malformed': 'yes',
+    await localStorage.setItem(
+      options.name,
+      JSON.stringify({
+        state: {
+          disabledSkillKeys: {
+            'global:disabled': true,
+            'global:false-residue': false,
+            'global:malformed': 'yes',
+          },
+          masterEnabled: 'yes',
         },
-        masterEnabled: 'yes',
-      },
-      version: options.version,
-    });
+        version: options.version,
+      })
+    );
 
     await storeWithPersist.persist.rehydrate();
 

@@ -11,7 +11,6 @@ import {
   ensureAssistantShellVisible,
   ensureMockWorkspaceOpen,
 } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderRequest, ModelProviderScript } from './utils/model-provider-shim';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
@@ -173,8 +172,6 @@ test('restores distinct child tabs and native transcripts without executing a ru
   modelProvider,
   window,
 }, testInfo) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   modelProvider.setScript(scriptDelegationTree);
@@ -266,7 +263,6 @@ test('restores distinct child tabs and native transcripts without executing a ru
   // Every agent turn from here on would be a child or root executing.
   const settledModelCalls = modelCalls();
   await reloadRenderer(window, 'delegated-workspace-reload: reload 1');
-  await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await threadRow(ROOT_TITLE).click();
   await expect(cedar).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
@@ -342,7 +338,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(window.getByText(SAVED.first, { exact: true })).toBeVisible();
   await expect(cedarPanel.getByText(TASKS.first, { exact: true })).toBeVisible();
   await expect(
-    cedarPanel.getByRole('button', { includeHidden: true, name: 'Regenerate response' })
+    cedarPanel.getByRole('button', { exact: true, includeHidden: true, name: 'Retry' })
   ).toHaveCount(1);
   await cedarPanel.getByText(TASKS.first, { exact: true }).hover();
   await expect(
@@ -368,7 +364,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await rootRow.getByRole('button', { name: /Expand/u }).click();
   const childRow = (callSign: string) =>
     window.getByRole('row').filter({
-      has: window.getByRole('button', { exact: true, name: `${callSign} Child` }),
+      has: window.getByRole('button', { exact: true, name: `${callSign} Idle` }),
     });
   const sidebarCedar = childRow(first.callSign);
   await expect(sidebarCedar).toBeVisible();
@@ -380,7 +376,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect
     .poll(() => cedarViewport.evaluate((element) => element.scrollTop))
     .toBeLessThanOrEqual(1);
-  await window.getByRole('button', { exact: true, name: `${second.callSign} Child` }).click();
+  await window.getByRole('button', { exact: true, name: `${second.callSign} Idle` }).click();
   await expect(flint).toHaveAttribute('aria-selected', 'true');
   await expect(rootThreadTab).toHaveAttribute('aria-selected', 'true');
   await expect(flint).toHaveAttribute('data-agent-color', second.color);
@@ -392,7 +388,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await sidebarCedar.getByRole('button', { name: /Expand/u }).click();
   const wrenRow = childRow(grand.callSign);
   await expect(wrenRow).toHaveAttribute('aria-level', '4');
-  const wrenButton = wrenRow.getByRole('button', { exact: true, name: `${grand.callSign} Child` });
+  const wrenButton = wrenRow.getByRole('button', { exact: true, name: `${grand.callSign} Idle` });
   await wrenButton.focus();
   await wrenButton.press('Enter');
   await expect(window.getByRole('tab', { exact: true, name: grand.callSign })).toHaveAttribute(
@@ -416,7 +412,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   // Open an existing child's sidebar row while another root owns the workspace.
   await threadRow(OTHER_TITLE).click();
   await expect(cedar).toHaveCount(0);
-  await sidebarCedar.getByRole('button', { exact: true, name: `${first.callSign} Child` }).click();
+  await sidebarCedar.getByRole('button', { exact: true, name: `${first.callSign} Idle` }).click();
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   await expect(rootComposer).toHaveValue('UNSENT_PARENT_DRAFT_1724');
   // The other root's saved workspace never gains the child's tab.
@@ -460,12 +456,11 @@ test('restores distinct child tabs and native transcripts without executing a ru
   });
 
   await reloadRenderer(window, 'delegated-workspace-reload: reload 2');
-  await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await expect(threadRow(OTHER_TITLE)).toBeVisible();
   await expect(window.getByRole('tab', { exact: true, name: first.callSign })).toHaveCount(0);
   await expect(
-    window.getByRole('button', { exact: true, name: `${first.callSign} Child` })
+    window.getByRole('button', { exact: true, name: `${first.callSign} Idle` })
   ).toHaveCount(0);
   // Deleted children never execute.
   expect(modelCalls()).toBe(settledModelCalls);

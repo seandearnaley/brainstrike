@@ -1,7 +1,7 @@
 import { redactSensitiveLogValue } from '@brainstrike/logging';
 import type { DiagnosticEvent, DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
+import { scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import { getDiagnosticSessionId } from './diagnostic-sink-session';
-import { scrubLikelySecretValues } from './secret-scrub';
 
 /**
  * Thread debug-bundle collector + formatter (design §5.2, "Flight Recorder").
@@ -196,9 +196,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Real persisted parts (see `projectToolInvocationPartForTranscript` in
- * `packages/agent/src/pglite-mastra-memory/memory-store.ts` and
- * `docs/agents/assistant-persistence.md` §1) are shaped
+/** Real persisted parts (Mastra V2 message parts) are shaped
  * `{ type: 'tool-invocation', toolInvocation: { toolCallId, toolName, args,
  * state, result } }` — the result lives NESTED under `toolInvocation`, not at
  * the part's top level. */
@@ -224,9 +222,7 @@ function isToolResultPart(part: unknown): part is Record<string, unknown> {
 
 /** Reads the parts array out of a message's `content`, accepting both the
  * legacy bare-array shape (old data / fixtures) and the real persisted
- * Mastra V2 shape `{ format: 2, parts: [...] }` (see
- * `packages/agent/src/pglite-mastra-memory/memory-store.ts` and
- * `docs/agents/assistant-persistence.md` §1). Returns `null` when `content`
+ * Mastra V2 shape `{ format: 2, parts: [...] }`. Returns `null` when `content`
  * has no readable parts array at all. Every part-walking branch below
  * (stage-2 detection + elision) goes through this so both shapes are
  * handled identically. */
@@ -431,7 +427,7 @@ function applyNextElisionStep(
 
 function renderHeader(data: ThreadDebugBundleData): string {
   return [
-    '# BrainStrike Debug Bundle',
+    '# Brainstrike Debug Bundle',
     `bundle_format: ${DEBUG_BUNDLE_FORMAT_VERSION}`,
     `generated_at: ${data.environment.generatedAt}`,
     `thread_id: ${data.threadId}`,
@@ -527,7 +523,7 @@ function renderResilienceHistory(): string {
   return [
     '## 4. Resilience history',
     '',
-    '_Retry-attempt history is intentionally absent: the current Mastra error-processor seam has no honest producer for terminal-attempt counts or actual provider-directed wait time._',
+    '_Retry-attempt history is not included: terminal attempt counts and provider-directed wait times are not recorded yet._',
   ].join('\n');
 }
 

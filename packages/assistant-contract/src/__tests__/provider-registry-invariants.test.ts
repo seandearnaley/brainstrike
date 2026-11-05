@@ -1,0 +1,217 @@
+import { describe, expect, it } from 'vitest';
+import {
+  getLlmModelDefinition,
+  type LlmModelDefinition,
+  listProviderLlmModels,
+  listProviders,
+  type ProviderDefinition,
+  resolveDefaultModel,
+} from '../provider-registry.js';
+
+/**
+ * Catalog-wide invariants. Individual rows (prices, windows, lineups) live in
+ * provider-catalog.json with their provenance in each row's `_note`; the
+ * OpenRouter rows are re-checked against the live Models API by
+ * `pnpm run audit:openrouter-pricing`. These tests hold the relationships a
+ * row can break without the schema noticing.
+ */
+
+interface LlmRow {
+  readonly key: string;
+  readonly model: LlmModelDefinition;
+}
+
+function llmRows(): readonly LlmRow[] {
+  return listProviders().flatMap((provider: ProviderDefinition) =>
+    provider.models.flatMap((model) =>
+      model.type === 'llm' ? [{ key: `${provider.id}/${model.id}`, model }] : []
+    )
+  );
+}
+
+/**
+ * Anthropic prices cache reads at 0.1x base input except on the models below
+ * (https://platform.claude.com/docs/en/about-claude/pricing; BST-1691 found
+ * Fable 5.1 priced at the ordinary 0.1x). Cache writes are 1.25x everywhere.
+ * Keyed without Bedrock's `anthropic.` prefix so both routes share one list.
+ */
+const ANTHROPIC_CACHE_READ_MULTIPLIERS = new Map([
+  ['claude-fable-5-1', 0.025],
+  ['claude-opus-5-5', 0.05],
+  ['claude-sonnet-5-5', 0.05],
+]);
+
+function anthropicCacheReadMultiplier(modelId: string): number {
+  return ANTHROPIC_CACHE_READ_MULTIPLIERS.get(modelId.replace(/^anthropic\./u, '')) ?? 0.1;
+}
+
+describe('provider catalog identity', () => {
+  it('gives every provider and every model within a provider a unique id', () => {
+    const providerIds = listProviders().map((provider) => provider.id);
+    expect(new Set(providerIds).size).toBe(providerIds.length);
+    for (const provider of listProviders()) {
+      const ids = provider.models.map((model) => model.id);
+      expect(new Set(ids).size, `${provider.id} ids`).toBe(ids.length);
+    }
+  });
+
+  it('resolves each default to exactly one real model', () => {
+    for (const provider of listProviders()) {
+      expect(
+        provider.models.filter((model) => model.default === true).length,
+        `${provider.id} defaults`
+      ).toBeLessThanOrEqual(1);
+      const defaultId = resolveDefaultModel(provider.id);
+      expect(
+        provider.models.some((model) => model.id === defaultId),
+        `${provider.id} default`
+      ).toBe(true);
+    }
+  });
+
+  it('looks up a catalogued model and throws on an id from another provider', () => {
+    const [first] = listProviderLlmModels('anthropic');
+    expect(first).toBeDefined();
+    expect(getLlmModelDefinition('anthropic', first?.id ?? '')).toBe(first);
+    expect(() => getLlmModelDefinition('openai', first?.id ?? '')).toThrow(/Unknown LLM model/u);
+  });
+});
+
+describe('model limits', () => {
+  it('declares a positive context window that fits every output limit', () => {
+    for (const { key, model } of llmRows()) {
+      expect(model.contextWindow, key).toBeGreaterThan(0);
+      // Equality is a real vendor contract: Kimi K3's maximum completion
+      // equals its context window (BST-1170).
+      if (model.maxOutputTokens !== undefined) {
+        expect(model.maxOutputTokens, key).toBeGreaterThan(0);
+        expect(model.maxOutputTokens, key).toBeLessThanOrEqual(model.contextWindow);
+      }
+    }
+  });
+});
+
+describe('model pricing', () => {
+  it('keeps every rate positive, with cache reads below input', () => {
+    for (const { key, model } of llmRows()) {
+      const pricing = model.pricing;
+      if (pricing === undefined) {
+        continue;
+      }
+      for (const band of [pricing, ...(pricing.longContextTiers ?? [])]) {
+        expect(band.inputPerMTok, `${key} input`).toBeGreaterThan(0);
+        expect(band.outputPerMTok, `${key} output`).toBeGreaterThan(0);
+        if (band.cacheReadPerMTok !== undefined) {
+          expect(band.cacheReadPerMTok, `${key} cache read`).toBeGreaterThan(0);
+          expect(band.cacheReadPerMTok, `${key} cache read`).toBeLessThan(band.inputPerMTok);
+        }
+        // Writes have no general bound: Gemini on OpenRouter bills them below input.
+        if (band.cacheWritePerMTok !== undefined) {
+          expect(band.cacheWritePerMTok, `${key} cache write`).toBeGreaterThan(0);
+        }
+      }
+      if (model.promptCaching !== undefined) {
+        expect(pricing.cacheReadPerMTok, `${key} cache read`).toBeDefined();
+      }
+    }
+  });
+
+  it('orders long-context tiers by prompt size, inside the window, never cheaper than the base', () => {
+    for (const { key, model } of llmRows()) {
+      const tiers = model.pricing?.longContextTiers;
+      if (model.pricing === undefined || tiers === undefined) {
+        continue;
+      }
+      let previous = { ...model.pricing, minPromptTokens: 0 };
+      for (const tier of tiers) {
+        expect(tier.minPromptTokens, key).toBeGreaterThan(previous.minPromptTokens);
+        expect(tier.minPromptTokens, key).toBeLessThan(model.contextWindow);
+        expect(tier.inputPerMTok, key).toBeGreaterThanOrEqual(previous.inputPerMTok);
+        expect(tier.outputPerMTok, key).toBeGreaterThanOrEqual(previous.outputPerMTok);
+        previous = { ...previous, ...tier };
+      }
+    }
+  });
+
+  it('prices Claude cache tokens at the Anthropic multipliers on both routes', () => {
+    const claudeRoutes = [
+      ...listProviderLlmModels('anthropic'),
+      ...listProviderLlmModels('bedrock').filter((model) => model.id.startsWith('anthropic.')),
+    ].filter((model) => model.pricing !== undefined);
+    expect(claudeRoutes.length).toBeGreaterThan(0);
+    for (const model of claudeRoutes) {
+      const { cacheReadPerMTok, cacheWritePerMTok, inputPerMTok } = model.pricing ?? {
+        inputPerMTok: Number.NaN,
+      };
+      expect(cacheReadPerMTok, `${model.id} cache read`).toBeCloseTo(
+        inputPerMTok * anthropicCacheReadMultiplier(model.id),
+        10
+      );
+      expect(cacheWritePerMTok, `${model.id} cache write`).toBeCloseTo(inputPerMTok * 1.25, 10);
+    }
+  });
+
+  it('prices Amazon Nova cache reads at 0.25x input with no invented write premium', () => {
+    const nova = listProviderLlmModels('bedrock').filter(
+      (model) => model.id.startsWith('amazon.nova') && model.promptCaching === 'bedrock'
+    );
+    expect(nova.length).toBeGreaterThan(0);
+    for (const model of nova) {
+      expect(model.pricing?.cacheReadPerMTok, model.id).toBeCloseTo(
+        (model.pricing?.inputPerMTok ?? Number.NaN) * 0.25,
+        10
+      );
+      // AWS bills Nova cache writes at the ordinary input rate.
+      expect(model.pricing?.cacheWritePerMTok, model.id).toBeUndefined();
+    }
+  });
+
+  /**
+   * BST-1705 and BST-1698 found OpenRouter rows priced from the wrong number in
+   * a correct payload: a time-of-day surge band, a `:batch` twin route, and the
+   * `openai/flex` service tier. The audit script names those classes; these
+   * pins keep the corrected rows from sliding back.
+   */
+  it.each([
+    ['tencent/hy3', 0.0825, 0.33],
+    ['google/gemini-3.7-flash', 0.75, 3.75],
+    ['z-ai/glm-5.3-flash', 0.15, 0.5],
+    ['openai/gpt-5.6-sol', 4, 20],
+  ] as const)('holds the OpenRouter base rate for %s, not a variant route', (id, input, output) => {
+    expect(getLlmModelDefinition('openrouter', id).pricing).toMatchObject({
+      inputPerMTok: input,
+      outputPerMTok: output,
+    });
+  });
+});
+
+describe('reasoning ladders', () => {
+  const ANTHROPIC_RANK = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+  it('orders every Anthropic ladder weakest to strongest and offers its default', () => {
+    for (const { key, model } of llmRows()) {
+      const ladder = model.anthropicReasoning;
+      if (ladder === undefined) {
+        continue;
+      }
+      expect(ladder.supportedEfforts, key).toContain(ladder.defaultEffort);
+      const ranks = ladder.supportedEfforts.map((effort) => ANTHROPIC_RANK.indexOf(effort));
+      expect(ranks, key).toEqual([...ranks].sort((a, b) => a - b));
+      expect(new Set(ranks).size, key).toBe(ranks.length);
+    }
+  });
+
+  it('offers every declared default effort in the model ladder', () => {
+    for (const { key, model } of llmRows()) {
+      const reasoning = model.reasoning;
+      if (reasoning === undefined) {
+        continue;
+      }
+      const offered: readonly string[] = reasoning.supportedEfforts;
+      expect(new Set(offered).size, key).toBe(offered.length);
+      if (reasoning.defaultEffort !== undefined) {
+        expect(offered, key).toContain(reasoning.defaultEffort);
+      }
+    }
+  });
+});

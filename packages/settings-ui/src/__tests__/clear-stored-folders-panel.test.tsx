@@ -13,7 +13,7 @@ describe('ClearStoredFoldersPanel', () => {
         <ClearStoredFoldersPanel hasStoredFolders={true} onClearFolders={mockOnClearFolders} />
       );
 
-      expect(screen.getByText('Stored Folders')).toBeInTheDocument();
+      expect(screen.getByText('Stored folders')).toBeInTheDocument();
       expect(
         screen.getByText(
           /Clear all remembered folders for File System access\. This will require you to re-select folders next time you use the file explorer\./u

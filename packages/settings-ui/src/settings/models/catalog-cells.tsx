@@ -24,10 +24,7 @@ function HighlightedText({ query, text }: { readonly query: string; readonly tex
     <>
       {highlightSegments(text, query).map((segment) =>
         segment.match ? (
-          <mark
-            className="rounded-[2px] bg-yellow-300/60 text-inherit dark:bg-yellow-400/30"
-            key={segment.start}
-          >
+          <mark className="bg-primary/20 rounded-[2px] text-inherit" key={segment.start}>
             {segment.text}
           </mark>
         ) : (
@@ -66,7 +63,7 @@ export function EnabledCell({ row }: { readonly row: CatalogRow }) {
 }
 
 export function ModelCell({ row }: { readonly row: CatalogRow }) {
-  const { query, showTagline, showTypeTag } = useCatalogRowActions();
+  const { query, showTagline } = useCatalogRowActions();
   const showId = queryHitsIdOnly(row, query);
   let secondary: string | null = null;
   if (showId) {
@@ -83,11 +80,6 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
       {row.recommended ? (
         <Badge className="h-5 shrink-0 px-1.5 text-[10px]" variant="secondary">
           Recommended
-        </Badge>
-      ) : null}
-      {showTypeTag && row.type === 'embedding' ? (
-        <Badge className="h-5 shrink-0 px-1.5 text-[10px]" variant="outline">
-          Embedding
         </Badge>
       ) : null}
       {secondary ? (
@@ -161,20 +153,6 @@ function CapabilitySlot({
 }
 
 export function CapabilitiesCell({ row }: { readonly row: CatalogRow }) {
-  if (row.type === 'embedding') {
-    return (
-      <div className={ROW_LINE}>
-        {row.dimension === null ? (
-          <Absent title="No published dimensions" />
-        ) : (
-          <span className="text-muted-foreground text-xs tabular-nums">
-            <span aria-hidden="true">{row.dimension}-d</span>
-            <span className="sr-only">{`${row.dimension}-dimension embeddings`}</span>
-          </span>
-        )}
-      </div>
-    );
-  }
   return (
     <div className={cn(ROW_LINE, 'gap-1.5')}>
       <CapabilitySlot

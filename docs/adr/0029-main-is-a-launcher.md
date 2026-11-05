@@ -2,6 +2,12 @@
 
 - **Status:** Accepted (Sean chose Option B of the "Main as a thin launcher" decision,
   2026-10-25)
+  - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): Main's native index is deleted, so
+    `workspace/roots/mounted`, the index's read handles and its part in root data deletion
+    (stage 4) are gone. The host deletes a folder's data on its own.
+  - 2026-11-02: per-folder data deletion (`workspace/roots/delete-data`, `fs:deleteRootData`)
+    is removed with the Explorer's "Also delete folder data" option. Disconnecting a folder
+    keeps its record.
 - **Date:** 2026-10-25
 - **Amends:** [ADR-0017](0017-cli-first-agent-host.md) (what "provider of platform
   capabilities" covers) and [ADR-0027](0027-canonical-electron-quit.md) decision 3 (the
@@ -58,7 +64,9 @@ close lifecycle that the CLI would not share.
    the Root flock like every other native process the host starts (ADR-0017, "Native
    processes hold the Root").
 5. **Index activation follows the retrieval decision.** It moves only if that decision
-   keeps the derived index; otherwise it is deleted, not moved.
+   keeps the derived index; otherwise it is deleted, not moved. (2026-11-01: the
+   decision removes the index, [ADR-0035](0035-workspace-retrieval-is-live-search.md);
+   index activation is deleted.)
 
 ## Stages
 
@@ -81,8 +89,32 @@ its Main side and quit step:
    preload bridges, the `child-processes` step and the matching reset stops go, and
    a disconnected root's language servers are evicted in the host.
 4. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
-   step and ADR-0027's native-thread join go.
-5. MCP control, then index activation if the retrieval decision keeps it.
+   step and ADR-0027's native-thread join go. Every watch already runs on Node's
+   `fs.watch`, which closes on the event loop. The Explorer's watches are host
+   methods gated to the desktop's private client, with a per-connection
+   `workspace/files/event` stream; a connection's watches end when it closes, and
+   the `fs:watch*` IPC domain goes. Explorer reads (`workspace/files/list`, `read`,
+   `exists`) follow the same gate over the host's live catalog roots, and Main's
+   `fs:read*`/`fs:exists` channels and E2E mock tree go. The root registry follows
+   (owner decision, 2026-11-01): the host's registry is the one writer of the open
+   folders (`roots.open_position`), their grant-time identity (`roots.canonical_path`)
+   and the recent-folders ledger, served as `workspace/roots/*` to the desktop's
+   private client, and the one owner of each folder's `SecureRoot`, which the
+   Explorer's reads and watches borrow. A reopen whose path resolves to another folder
+   is refused and shown as needing reconnect. Main keeps only the folder picker
+   (`platform/workspace/pick-folder`), its menu and OS recents
+   (`platform/workspace/roots-changed`) and the native index's read handles, opened
+   on the host's mounted roots. The host removes a folder first and the index learns
+   afterwards; a scan in flight on it ends as cancelled. `lastFolderPath`, Main's
+   storage adapter and the reset profile reopen go. `fs:deleteRootData` stays in Main
+   while the native index does: the host reserves the folder's deletion first, which
+   refuses before anything is removed and fences the folder from every read, watch and
+   run borrow; the index's sources stop around the host's `workspace/roots/delete-data`,
+   which consumes the reservation. The `file-system` step goes once the native
+   index's watches have left.
+5. MCP control, then index activation if the retrieval decision keeps it. (2026-11-01:
+   it does not, ADR-0035. Explorer search already runs in the host as
+   `workspace/files/search`; this stage is MCP control alone, and the index is deleted.)
 
 Quit then ends as: factory reset, renderers, `host/stop`, join utility and hidden
 renderer exits, database close.

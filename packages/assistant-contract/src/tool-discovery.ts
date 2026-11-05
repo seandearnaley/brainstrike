@@ -3,7 +3,6 @@ import type { NativeToolDiscoveryNamespace } from './native-tools/define.ts';
 import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.ts';
 import type { PermissionDecision } from './permission-policy.ts';
 import {
-  getProviderDefinition,
   listProviderLlmModels,
   type NativeToolSearchCapability,
   type ProviderId,
@@ -21,10 +20,9 @@ const NATIVE_TOOL_DISCOVERY_NAMESPACE_SUMMARIES: Record<NativeToolDiscoveryNames
   context: 'Inspect open workspace roots, and read named workspace files and directories.',
   database:
     "Inspect durable diagnostic failures or run read-only SQL over Brainstrike's own local database: assistant run history, edit checkpoints, token usage and cost, queue metrics, and the workspace code index.",
-  embeddings: 'Inspect and query configured embedding spaces.',
   execution:
     'Run code the assistant writes inside an OS sandbox: Python with no network access and writes confined to a temporary scratch directory. Use for computation, parsing, and data wrangling.',
-  semantics: 'Search indexed code and inspect language-server symbols and diagnostics.',
+  semantics: 'Inspect language-server symbols and diagnostics.',
   sessions: 'Inspect and control persistent workspace command sessions and development servers.',
   skills: 'Discover, activate, read, and run bundled scripts from installed Agent Skills.',
   web: "Search the public web, extract readable page content, and drive the app's embedded browser pane: navigate it and read the live page as text or an accessibility tree.",
@@ -70,7 +68,6 @@ export type ToolDiscoveryFailureCode = (typeof TOOL_DISCOVERY_FAILURE_CODES)[num
 
 export type ToolDiscoveryAdapterUnsupportedReason =
   | 'model-lacks-requested-native-search'
-  | 'provider-has-no-llm'
   | 'requested-adapter-not-supported'
   | 'unknown-model';
 
@@ -137,11 +134,6 @@ function resolveRequestedAdapter(
 export function resolveToolDiscoveryAdapter(
   input: ResolveToolDiscoveryAdapterInput
 ): ToolDiscoveryAdapterResolution {
-  const provider = getProviderDefinition(input.provider);
-  if (!provider.capabilities.llm) {
-    return unsupportedAdapter('provider-has-no-llm', input.requestedAdapter);
-  }
-
   // Mastra catalog search is provider-runtime based, not model-capability
   // based. A caller that supplies a valid hosted model adapter directly (for
   // tests, evals, or an externally discovered model) must not be rejected only

@@ -1,6 +1,5 @@
 import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -10,11 +9,8 @@ import { useWorkspaceTabs, type WorkspaceTabsValue } from '../shell/use-workspac
 import type { WorkspaceApp } from '../shell/workspace-app';
 import { WorkspaceTabStrip } from '../shell/workspace-tab-strip';
 import { WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { stubMatchMedia } from './setup/stub-match-media';
 import { FileExplorerTestWrapper } from './test-helpers';
 import { CHANGES_APP, CHILD_CEDAR_APP, FILES_APP } from './workspace-tabs-test-support';
@@ -25,9 +21,11 @@ vi.mock('../shell/use-file-explorer-context', () => ({
     fileContentErrors: new Map<string, Error>(),
     fileContents: {},
     fileTree: [],
+    folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
     loadFileContent: vi.fn().mockResolvedValue(undefined),
     loadingFiles: new Set<string>(),
     reloadFileContents: vi.fn().mockResolvedValue(undefined),
+    restorePending: false,
   })),
 }));
 
@@ -69,12 +67,9 @@ function workspace(): WorkspaceTabsValue {
   return probe.tabs;
 }
 
-/** A fresh store per test: the shared adapter would replay a prior test's roots. */
-let storage = new MemoryStorageAdapter();
-
 function Harness({ apps }: { readonly apps: readonly WorkspaceApp[] }): React.ReactElement {
   return (
-    <FileExplorerTestWrapper mockStorageAdapter={storage}>
+    <FileExplorerTestWrapper>
       <WorkspaceTabsProvider apps={apps}>
         <WorkspaceTabStrip />
         <Probe />
@@ -103,9 +98,6 @@ async function reopen(): Promise<ActionOutcome | undefined> {
 }
 
 beforeEach(() => {
-  storage = new MemoryStorageAdapter();
-  __resetTabManagerStoreForTests();
-  __resetWorkspaceTabSelectionStoreForTests();
   const files = useTabManagerStore.getState();
   for (const file of ['a.ts', 'b.ts', 'c.ts']) {
     files.openTab(`src/${file}`, key(file), key(file));
@@ -119,8 +111,6 @@ beforeEach(() => {
 afterEach(() => {
   probe.explorer = null;
   probe.tabs = null;
-  __resetTabManagerStoreForTests();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 describe('workspace strip — tab order and dispatch for chords (BST-1842)', () => {

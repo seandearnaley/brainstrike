@@ -110,7 +110,6 @@ test('hierarchical research uses two supervisors and four Explorer leaves, creat
       const page = context.window;
       await expect(page.getByTestId('new-agent-button')).toBeVisible();
       await seedRoot(page, workspace, {
-        disableBackgroundIndexing: true,
         reloadReason: 'luna-tools',
         rootId,
       });

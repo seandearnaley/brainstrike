@@ -1,6 +1,6 @@
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import type { HostToolDefinitions } from '../host-tool-definition';
 import { parseMcpConfigValue } from '../mcp/config';
 import type { McpRuntimeClient } from '../mcp/mcp-runtime-client';
 import { collectCombinedTools } from '../mcp/mcp-tool-loader';
@@ -13,7 +13,7 @@ interface MockMcpClient extends McpRuntimeClient {
 }
 
 function createMockMcpClient(
-  toolsets: Record<string, ToolsInput>,
+  toolsets: Record<string, HostToolDefinitions>,
   errors: Record<string, string> = {}
 ): MockMcpClient {
   return {
@@ -34,7 +34,7 @@ describe('mcp-tool-loader', () => {
 
   describe('collectCombinedTools', () => {
     it('returns only local tools when no MCP client', async () => {
-      const localTools: ToolsInput = {
+      const localTools: HostToolDefinitions = {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
@@ -51,7 +51,7 @@ describe('mcp-tool-loader', () => {
     });
 
     it('returns only local tools when no MCP config', async () => {
-      const localTools: ToolsInput = {
+      const localTools: HostToolDefinitions = {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
@@ -81,7 +81,7 @@ describe('mcp-tool-loader', () => {
     });
 
     it('handles MCP client with empty servers array', async () => {
-      const localTools: ToolsInput = {
+      const localTools: HostToolDefinitions = {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
@@ -360,7 +360,7 @@ describe('mcp-tool-loader', () => {
     });
 
     it('merges local and MCP tools', async () => {
-      const localTools: ToolsInput = {
+      const localTools: HostToolDefinitions = {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
@@ -784,7 +784,7 @@ describe('mcp-tool-loader', () => {
     });
 
     it('handles MCP tool discovery timeout', async () => {
-      const localTools: ToolsInput = {
+      const localTools: HostToolDefinitions = {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
@@ -821,7 +821,7 @@ describe('mcp-tool-loader', () => {
     });
 
     it('handles MCP tool discovery error', async () => {
-      const localTools: ToolsInput = {
+      const localTools: HostToolDefinitions = {
         local_tool: { description: 'local', id: 'local_tool' },
       };
 
@@ -884,7 +884,7 @@ describe('mcp-tool-loader', () => {
     });
 
     it('handles servers without names', async () => {
-      const mockMcpTools: ToolsInput = {
+      const mockMcpTools: HostToolDefinitions = {
         remote_tool: { description: 'remote', id: 'remote_tool' },
       };
 

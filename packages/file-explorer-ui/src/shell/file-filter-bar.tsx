@@ -29,7 +29,7 @@ export const FileFilterBar = React.memo(
           className={cn('bg-background h-8 w-full pr-8 pl-9 text-sm', isFiltering && 'pr-16')}
           data-testid="file-filter-input"
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Type to filter files... (e.g. 'test component -spec')"
+          placeholder="Type to filter files… (e.g. 'test component -spec')"
           type="text"
           value={value}
         />
@@ -56,12 +56,11 @@ export const FileFilterBar = React.memo(
         <PopoverTrigger asChild>
           <Button
             aria-label="Filter syntax help"
-            className="h-8 w-8"
-            size="icon"
+            size="icon-sm"
             title="Filter syntax help"
             variant="ghost"
           >
-            <Info className="h-4 w-4" />
+            <Info className="size-4" />
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="max-w-sm">

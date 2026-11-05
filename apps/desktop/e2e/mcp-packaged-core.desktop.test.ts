@@ -485,7 +485,7 @@ async function executeAssistantTool(
   // The Settings action commits the choice and publishes the acknowledged
   // catalog snapshot to the same renderer registry the composer observes.
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/Model Catalog/iu, 'embedding-models');
+  await new SettingsPage(page).openCategory(/Model Catalog/iu, 'model-catalog');
   await page.getByRole('searchbox', { name: 'Search models' }).fill('openai/gpt-5.6-terra');
   const modelToggle = page.getByTestId('model-toggle-openai/gpt-5.6-terra');
   await expect(modelToggle).toBeVisible();
@@ -874,13 +874,11 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
         restarted.window.getByText('Factory reset is unavailable on Windows in this version.')
       ).toBeVisible();
     } else {
-      await restarted.window.evaluate(() => {
-        window.confirm = () => true;
-      });
+      await restarted.window.getByTestId('factory-reset-button').click();
       const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
         timeout: 60_000,
       });
-      await restarted.window.getByTestId('factory-reset-button').click();
+      await restarted.window.getByTestId('factory-reset-confirm').click();
       await replacementLoaded;
       await openToolsSettings(restarted.window);
       await restarted.window.getByRole('tab', { name: 'Tools' }).click();

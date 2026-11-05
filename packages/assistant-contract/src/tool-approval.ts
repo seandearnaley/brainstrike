@@ -162,6 +162,21 @@ export function isApprovalTargetRoot(value: unknown): value is ApprovalTargetRoo
   );
 }
 
+/**
+ * ADR-0036: what a waiting file call would change, read from its file when the
+ * card asks (`interaction/preview`). The host runs the tool's own resolution
+ * and matcher without writing, so the card diffs the text the call would
+ * leave. Nothing durable holds it.
+ */
+export interface ApprovalFileChange {
+  /** The file's text once the call runs, or null when the call deletes it. */
+  readonly after: string | null;
+  /** The file's text now, or null when the call creates it. */
+  readonly before: string | null;
+  /** The workspace-relative path the call changes, as the host normalized it. */
+  readonly path: string;
+}
+
 export interface AssistantToolApprovalRequest {
   args?: unknown;
   continuationId?: string;

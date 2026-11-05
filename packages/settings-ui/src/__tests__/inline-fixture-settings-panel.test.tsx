@@ -25,12 +25,12 @@ describe('InlineFixtureSettingsPanel', () => {
 
   it('renders when isAvailable is true', () => {
     renderPanel({ isAvailable: true });
-    expect(screen.getByText('Developer: Inline Fixtures')).toBeInTheDocument();
+    expect(screen.getByText('Developer: inline fixtures')).toBeInTheDocument();
   });
 
   it('renders label and description', () => {
     renderPanel();
-    expect(screen.getByText('Developer: Inline Fixtures')).toBeInTheDocument();
+    expect(screen.getByText('Developer: inline fixtures')).toBeInTheDocument();
     expect(
       screen.getByText(
         'Load a built-in test fixture into the file explorer without selecting a real folder.'

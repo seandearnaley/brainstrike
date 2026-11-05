@@ -29,6 +29,7 @@ import type {
   HostWorkspaceEditTracker,
 } from '@brainstrike/agent-host';
 import {
+  getEditDiagnostics,
   hostCanvasStore,
   hostTaskListStore,
   type NativeToolBuildContext,
@@ -44,7 +45,6 @@ import {
   type HostAppPaths,
 } from '../../agent-host-platform/host-executed-tools';
 import type { PlatformSelection } from '../../agent-host-platform/platform-wire';
-import { getEditDiagnostics } from '../../assistant-server/lsp-diagnostics';
 
 type NativeToolDefinitions = HostToolDefinitions;
 export type HostMainRequest = (

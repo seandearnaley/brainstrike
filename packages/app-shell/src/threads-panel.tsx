@@ -184,7 +184,7 @@ function ThreadGroupRenameForm({
       <input
         aria-label="Group name"
         autoFocus
-        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-[13px] leading-4 outline-none focus-visible:ring-2"
+        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-[13px] leading-4 outline-hidden focus-visible:ring-2"
         onChange={(event) => {
           onDraftNameChange(event.target.value);
         }}
@@ -2042,7 +2042,8 @@ export function ThreadsPanelCore({
           {groupActionError}
         </p>
       ) : null}
-      {groupsLoadState.status === 'error' ? (
+      {/* These lines qualify the tree's rows; a state card standing in for the tree already names the failure. */}
+      {contentState.kind === 'tree' && groupsLoadState.status === 'error' ? (
         <p
           className="text-destructive px-3 pb-2 text-[11px]"
           data-testid="thread-groups-error-card"
@@ -2050,12 +2051,12 @@ export function ThreadsPanelCore({
           Failed to load thread groups: {groupsLoadState.error}
         </p>
       ) : null}
-      {activeThreads.error ? (
+      {contentState.kind === 'tree' && activeThreads.error ? (
         <p className="text-destructive px-3 pb-2 text-[11px]" data-testid="thread-activity-error">
           Active thread status unavailable: {activeThreads.error.message}
         </p>
       ) : null}
-      {threadsAwaitingApproval.error ? (
+      {contentState.kind === 'tree' && threadsAwaitingApproval.error ? (
         <p className="text-destructive px-3 pb-2 text-[11px]" data-testid="thread-approvals-error">
           Approval status unavailable: {threadsAwaitingApproval.error.message}
         </p>

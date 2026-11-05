@@ -49,8 +49,6 @@ beforeAll(async () => {
   const connection = createIndexerConnection(
     {
       dbPath: path.join(root, 'index.sqlite'),
-      embedding: { indexMode: 'text-only' },
-      rootIds: ['canonical'],
       stateProjection: { mode: 'dev', module: producer },
       stateRoot: root,
     },

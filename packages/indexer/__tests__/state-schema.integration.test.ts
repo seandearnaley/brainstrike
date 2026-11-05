@@ -25,8 +25,6 @@ async function fixture(mode: Mode) {
   const port = await openIndexer(
     {
       dbPath: path.join(root, 'index.sqlite'),
-      embedding: { indexMode: 'text-only' },
-      rootIds: ['canonical'],
       stateProjection: { mode, module: producer },
       stateRoot: root,
     },
@@ -53,18 +51,9 @@ async function fixture(mode: Mode) {
   };
 }
 
-it('mixed versions catch up and rebuild using current shapes without rewriting truth or canonical data', async () => {
+it('mixed versions catch up and rebuild using current shapes without rewriting truth', async () => {
   const f = await fixture('dev');
   try {
-    const plan = await f.port.prepareFile({
-      chunkLines: 1,
-      content: 'canonical evidence\n',
-      fileId: 'kept',
-      relativePath: 'kept.txt',
-      rootId: 'canonical',
-    });
-    await f.port.commitTextFile({ plan });
-    const identity = await f.port.info();
     await f.store.append(events([v1Text, v2Text, v1Tool, v1Text.replace('alpha', 'delta')]));
     const before = (await f.store.read('t1')).map((row) => row.raw);
     expect(await f.store.readEvents('t1', schema, 'dev')).toEqual([
@@ -80,14 +69,6 @@ it('mixed versions catch up and rebuild using current shapes without rewriting t
     expect(await f.indexer.stats('t1')).toEqual({ cursor: 4, docs: 4, gaps: [] });
     expect(await f.indexer.match('t1', 'old')).toEqual([1, 4]);
     expect((await f.store.read('t1')).map((row) => row.raw)).toEqual(before);
-    const found = await f.port.search({
-      limit: 10,
-      mode: 'bm25',
-      rootIds: ['canonical'],
-      text: 'evidence',
-    });
-    expect(found.hits.map((hit) => hit.fileId)).toEqual(['kept']);
-    expect(found.storeId).toBe(identity.storeId);
     expect(await f.indexer.health()).toEqual({ indexerErrors: [] });
   } finally {
     await f.close();

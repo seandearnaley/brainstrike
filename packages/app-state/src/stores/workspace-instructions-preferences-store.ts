@@ -19,13 +19,9 @@
  * Deliberately holds state only: the actual file scan + injection lives in the
  * desktop assistant server (`workspace-instructions-context.ts`), so this store
  * stays trivially testable and SSR-safe.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -48,7 +44,7 @@ interface WorkspaceInstructionsPreferencesActions {
 export type WorkspaceInstructionsPreferencesStore = WorkspaceInstructionsPreferencesData &
   WorkspaceInstructionsPreferencesActions;
 
-const STORE_NAME = 'workspace-instructions-preferences.v1' as const;
+const STORE_NAME = 'brainstrike:workspace-instructions-preferences.v1' as const;
 const STORE_VERSION = 1 as const;
 
 function defaultData(): WorkspaceInstructionsPreferencesData {
@@ -88,11 +84,10 @@ function sanitizePersistedData(persistedState: unknown): WorkspaceInstructionsPr
   };
 }
 
-const storage = createJSONStorage(() => createBrowserJsonStorage());
-
 export const useWorkspaceInstructionsPreferencesStore =
   create<WorkspaceInstructionsPreferencesStore>()(
-    persist(
+    persistDurable(
+      STORE_NAME,
       (set) => ({
         ...defaultData(),
         resetToDefaults: () => set(defaultData()),
@@ -114,12 +109,10 @@ export const useWorkspaceInstructionsPreferencesStore =
           WorkspaceInstructionsPreferencesData
         >(sanitizePersistedData),
         migrate: sanitizePersistedData,
-        name: STORE_NAME,
         partialize: (state) => ({
           masterEnabled: state.masterEnabled,
           oversizedOptInByRootId: state.oversizedOptInByRootId,
         }),
-        storage,
         version: STORE_VERSION,
       }
     )
@@ -130,18 +123,3 @@ export const workspaceInstructionsPreferencesSelectors = {
   oversizedOptInByRootId: (store: WorkspaceInstructionsPreferencesStore): Record<string, boolean> =>
     store.oversizedOptInByRootId,
 };
-
-/** Test-only reset helper. */
-export function __resetWorkspaceInstructionsPreferencesStoreForTests(): void {
-  try {
-    const persistApi = (
-      useWorkspaceInstructionsPreferencesStore as typeof useWorkspaceInstructionsPreferencesStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useWorkspaceInstructionsPreferencesStore.setState(defaultData());
-}

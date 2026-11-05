@@ -1,8 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  __resetWorkspaceInstructionsPreferencesStoreForTests,
-  useWorkspaceInstructionsPreferencesStore,
-} from '../stores/workspace-instructions-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useWorkspaceInstructionsPreferencesStore } from '../stores/workspace-instructions-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useWorkspaceInstructionsPreferencesStore as PersistApi<
@@ -10,10 +7,6 @@ const storeWithPersist = useWorkspaceInstructionsPreferencesStore as PersistApi<
 >;
 
 describe('workspace-instructions-preferences-store', () => {
-  beforeEach(() => {
-    __resetWorkspaceInstructionsPreferencesStoreForTests();
-  });
-
   it('defaults the master toggle ON', () => {
     expect(useWorkspaceInstructionsPreferencesStore.getState().masterEnabled).toBe(true);
   });

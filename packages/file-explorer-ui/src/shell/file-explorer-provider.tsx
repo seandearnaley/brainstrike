@@ -1,7 +1,6 @@
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import type { StorageAdapter } from '@brainstrike/storage';
 import { type FileExplorerState, FileExplorerStrings } from '@brainstrike/types';
 import {
   createContext,
@@ -10,6 +9,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import type { StoreApi } from 'zustand';
@@ -398,16 +398,13 @@ function createFileContentLoadAuthority(): FileContentLoadAuthority {
 }
 
 /**
- * Store and content-read authority share one lifecycle: replacing the storage
- * adapter must never carry active reads into the replacement store. One call
- * that takes the adapter keeps them together; the React Compiler memoizes a
- * value on what creates it, so an authority built without the adapter would
- * outlive it.
+ * Store and content-read authority share one lifecycle: a replacement store
+ * never inherits the active reads of the one it replaces.
  */
-function createFileExplorerLifecycle(storageAdapter: StorageAdapter) {
+function createFileExplorerLifecycle() {
   return {
     fileContentLoadAuthority: createFileContentLoadAuthority(),
-    store: createFileExplorerStore(storageAdapter),
+    store: createFileExplorerStore(),
   };
 }
 
@@ -415,15 +412,10 @@ export interface FileExplorerProviderProps {
   children: React.ReactNode;
   /** Optional file system adapter — when provided, enables inline fixture subscription */
   fileSystemAdapter?: FileSystemAdapter;
-  storageAdapter: StorageAdapter;
 }
 
-export function FileExplorerProvider({
-  storageAdapter,
-  fileSystemAdapter,
-  children,
-}: FileExplorerProviderProps) {
-  const { fileContentLoadAuthority, store } = createFileExplorerLifecycle(storageAdapter);
+export function FileExplorerProvider({ fileSystemAdapter, children }: FileExplorerProviderProps) {
+  const [{ fileContentLoadAuthority, store }] = useState(createFileExplorerLifecycle);
 
   useLayoutEffect(
     () => () => {
@@ -484,14 +476,9 @@ function PersistenceRecoveryNotifier() {
     if (!store.getState().consumePersistenceRecoveryNotice()) {
       return;
     }
-    const isUnavailable = notice === 'persisted-state-unavailable';
     showToast({
-      description: isUnavailable
-        ? FileExplorerStrings.recovery.persistedStateUnavailable
-        : FileExplorerStrings.recovery.persistedStateDiscarded,
-      title: isUnavailable
-        ? FileExplorerStrings.recovery.unavailableTitle
-        : FileExplorerStrings.recovery.title,
+      description: FileExplorerStrings.recovery.persistedStateDiscarded,
+      title: FileExplorerStrings.recovery.title,
     });
   }, [notice, showToast, store]);
 

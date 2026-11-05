@@ -129,21 +129,15 @@ describe('CodeBlockBody', () => {
     expect(props?.highlighter).toEqual({ highlighter: 'core' });
   });
 
-  it('highlights with the Shiki pair of the code theme chosen in Appearance', async () => {
+  it('highlights with the light and dark code themes chosen in Appearance', async () => {
     mocks.useShikiHighlighter.mockReturnValue({ highlighter: 'core' });
-    const storageAdapter = {
-      getItem: async (key: string) => (key === 'ui-theme-code-theme' ? 'catppuccin' : null),
-      setItem: async () => undefined,
-    };
 
     render(
-      <ThemeProvider storageAdapter={storageAdapter}>
+      <ThemeProvider appearance={{ codeThemeDark: 'catppuccin', codeThemeLight: 'github' }}>
         <CodeBlockBody code="echo hi" language="bash" />
       </ThemeProvider>
     );
     await screen.findByText('echo hi');
-    // The theme loads outside act, so the block's observer attaches in a later
-    // passive effect than the commit that shows its text.
     await waitFor(() => {
       expect(observers.some(({ targets }) => targets.length > 0)).toBe(true);
     });
@@ -151,7 +145,7 @@ describe('CodeBlockBody', () => {
 
     expect(mocks.capturedShikiProps.at(-1)?.theme).toEqual({
       dark: 'catppuccin-mocha',
-      light: 'catppuccin-latte',
+      light: 'github-light',
     });
   });
 

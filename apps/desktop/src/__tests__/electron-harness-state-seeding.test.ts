@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * BST-1087 regression: state-seeding helpers shut the app down mid-test so they
- * can rewrite `electron-storage.json` while no Electron process owns it. That
+ * BST-1087 regression: state-seeding helpers shut the app down mid-test so the
+ * seeded state is restored by a fresh launch. That
  * shutdown must go through the harness, because the harness is what tells
  * `ElectronProcessExitGuard` the exit was intentional. Closing a harness-owned
  * app directly (the pre-fix `closeElectronApp(currentContext)` call in

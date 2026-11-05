@@ -240,34 +240,6 @@ describe('catalog model rows', () => {
     expect(screen.getByText('input $0, output $0.40 per million tokens')).toBeInTheDocument();
   });
 
-  it('shows embedding dimensions and the Embedding tag while Type is All', () => {
-    renderRows(
-      [
-        makeCatalogRow({
-          dimension: 1536,
-          id: 'text-embedding-3-small',
-          reasoning: null,
-          type: 'embedding',
-          vision: null,
-        }),
-      ],
-      { actions: { showTypeTag: true } }
-    );
-    expect(screen.getByText('1536-dimension embeddings')).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId('model-row-text-embedding-3-small')).getByText('Embedding')
-    ).toBeInTheDocument();
-  });
-
-  it('drops the Embedding tag once Type is filtered', () => {
-    renderRows([makeCatalogRow({ dimension: 1536, id: 'emb', type: 'embedding' })], {
-      actions: { showTypeTag: false },
-    });
-    expect(
-      within(screen.getByTestId('model-row-emb')).queryByText('Embedding')
-    ).not.toBeInTheDocument();
-  });
-
   it('swaps the tagline for the highlighted id when the query hits only the id', () => {
     renderRows(
       [
@@ -426,16 +398,6 @@ describe('catalog details row', () => {
     const details = screen.getByTestId('model-details-unreg');
     const label = within(details).getByText('Reasoning effort');
     expect(label.nextElementSibling).toHaveTextContent('Not published');
-  });
-
-  it('omits the reasoning fact for an embedding row', () => {
-    renderRows(
-      [makeCatalogRow({ dimension: 1536, id: 'emb', reasoning: null, type: 'embedding' })],
-      { expandedIds: ['emb'] }
-    );
-    expect(
-      within(screen.getByTestId('model-details-emb')).queryByText('Reasoning effort')
-    ).not.toBeInTheDocument();
   });
 
   it('says Supported when reasoning is supported without an effort ladder', () => {

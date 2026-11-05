@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { RootLock } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
   createMessageConnection,
@@ -16,15 +16,20 @@ import { HOST_CLOSING_EVENT } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { stdioConnection } from '../src/transports.js';
 
-/** A host whose workspace-root registration waits for `release`, as a slow admitted write. */
+/** A host whose first workspace-root read waits for `release`, as a slow admitted request. */
 async function startHeldHost(root: string) {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const host = await startAgentHost({ lifetime: 'persistent', root }, ({ store }) => {
     const register = store.workspaceRoots.bind(store);
+
+    // Main's catalog transport only reads roots: the first read is the held, admitted request.
+
+    let held = false;
     vi.spyOn(store, 'workspaceRoots').mockImplementation(async (request) => {
       const reply = await register(request);
-      if (request.operation === 'register') {
+      if (!held) {
+        held = true;
         entered.resolve();
         await release.promise;
       }
@@ -105,16 +110,13 @@ test('a retiring host answers what it read, and its client refuses what the host
   const { entered, host, release } = await startHeldHost(root);
   const { client, drop, exit } = await attachPrivateClient(host);
   try {
-    const registering = client.catalog.workspaceRoots({
-      operation: 'register',
-      root: { displayName: 'workspace', path: root, preferredId: randomUUID() },
-    });
+    const admitted = client.catalog.workspaceRoots({ operation: 'list' });
     await entered.promise;
     drop();
     const unread = client.request('thread/list', {}).catch((cause: unknown) => cause);
     const closing = host.close();
     release.resolve();
-    await expect(registering).resolves.toBeDefined();
+    await expect(admitted).resolves.toBeDefined();
     await closing;
     exit();
     const refusal = await unread;
@@ -134,20 +136,17 @@ test('a host that ends the transport before it drained leaves what it may have r
   const { entered, host, release } = await startHeldHost(root);
   const { announced, client, cut, drop, exit } = await attachPrivateClient(host);
   try {
-    const registering = client.catalog
-      .workspaceRoots({
-        operation: 'register',
-        root: { displayName: 'workspace', path: root, preferredId: randomUUID() },
-      })
+    const admitted = client.catalog
+      .workspaceRoots({ operation: 'list' })
       .catch((cause: unknown) => cause);
     await entered.promise;
     drop();
     const unread = client.request('thread/list', {}).catch((cause: unknown) => cause);
     const closing = host.close();
     await announced;
-    // As a host crash mid-retirement: the admitted write may have committed.
+    // As a host crash mid-retirement: the admitted request may have been served.
     cut();
-    for (const failure of [await registering, await unread]) {
+    for (const failure of [await admitted, await unread]) {
       expect(isConnectionLoss(failure)).toBe(true);
     }
     await expect(client.request('thread/list', {})).rejects.toMatchObject({
@@ -177,6 +176,30 @@ test('a host that exits without announcing its retirement leaves its unanswered 
   } finally {
     release.resolve();
     await host.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('a client whose transport closes while the host retires it does not hold the host open (BST-2442)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-closed-during-retirement-'));
+  const { entered, host, release } = await startHeldHost(root);
+  const { client, exit } = await attachPrivateClient(host);
+  try {
+    const admitted = client.catalog
+      .workspaceRoots({ operation: 'list' })
+      .catch((cause: unknown) => cause);
+    await entered.promise;
+    const closing = host.close();
+    // The client's window goes away before its admitted request settles.
+    exit();
+    await admitted;
+    release.resolve();
+    await expect(closing).resolves.toBeUndefined();
+    expect(RootLock.inspect(root)?.owner.released).toBe(true);
+  } finally {
+    release.resolve();
+    exit();
+    await host.close().catch(() => undefined);
     await rm(root, { force: true, recursive: true });
   }
 });

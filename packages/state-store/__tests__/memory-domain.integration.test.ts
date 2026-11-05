@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
 import { describe, expect, test } from 'vitest';
+import { detachThreadObservations } from '../src/memory-detach.mjs';
 import {
   executeMemoryRequest,
-  executeNativeMemoryRequest,
   MemoryRevisionConflictError,
+  sharedObservations,
 } from '../src/memory-domain.mjs';
 import type { MemoryEntity, MemorySnapshot } from '../src/memory-types.js';
 import { migrate } from '../src/schema.mjs';
@@ -46,7 +47,7 @@ const calculator = new URL(
   import.meta.url
 ).href;
 
-/** Mastra OM's own observation token counter, from the module the production writer loads. */
+/** Mastra OM's own observation token counter, from the module the memory calculator worker loads. */
 async function observationTokenCounter(): Promise<(text: string) => number> {
   const module: unknown = await import(calculator);
   if (
@@ -78,6 +79,18 @@ const detach = {
   sharedResource: 'detach-thread',
   threadId: 'thread',
 } as const;
+
+/** A detach-thread purge of the shared records as the memory calculator detaches them. */
+function detachWith(db: Database.Database, count: (text: string) => number): MemorySnapshot {
+  const [shared] = sharedObservations(db, ['resource']);
+  if (!shared) {
+    throw new Error('no shared observations read');
+  }
+  return executeMemoryRequest(db, detach, {
+    ...shared,
+    records: detachThreadObservations(shared.records, 'thread', count),
+  });
+}
 
 function commit(
   db: Database.Database,
@@ -119,33 +132,6 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
       ).toThrow(/FOREIGN KEY/u);
       expect(executeMemoryRequest(db, { operation: 'read', resourceId: 'resource' })).toEqual(
         original
-      );
-    } finally {
-      db.close();
-    }
-  });
-
-  test('native calculation commits only against its exact input snapshot', async () => {
-    const db = setup();
-    try {
-      commit(db, 0, [thread]);
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      const pending = executeNativeMemoryRequest(
-        db,
-        { arguments: [], method: 'saveResource', operation: 'native', resourceId: 'resource' },
-        async () => {
-          entered.resolve();
-          await release.promise;
-          return { changes: [{ entity: resource, operation: 'put' }], value: null };
-        }
-      );
-      await entered.promise;
-      const latest = commit(db, 1, [observation]);
-      release.resolve();
-      await expect(pending).rejects.toBeInstanceOf(MemoryRevisionConflictError);
-      expect(executeMemoryRequest(db, { operation: 'read', resourceId: 'resource' })).toEqual(
-        latest
       );
     } finally {
       db.close();
@@ -225,7 +211,7 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
           },
         },
       ]);
-      const detached = executeMemoryRequest(db, detach, count);
+      const detached = detachWith(db, count);
       expect(detached.entities.map((entry) => entry.kind).sort()).toEqual([
         'observation',
         'resource',
@@ -276,7 +262,7 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
           },
         },
       ]);
-      const detached = executeMemoryRequest(db, detach, count);
+      const detached = detachWith(db, count);
       expect(detached.entities.find((entry) => entry.kind === 'observation')?.payload).toEqual({
         ...observation.payload,
         activeObservations: kept,
@@ -287,10 +273,30 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
     }
   });
 
-  test('detaching without the observation token counter fails and changes nothing', () => {
+  test('detaching without the observation token counter fails', () => {
+    const records = [
+      {
+        id: 'observation',
+        payload: {
+          ...observation.payload,
+          activeObservations: [section('thread', 'deleted'), section('other', 'kept')].join(
+            boundary
+          ),
+          observationTokenCount: 30,
+        },
+      },
+    ];
+    expect(() => detachThreadObservations(records, 'thread', undefined)).toThrow(
+      /observation token counter/u
+    );
+    expect(detachThreadObservations(records, 'absent', undefined)).toEqual([]);
+  });
+
+  test('a detachment calculated at a stale revision changes nothing', async () => {
+    const count = await observationTokenCounter();
     const db = setup();
     try {
-      const before = commit(db, 0, [
+      commit(db, 0, [
         thread,
         {
           ...observation,
@@ -299,13 +305,21 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
             activeObservations: [section('thread', 'deleted'), section('other', 'kept')].join(
               boundary
             ),
-            observationTokenCount: 30,
           },
         },
       ]);
-      expect(() => executeMemoryRequest(db, detach)).toThrow(/observation token counter/u);
+      const [shared] = sharedObservations(db, ['resource']);
+      if (!shared) {
+        throw new Error('no shared observations read');
+      }
+      const detached = {
+        ...shared,
+        records: detachThreadObservations(shared.records, 'thread', count),
+      };
+      const latest = commit(db, 1, [resource]);
+      expect(() => executeMemoryRequest(db, detach, detached)).toThrow(MemoryRevisionConflictError);
       expect(executeMemoryRequest(db, { operation: 'read', resourceId: 'resource' })).toEqual(
-        before
+        latest
       );
     } finally {
       db.close();

@@ -2,7 +2,9 @@
 
 - **Status:** Accepted (owner decisions, 2026-10-21); decision 3's native-thread join
   retires under [ADR-0029](0029-main-is-a-launcher.md) once no native work runs on Main;
-  [ADR-0030](0030-one-process-supervisor.md) amends how a timed-out git ends
+  [ADR-0030](0030-one-process-supervisor.md) amends how a timed-out git ends.
+  2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the native index's shutdown signal and
+  quit step are deleted with the index.
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) R4. Git on
   Windows no longer runs in a per-command native Job, so quit has no git Job to join. A
@@ -47,11 +49,11 @@ test enforces:
 
 ## Decision
 
-1. **Git runs as a plain Node child on every platform**, bounded by its timeout and abort
-   signal, which end its whole tree (ADR-0030). Windows agent commands keep their wrapper and Job. Only git changed (#4125).
-   Output past the capture ceiling closes the pipe so git ends itself; the runner never
-   kills git for size, because on Windows a kill stops only the `cmd\git.exe` launcher
-   (BST-2295).
+1. **Git runs as a plain Node child on every platform** (#4125), bounded by its timeout and
+   abort signal, which end its whole tree (ADR-0030).
+   - Windows agent commands keep their wrapper and Job; only git changed.
+   - Output past the capture ceiling closes the pipe so git ends itself. The runner never kills
+     git for size, because on Windows a kill stops only the `cmd\git.exe` launcher (BST-2295).
 2. **Quit is plain ordered awaits** in `desktop-graceful-shutdown.ts`. Each step runs
    until it settles. A failure is recorded and the next step still runs. The database
    closes after the steps, and the durable error log closes last. One

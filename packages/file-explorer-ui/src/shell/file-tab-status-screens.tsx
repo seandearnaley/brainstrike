@@ -1,7 +1,9 @@
-import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
+import { INACCESSIBLE_CONTENT_PREFIX, type TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { Button } from '@brainstrike/ui';
-import { AlertCircle, Loader2, LockKeyhole } from 'lucide-react';
+import { AlertCircle, FolderX, Loader2, LockKeyhole } from 'lucide-react';
 import type { ReactElement } from 'react';
+import type { FileFolderStatus } from './file-folder-status.ts';
+import { type ClosedFolder, closedFolderWords, openingFolderLabel } from './folder-status-words.ts';
 
 /**
  * Full-body status screens for a file tab (BST-1258 file split): rendered by
@@ -56,15 +58,77 @@ export function FileNotFoundScreen({
   );
 }
 
+/** A named folder opening says so; otherwise a restore in flight says that, before a bare wait. */
+function pendingLabel(isPending: boolean, openingFolderName: string | null | undefined): string {
+  if (openingFolderName) {
+    return openingFolderLabel(openingFolderName);
+  }
+  if (isPending) {
+    return 'Restoring…';
+  }
+  return openingFolderName === null ? openingFolderLabel(null) : 'Loading…';
+}
+
 export function FileContentPendingScreen({
   isPending,
+  openingFolder,
 }: {
   readonly isPending: boolean;
+  /** The file's folder is opening; `name` is null when it is not known. */
+  readonly openingFolder?: { readonly name: string | null } | undefined;
 }): ReactElement {
+  const label = pendingLabel(isPending, openingFolder?.name);
   return (
-    <div className="text-muted-foreground flex h-full items-center justify-center">
-      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-      <span>{isPending ? 'Restoring…' : 'Loading…'}</span>
+    <div
+      aria-live="polite"
+      className="text-muted-foreground flex h-full items-center justify-center"
+      role="status"
+    >
+      <Loader2 aria-hidden="true" className="mr-2 h-5 w-5 animate-spin" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * The file's folder is not open, so its content cannot load. Reopen mounts it again (a folder in
+ * Recents); a folder this window cannot reopen (a thread's worktree) comes back with its thread.
+ */
+export function FolderClosedScreen({
+  onCloseTab,
+  onReopen,
+  path,
+  status,
+}: {
+  readonly onCloseTab: () => void;
+  readonly onReopen: (() => void) | undefined;
+  readonly path: string;
+  readonly status: ClosedFolder;
+}): ReactElement {
+  const words = closedFolderWords(status, onReopen !== undefined);
+  return (
+    <div
+      aria-labelledby="file-folder-closed-title"
+      className="flex h-full flex-col items-center justify-center p-4 text-center"
+      data-testid="file-folder-closed"
+      role="alert"
+    >
+      <FolderX aria-hidden="true" className="text-muted-foreground mb-4 h-12 w-12" />
+      <p className="text-lg font-semibold" id="file-folder-closed-title">
+        {words.title}
+      </p>
+      <p className="text-muted-foreground mt-2 max-w-md text-sm">{words.detail}</p>
+      <p className="text-muted-foreground mt-1 max-w-md text-xs break-all">{path}</p>
+      <div className="mt-4 flex gap-2">
+        {onReopen ? (
+          <Button onClick={onReopen} type="button">
+            {words.reopen}
+          </Button>
+        ) : null}
+        <Button onClick={onCloseTab} type="button" variant="outline">
+          Close tab
+        </Button>
+      </div>
     </div>
   );
 }
@@ -113,14 +177,77 @@ export function FileContentErrorScreen({
   );
 }
 
-export function InaccessibleFileScreen({ content }: { readonly content: string }): ReactElement {
+/** A read the host answered with a reason (not found, refused, unreadable): shown with Retry. */
+export function InaccessibleFileScreen({
+  content,
+  onRetry,
+  path,
+}: {
+  readonly content: string;
+  readonly onRetry: () => void;
+  readonly path: string;
+}): ReactElement {
+  const reason = content.startsWith(INACCESSIBLE_CONTENT_PREFIX)
+    ? content.slice(INACCESSIBLE_CONTENT_PREFIX.length).replace(/^\s*-\s*/u, '')
+    : content;
   return (
-    <div className="h-full overflow-auto p-4">
-      <p className="text-warning">{content}</p>
-      <p className="text-muted-foreground mt-2 text-sm">
-        To access this file, please open the folder again using the folder icon button. This is a
-        security measure of your browser.
+    <div
+      aria-labelledby="file-inaccessible-title"
+      className="flex h-full flex-col items-center justify-center p-4 text-center"
+      role="alert"
+    >
+      <AlertCircle aria-hidden="true" className="text-destructive mb-4 h-12 w-12" />
+      <p className="text-lg font-semibold" id="file-inaccessible-title">
+        Can't open this file
       </p>
+      <p className="text-muted-foreground mt-2 max-w-md text-sm">{reason || 'The read failed.'}</p>
+      <p className="text-muted-foreground mt-1 max-w-md text-xs break-all">{path}</p>
+      <Button className="mt-4" onClick={onRetry} type="button" variant="outline">
+        Retry
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The side pane's and breadcrumb's line for a file whose folder is not open: the same status and
+ * words as the tab body, in a small space.
+ */
+export function FolderStatusNotice({
+  onReopen,
+  status,
+  testId,
+}: {
+  readonly onReopen: (() => void) | undefined;
+  readonly status: Exclude<FileFolderStatus, { kind: 'open' }>;
+  readonly testId: string;
+}): ReactElement {
+  if (status.kind === 'opening') {
+    return (
+      <div
+        className="text-muted-foreground flex h-full items-center justify-center p-4 text-xs"
+        data-testid={testId}
+        role="status"
+      >
+        <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
+        {openingFolderLabel(status.name)}
+      </div>
+    );
+  }
+  const words = closedFolderWords(status, onReopen !== undefined);
+  return (
+    <div
+      className="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-xs"
+      data-testid={testId}
+    >
+      <p className="text-foreground font-medium">{words.title}</p>
+      {/* Beside the file's own text the Reopen button says enough; a reason always shows. */}
+      {onReopen && status.failure === null ? null : <p>{words.detail}</p>}
+      {onReopen ? (
+        <Button onClick={onReopen} size="sm" type="button" variant="outline">
+          {words.reopen}
+        </Button>
+      ) : null}
     </div>
   );
 }

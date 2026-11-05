@@ -5,7 +5,6 @@
  * hydration + real layout height and is proven end-to-end in the desktop e2e
  * (explorer-scroll-restore.desktop.test.ts).
  */
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render } from '@testing-library/react';
 import type { ReactNode, RefObject } from 'react';
@@ -55,7 +54,7 @@ function Harness({
 function renderHarness(rootEl: HTMLElement): { store: Store } {
   let store!: Store;
   render(
-    <FileExplorerProvider storageAdapter={new MemoryStorageAdapter()}>
+    <FileExplorerProvider>
       <Harness
         onStore={(s) => {
           store = s;

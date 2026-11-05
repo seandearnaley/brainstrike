@@ -35,7 +35,7 @@ function forwarding(send: (record: unknown) => Promise<unknown>) {
 }
 
 describe('agent host diagnostic forwarding (BST-2202)', () => {
-  it('delivers an error record with its correlation id, redacted, and leaves other records to stderr', async () => {
+  it('delivers warn and error records with their correlation ids, redacted, and leaves other records to stderr', async () => {
     configureLogger({ level: LogLevel.INFO });
     const sent: Forwarded[] = [];
     const tap = forwarding(async (record) => {
@@ -45,11 +45,11 @@ describe('agent host diagnostic forwarding (BST-2202)', () => {
     const correlationId = randomUUID();
     const logger = createLogger('AgentHost');
     logger.info('An ordinary record stays on the host');
-    logger.warn('A warning stays on the host');
+    logger.warn('Host child wake was not admitted', { code: 'host_child_wake_failed' });
     logger.error('Assistant model attempt failed', {
       apiKey: 'sk-fixture-forwarding-secret-0123456789',
-      cause: new Error('Recorded embedder failure'),
-      code: 'memory.embedder-failed',
+      cause: new Error('Recorded observer failure'),
+      code: 'memory.observer-failed',
       correlationId,
       runId: 'run-1',
       threadId: 'thread-1',
@@ -60,16 +60,21 @@ describe('agent host diagnostic forwarding (BST-2202)', () => {
     createLogger('DesktopHostDiagnosticDelivery').error('Delivery failed');
     await tap.close();
 
-    expect(sent).toHaveLength(1);
-    const [forwarded] = sent;
+    expect(sent).toHaveLength(2);
+    const [warning, forwarded] = sent;
+    expect(warning?.record).toMatchObject({
+      level: 'warn',
+      message: 'Host child wake was not admitted',
+      scope: 'AgentHost',
+    });
     expect(forwarded?.record).toMatchObject({
       level: 'error',
       message: 'Assistant model attempt failed',
       scope: 'AgentHost',
     });
     expect(forwarded?.record.args[1]).toMatchObject({
-      cause: { message: 'Recorded embedder failure', name: 'Error' },
-      code: 'memory.embedder-failed',
+      cause: { message: 'Recorded observer failure', name: 'Error' },
+      code: 'memory.observer-failed',
       correlationId,
       runId: 'run-1',
       threadId: 'thread-1',
@@ -166,20 +171,30 @@ describe("Main's diagnostics for forwarded agent host records (BST-2202)", () =>
         },
       })
     ).resolves.toBeNull();
+    const warning = ['Host child wake was not admitted', { code: 'host_child_wake_failed' }];
+    await expect(
+      send({
+        record: { args: warning, bindings: {}, level: 'warn', scope: 'AgentHost', timestamp: 2 },
+      })
+    ).resolves.toBeNull();
     expect(records).toEqual([
       expect.objectContaining({ args, level: LogLevel.ERROR, scope: 'AgentHost' }),
+      expect.objectContaining({ args: warning, level: LogLevel.WARN, scope: 'AgentHost' }),
     ]);
   });
 
   it.each([
-    { args: ['a warning'], bindings: {}, level: 'warn', scope: 'AgentHost', timestamp: 1 },
+    { args: ['an info record'], bindings: {}, level: 'info', scope: 'AgentHost', timestamp: 1 },
     { args: ['no level'], bindings: {}, scope: 'AgentHost', timestamp: 1 },
     { args: ['extra'], bindings: {}, level: 'error', scope: 'AgentHost', stack: 'x', timestamp: 1 },
-  ])('refuses a record outside the error contract without logging it: %j', async (record) => {
-    const send = main();
-    const records: LogRecord[] = [];
-    closers.push(addLogListener((logged) => records.push(logged)));
-    await expect(send({ record })).rejects.toThrow();
-    expect(records.filter((logged) => logged.scope === 'AgentHost')).toEqual([]);
-  });
+  ])(
+    'refuses a record outside the warn-and-above contract without logging it: %j',
+    async (record) => {
+      const send = main();
+      const records: LogRecord[] = [];
+      closers.push(addLogListener((logged) => records.push(logged)));
+      await expect(send({ record })).rejects.toThrow();
+      expect(records.filter((logged) => logged.scope === 'AgentHost')).toEqual([]);
+    }
+  );
 });

@@ -18,7 +18,8 @@
  *   bootstrap and runtime; the agent host loads its launcher and platform).
  * - dist/<package entry>.js  worker and module entries the bundled packages
  *   name by path (`PACKAGE_RUNTIME_ENTRY_POINTS`)
- * - dist/writer-worker.mjs  the state-store writer worker, self-contained
+ * - dist/writer-worker.mjs, memory-calculator-worker.mjs  the state-store writer
+ *   and memory calculator workers, self-contained
  * - dist/main-log-transport.js, main-watchdog-worker.js  self-contained ESM,
  *   unpacked beside app.asar, so they cannot share chunks inside it
  * - dist/preload.cjs  the sandboxed preload (CommonJS)
@@ -68,8 +69,9 @@ const shared = {
 /**
  * Worker and module entries the bundled packages name by path, emitted where
  * that path resolves from a chunk in dist/. Each name is unique in dist/.
- * - agent-host's keyring worker and the indexer's writer pool name a sibling:
- *   `./keyring-native-entry.js`, `./writer-worker.js`.
+ * - agent-host's keyring worker, agent's token counter and the indexer's writer
+ *   pool name a sibling: `./keyring-native-entry.js`, `./token-counter-worker.js`,
+ *   `./writer-worker.js`.
  * - agent-host names its emitted modules in its package `dist/` from a module
  *   directly in src/ or dist/ (`../dist/<file>`, BST-1977). From a chunk in
  *   this app's dist/, that is this dist/.
@@ -85,6 +87,7 @@ export const PACKAGE_RUNTIME_ENTRY_POINTS = {
     'agent-host/src/adapters/keyring-native-entry.ts'
   ),
   'state-projection': path.join(packagesRoot, 'agent-host/src/state-projection.ts'),
+  'token-counter-worker': path.join(packagesRoot, 'agent/src/token-counter-worker.ts'),
   'writer-worker': path.join(packagesRoot, 'indexer/src/writer-worker.ts'),
 };
 
@@ -99,10 +102,8 @@ export const NODE_PROCESS_ENTRY_POINTS = {
   // Main imports it lazily; the packaged Python probe loads it by path.
   'fence-executor': path.join(packagesRoot, 'agent/src/fence-executor.ts'),
   'host-lease-process': 'src/host-lease-entry.ts',
-  'indexer-host-process': 'src/indexer-host-entry.ts',
   'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
   'main-process': 'src/main-bootstrap.ts',
-  'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
   ...PACKAGE_RUNTIME_ENTRY_POINTS,
 };
 
@@ -120,7 +121,6 @@ const DEFAULT_OWNER = '@brainstrike/secure-fs-native/default-owner';
 export const PROCESS_LAUNCHERS = {
   'agent-host-entry': [DEFAULT_OWNER, './agent-host-process.js'],
   'host-lease-entry': [DEFAULT_OWNER, './host-lease-process.js'],
-  'indexer-host-entry': [DEFAULT_OWNER, './indexer-host-process.js'],
   main: [DEFAULT_OWNER, './desktop-env.js', './lifecycle-delay-seam.js', './main-process.js'],
 };
 
@@ -144,14 +144,21 @@ export const NODE_PROCESS_BUILD_OPTIONS = {
 };
 
 /**
- * The state-store writer worker is plain ESM (`.mjs`) that state-store names
- * beside its own module, so its bundled entry keeps that extension.
+ * The state-store writer and memory calculator workers are plain ESM (`.mjs`)
+ * that state-store names beside its own modules, so their bundled entries keep
+ * that extension.
  * @type {import('esbuild').BuildOptions}
  */
 export const STATE_STORE_WRITER_BUILD_OPTIONS = {
   ...shared,
   banner: ESM_REQUIRE_BANNER,
-  entryPoints: { 'writer-worker': path.join(packagesRoot, 'state-store/src/writer-worker.mjs') },
+  entryPoints: {
+    'memory-calculator-worker': path.join(
+      packagesRoot,
+      'state-store/src/memory-calculator-worker.mjs'
+    ),
+    'writer-worker': path.join(packagesRoot, 'state-store/src/writer-worker.mjs'),
+  },
   format: 'esm',
   outExtension: { '.js': '.mjs' },
   plugins: [workspaceSourceBundling({ packagesRoot, thirdParty: 'external' })],

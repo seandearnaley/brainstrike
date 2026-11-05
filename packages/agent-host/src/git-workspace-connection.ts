@@ -54,6 +54,7 @@ export function bindHostGitWorkspaceMethods(
     });
     return { subscribed: true };
   });
+  serve('changes/apply');
   serve('changes/file-diff');
   serve('changes/inventory');
   serve('changes/resolve-view');

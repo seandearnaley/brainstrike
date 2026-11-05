@@ -1,8 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  __resetNotificationPreferencesStoreForTests,
-  useNotificationPreferencesStore,
-} from '../stores/notification-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useNotificationPreferencesStore } from '../stores/notification-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useNotificationPreferencesStore as PersistApi<
@@ -10,10 +7,6 @@ const storeWithPersist = useNotificationPreferencesStore as PersistApi<
 >;
 
 describe('notification-preferences-store', () => {
-  beforeEach(() => {
-    __resetNotificationPreferencesStoreForTests();
-  });
-
   it('defaults the master toggle OFF', () => {
     expect(useNotificationPreferencesStore.getState().masterEnabled).toBe(false);
   });
@@ -98,17 +91,20 @@ describe('notification-preferences-store', () => {
     if (options.version === undefined) {
       throw new Error('persist version unavailable for test');
     }
-    options.storage.setItem(options.name, {
-      state: {
-        events: {
-          removedEvent: false,
-          runFailed: 'nope',
-          runFinished: false,
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({
+        state: {
+          events: {
+            removedEvent: false,
+            runFailed: 'nope',
+            runFinished: false,
+          },
+          masterEnabled: 'yes',
         },
-        masterEnabled: 'yes',
-      },
-      version: options.version,
-    });
+        version: options.version,
+      })
+    );
 
     await storeWithPersist.persist.rehydrate();
 

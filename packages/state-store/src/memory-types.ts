@@ -1,4 +1,7 @@
-/** Data-only port executed by the existing StateStore writer, never a second connection. */
+/**
+ * Data-only port executed by the existing StateStore writer, never a second connection. Native requests are
+ * calculated on the memory calculator worker; only their delta reaches the writer.
+ */
 export type MemoryJson =
   | null
   | boolean
@@ -89,6 +92,19 @@ export type MemoryDomainRequest = (
     }
   | { readonly operation: 'purge-resource'; readonly resourceId: string }
 ) & { readonly ownerThreadId?: string };
+/** What the writer executes: every request but `native`. */
+export type MemoryWriterRequest = Exclude<MemoryDomainRequest, { readonly operation: 'native' }>;
+/** A shared observation record: an observation entity with no owner thread. */
+export interface MemoryObservationRecord {
+  readonly id: string;
+  readonly payload: MemoryJsonObject;
+}
+/** A resource's shared observation records, read at `revision`. */
+export interface MemorySharedObservations {
+  readonly records: readonly MemoryObservationRecord[];
+  readonly resourceId: string;
+  readonly revision: number;
+}
 export interface MemoryDomainPort {
   memory(request: MemoryDomainRequest): Promise<MemorySnapshot>;
 }

@@ -7,14 +7,30 @@ import {
   refusal,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import {
   ConnectionError,
   ConnectionErrors,
   ErrorCodes,
+  type Logger,
   Message,
   type MessageConnection,
   ResponseError,
 } from 'vscode-jsonrpc';
+
+/**
+ * The log vscode-jsonrpc reports its own failures to (a handler that threw, a
+ * frame it could not dispatch). Without one it uses `NullLogger` and they vanish.
+ */
+export function jsonRpcLogger(scope: string): Logger {
+  const log = createLogger(scope);
+  return {
+    error: (message) => log.error(message),
+    info: (message) => log.info(message),
+    log: (message) => log.debug(message),
+    warn: (message) => log.warn(message),
+  };
+}
 
 /** The JSON-RPC error code of a refusal; a fault keeps `InternalError`. */
 export const BOUNDARY_REFUSAL_RPC_CODE = -32_001;
@@ -49,6 +65,24 @@ export const HOST_CLOSING = refusal({
   code: 'host.closing',
   message: 'The agent host is closing.',
 });
+
+/**
+ * A failure a desktop window shows as the host wrote it (an MCP settings or
+ * task refusal). A typed failure keeps its type. Anything else becomes a typed
+ * fault carrying the thrown message, so the boundary keeps the host's words and
+ * logs the cause under the fault's correlation id.
+ */
+export function visibleFailure(
+  cause: unknown,
+  code: string,
+  fallback: string
+): BoundaryFailureError {
+  if (cause instanceof BoundaryFailureError) {
+    return cause;
+  }
+  const message = cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
+  return new BoundaryFailureError(fault({ category: 'internal', code, message }), { cause });
+}
 
 /** A request refused before it was sent, because its connection had closed. */
 export function isUnsentRequest(cause: unknown): boolean {

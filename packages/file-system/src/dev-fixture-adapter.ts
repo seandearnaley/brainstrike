@@ -1,8 +1,4 @@
 import { createLogger } from '@brainstrike/logging';
-import type { IFileNode } from '@brainstrike/types';
-import { fileNodeCollator } from '@brainstrike/utils';
-import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types.ts';
-import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture.ts';
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
@@ -12,8 +8,12 @@ import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
+  IFileNode,
   StreamingDirectoryReadOptions,
-} from './types.ts';
+} from '@brainstrike/types';
+import { fileNodeCollator } from '@brainstrike/utils';
+import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types.ts';
+import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture.ts';
 
 const logger = createLogger('FixtureAdapter');
 
@@ -131,11 +131,10 @@ function buildFixtureState(
 
   const rootPath = definition.name;
 
-  // Stamp a durable rootId ONCE at the fixture boundary. loadInlineFixture (inject
-  // → setRoot) and restoreLastFolder (auto-restore → addOrFocusHandle) both return
-  // this same rootHandle object, so the inject and restore share one rootId and the
-  // reducer reconciles them to a SINGLE root (identity is rootId-only — an unstamped
-  // handle would be minted twice and render the file tree as two roots).
+  // Stamp a durable rootId ONCE at the fixture boundary, so every handle the fixture
+  // returns for its root carries one rootId and the reducer reconciles them to a
+  // SINGLE root (identity is rootId-only — an unstamped handle would be minted twice
+  // and render the file tree as two roots).
   const rootHandle: DirectoryHandle = {
     kind: 'directory',
     name: definition.name,
@@ -318,7 +317,6 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const originalReadFileByPath = (
     adapter as { readFileByPath?: ((path: string) => Promise<string>) | undefined }
   ).readFileByPath?.bind(adapter);
-  const originalRestoreLastFolder = adapter.restoreLastFolder?.bind(adapter);
   const originalReadDirectoryStreaming = adapter.readDirectoryStreaming?.bind(adapter);
   const originalWatchDirectory = adapter.watchDirectory?.bind(adapter);
 
@@ -426,17 +424,6 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     throw new Error('Streaming directory reads are not supported by this adapter');
   }
 
-  async function restoreLastFolder(): Promise<DirectoryHandle | null> {
-    const primary = primaryFixtureState();
-    if (primary) {
-      return primary.rootHandle;
-    }
-    if (originalRestoreLastFolder) {
-      return originalRestoreLastFolder();
-    }
-    return null;
-  }
-
   function watchDirectory(
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
@@ -536,9 +523,6 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
         readFileByPath?: (path: string) => Promise<string>;
       }
     ).readFileByPath = readFileByPath;
-  }
-  if (adapter.restoreLastFolder) {
-    decorated.restoreLastFolder = restoreLastFolder;
   }
   if (originalWatchDirectory) {
     decorated.watchDirectory = watchDirectory;

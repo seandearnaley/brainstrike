@@ -227,6 +227,13 @@ describe('the host composer gates a send on the provider notice', () => {
     expect(() => result.current.readConfiguration(null)).toThrow(
       'Connect an AI provider in Settings → Providers to enable the assistant.'
     );
+    // The welcome's action takes the user to Settings → Providers.
+    expect(result.current.disabledAction?.label).toBe('Connect a provider');
+    act(() => {
+      result.current.disabledAction?.onSelect();
+    });
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(window.location.hash).toBe('#settings/providers');
   });
 
   test('a connected provider with no model the catalog enables, whatever the registry cache says', async () => {
@@ -239,6 +246,11 @@ describe('the host composer gates a send on the provider notice', () => {
       )
     );
     expect(result.current.isComposerDisabled).toBe(true);
+    expect(result.current.disabledAction?.label).toBe('Enable models');
+    act(() => {
+      result.current.disabledAction?.onSelect();
+    });
+    expect(window.location.hash).toBe('#settings/model-catalog');
   });
 
   test('a model the catalog enables opens the composer though the registry cache is stale', async () => {

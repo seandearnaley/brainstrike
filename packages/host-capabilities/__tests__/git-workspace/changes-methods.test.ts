@@ -1,0 +1,620 @@
+import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type {
+  Changeset,
+  ChangesetView,
+  GitInventory,
+  StructuredFileDiff,
+} from '@brainstrike/types';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  createChangesMethods,
+  validateChangeset,
+  validatePath,
+} from '../../src/git-workspace/changes-methods.ts';
+
+const VIEW: ChangesetView = {
+  changeset: { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
+  files: [],
+  totalAdditions: null,
+  totalDeletions: null,
+};
+
+const DIFF: StructuredFileDiff = {
+  additions: null,
+  content: { kind: 'binary' },
+  deletions: null,
+  path: 'src/file.ts',
+  status: 'modified',
+};
+
+function fakeService(
+  overrides: Partial<{
+    fileDiff: (
+      rootId: unknown,
+      changeset: Changeset,
+      path: string
+    ) => Promise<BoundaryResult<StructuredFileDiff>>;
+    resolveView: (rootId: unknown, changeset: Changeset) => Promise<BoundaryResult<ChangesetView>>;
+  }> = {}
+) {
+  return {
+    apply: vi.fn(async () => ({ ok: true, value: { paths: ['a.txt'] } }) as const),
+    fileDiff: overrides.fileDiff ?? vi.fn(async () => ({ ok: true, value: DIFF }) as const),
+    resolveView: overrides.resolveView ?? vi.fn(async () => ({ ok: true, value: VIEW }) as const),
+  };
+}
+
+describe('validateChangeset', () => {
+  it('rejects a non-object payload', () => {
+    const result = validateChangeset('nope');
+    expect(result).toEqual({
+      error: expect.objectContaining({
+        message: 'changeset payload must be an object with an explicit kind',
+      }),
+      ok: false,
+    });
+  });
+
+  it('rejects an unknown kind, naming it', () => {
+    const result = validateChangeset({ kind: 'mystery' });
+    expect(result.ok).toBe(false);
+    expect((result as { error: BoundaryFailure }).error.message).toContain('"mystery"');
+  });
+
+  describe('agent-run', () => {
+    it('accepts a valid payload', () => {
+      const result = validateChangeset({ kind: 'agent-run', runId: 'r1', threadId: 't1' });
+      expect(result).toEqual({
+        ok: true,
+        value: { kind: 'agent-run', runId: 'r1', threadId: 't1' },
+      });
+    });
+
+    it('rejects a missing runId', () => {
+      const result = validateChangeset({ kind: 'agent-run', threadId: 't1' });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'changeset kind "agent-run" requires a non-empty runId',
+        }),
+        ok: false,
+      });
+    });
+
+    it('rejects an empty threadId', () => {
+      const result = validateChangeset({ kind: 'agent-run', runId: 'r1', threadId: '' });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'changeset kind "agent-run" requires a non-empty threadId',
+        }),
+        ok: false,
+      });
+    });
+
+    it('rejects extra keys', () => {
+      const result = validateChangeset({
+        extra: true,
+        kind: 'agent-run',
+        runId: 'r1',
+        threadId: 't1',
+      });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'changeset kind "agent-run" does not accept: extra',
+        }),
+        ok: false,
+      });
+    });
+  });
+
+  describe('run-range', () => {
+    it('accepts an open-ended range (toRunId omitted)', () => {
+      const result = validateChangeset({ fromRunId: 'r1', kind: 'run-range', threadId: 't1' });
+      expect(result).toEqual({
+        ok: true,
+        value: { fromRunId: 'r1', kind: 'run-range', threadId: 't1' },
+      });
+    });
+
+    it('accepts an explicit toRunId', () => {
+      const result = validateChangeset({
+        fromRunId: 'r1',
+        kind: 'run-range',
+        threadId: 't1',
+        toRunId: 'r2',
+      });
+      expect(result).toEqual({
+        ok: true,
+        value: { fromRunId: 'r1', kind: 'run-range', threadId: 't1', toRunId: 'r2' },
+      });
+    });
+
+    it('rejects an empty toRunId when present', () => {
+      const result = validateChangeset({
+        fromRunId: 'r1',
+        kind: 'run-range',
+        threadId: 't1',
+        toRunId: '',
+      });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'changeset kind "run-range" toRunId must be a non-empty string when present',
+        }),
+        ok: false,
+      });
+    });
+
+    it('rejects a missing fromRunId', () => {
+      const result = validateChangeset({ kind: 'run-range', threadId: 't1' });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'changeset kind "run-range" requires a non-empty fromRunId',
+        }),
+        ok: false,
+      });
+    });
+  });
+
+  describe('git-scope', () => {
+    it('accepts uncommitted scope', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: { kind: 'uncommitted' },
+        worktreePath: '/repo',
+      });
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          kind: 'git-scope',
+          repositoryRoot: '/repo',
+          scope: { kind: 'uncommitted' },
+          worktreePath: '/repo',
+        },
+      });
+    });
+
+    it('accepts commit scope with a commitId', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: { commitId: 'abc123', kind: 'commit' },
+        worktreePath: '/repo',
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('rejects commit scope without a commitId', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: { kind: 'commit' },
+        worktreePath: '/repo',
+      });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'git-scope scope kind "commit" requires a non-empty commitId',
+        }),
+        ok: false,
+      });
+    });
+
+    it('accepts branch-vs-base with an omitted baseRef', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: { kind: 'branch-vs-base' },
+        worktreePath: '/repo',
+      });
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          kind: 'git-scope',
+          repositoryRoot: '/repo',
+          scope: { kind: 'branch-vs-base' },
+          worktreePath: '/repo',
+        },
+      });
+    });
+
+    it('rejects an invalid scope.kind, naming it', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: { kind: 'bogus' },
+        worktreePath: '/repo',
+      });
+      expect(result.ok).toBe(false);
+      expect((result as { error: BoundaryFailure }).error.message).toContain('"bogus"');
+    });
+
+    it('rejects extra keys inside scope', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: { extra: 1, kind: 'staged' },
+        worktreePath: '/repo',
+      });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'git-scope scope kind "staged" does not accept: extra',
+        }),
+        ok: false,
+      });
+    });
+
+    it('rejects a missing repositoryRoot', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        scope: { kind: 'staged' },
+        worktreePath: '/repo',
+      });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'changeset kind "git-scope" requires a non-empty repositoryRoot',
+        }),
+        ok: false,
+      });
+    });
+
+    it('rejects a missing worktreePath', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: { kind: 'staged' },
+      });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'changeset kind "git-scope" requires a non-empty worktreePath',
+        }),
+        ok: false,
+      });
+    });
+
+    it('rejects a non-object scope', () => {
+      const result = validateChangeset({
+        kind: 'git-scope',
+        repositoryRoot: '/repo',
+        scope: 'staged',
+        worktreePath: '/repo',
+      });
+      expect(result).toEqual({
+        error: expect.objectContaining({
+          message: 'git-scope changeset requires scope to be an object',
+        }),
+        ok: false,
+      });
+    });
+  });
+});
+
+describe('validatePath', () => {
+  it('accepts a non-empty string', () => {
+    expect(validatePath('src/file.ts')).toEqual({ ok: true, value: 'src/file.ts' });
+  });
+
+  it('rejects a non-string path', () => {
+    expect(validatePath(42)).toEqual({
+      error: expect.objectContaining({ message: 'changes:fileDiff requires a non-empty path' }),
+      ok: false,
+    });
+  });
+
+  it('rejects an empty path', () => {
+    expect(validatePath('')).toEqual({
+      error: expect.objectContaining({ message: 'changes:fileDiff requires a non-empty path' }),
+      ok: false,
+    });
+  });
+});
+
+describe('changes IPC handlers', () => {
+  it('forwards a validated resolveView payload to the injected service', async () => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+    const changeset = { kind: 'agent-run', runId: 'r1', threadId: 't1' };
+
+    const result = await handlers.resolveView('root-1', changeset);
+
+    expect(result).toEqual({ ok: true, value: VIEW });
+    expect(service.resolveView).toHaveBeenCalledWith('root-1', {
+      kind: 'agent-run',
+      runId: 'r1',
+      threadId: 't1',
+    });
+  });
+
+  it('forwards a validated fileDiff payload (changeset + path) to the injected service', async () => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+    const changeset = { kind: 'agent-run', runId: 'r1', threadId: 't1' };
+
+    const result = await handlers.fileDiff('root-1', changeset, 'src/file.ts');
+
+    expect(result).toEqual({ ok: true, value: DIFF });
+    expect(service.fileDiff).toHaveBeenCalledWith(
+      'root-1',
+      { kind: 'agent-run', runId: 'r1', threadId: 't1' },
+      'src/file.ts'
+    );
+  });
+
+  it('rejects an invalid changeset before ever reaching the service', async () => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+
+    const result = await handlers.resolveView('root-1', { kind: 'bogus' });
+
+    expect(result.ok).toBe(false);
+    expect(service.resolveView).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid path before ever reaching the service', async () => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+    const changeset = { kind: 'agent-run', runId: 'r1', threadId: 't1' };
+
+    const result = await handlers.fileDiff('root-1', changeset, '');
+
+    expect(result).toEqual({
+      error: expect.objectContaining({ message: 'changes:fileDiff requires a non-empty path' }),
+      ok: false,
+    });
+    expect(service.fileDiff).not.toHaveBeenCalled();
+  });
+
+  it('catches an unexpected service throw and returns a typed failure', async () => {
+    const service = fakeService({
+      resolveView: vi.fn(async () => {
+        throw new Error('boom');
+      }),
+    });
+    const handlers = createChangesMethods({ service });
+
+    const result = await handlers.resolveView('root-1', {
+      kind: 'agent-run',
+      runId: 'r1',
+      threadId: 't1',
+    });
+
+    expect(result).toEqual({ error: expect.objectContaining({ code: 'git.internal' }), ok: false });
+  });
+});
+
+describe('changes:apply', () => {
+  const unstaged = {
+    kind: 'git-scope',
+    repositoryRoot: '/repo',
+    scope: { kind: 'unstaged' },
+    worktreePath: '/repo',
+  };
+  const valid = {
+    action: 'stage',
+    changeset: unstaged,
+    rootId: 'root-1',
+    target: { hunks: ['@@ -1 +1 @@\n-a\n+b\n'], kind: 'hunks', path: 'a.txt' },
+  };
+
+  it.each([
+    ['hunks', valid],
+    ['files', { ...valid, target: { files: [{ path: 'a.txt', revision: 'r1' }], kind: 'files' } }],
+  ])('hands a well-formed request for %s to the service', async (_name, request) => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+
+    expect(await handlers.apply(request)).toEqual({ ok: true, value: { paths: ['a.txt'] } });
+    expect(service.apply).toHaveBeenCalledWith(request);
+  });
+
+  it.each([
+    ['an unknown action', { ...valid, action: 'commit' }, 'action must be'],
+    ['an extra key', { ...valid, force: true }, 'does not accept: force'],
+    ['no root', { ...valid, rootId: '' }, 'non-empty rootId'],
+    ['an unknown target', { ...valid, target: { kind: 'lines' } }, 'target kind must be'],
+    ['no files', { ...valid, target: { files: [], kind: 'files' } }, 'non-empty array'],
+    [
+      'a file without the revision the view drew',
+      { ...valid, target: { files: [{ path: 'a.txt' }], kind: 'files' } },
+      'non-empty path and revision',
+    ],
+    [
+      'a file named by its path alone',
+      { ...valid, target: { kind: 'files', paths: ['a.txt'] } },
+      'does not accept: paths',
+    ],
+    [
+      'a repeated path',
+      {
+        ...valid,
+        target: {
+          files: [
+            { path: 'a.txt', revision: 'r1' },
+            { path: 'a.txt', revision: 'r2' },
+          ],
+          kind: 'files',
+        },
+      },
+      'must not repeat',
+    ],
+    [
+      'a repeated hunk',
+      { ...valid, target: { ...valid.target, hunks: ['@@ x', '@@ x'] } },
+      'must not repeat',
+    ],
+    [
+      'a hunk without its header',
+      { ...valid, target: { ...valid.target, hunks: ['-a\n+b\n'] } },
+      '"@@ " line',
+    ],
+    ['a malformed changeset', { ...valid, changeset: { kind: 'git-scope' } }, 'repositoryRoot'],
+  ])('refuses %s before the service sees it', async (_name, payload, message) => {
+    const service = fakeService();
+    const handlers = createChangesMethods({ service });
+
+    const result = await handlers.apply(payload);
+
+    expect(result).toEqual({
+      error: expect.objectContaining({
+        code: 'git.invalid-request',
+        message: expect.stringContaining(message),
+      }),
+      ok: false,
+    });
+    expect(service.apply).not.toHaveBeenCalled();
+  });
+});
+
+describe('createChangesMethods.inventory (BST-1114 T0)', () => {
+  const INVENTORY: GitInventory = {
+    errors: ['repo /tmp/broken: fatal: not a git repository'],
+    repositories: [
+      {
+        identity: { gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
+        worktrees: [
+          {
+            bare: false,
+            branch: 'main',
+            containment: ['root-1'],
+            current: true,
+            detached: false,
+            head: 'abc123',
+            lockedReason: null,
+            name: 'repo',
+            path: '/repo',
+            provenance: 'scanned',
+            prunableReason: null,
+            trust: 'validated',
+            trustReason: null,
+          },
+        ],
+      },
+    ],
+  };
+
+  function fakeInventoryService(snapshot: GitInventory & { capturedAt: number }) {
+    return {
+      getSnapshot: vi.fn(async () => snapshot),
+      start: vi.fn(),
+      stop: vi.fn(async () => undefined),
+    };
+  }
+
+  it('projects the service snapshot onto the GitInventory wire contract', async () => {
+    const service = fakeInventoryService({ ...INVENTORY, capturedAt: 1234 });
+    const handlers = createChangesMethods({
+      resolveInventoryService: () => service as never,
+      service: fakeService() as never,
+    });
+
+    const result = await handlers.inventory();
+
+    // `capturedAt` is a service-internal cache detail — it must NOT cross the
+    // renderer boundary, and `errors` must survive intact (a repo failure is
+    // reported, never dropped).
+    expect(result).toEqual({ ok: true, value: INVENTORY });
+    expect(result.ok && 'capturedAt' in result.value).toBe(false);
+  });
+
+  it('resolves the service LAZILY, per call', async () => {
+    const service = fakeInventoryService({ ...INVENTORY, capturedAt: 1 });
+    let current: ReturnType<typeof fakeInventoryService> | null = null;
+    const handlers = createChangesMethods({
+      resolveInventoryService: () => current as never,
+      service: fakeService() as never,
+    });
+
+    // Registration happens before the service exists (the real main.ts
+    // ordering): the first call must fail visibly...
+    const before = await handlers.inventory();
+    expect(before.ok).toBe(false);
+
+    // ...and a later call, after app-ready construction, must succeed without
+    // re-registering anything.
+    current = service;
+    const after = await handlers.inventory();
+    expect(after).toEqual({ ok: true, value: INVENTORY });
+  });
+
+  it('reports an absent service as a visible failure, not an empty inventory', async () => {
+    const handlers = createChangesMethods({ service: fakeService() as never });
+
+    const result = await handlers.inventory();
+
+    expect(result.ok).toBe(false);
+    expect((result as { error: BoundaryFailure }).error.message).toContain(
+      'git inventory service is not running'
+    );
+  });
+
+  it('catches a thrown getSnapshot (e.g. GitInventoryStoppedError) as a typed failure', async () => {
+    const service = {
+      getSnapshot: vi.fn(async () => {
+        throw new Error('the service has been stopped');
+      }),
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+    const handlers = createChangesMethods({
+      resolveInventoryService: () => service as never,
+      service: fakeService() as never,
+    });
+
+    const result = await handlers.inventory();
+
+    expect(result).toEqual({
+      error: expect.objectContaining({ code: 'git.internal' }),
+      ok: false,
+    });
+  });
+
+  // BST-1397: the renderer's post-registration nudge forces a rebuild through
+  // this boundary, so `maxAgeMs` is now renderer-supplied and validated here.
+  describe('maxAgeMs options bag', () => {
+    function handlersWithSpy(): {
+      getSnapshot: ReturnType<typeof vi.fn>;
+      handlers: ReturnType<typeof createChangesMethods>;
+    } {
+      const service = fakeInventoryService({ ...INVENTORY, capturedAt: 7 });
+      return {
+        getSnapshot: service.getSnapshot,
+        handlers: createChangesMethods({
+          resolveInventoryService: () => service as never,
+          service: fakeService() as never,
+        }),
+      };
+    }
+
+    it('passes a forced refresh through to the service', async () => {
+      const { getSnapshot, handlers } = handlersWithSpy();
+
+      await handlers.inventory({ maxAgeMs: 0 });
+
+      expect(getSnapshot).toHaveBeenCalledWith({ maxAgeMs: 0 });
+    });
+
+    it('treats an omitted options bag as "no override"', async () => {
+      const { getSnapshot, handlers } = handlersWithSpy();
+
+      await handlers.inventory();
+
+      expect(getSnapshot).toHaveBeenCalledWith({});
+    });
+
+    it.each([
+      ['a non-object payload', 5],
+      ['an array payload', []],
+      ['a non-numeric maxAgeMs', { maxAgeMs: '0' }],
+      ['a negative maxAgeMs', { maxAgeMs: -1 }],
+      ['a fractional maxAgeMs', { maxAgeMs: 1.5 }],
+      ['a non-finite maxAgeMs', { maxAgeMs: Number.NaN }],
+      ['an unsupported key', { maxAgeMs: 0, refresh: true }],
+    ])('rejects %s instead of coercing it', async (_label, options) => {
+      const { getSnapshot, handlers } = handlersWithSpy();
+
+      const result = await handlers.inventory(options);
+
+      expect(result.ok).toBe(false);
+      expect(getSnapshot).not.toHaveBeenCalled();
+    });
+  });
+});

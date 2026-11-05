@@ -3,7 +3,6 @@ import {
   type ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
 import { FileExplorerProvider } from '@brainstrike/file-explorer-ui/shell';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
@@ -41,7 +40,7 @@ test('mounts the actual host snapshot repository without a database provider', a
   };
   render(
     <AssistantThreadHostContext.Provider value={host}>
-      <FileExplorerProvider storageAdapter={new MemoryStorageAdapter()}>
+      <FileExplorerProvider>
         <ThreadWorkspaceCoordinator />
       </FileExplorerProvider>
     </AssistantThreadHostContext.Provider>

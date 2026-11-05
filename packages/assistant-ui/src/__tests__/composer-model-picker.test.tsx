@@ -15,10 +15,7 @@ const providerGroups: ProviderGroupConfig[] = [
     providers: [
       {
         capabilities: {
-          embeddings: true,
-          llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: true,
         },
         id: 'openai',
         models: [
@@ -46,10 +43,7 @@ const providerGroups: ProviderGroupConfig[] = [
       },
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'anthropic',
         models: [
@@ -80,10 +74,7 @@ const providerGroups: ProviderGroupConfig[] = [
     providers: [
       {
         capabilities: {
-          embeddings: false,
-          llm: true,
           streaming: true,
-          supportsStandardEmbeddingDimension: false,
         },
         id: 'openrouter',
         models: [
@@ -645,24 +636,52 @@ describe('ComposerModelPicker', () => {
     expect(within(reopened).getByRole('combobox')).toHaveValue('');
   });
 
-  it('disables the trigger with a placeholder when no models are enabled', () => {
+  const noEnabledGroups = () =>
+    providerGroups.map((group) => ({
+      ...group,
+      providers: group.providers.map((provider) => ({
+        ...provider,
+        models: provider.models.map((model) => ({ ...model, enabled: false })),
+      })),
+    }));
+
+  it('opens to an empty state that leads to model settings when no models are enabled', async () => {
+    const user = userEvent.setup();
+    const onManageModels = vi.fn();
     render(
       <ComposerModelPicker
+        onManageModels={onManageModels}
         onModelChange={vi.fn()}
         pickerModels={[]}
-        providerGroups={providerGroups.map((group) => ({
-          ...group,
-          providers: group.providers.map((provider) => ({
-            ...provider,
-            models: provider.models.map((model) => ({ ...model, enabled: false })),
-          })),
-        }))}
+        providerGroups={noEnabledGroups()}
       />
     );
 
     const trigger = screen.getByTestId('composer-model-menu-trigger');
-    expect(trigger).toBeDisabled();
+    expect(trigger).toBeEnabled();
     expect(trigger).toHaveTextContent('No models enabled');
+
+    const picker = await openPicker(user);
+    expect(picker).toHaveTextContent('No models are enabled');
+    await user.click(within(picker).getByRole('button', { name: 'Manage models' }));
+    expect(onManageModels).toHaveBeenCalledTimes(1);
+    // Settings opens beside the chat, so the picker must not stay open over it.
+    await waitFor(() => expect(picker).not.toBeInTheDocument());
+  });
+
+  it('offers no settings link in the empty state without one', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerModelPicker
+        onModelChange={vi.fn()}
+        pickerModels={[]}
+        providerGroups={noEnabledGroups()}
+      />
+    );
+
+    const picker = await openPicker(user);
+    expect(picker).toHaveTextContent('No models are enabled');
+    expect(within(picker).queryByRole('button', { name: 'Manage models' })).toBeNull();
   });
 
   it('disables the trigger when no onModelChange handler is provided', () => {

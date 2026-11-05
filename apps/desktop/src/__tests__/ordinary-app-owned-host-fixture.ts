@@ -274,12 +274,12 @@ setInterval(() => {}, 1000);
       await page.getByRole('textbox', { name: 'Message input' }).waitFor();
       await page.evaluate(
         async ({ memory, version }) => {
-          if (!(window.modelCatalog && window.electronAPI && 'storage' in window.electronAPI)) {
-            throw new Error('The normal desktop model catalog/storage bridge is missing');
+          if (!window.modelCatalog) {
+            throw new Error('The normal desktop model catalog bridge is missing');
           }
           await window.modelCatalog.setModels(['anthropic/claude-sonnet-4.6'], true);
           localStorage.setItem(
-            'assistant-preferences.v1',
+            'brainstrike:assistant-preferences.v1',
             JSON.stringify({
               state: {
                 modelsByProvider: { openrouter: 'anthropic/claude-sonnet-4.6' },
@@ -298,8 +298,8 @@ setInterval(() => {}, 1000);
               version,
             })
           );
-          await window.electronAPI.storage.setItem(
-            'assistant-memory-preferences.v1',
+          window.localStorage.setItem(
+            'brainstrike:assistant-memory-preferences.v1',
             JSON.stringify({
               state: {
                 ...memory,
@@ -327,7 +327,7 @@ setInterval(() => {}, 1000);
       );
       await page.reload();
       await ensureAssistantShellVisible(page);
-      workspaceRootId = await addWorkspaceFolder(page, workspace);
+      workspaceRootId = await addWorkspaceFolder(page, workspace, profile);
       checkpoint('ordinary-assistant-visible');
       const record = decodeHostRecord(
         JSON.parse(await readFile(join(profile, 'host.json'), 'utf8'))
@@ -352,10 +352,10 @@ setInterval(() => {}, 1000);
       await page.evaluate(
         ({ resourceId, threadId }) => {
           const previous = JSON.parse(
-            localStorage.getItem('brainstrike-assistant-threads-v1') ?? '{"state":{},"version":4}'
+            localStorage.getItem('brainstrike:assistant-threads.v1') ?? '{"state":{},"version":4}'
           ) as { state: Record<string, unknown>; version: number };
           localStorage.setItem(
-            'brainstrike-assistant-threads-v1',
+            'brainstrike:assistant-threads.v1',
             JSON.stringify({
               ...previous,
               state: {
@@ -915,7 +915,7 @@ setInterval(() => {}, 1000);
                   __brainstrikeRendererLogBuffer?: { getRecords(): readonly unknown[] };
                 }
               ).__brainstrikeRendererLogBuffer?.getRecords(),
-              stores: { threads: localStorage.getItem('assistant-threads.v1') },
+              stores: { threads: localStorage.getItem('brainstrike:assistant-threads.v1') },
             }))
             .then((value) =>
               writeFile(join(evidence, 'failure-diagnostics.json'), JSON.stringify(value, null, 2))

@@ -16,13 +16,6 @@ export * from './context-packer.ts';
 export * from './conversation-rewind.ts';
 export * from './delegated-conversation-stream.ts';
 export * from './delegated-tool-actions.ts';
-export {
-  type DelegatedBudgetPort,
-  type DelegatedInvocationAdmission,
-  DelegatedOutputReservationExceededError,
-  type DelegatedStepReservation,
-  type DelegationBudgetCap,
-} from './delegation-limits.ts';
 export * from './edit-checkpoints.ts';
 export * from './file-mention-directive.ts';
 export * from './grep-match.ts';
@@ -84,3 +77,4 @@ export * from './tool-suspend.ts';
 export * from './tool-telemetry.ts';
 export * from './user-personas.ts';
 export * from './user-slash-commands.ts';
+export * from './workspace-context-files.ts';

@@ -138,7 +138,7 @@ export function WorkspaceRootStatusItem() {
               ? `Workspace main root ${mainName} plus ${otherCount} more. Open workspace folders`
               : `Workspace folder ${mainName}. Open workspace folders`
           }
-          className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset md:px-2"
+          className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-hidden focus-visible:ring-inset md:px-2"
           data-testid="workspace-root-status-trigger"
           title={mainPathTitle}
           type="button"

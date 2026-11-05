@@ -6,11 +6,7 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import {
-  __resetAssistantSubagentPreferencesStoreForTests,
-  useAssistantSubagentPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
-import { __resetSubagentPersonasStoreForTests } from '@brainstrike/app-state/stores/subagent-personas-store';
+import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,26 +24,21 @@ vi.mock('@brainstrike/assistant-contract', async (importOriginal) => {
 
 beforeEach(() => {
   window.localStorage.clear();
-  __resetSubagentPersonasStoreForTests();
-  __resetAssistantSubagentPreferencesStoreForTests();
   // Tree and per-child limits are USER SETTINGS; the panel must read them
   // from the preferences store, never from a constant.
   useAssistantSubagentPreferencesStore.setState({
     settings: {
       ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      maxChildOutputTokens: 4321,
       maxChildSteps: 7,
       maxConcurrentWork: 5,
       maxDepth: 7,
       maxInvocations: 11,
-      maxTreeOutputTokens: 98_765,
     },
   });
 });
 
 afterEach(() => {
   cleanup();
-  __resetAssistantSubagentPreferencesStoreForTests();
 });
 
 describe('SubagentPersonasSettingsSection delegation limits', () => {
@@ -60,8 +51,7 @@ describe('SubagentPersonasSettingsSection delegation limits', () => {
     expect(limits).toHaveTextContent(
       'No subagent may exceed 7 steps, whatever its persona declares (see Subagent limits below).'
     );
-    expect(limits).toHaveTextContent('4,321');
-    expect(limits).toHaveTextContent('98,765');
+    expect(limits).not.toHaveTextContent('output tokens');
   });
 
   it('states each persona step budget through the shared helper the host enforces with', () => {

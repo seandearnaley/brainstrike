@@ -8,6 +8,7 @@ import { applyDesktopLoginShellEnvironment, initializeDesktopEnvironment } from 
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import { installLifecycleDelaySeam } from './lifecycle-delay-seam';
 import { resolveLoginShellEnvironment } from './login-shell-environment';
+import { markStartupMilestone } from './startup-timeline';
 
 function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown()): void {
   const message = error instanceof Error ? error.message : String(error);
@@ -33,6 +34,7 @@ if (process.argv.includes('--version')) {
   process.stdout.write(`${app.getVersion()}\n`);
   app.exit(0);
 } else {
+  markStartupMilestone('bootstrap');
   try {
     initializeDesktopEnvironment({
       appRoot: app.getAppPath(),
@@ -51,6 +53,9 @@ if (process.argv.includes('--version')) {
         env: process.env,
         execPath: process.execPath,
         platform: process.platform,
+      }).then((environment) => {
+        markStartupMilestone('shellEnvironment');
+        return environment;
       });
       const earlyQuit = (event: Electron.Event): void => {
         event.preventDefault();
@@ -77,7 +82,10 @@ if (process.argv.includes('--version')) {
           }
           // Fork with the existing owner before evaluating Main. The private platform
           // port queues until Main binds it; host publication joins that binding.
-          const starting = runtime.profile.acquire();
+          const starting = runtime.profile.acquire().then((attachment) => {
+            markStartupMilestone('agentHostReady');
+            return attachment;
+          });
           const started = Promise.allSettled([starting]);
           try {
             // A host-start refusal still reaches the existing Main error/retry UI.

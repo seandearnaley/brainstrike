@@ -11,7 +11,7 @@ import {
 } from '../file-content-processor.js';
 
 // Mock the worker
-vi.mock('@brainstrike/workers/file-content-worker', () => ({
+vi.mock('../file-content-worker.ts', () => ({
   createFileContentWorker: vi.fn(() => vi.fn()),
 }));
 
@@ -342,7 +342,7 @@ describe('DirectFileContentProcessor', () => {
 
 describe('WorkerFileContentProcessor', () => {
   it('should create and use worker', async () => {
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import('../file-content-worker.ts');
     const mockWorker = vi.fn().mockResolvedValue({
       key1: { content: 'result1', status: 'accessible' as const },
     });
@@ -376,7 +376,7 @@ describe('WorkerFileContentProcessor', () => {
   });
 
   it('should pass progress callback to worker', async () => {
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import('../file-content-worker.ts');
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -389,7 +389,7 @@ describe('WorkerFileContentProcessor', () => {
   });
 
   it('should omit non-finite size metadata from worker handles', async () => {
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import('../file-content-worker.ts');
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -411,7 +411,7 @@ describe('WorkerFileContentProcessor', () => {
   });
 
   it('uses the canonical handle path for worker reads when node paths are display-relative', async () => {
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import('../file-content-worker.ts');
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -447,7 +447,7 @@ describe('WorkerFileContentProcessor', () => {
   });
 
   it('should pass abort options through to the worker', async () => {
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import('../file-content-worker.ts');
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
     const controller = new AbortController();
@@ -473,7 +473,7 @@ describe('createFileContentProcessor', () => {
   });
 
   it('should pass concurrency option to WorkerFileContentProcessor', () => {
-    vi.mocked(import('@brainstrike/workers/file-content-worker'));
+    vi.mocked(import('../file-content-worker.ts'));
 
     createFileContentProcessor(mockFileSystemAdapter, { concurrency: 5 });
 

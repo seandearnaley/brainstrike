@@ -6,6 +6,14 @@ import { BrowserClickInputSchema } from '../schemas/schemas-browser.ts';
 // access mode; the BST-2209 hard blocks and the BST-2325 origin rule refuse
 // before anything reaches the page.
 export const browserClick = defineNativeTool({
+  // The page's acting tools name the element the person approves (BST-2324).
+  activity: {
+    active: 'Clicking',
+    done: 'Clicked',
+    family: 'web',
+    request: 'Click',
+    targetArg: 'element',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 120,

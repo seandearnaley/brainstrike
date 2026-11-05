@@ -121,25 +121,6 @@ vi.mock('@brainstrike/file-system/electron', () => {
   return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage/electron', () => {
-  const MockAdapter = vi.fn();
-  MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { ElectronStorageAdapter: MockAdapter };
-});
-
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {
-      get: vi.fn(),
-      set: vi.fn(),
-    });
-  });
-  return { default: MockElectronStore };
-});
-
 vi.mock('@brainstrike/logging', async () => {
   const actual = await vi.importActual('@brainstrike/logging');
   return {

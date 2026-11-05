@@ -1,6 +1,5 @@
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
-import { MEMORY_RECALL_TELEMETRY_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { ModelMessage, Tool } from 'ai';
 import { Schema } from 'effect';
 import { recordRawToolInputs } from './approval-input.ts';
@@ -19,7 +18,6 @@ import {
   HostPromptBreakdownSchema,
   HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
-  type HostRunTelemetry,
 } from './protocol.ts';
 /**
  * HostCore alone folds and writes accepted command records. The committed
@@ -162,6 +160,12 @@ export interface HostRunInput {
  */
 export interface HostThreadGrants {
   readonly categories: Set<ToolRiskCategory>;
+  /**
+   * Tools the person allowed for the session while answering a call that was
+   * theirs alone to approve (a command outside the sandbox): such calls of the
+   * tool run unasked for the rest of the session, as the grant said.
+   */
+  readonly outsideSandbox: Set<string>;
   readonly tools: Set<string>;
 }
 export function applyHostPermissionGrant(run: HostRunState, grant: HostPermissionGrant): void {
@@ -241,8 +245,14 @@ export function foldHostRunEffect(
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
-  /** BST-1932: the user message is a delegation's task, which the parent's model wrote. */
-  readonly delegated?: true;
+  /**
+   * Who wrote the user message (ADR-0028 rule 2), from its committed command
+   * and `run.started` `hostPrompt`: the person (their own `run/start`), an
+   * agent (a delegation's task, which the parent's model wrote) or the host (a
+   * wake's delivery, or the run it starts to carry a task on in a worktree).
+   * Only the person's words are a request.
+   */
+  readonly author: 'agent' | 'host' | 'person';
   /** BST-1932: background child results delivered with this run's user message. */
   readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
@@ -267,7 +277,10 @@ export interface HostRunState {
   readonly artifactSettled: Set<string>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
-  /** BST-1932: human input a running child takes; it starts the run after this one. */
+  /**
+   * BST-1932: the human input this child run took, folded from its committed
+   * run/input until the input's run/start (or its refusal) commits.
+   */
   childInput?: HostParams<'run/start'> | undefined;
   /** BST-2360: whether each call that asks the person would run in the OS sandbox. */
   readonly commandSandboxes: Map<string, boolean>;
@@ -373,12 +386,18 @@ export interface HostRunState {
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
+  /** A user Stop of this run, from its commit to its joined cleanup: the thread's next run waits for it. */
+  stopping?: Promise<void> | undefined;
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
   /** PostToolUse hooks' committed context, read with each tool's result. */
   readonly toolContexts: Map<string, string>;
-  /** A follow-up typed into an idle child starts its own turn: its ID. */
+  /**
+   * The turn the run belongs to when neither its origin nor its delivery names
+   * it: a follow-up typed into an idle child starts its own (its ID), and a run
+   * the host started to carry a run's task on continues that run's turn.
+   */
   turnId?: string;
   /** The run's committed turn-start snapshots: the roots its turn end snapshots. */
   turnStart?: Extract<
@@ -522,6 +541,7 @@ function foldHostInputRun(
   if (accepted?.inputCommandId !== event.commandId) {
     return;
   }
+  accepted.childInput = undefined;
   accepted.inputRun = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'])(
     event.result
   ).runId;
@@ -564,7 +584,12 @@ export function foldHostAcceptedCommand(
   }
   run.steered = true;
   if (event.method === 'run/input') {
-    run.inputCommandId = deriveHostInputRunCommandId(event.commandId);
+    // BST-1932: the committed input is the one record of what the child's next run takes.
+    const { commandId, runId, ...settings } = Schema.decodeUnknownSync(
+      HOST_METHOD_SCHEMAS['run/input']
+    )(event.payload);
+    run.inputCommandId = deriveHostInputRunCommandId(commandId);
+    run.childInput = { ...settings, commandId: run.inputCommandId, parentMessageId: runId };
   }
 }
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */
@@ -604,9 +629,7 @@ export function foldHostRunMessages(
 export function createHostRunContext(
   run: HostRunState,
   publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>,
-  readCommittedRows: HostRunContext['readCommittedRows'],
-  /** Core's live telemetry: uncommitted, on the run's stream (ADR-0011 amendment). */
-  telemetry: (telemetry: HostRunTelemetry) => void
+  readCommittedRows: HostRunContext['readCommittedRows']
 ): HostRunContext {
   return {
     readCommittedRows,
@@ -656,16 +679,6 @@ export function createHostRunContext(
           type: 'provider.request.prepared',
         },
       ]);
-    },
-    recordRecall: (recall) => {
-      telemetry({
-        chunk: { ...recall, type: MEMORY_RECALL_TELEMETRY_TYPE },
-        runId: run.id,
-        threadId: run.threadId,
-      });
-    },
-    recordRecallFailed: async (detail) => {
-      await publish(run.threadId, [{ detail, runId: run.id, type: 'memory.recall.failed' }]);
     },
     runId: run.id,
     signal: run.controller.signal,

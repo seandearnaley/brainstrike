@@ -1,12 +1,11 @@
-import { BoundaryFailureError } from '@brainstrike/assistant-contract';
-import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
+import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from './auth-connection.ts';
+import { visibleFailure } from './boundary-wire.ts';
 import type { HostClientOrigin, HostMcpSettingsService } from './ports.ts';
 import { MCP_SETTINGS_EVENT } from './protocol-mcp-settings.ts';
 import { storeRefusal } from './store-refusals.ts';
 
 const APPLIED = { applied: true } as const;
-const MAX_VISIBLE_ERROR_CHARS = 1000;
 
 /**
  * The desktop's MCP settings on one authenticated connection (BST-1930 c5a).
@@ -40,15 +39,10 @@ export function bindHostMcpSettingsMethods(
     try {
       return await work();
     } catch (thrown) {
-      const cause = storeRefusal(thrown);
-      if (cause instanceof BoundaryFailureError) {
-        throw cause;
-      }
-      throw new ResponseError(
-        ErrorCodes.InternalError,
-        cause instanceof Error
-          ? cause.message.slice(0, MAX_VISIBLE_ERROR_CHARS)
-          : 'MCP settings request failed.'
+      throw visibleFailure(
+        storeRefusal(thrown),
+        'mcp.settings-failed',
+        'MCP settings request failed.'
       );
     }
   };

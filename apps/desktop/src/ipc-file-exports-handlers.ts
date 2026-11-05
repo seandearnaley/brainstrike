@@ -6,7 +6,7 @@
  * when the object URL is revoked mid-flight (and jammed items then block
  * later downloads for the whole session).
  *
- * The filename is renderer-supplied and therefore untrusted: it must match
+ * The filename is renderer-supplied and therefore untrusted: `SaveToDownloadsArgs` requires
  * the same `[a-zA-Z0-9._-]` charset `@brainstrike/utils`'s filename builder
  * emits, which excludes every path separator, so the write cannot escape the
  * Downloads directory. Writes are exclusive-create (`O_EXCL`) with a
@@ -19,6 +19,7 @@
 import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { Schema } from 'effect';
 
 export interface FileExportsSaveResult {
   error?: string;
@@ -46,21 +47,28 @@ const MAX_FILENAME_LENGTH = 255 - ' (99)'.length;
  */
 const MAX_COLLISION_ATTEMPTS = 100;
 
+/**
+ * The export payload. Bytes are any typed-array view: `ArrayBuffer.isView`
+ * holds for a view from another realm, where `instanceof Uint8Array` does not.
+ */
+export const SaveToDownloadsArgs = Schema.Tuple([
+  Schema.Struct({
+    bytes: Schema.declare((value): value is ArrayBufferView => ArrayBuffer.isView(value), {
+      expected: 'a byte view',
+    }),
+    filename: Schema.String.check(
+      Schema.isNonEmpty(),
+      Schema.isMaxLength(MAX_FILENAME_LENGTH),
+      Schema.makeFilter(
+        (filename) => SAFE_EXPORT_FILENAME.test(filename) && !DOTS_ONLY.test(filename),
+        { expected: 'a filename of [a-zA-Z0-9._-] characters' }
+      )
+    ),
+  }),
+]);
+
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function validateFilename(rawFilename: unknown): { error: string } | { filename: string } {
-  if (typeof rawFilename !== 'string' || rawFilename.length === 0) {
-    return { error: 'file-exports saveToDownloads requires a non-empty filename string' };
-  }
-  if (rawFilename.length > MAX_FILENAME_LENGTH) {
-    return { error: `file-exports filename exceeds ${MAX_FILENAME_LENGTH} characters` };
-  }
-  if (!SAFE_EXPORT_FILENAME.test(rawFilename) || DOTS_ONLY.test(rawFilename)) {
-    return { error: `file-exports filename contains unsupported characters: ${rawFilename}` };
-  }
-  return { filename: rawFilename };
 }
 
 /** `report.csv` → `report (2).csv`; extensionless/dotfile names get a plain ` (2)` tail. */
@@ -119,31 +127,17 @@ async function writeWithCollisionCounter(
 
 export function createFileExportsIpcHandlers({ getDownloadsPath }: FileExportsIpcDependencies) {
   return {
-    saveToDownloads: async (rawPayload: unknown): Promise<FileExportsSaveResult> => {
-      if (typeof rawPayload !== 'object' || rawPayload === null) {
-        return { error: 'file-exports saveToDownloads requires an object payload', ok: false };
-      }
-      const { bytes, filename: rawFilename } = rawPayload as {
-        bytes?: unknown;
-        filename?: unknown;
-      };
-      const validated = validateFilename(rawFilename);
-      if ('error' in validated) {
-        return { error: validated.error, ok: false };
-      }
-      // `ArrayBuffer.isView` instead of `instanceof Uint8Array`: the view may
-      // come from another realm (Electron IPC delivery), where instanceof is
-      // false for a perfectly good byte view.
-      if (!ArrayBuffer.isView(bytes)) {
-        return { error: 'file-exports saveToDownloads requires Uint8Array bytes', ok: false };
-      }
+    saveToDownloads: async ({
+      bytes,
+      filename,
+    }: (typeof SaveToDownloadsArgs)['Type'][0]): Promise<FileExportsSaveResult> => {
       const byteView =
         bytes instanceof Uint8Array
           ? bytes
           : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
       try {
-        return await writeWithCollisionCounter(getDownloadsPath(), validated.filename, byteView);
+        return await writeWithCollisionCounter(getDownloadsPath(), filename, byteView);
       } catch (error) {
         return { error: toErrorMessage(error), ok: false };
       }

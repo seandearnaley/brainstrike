@@ -7,6 +7,7 @@ import {
   type LanguageModelV4Middleware,
   type LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -23,7 +24,6 @@ import {
   prepareProviderToolInputSchema,
 } from '../provider-request';
 import { createProvider } from '../providers/provider-factory';
-import type { SupportedProvider } from '../providers/types';
 import { createPreparedTokenMeasurement } from '../token-measurement';
 
 // Resolve the exact SDK installed for the owning host without changing leaf
@@ -609,7 +609,7 @@ describe('canonical provider request preparation', () => {
         model: fixture,
       }),
       prepareStep: ({ messages: current }) => ({
-        messages: healInterruptedModelMessages(current, new Set(['call_interrupted'])),
+        messages: healInterruptedModelMessages(current, new Set(['call_interrupted']), 'stopped'),
       }),
     });
     const errors = [];

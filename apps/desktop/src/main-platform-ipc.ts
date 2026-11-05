@@ -1,6 +1,8 @@
+import { Schema } from 'effect';
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { NonBlankString } from './platform/ipc-args';
 
 interface ReloadIntent {
   readonly reason: string;
@@ -20,16 +22,8 @@ function getLiveSenderWindow(sender: WebContents): BrowserWindow {
   throw new Error('Renderer reload intent must originate from a live BrowserWindow.');
 }
 
-function normalizeReloadIntentReason(reason: unknown): string {
-  if (typeof reason !== 'string') {
-    throw new Error('Renderer reload intent reason must be a non-empty string.');
-  }
-  const normalized = reason.trim();
-  if (normalized.length > 0) {
-    return normalized;
-  }
-  throw new Error('Renderer reload intent reason must be a non-empty string.');
-}
+/** A reload's reason: nonblank, trimmed by the handler. */
+const ReloadReasonArgs = Schema.Tuple([NonBlankString]);
 
 export function registerMainPlatformIpcHandlers({
   noteNextWindowReload,
@@ -40,8 +34,9 @@ export function registerMainPlatformIpcHandlers({
   registry.handle(
     'runtime',
     DESKTOP_IPC_CHANNELS.runtime.noteReloadIntent,
-    async (event, reason: unknown): Promise<void> => {
-      const normalizedReason = normalizeReloadIntentReason(reason);
+    ReloadReasonArgs,
+    async (event, reason): Promise<void> => {
+      const normalizedReason = reason.trim();
       const window = getLiveSenderWindow(event.sender);
       if (window.isDestroyed()) {
         throw new Error('Renderer reload intent must originate from a live BrowserWindow.');
@@ -56,12 +51,12 @@ export function registerMainPlatformIpcHandlers({
   registry.handle(
     'runtime',
     DESKTOP_IPC_CHANNELS.runtime.requestReload,
-    (event, reason: unknown): void => {
+    ReloadReasonArgs,
+    (event, reason): void => {
       if (event.senderFrame !== event.sender.mainFrame) {
         throw new Error('Renderer reload must originate from the current main frame.');
       }
-      const normalizedReason = normalizeReloadIntentReason(reason);
-      requestReload(getLiveSenderWindow(event.sender), normalizedReason);
+      requestReload(getLiveSenderWindow(event.sender), reason.trim());
     }
   );
 

@@ -20,9 +20,6 @@
  * can be unit-tested without zustand and reused identically in web + Electron;
  * enforcement into the Mastra loop (PR-1.3) and the approval UI (PR-1.4) come
  * later and consume this store's snapshot.
- *
- * Factory reset: Main wipes this renderer's storage after replacing the
- * document, so the store never resets itself for it.
  */
 
 import { isBoundaryRefusal } from '@brainstrike/assistant-contract/boundary-failure';
@@ -39,7 +36,6 @@ import {
   type PerToolPermissionOverrides,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { createBrowserJsonStorage } from '@brainstrike/storage';
 import type { StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -165,7 +161,7 @@ function hasAgentHostClient(): boolean {
 }
 
 function createPermissionPolicyStorage(): StateStorage | Promise<StateStorage> {
-  return hasAgentHostClient() ? hostPersistence.promise : createBrowserJsonStorage();
+  return hasAgentHostClient() ? hostPersistence.promise : localStorage;
 }
 
 function createDeferredPermissionPolicyStorage(): StateStorage {
@@ -532,11 +528,4 @@ export function buildPermissionToolGateSnapshotInput(
  */
 export function getPermissionToolGateSnapshotInput(): PermissionToolGateSnapshotInput {
   return buildPermissionToolGateSnapshotInput(usePermissionPolicyStore.getState());
-}
-
-/** Test-only reset helper. */
-export function __resetPermissionPolicyStoreForTests(): void {
-  clearSavedPermissionPolicy().catch(() => {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  });
 }

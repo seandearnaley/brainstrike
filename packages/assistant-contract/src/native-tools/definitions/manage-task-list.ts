@@ -10,6 +10,12 @@ import { ManageTaskListInputSchema } from '../schemas/schemas-tasks.ts';
 // update. An `action` tool MUST declare riskCategory explicitly (tool-risk.ts
 // throws otherwise — no silent bucketing).
 export const manageTaskList = defineNativeTool({
+  activity: {
+    active: 'Updating tasks',
+    done: 'Updated tasks',
+    family: 'tasks',
+    request: 'Update tasks',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 140,

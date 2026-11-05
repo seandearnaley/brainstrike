@@ -2,7 +2,7 @@
  * The Worktree Map's ONE projection (spec §10). Pure: no bridge, no DB, no
  * React. Everything it needs is already produced by a landed surface —
  * `worktrees.list()`, the assistant thread store,
- * `useActiveAssistantThreadIds`, and BST-1453's worktree indexing opt-ins — so
+ * and `useActiveAssistantThreadIds` — so
  * the Map introduces no new source of truth for any fact it renders.
  */
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
@@ -27,17 +27,6 @@ export interface WorktreeMapCardModel {
   /** Non-null exactly when the entry is not usable — passed through verbatim. */
   readonly disabledReason: string | null;
   readonly entry: WorktreeListEntry;
-  /**
-   * `not-a-root` means the worktree is not mounted as a workspace root, so
-   * there is no indexing preference to report. It is NOT "excluded": inventing
-   * an answer for an unmounted path would be a silent fallback. `unknown`
-   * means Main's search index config, or the index's status for a checkout
-   * with no opt-in, has not been read yet, so no claim is made.
-   * `open-folder` means the index serves the root without a worktree opt-in:
-   * it is open as an ordinary folder, always indexed, and this map's choice
-   * does not control it.
-   */
-  readonly indexing: 'excluded' | 'included' | 'not-a-root' | 'open-folder' | 'unknown';
   readonly lastActivityLabel: string | null;
   readonly provenanceLabel: string;
   readonly thread: WorktreeMapThread | null;
@@ -78,37 +67,6 @@ function branchLabelFor(entry: WorktreeListEntry): string {
     return entry.branch;
   }
   return entry.detached ? 'detached HEAD' : 'no branch';
-}
-
-function indexingFor(
-  entry: WorktreeListEntry,
-  optInByRootId: Readonly<Record<string, boolean>> | null,
-  indexedRootIds: readonly string[] | null
-): WorktreeMapCardModel['indexing'] {
-  // (bot review fix, PR #2664 finding 1) `rootId` alone is NOT "this
-  // checkout's own root" — it can be the first root that merely CONTAINS
-  // this path (the primary checkout inside a larger open folder, or a
-  // worktree nested inside another mounted root). Toggling indexing on that
-  // containing root would silently mutate a DIFFERENT root's preference
-  // while showing no effect on the checkout actually displayed. Only an
-  // EXACT mount (`rootIdIsExactMount`) is index-toggleable; a
-  // containing-only root renders the honest 'not-a-root' tri-state, same as
-  // no root at all.
-  if (entry.rootId === null || !entry.rootIdIsExactMount) {
-    return 'not-a-root';
-  }
-  if (optInByRootId === null) {
-    return 'unknown';
-  }
-  if (optInByRootId[entry.rootId] === true) {
-    return 'included';
-  }
-  // Without the index's status, an ordinary open folder cannot be told from
-  // a worktree that is not opted in: make no claim until it arrives.
-  if (indexedRootIds === null) {
-    return 'unknown';
-  }
-  return indexedRootIds.includes(entry.rootId) ? 'open-folder' : 'excluded';
 }
 
 function threadFor(
@@ -291,10 +249,6 @@ export function buildWorktreeMap(input: {
   readonly entries: readonly WorktreeListEntry[];
   /** Injectable for the unit lane; defaults to {@link formatWorktreeActivity}. */
   readonly formatActivity?: (at: Date) => string;
-  /** The roots the index serves; null while its status is not ready. */
-  readonly indexedRootIds: readonly string[] | null;
-  /** Main's worktree index choices; null until Main's config is read. */
-  readonly indexingOptInByRootId: Readonly<Record<string, boolean>> | null;
   readonly now?: Date;
   readonly runningThreadIds: ReadonlySet<string>;
   readonly threads: readonly AssistantMemoryThread[];
@@ -314,7 +268,6 @@ export function buildWorktreeMap(input: {
       createdAt: entry.createdAt,
       disabledReason: entry.disabledReason,
       entry,
-      indexing: indexingFor(entry, input.indexingOptInByRootId, input.indexedRootIds),
       lastActivityLabel: lastActivityLabelFor(thread, entry.createdAt, format),
       provenanceLabel: describeWorktreeProvenance(entry),
       thread,

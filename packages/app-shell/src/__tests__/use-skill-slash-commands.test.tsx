@@ -5,10 +5,7 @@
  * with the trigger text stripped — never auto-sends).
  */
 
-import {
-  __resetSkillsPreferencesStoreForTests,
-  useSkillsPreferencesStore,
-} from '@brainstrike/app-state/stores/skills-preferences-store';
+import { useSkillsPreferencesStore } from '@brainstrike/app-state/stores/skills-preferences-store';
 import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -71,7 +68,6 @@ function okEntry(
 
 beforeEach(() => {
   useAssistantComposerCommandStore.getState().reset();
-  __resetSkillsPreferencesStoreForTests();
   toastSpy.mockClear();
 });
 

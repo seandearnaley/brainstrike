@@ -145,7 +145,7 @@ describe('listRecommendedProviders', () => {
     expect(listRecommendedProviders(groups).map((card) => card.definition.id)).toEqual([
       'google',
       'openrouter',
-      'cohere',
+      'bedrock',
     ]);
   });
 });

@@ -21,6 +21,50 @@ export function useBudgetSendGate(): boolean {
 }
 
 /**
+ * The over-cap notice: the draft stays editable, sending waits for "Send
+ * anyway" or a raised cap ("Adjust cap", where the host can open the setting).
+ */
+const BudgetBlockedNotice = ({
+  adjustCap,
+  override,
+  totalLabel,
+}: {
+  readonly adjustCap: (() => void) | undefined;
+  readonly override: () => void;
+  readonly totalLabel: string;
+}) => (
+  <span
+    className="text-destructive inline-flex flex-wrap items-center gap-2"
+    data-testid="budget-guardrail-blocked"
+    role="status"
+  >
+    Last-24h budget cap reached — {totalLabel}. Sending is paused.
+    <Button
+      aria-label="Send anyway"
+      className="h-5 px-1.5 text-[11px]"
+      data-testid="budget-guardrail-override"
+      onClick={override}
+      size="sm"
+      type="button"
+      variant="outline"
+    >
+      Send anyway
+    </Button>
+    {adjustCap ? (
+      <Button
+        className="h-5 px-1.5 text-[11px]"
+        onClick={adjustCap}
+        size="sm"
+        type="button"
+        variant="ghost"
+      >
+        Adjust cap
+      </Button>
+    ) : null}
+  </span>
+);
+
+/**
  * Compact last-24h burn-down chip for the composer shell (mounted alongside
  * the context-usage meter), plus the over-cap send notice.
  *
@@ -40,7 +84,7 @@ export function BudgetGuardrailControl(): ReactElement | null {
   if (!context) {
     return null;
   }
-  const { overridden, override, status } = context;
+  const { adjustCap, overridden, override, status } = context;
   const totalUsd = status.spentUsd + status.estimatedUsd;
   const totalLabel = `${formatUsdCost(totalUsd)} of ${formatUsdCost(status.capUsd)}`;
   const blocked = status.overCap && !overridden;
@@ -72,24 +116,7 @@ export function BudgetGuardrailControl(): ReactElement | null {
         </span>
       ) : null}
       {blocked ? (
-        <span
-          className="text-destructive inline-flex items-center gap-2"
-          data-testid="budget-guardrail-blocked"
-          role="status"
-        >
-          Last-24h budget cap reached — {totalLabel}. Sending is paused.
-          <Button
-            aria-label="Send anyway"
-            className="h-5 px-1.5 text-[11px]"
-            data-testid="budget-guardrail-override"
-            onClick={override}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Send anyway
-          </Button>
-        </span>
+        <BudgetBlockedNotice adjustCap={adjustCap} override={override} totalLabel={totalLabel} />
       ) : null}
       {status.overCap && overridden ? (
         <span className="text-muted-foreground" data-testid="budget-guardrail-overridden">

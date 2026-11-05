@@ -8,7 +8,7 @@ const APP_DESCRIPTIONS: Readonly<Record<string, string>> = {
 };
 
 const CARD_CLASS_NAME =
-  'flex w-40 flex-col items-start gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
+  'flex w-40 flex-col items-start gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
 
 /**
  * The workspace empty state (BST-1262): one launcher card per REGISTERED pinned

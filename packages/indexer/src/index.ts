@@ -3,155 +3,29 @@ import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
-  CommitResult,
-  FilePlan,
-  IndexerCoverage,
   IndexerInfo,
-  IndexerManifestResult,
-  ScopedCoverage,
-  ScopedFileChunkBounds,
-  ScopedFilePage,
-  ScopedFilePlan,
-  ScopedManifestResult,
-  ScopedSearchResult,
-  SearchResult,
-  StateMessageHit,
-  StateMessagePlan,
-  StateMessagePrepare,
-  StateMessagePurge,
-  StateMessageQuery,
-  StateMessageUpsert,
-  StateMessageUpsertResult,
-  StateObservationHit,
-  StateObservationPlan,
-  StateObservationPrepare,
-  StateObservationPurge,
-  StateObservationQuery,
-  StateObservationUpsert,
   StateProjectionStats,
   StateSearch,
   StateSearchHit,
 } from './contracts.ts';
-import type { CoverageAuthorityPort } from './coverage-authority.ts';
 import {
   createIndexerConnection,
   validateIndexerDeadlines,
   validateIndexerOptions,
 } from './transport.ts';
 
-export { fileChunks, vectorProfileHash } from './chunks.ts';
 export type {
-  CommitResult,
-  FileChunk,
-  FilePlan,
-  FileSnapshot,
-  FileSyntax,
-  IndexerCoverage,
   IndexerIdentity,
   IndexerInfo,
-  IndexerManifestRequest,
-  IndexerManifestResult,
   IndexerOptions,
-  IndexFileBinding,
-  IndexScope,
-  ProvidedChunk,
-  ProvidedFileSnapshot,
-  ScopedCoverage,
-  ScopedCoverageRequest,
-  ScopedFileChunkBounds,
-  ScopedFileChunkBoundsRequest,
-  ScopedFilePage,
-  ScopedFilePageRequest,
-  ScopedFilePlan,
-  ScopedFileSnapshot,
-  ScopedManifestChunk,
-  ScopedManifestFile,
-  ScopedManifestRequest,
-  ScopedManifestResult,
-  ScopedSearchResult,
-  SearchRequest,
-  SearchResult,
-  StateMessageHit,
-  StateMessageIdentity,
-  StateMessagePlan,
-  StateMessagePrepare,
-  StateMessagePurge,
-  StateMessageQuery,
-  StateMessageScope,
-  StateMessageUpsert,
-  StateMessageUpsertResult,
-  StateObservationGroup,
-  StateObservationHit,
-  StateObservationPlan,
-  StateObservationPrepare,
-  StateObservationPurge,
-  StateObservationQuery,
-  StateObservationScope,
-  StateObservationSource,
-  StateObservationUpsert,
   StateProjectionOptions,
   StateProjectionStats,
   StateSearch,
   StateSearchHit,
-  TextFileCommit,
-  VectorProfile,
 } from './contracts.ts';
-export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.ts';
-export type { StateMessageEvent, StateProducerDecoder } from './state-projection.ts';
+export { IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.ts';
+export type { StateProducerDecoder } from './state-projection.ts';
 export type { IndexerDeadlines } from './transport.ts';
-export interface IndexerPort {
-  close(): Promise<void>;
-  commitTextFile(commit: unknown): Promise<CommitResult>;
-  coverage(request: unknown): Promise<IndexerCoverage>;
-  destroy(): Promise<void>;
-  info(): Promise<IndexerInfo>;
-  prepareFile(snapshot: unknown): Promise<FilePlan>;
-  removeFile(identity: unknown): Promise<boolean>;
-  search(request: unknown): Promise<SearchResult>;
-  verifyManifest(request: unknown): Promise<IndexerManifestResult>;
-}
-/** Physical canonical vector-payload erasure; ordinary logical removal keeps its existing cost. */
-export interface PurgeIndexerPort {
-  /**
-   * Returns whether rows were removed. Every success completes the checked vector-payload/WAL
-   * checkpoint. File rows and FTS entries are deleted logically; historical FTS token erasure
-   * is outside this capability's physical-erasure promise.
-   */
-  purgeFile(identity: unknown): Promise<boolean>;
-}
-/** Trusted main/catalog owner port. Never forward renderer-supplied binding inventories. */
-export interface ScopedIndexerPort {
-  commitScopedFile(commit: unknown): Promise<CommitResult>;
-  /** Prepare and commit TEXT files in one writer transaction; each file's plan, in order. */
-  commitScopedTextFiles(batch: unknown): Promise<readonly ScopedFilePlan[]>;
-  coverageBatch(requests: unknown): Promise<readonly ScopedCoverage[]>;
-  coverageScope(request: unknown): Promise<ScopedCoverage>;
-  prepareScopedFile(request: unknown): Promise<ScopedFilePlan>;
-  readScopedFileChunkBounds(request: unknown): Promise<ScopedFileChunkBounds>;
-  readScopedFilePage(request: unknown): Promise<ScopedFilePage>;
-  removeScopedFile(identity: unknown): Promise<boolean>;
-  /** Remove one scope's files in one writer transaction; how many were stored. */
-  removeScopedFiles(batch: unknown): Promise<number>;
-  replaceFileBindings(bindings: unknown): Promise<void>;
-  searchScopes(request: unknown): Promise<ScopedSearchResult>;
-  verifyScopedManifest(request: unknown): Promise<ScopedManifestResult>;
-}
-/** Acquired Root owner only. Join external inference before purge/reset. */
-export interface StateMessageVectorPort {
-  prepareStateMessageVectors(request: StateMessagePrepare): Promise<StateMessagePlan>;
-  purgeStateMessageVectors(request: StateMessagePurge): Promise<boolean>;
-  queryStateMessageVectors(request: StateMessageQuery): Promise<readonly StateMessageHit[]>;
-  upsertStateMessageVectors(request: StateMessageUpsert): Promise<StateMessageUpsertResult>;
-}
-/** Borrowed native OM route, sharing the existing writer and lifecycle fence. */
-export interface StateObservationVectorPort {
-  prepareStateObservationVectors(request: StateObservationPrepare): Promise<StateObservationPlan>;
-  purgeStateObservationVectors(request: StateObservationPurge): Promise<boolean>;
-  queryStateObservationVectors(
-    request: StateObservationQuery
-  ): Promise<readonly StateObservationHit[]>;
-  upsertStateObservationVectors(request: StateObservationUpsert): Promise<readonly string[]>;
-}
 export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
   /**
@@ -173,6 +47,13 @@ export interface StateIndexerPort {
   stateHealth(): Promise<{ readonly indexerErrors: readonly string[] }>;
   stateStats(threadId: string): Promise<StateProjectionStats>;
 }
+/** The whole port a state index connection serves. */
+export interface StateIndexPort extends StateIndexerPort {
+  close(): Promise<void>;
+  /** Joins the close, then deletes the database, WAL and shared-memory files. */
+  destroy(): Promise<void>;
+  info(): Promise<IndexerInfo>;
+}
 export interface StateStoreProjectionPort extends StateStoreIndexerPort {
   health(): Promise<{ readonly indexerErrors: readonly string[] }>;
   match(threadId: string, query: string): Promise<readonly number[]>;
@@ -180,7 +61,7 @@ export interface StateStoreProjectionPort extends StateStoreIndexerPort {
   stats(threadId: string): Promise<StateProjectionStats>;
 }
 export function createStateStoreIndexer(
-  port: StateIndexerPort & Pick<IndexerPort, 'destroy'>
+  port: StateIndexerPort & Pick<StateIndexPort, 'destroy'>
 ): StateStoreProjectionPort {
   return {
     catchUp: (threads) => port.catchUpState(threads),
@@ -194,20 +75,11 @@ export function createStateStoreIndexer(
     stats: (threadId) => port.stateStats(threadId),
   };
 }
-export async function openIndexer(
-  input: unknown,
-  deadlineInput: unknown
-): Promise<
-  IndexerPort &
-    PurgeIndexerPort &
-    ScopedIndexerPort &
-    StateIndexerPort &
-    StateMessageVectorPort &
-    StateObservationVectorPort &
-    CoverageAuthorityPort
-> {
+export async function openIndexer(input: unknown, deadlineInput: unknown): Promise<StateIndexPort> {
   if (process.versions['electron']) {
-    throw new Error('Standalone indexer requires Node; use the explicit Electron utility adapter.');
+    throw new Error(
+      'Standalone indexer requires Node; the agent host runs the state index on a worker thread.'
+    );
   }
   const options = validateIndexerOptions(input);
   const deadlines = validateIndexerDeadlines(deadlineInput);

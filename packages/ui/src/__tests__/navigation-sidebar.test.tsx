@@ -35,10 +35,10 @@ describe('NavigationSidebar', () => {
     renderSidebar('/settings');
 
     const activeLink = screen.getByRole('link', { name: 'Settings' });
-    expect(activeLink).toHaveClass('bg-accent', 'text-accent-foreground');
+    expect(activeLink).toHaveClass('bg-sidebar-accent', 'text-sidebar-accent-foreground');
 
     const inactiveLink = screen.getByRole('link', { name: 'Context Explorer' });
-    expect(inactiveLink).not.toHaveClass('bg-accent', 'text-accent-foreground');
+    expect(inactiveLink).not.toHaveClass('bg-sidebar-accent', 'text-sidebar-accent-foreground');
   });
 
   it('sets aria-current="page" on active navigation item', () => {

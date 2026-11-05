@@ -1,10 +1,8 @@
 /**
  * Fast @smoke guard for the "Add Folder to Workspace" UI flow.
  *
- * This intentionally does NOT drive the background indexing / embedding
- * pipeline (that lives in the heavier @desktop-mid-session-add-root
- * regression). It pins the two UI regressions that shipped and were only
- * caught by the non-PR regression suite:
+ * It pins the two UI regressions that shipped and were only caught by the
+ * non-PR regression suite:
  *
  *   1. The Add Folder button was covered by the toolbar's right cluster and
  *      intercepted pointer events — the real click never landed.
@@ -13,7 +11,7 @@
  *
  * The OS picker is replaced by BRAINSTRIKE_E2E_REAL_ROOT_PATH (a real on-disk
  * directory the real adapter still stats), so the add path under test is not
- * mocked. Background indexing is seeded off so the run stays smoke-fast.
+ * mocked.
  */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -25,10 +23,9 @@ import {
   freshRepo as createFreshRepo,
   createTempDirTracker,
 } from './utils/git-fixtures';
-import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { nodeCommand, nodeText } from './utils/node-command';
-import { seedRoot } from './utils/seed-root';
+import { seedRoot, seedWorkspaceFolders } from './utils/seed-root';
 
 function makeRootDir(label: string, fileCount: number): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), `brainstrike-addroot-smoke-${label}-`));
@@ -61,26 +58,8 @@ test.describe('Add Folder to Workspace (smoke)', () => {
   }) => {
     test.setTimeout(90_000);
 
-    // Seed one already-open root with indexing paused (smoke-fast).
-    await page.evaluate(
-      async ({ rootOne }) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-          }
-        ).electronAPI?.storage;
-        if (!storage?.setItem) {
-          throw new Error('electronAPI.storage.setItem is unavailable');
-        }
-        await storage.setItem('lastFolderPath', rootOne);
-        await storage.setItem(
-          'rootsList',
-          JSON.stringify([{ addedAt: 1_800_000_000_000, path: rootOne, rootId: 'smoke-root-1' }])
-        );
-      },
-      { rootOne: ROOT_ONE_DIR }
-    );
-    await updateIndexConfig(page, { paused: true });
+    // Seed one already-open root.
+    await seedWorkspaceFolders(page, { roots: [{ path: ROOT_ONE_DIR, rootId: 'smoke-root-1' }] });
 
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'add-root-smoke-seeded');
@@ -161,7 +140,6 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     test.setTimeout(120_000);
     const repo = freshConnectRepo('rootmenu');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       reloadReason: 'BST-1393 root context menu',
       rootId: 'root-bst-1393-menu',
     });
@@ -200,7 +178,6 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     test.setTimeout(90_000);
     const repo = freshConnectRepo('disconnect');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       reloadReason: 'BST-1393 disconnect staging',
       rootId: 'root-bst-1393-disconnect',
     });
@@ -235,25 +212,22 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     test.setTimeout(90_000);
     const repo = freshConnectRepo('filemenu');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       recentPaths: [repo],
       reloadReason: 'BST-1393 file menu',
       rootId: 'root-bst-1393-filemenu',
     });
 
-    // A seeded ledger alone does NOT rebuild the menu: `restoreRoots`
-    // deliberately never fires the grant subscriber (only a REAL
-    // grant-recording mount does — the same event that calls
-    // `app.addRecentDocument`). So trigger a real grant through the
-    // toolbar's Add Folder button (the OS picker is replaced by
-    // BRAINSTRIKE_E2E_REAL_ROOT_PATH), then read the projection: the
-    // rebuild reads the WHOLE ledger, so the seeded path must appear too.
+    // Every change to the host's recent folders rebuilds the menu, the seed
+    // included. Then trigger a real grant through the toolbar's Add Folder
+    // button (the OS picker is replaced by BRAINSTRIKE_E2E_REAL_ROOT_PATH) and
+    // read the projection: the rebuild reads the WHOLE ledger, so the seeded
+    // path and the granted one both appear.
     await page.getByRole('button', { name: 'Add Folder to Workspace' }).click({
       timeout: 30_000,
     });
 
-    // The rebuild is coalesced (250 ms) behind the grant event, so poll
-    // rather than read once.
+    // The rebuild is coalesced (250 ms) behind each change, so poll until
+    // both folders show rather than read once.
     const readRecentMenu = () =>
       electronApp.app.evaluate(({ Menu }) => {
         const item = Menu.getApplicationMenu()?.getMenuItemById('file-open-recent');
@@ -287,11 +261,10 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
         },
         { timeout: 20_000 }
       )
-      .toContain(path.basename(repo));
+      // Newest-first would place the granted folder ahead of the seeded one;
+      // containment is what matters here.
+      .toEqual(expect.arrayContaining([path.basename(repo), path.basename(ROOT_TWO_DIR)]));
     expect(recentMenu.enabled).toBe(true);
-    // The just-granted folder projects too (newest-first would place it
-    // ahead of the seeded entry; containment is what matters here).
-    expect(recentMenu.labels).toContain(path.basename(ROOT_TWO_DIR));
     // Landed deviation from the plan text: Clear Menu was REMOVED from Open
     // Recent (deferred to [D9] "Remove from recents") — pin its absence.
     expect(recentMenu.labels).not.toContain('Clear Menu');
@@ -357,15 +330,13 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     expect(asked).toBe('asked');
   });
 
-  test('an open-file event mounts a previously granted folder', { tag: '@smoke' }, async ({
-    electronApp,
-    window: page,
-  }) => {
+  test('an open-file event opens a previously granted folder in place of the open one', {
+    tag: '@smoke',
+  }, async ({ electronApp, window: page }) => {
     test.setTimeout(120_000);
     const repo = freshConnectRepo('openfile-host');
     const granted = freshConnectDir('openfile-granted');
     await seedRoot(page, repo, {
-      disableBackgroundIndexing: true,
       recentPaths: [granted],
       reloadReason: 'BST-1393 open-file grant',
       rootId: 'root-bst-1393-openfile',
@@ -375,11 +346,12 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
       app.emit('open-file', { preventDefault() {} }, openedPath);
     }, granted);
 
-    // Mounting the second root flips the Explorer into forest mode, whose
-    // per-root section headers carry `root-section-header`.
-    await expect(
-      page.getByTestId('root-section-header').filter({ hasText: path.basename(granted) })
-    ).toBeVisible({ timeout: 60_000 });
+    // ADR-0034: an open replaces the open folders, so the Explorer stays a single root, now the
+    // granted folder, and the seeded repository is no longer listed.
+    await expect(page.getByTestId('single-root-header-row')).toContainText(path.basename(granted), {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId('root-section-header')).toHaveCount(0);
   });
 
   test('an open-file event for a NEVER-granted folder refuses and offers the picker', {

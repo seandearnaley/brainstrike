@@ -4,12 +4,10 @@ import { fileURLToPath } from 'node:url';
 import {
   browserBareDynamicImportGuardPlugin,
   buildIdPlugin,
-  createCspQualifiedEvalWarningFilter,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
-  getTreeSitterGrammarCopyTargets,
   getWorkspaceSourceOptimizeDepsInclude,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
@@ -19,7 +17,6 @@ import {
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
 import wasm from 'vite-plugin-wasm';
 import { bundledPackageNotices, RENDERER_LICENSE_REPORT } from './scripts/third-party-notices.mjs';
 import { getDevCSP } from './src/csp-utils';
@@ -85,10 +82,10 @@ export default defineConfig({
   base: './', // Use relative paths for Electron
   build: {
     assetsInlineLimit: 0,
-    // Accept the measured renderer/main, context-preview and bootstrap
-    // chunks while retaining a useful regression ceiling.
-    // The 2.3 MB o200k table is fetched as an asset only on accurate-token use.
-    chunkSizeWarningLimit: 1300,
+    // Just above the measured largest chunk (main, about 3,080 kB) so any
+    // growth warns. Diff views load with their first use; the 2.3 MB o200k
+    // table is fetched as an asset only on accurate-token use.
+    chunkSizeWarningLimit: 3100,
     emptyOutDir: true,
     outDir: 'dist/renderer',
     rolldownOptions: {
@@ -96,7 +93,6 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
-      onLog: createCspQualifiedEvalWarningFilter(),
       output: {
         codeSplitting: {
           groups: [
@@ -140,12 +136,12 @@ export default defineConfig({
       '@brainstrike/utils',
       '@brainstrike/file-explorer',
       '@brainstrike/file-explorer-hooks',
+      '@brainstrike/file-explorer-hooks/file-content-worker',
       '@brainstrike/file-explorer-ui',
       '@brainstrike/file-tree-worker',
       '@brainstrike/file-system',
       '@brainstrike/storage',
       '@brainstrike/app-shell',
-      '@brainstrike/workers',
       '@brainstrike/token-cache',
       '@brainstrike/token-cache/cache-runtime',
       '@brainstrike/token-cache/background-indexer',
@@ -172,68 +168,15 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     tailwindcss(),
-    viteStaticCopy({
-      targets: [
-        // Tree-sitter grammar files (Phase 4 of #998). Vendored under
-        // packages/chunking-worker/grammars/, copied to dist/renderer/
-        // assets/grammars/. The chunking worker fetches them at runtime
-        // via `fetch('/assets/grammars/<lang>.wasm')`.
-        ...getTreeSitterGrammarCopyTargets(__dirname),
-      ],
-    }),
   ],
   publicDir: 'public',
   resolve: {
-    // Array form: first match wins, so deliberate overrides/exceptions come
-    // BEFORE the shared registry spread (B3/B4 convention, #1651/#1658). Every
-    // root/subpath alias the registry emits is an EXACT specifier match
-    // (derived from each package's own `exports` map), so — unlike the old
-    // hand-maintained list's mix of exact AND blanket string-prefix roots
-    // (e.g. the `@brainstrike/utils` exact+prefix pair this replaces) —
-    // subpath vs. root ordering can no longer shadow anything; only the
-    // exceptions below need to precede it.
     alias: [
-      { find: '@', replacement: path.resolve(__dirname, './src') },
-      // Stylesheet/asset imports: the registry deliberately excludes non-code
-      // exports (css/json/icons), so these stay explicit.
-      {
-        find: '@brainstrike/app-shell/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
-      },
-      {
-        find: '@brainstrike/workspace-search/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/workspace-search/styles.css'),
-      },
-      {
-        find: '@brainstrike/file-explorer-ui/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/ui/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/assistant-ui/styles.css',
-        replacement: path.resolve(__dirname, '../../packages/assistant-ui/styles.css'),
-      },
-      {
-        find: '@brainstrike/ui/globals.css',
-        replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
-      },
-      // @brainstrike/file-tree-worker's root `exports['.']` targets a
-      // Node-worker_threads entry (dist/index.js); the registry would derive
-      // that same Node-targeted src/index.ts. vite.ts is the deliberate
-      // browser-adapted implementation (Vite Worker URL syntax) this app
-      // needs instead, so it must precede the spread.
+      // Workspace packages resolve through their `exports`. vite.ts is file-tree-worker's
+      // Vite worker-URL entry; its root export is the Node-side one.
       {
         find: '@brainstrike/file-tree-worker',
         replacement: path.resolve(__dirname, '../../packages/file-tree-worker/src/vite.ts'),
-      },
-      // @brainstrike/workers has no `src/` dir (worker files live at the
-      // package root), so the registry skips it — alias explicitly.
-      {
-        find: '@brainstrike/workers',
-        replacement: path.resolve(__dirname, '../../packages/workers'),
       },
       {
         // Force pino to browser build to avoid dynamic require of node libs in renderer
@@ -252,9 +195,8 @@ export default defineConfig({
     headers: {
       'Content-Security-Policy': getDevCSP(),
     },
-    // CRITICAL: keep desktop renderer dev URL deterministic and isolated from the
-    // web app's default/fallback dev-server ports. Repo-root `pnpm run dev` starts
-    // both apps, so desktop must not share the web port neighborhood.
+    // CRITICAL: keep the desktop renderer dev URL deterministic: a fixed port with
+    // strictPort, so Electron never loads a dev server on a fallback port.
     port: DESKTOP_DEV_RENDERER_PORT,
     strictPort: true,
     warmup: {

@@ -8,29 +8,16 @@ import type { MessageConnection } from 'vscode-jsonrpc';
 import { sendCatalogRequest } from './request.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
-const WorkspaceRootRequestSchema = Schema.Union(
-  [
-    Schema.Struct({ operation: Schema.Literal('list') }),
-    Schema.Struct({
-      operation: Schema.Literal('delete'),
-      paths: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
-      rootId: Id,
-    }),
-    Schema.Struct({
-      operation: Schema.Literal('register'),
-      root: Schema.Struct({ displayName: Id, path: Id, preferredId: Id }),
-    }),
-    Schema.Struct({
-      mountedPaths: Schema.mutable(Schema.Array(Id)),
-      operation: Schema.Literal('disconnect-except'),
-    }),
-  ],
-  { mode: 'oneOf' }
-);
+/**
+ * ADR-0029 stage 4: Main only reads the roots. The agent host's root registry
+ * writes them through its own store, never over this transport.
+ */
+const WorkspaceRootRequestSchema = Schema.Struct({ operation: Schema.Literal('list') });
 const WorkspaceRootReplySchema = Schema.Struct({
   roots: Schema.mutable(
     Schema.Array(
       Schema.Struct({
+        canonicalPath: Id,
         createdAt: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
         displayName: Id,
         id: Id,
@@ -43,7 +30,7 @@ const WorkspaceRootReplySchema = Schema.Struct({
   ),
 });
 const METHOD = 'host/workspace-roots';
-/** Served only after host authentication; all requests borrow the acquired writer. */
+/** Served only after host authentication; Main's reads borrow the acquired store. */
 export function serveWorkspaceRootStore(
   connection: Pick<MessageConnection, 'onRequest'>,
   store: WorkspaceRootPort
@@ -80,7 +67,7 @@ export function serveWorkspaceRootStore(
     },
   };
 }
-/** Main borrows the acquired host writer; no local store or SQL bridge is opened. */
+/** Main reads the acquired host store; no local store or SQL bridge is opened. */
 export function createWorkspaceRootClient(connection: MessageConnection): WorkspaceRootPort {
   return {
     workspaceRoots: async (request: WorkspaceRootRequest): Promise<WorkspaceRootReply> =>

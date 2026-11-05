@@ -19,8 +19,7 @@
  */
 
 import type { SubagentPersonasAvailabilityRequest } from '@brainstrike/assistant-contract';
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -36,40 +35,8 @@ export interface SubagentPersonasActions {
 
 export type SubagentPersonasStore = SubagentPersonasData & SubagentPersonasActions;
 
-const STORE_NAME = 'subagent-personas.v1' as const;
+const STORE_NAME = 'brainstrike:subagent-personas.v1' as const;
 const STORE_VERSION = 1 as const;
-
-interface ElectronStorageBridge {
-  readonly getItem: (key: string) => Promise<string | null>;
-  readonly removeItem: (key: string) => Promise<void>;
-  readonly setItem: (key: string, value: string) => Promise<void>;
-}
-
-function getElectronStorageBridge(): ElectronStorageBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = (
-    window as Window & {
-      electronAPI?: { storage?: ElectronStorageBridge };
-    }
-  ).electronAPI?.storage;
-  return bridge ?? null;
-}
-
-function createSubagentPersonasStorage() {
-  const electronStorage = getElectronStorageBridge();
-  if (electronStorage) {
-    return {
-      getItem: (key: string) => electronStorage.getItem(key),
-      removeItem: (key: string) => electronStorage.removeItem(key),
-      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
-    };
-  }
-  return createBrowserJsonStorage();
-}
-
-const storage = createJSONStorage(() => createSubagentPersonasStorage());
 
 function defaultData(): SubagentPersonasData {
   return {
@@ -98,7 +65,8 @@ function sanitizePersistedData(persistedState: unknown): SubagentPersonasData {
 }
 
 export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       setDelegationEnabled: (enabled) => set({ delegationEnabled: enabled }),
@@ -124,12 +92,10 @@ export const useSubagentPersonasStore = create<SubagentPersonasStore>()(
         sanitizePersistedData
       ),
       migrate: sanitizePersistedData,
-      name: STORE_NAME,
       partialize: (state) => ({
         delegationEnabled: state.delegationEnabled,
         disabledPersonaIds: state.disabledPersonaIds,
       }),
-      storage,
       version: STORE_VERSION,
     }
   )
@@ -166,19 +132,4 @@ export function getSubagentPersonasAvailabilityRequest():
   | SubagentPersonasAvailabilityRequest
   | undefined {
   return buildSubagentPersonasAvailabilityRequest(useSubagentPersonasStore.getState());
-}
-
-/** Test-only reset helper. */
-export function __resetSubagentPersonasStoreForTests(): void {
-  try {
-    const persistApi = (
-      useSubagentPersonasStore as typeof useSubagentPersonasStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Best effort: storage errors must not block the reset of in-memory state.
-  }
-  useSubagentPersonasStore.setState(defaultData());
 }

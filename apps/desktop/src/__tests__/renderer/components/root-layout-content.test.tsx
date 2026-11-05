@@ -47,14 +47,7 @@ vi.mock('../../../renderer/desktop-host-thread-provider', () => ({
 
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: vi.fn(() => ({
-    storageAdapter: {
-      delete: vi.fn(),
-      // Mock storage adapter
-      get: vi.fn(),
-      set: vi.fn(),
-    },
-  })),
+  useAdapters: vi.fn(() => ({ fileSystemAdapter: {} })),
 }));
 
 // Mock the indexing barrel to prevent token worker startup in unit tests.
@@ -85,6 +78,8 @@ const workspaceGitMock = vi.fn((): WorkspaceGitServices => NO_WORKSPACE_GIT_SERV
 vi.mock('../../../renderer/host-git-workspace', () => ({
   resolveDesktopWorkspaceGitServices: () => workspaceGitMock(),
 }));
+// The Search tab's live search goes to the agent host; this test renders no search.
+vi.mock('../../../renderer/host-file-search', () => ({ resolveDesktopFileSearch: () => null }));
 
 const WORKTREES_BRIDGE: WorktreesBridge = {
   adopt: vi.fn(),

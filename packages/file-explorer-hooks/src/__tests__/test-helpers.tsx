@@ -1,6 +1,4 @@
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { StorageAdapter } from '@brainstrike/storage';
-import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import type { IFileNode } from '@brainstrike/types';
 import type { ReactNode } from 'react';
 import { AdaptersProvider } from '../adapters-context.js';
@@ -12,8 +10,6 @@ class MockFileSystemAdapter implements FileSystemAdapter {
   static mockErrors: Map<string, Error> = new Map();
   static mockReadFileErrors: Map<string, Error> = new Map();
   static mockFileContents: Map<string, string> = new Map();
-  static mockLastFolderPath: string | null = null;
-  static mockRestoreError: Error | null = null;
 
   static setMockDirectoryData(path: string, entries: IFileNode[]) {
     MockFileSystemAdapter.mockDirectoryData.set(path, entries);
@@ -31,21 +27,11 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     MockFileSystemAdapter.mockFileContents.set(filePath, content);
   }
 
-  static setMockLastFolderPath(path: string | null) {
-    MockFileSystemAdapter.mockLastFolderPath = path;
-  }
-
-  static setMockRestoreError(error: Error | null) {
-    MockFileSystemAdapter.mockRestoreError = error;
-  }
-
   static clearMockData() {
     MockFileSystemAdapter.mockDirectoryData.clear();
     MockFileSystemAdapter.mockErrors.clear();
     MockFileSystemAdapter.mockReadFileErrors.clear();
     MockFileSystemAdapter.mockFileContents.clear();
-    MockFileSystemAdapter.mockLastFolderPath = null;
-    MockFileSystemAdapter.mockRestoreError = null;
   }
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
@@ -91,36 +77,14 @@ class MockFileSystemAdapter implements FileSystemAdapter {
   async exists(_path: string): Promise<boolean> {
     return true;
   }
-
-  async restoreLastFolder(): Promise<DirectoryHandle | null> {
-    if (MockFileSystemAdapter.mockRestoreError) {
-      throw MockFileSystemAdapter.mockRestoreError;
-    }
-
-    if (!MockFileSystemAdapter.mockLastFolderPath) {
-      return null;
-    }
-
-    return {
-      kind: 'directory',
-      name: MockFileSystemAdapter.mockLastFolderPath.split('/').pop() || 'unknown',
-      path: MockFileSystemAdapter.mockLastFolderPath,
-      platform: 'web',
-    };
-  }
 }
 
 // Create mock adapters for tests
 const mockFileSystemAdapter = new MockFileSystemAdapter();
-const mockStorageAdapter = createBrowserStorageAdapter();
 
 // Wrapper component that provides the necessary context for tests
 export function AdaptersTestWrapper({ children }: { children: ReactNode }) {
-  return (
-    <AdaptersProvider fileSystemAdapter={mockFileSystemAdapter} storageAdapter={mockStorageAdapter}>
-      {children}
-    </AdaptersProvider>
-  );
+  return <AdaptersProvider fileSystemAdapter={mockFileSystemAdapter}>{children}</AdaptersProvider>;
 }
 
 /**
@@ -135,16 +99,9 @@ export function AdaptersTestWrapper({ children }: { children: ReactNode }) {
  * `use-file-system.test.tsx` (this factory's caller) is itself a `.tsx` file
  * (BST-1400).
  */
-export function createAdaptersTestWrapper(
-  fileSystemAdapter: FileSystemAdapter,
-  storageAdapter: StorageAdapter
-) {
+export function createAdaptersTestWrapper(fileSystemAdapter: FileSystemAdapter) {
   return function AdaptersTestWrapperWithAdapter({ children }: { children?: ReactNode }) {
-    return (
-      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-        {children}
-      </AdaptersProvider>
-    );
+    return <AdaptersProvider fileSystemAdapter={fileSystemAdapter}>{children}</AdaptersProvider>;
   };
 }
 

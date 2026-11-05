@@ -4,12 +4,17 @@ import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModelV2 } from '@ai-sdk/provider';
 import {
+  isSupportedProvider,
+  listProviders,
+  PROVIDER_DEFAULT_MODELS,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
+import {
   type IdentifiedModelConfig,
   type MastraModelConfig,
   ModelRouterLanguageModel,
   type OpenAICompatibleConfig,
 } from '@mastra/core/llm';
-import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
 import { resolveBedrockModelId } from './bedrock-model-id.ts';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content.ts';
@@ -24,13 +29,6 @@ import {
   providerFetchOptions,
   requireAwsAuthInput,
 } from './provider-auth-input.ts';
-import {
-  getProviderDefinition,
-  isSupportedProvider,
-  listProviders,
-  PROVIDER_DEFAULT_MODELS,
-  type SupportedProvider,
-} from './types.ts';
 
 /** The factory's actual public outputs; routers have a distinct stream-shaped generate API. */
 export type ProviderModelConfiguration =
@@ -112,18 +110,6 @@ export function createProvider(
   }
 
   const validatedProvider = provider;
-  // Registry-derived, never a provider-id branch: an EMBEDDINGS-ONLY provider
-  // (cohere, voyage) has no chat model for this
-  // factory to build. Refusing here names that, instead of falling through to
-  // "no default model" or to the unsupported-provider default — both of which
-  // read as "misconfigured" for a provider that is configured correctly and
-  // simply does not do chat.
-  if (!getProviderDefinition(validatedProvider).capabilities.llm) {
-    throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider },
-      detail: `Provider ${provider} serves embeddings only; it has no chat model.`,
-    });
-  }
   const modelName = model ?? PROVIDER_DEFAULT_MODELS[validatedProvider];
   if (!modelName) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
@@ -307,51 +293,6 @@ function isConcreteLanguageModel(
     'doGenerate' in modelConfig &&
     'doStream' in modelConfig
   );
-}
-
-/** Create a hosted embedding model instance for Mastra semantic recall. */
-export function createEmbeddingProvider(
-  provider: SupportedProvider | string,
-  apiKey: string | undefined,
-  model: string
-): MastraEmbeddingModel<string> {
-  if (!isSupportedProvider(provider)) {
-    throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider, supportedProviders: listSupportedProviderIds() },
-      detail: `Unsupported embedding provider: ${provider}`,
-    });
-  }
-
-  switch (provider) {
-    case 'openai': {
-      const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
-      return openaiProvider.embeddingModel(model);
-    }
-
-    case 'google': {
-      const googleProvider = createGoogle(apiKey ? { apiKey } : undefined);
-      return googleProvider.embeddingModel(model);
-    }
-
-    case 'anthropic':
-    case 'openrouter':
-    case 'cohere':
-    case 'voyage':
-    // Bedrock exposes embedding models upstream, but Brainstrike's Bedrock
-    // phase 1 is LLM-only (registry capabilities.embeddings: false) — an
-    // explicit throw, never a silent degrade (BST-1350).
-    case 'bedrock':
-      throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders: listSupportedProviderIds() },
-        detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,
-      });
-
-    default:
-      throw createMastraAgentError('mastra_agent_unsupported_provider', {
-        context: { provider, supportedProviders: listSupportedProviderIds() },
-        detail: `Unsupported embedding provider: ${provider}`,
-      });
-  }
 }
 
 /**

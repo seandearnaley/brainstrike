@@ -1,21 +1,15 @@
 {
   "name": "@brainstrike/workspace-search",
-  "description": "Workspace search result model and session-lived search store",
+  "description": "Explorer Search tab: live workspace text search panel, result model and session-lived store",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
-    "@brainstrike/file-explorer-ui": "workspace:*",
-    "@brainstrike/indexing-contract": "workspace:*",
-    "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
     "lucide-react": "catalog:",
     "zustand": "catalog:"
   },
   "devDependencies": {
     "@tanstack/react-virtual": "catalog:",
-    "@brainstrike/storage": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
@@ -38,7 +32,6 @@
   },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module"

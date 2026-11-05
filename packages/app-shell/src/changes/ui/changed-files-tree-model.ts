@@ -409,7 +409,6 @@ function changedFileEntryFieldsEqual(a: ChangedFileEntry, b: ChangedFileEntry): 
       a.deletions === b.deletions &&
       a.oldPath === b.oldPath &&
       a.repositoryRoot === b.repositoryRoot &&
-      a.revertible === b.revertible &&
       a.rootId === b.rootId &&
       a.worktreePath === b.worktreePath)
   );

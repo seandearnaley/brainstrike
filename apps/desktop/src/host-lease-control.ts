@@ -14,11 +14,7 @@ export const decodeHostLeaseParentMessage = makeThrowingDecoder(ParentMessageSch
   onExcessProperty: 'ignore',
 });
 
-const ContentClearedSchema = Schema.Struct({
-  deletedChunks: Schema.NullOr(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  deletedFiles: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  event: Schema.Literal('content-cleared'),
-});
+const ContentClearedSchema = Schema.Struct({ event: Schema.Literal('content-cleared') });
 export const decodeHostContentCleared = makeThrowingDecoder(ContentClearedSchema, {
   onExcessProperty: 'error',
 });

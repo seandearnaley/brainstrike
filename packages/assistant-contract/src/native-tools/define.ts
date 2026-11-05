@@ -4,7 +4,7 @@
  * Every per-tool facet that used to live in its own hand-maintained
  * `Record<NativeToolId, …>` (catalog id, description, defaults, discovery
  * namespace, capability family, surfaces, history posture, non-durable output,
- * display prose) is declared HERE, once, and `./index.ts` derives every
+ * display prose, activity verb) is declared HERE, once, and `./index.ts` derives every
  * registry under its historical export name. Adding a tool is one definition
  * file plus one executor entry; a facet that is not declared cannot drift,
  * because nothing else lists tools.
@@ -36,7 +36,6 @@ export type NativeToolDiscoveryNamespace =
   | 'artifacts'
   | 'context'
   | 'database'
-  | 'embeddings'
   | 'execution'
   | 'semantics'
   | 'sessions'
@@ -63,7 +62,6 @@ export type DeferredCapabilityFamilyPhrase =
   | 'directory listings'
   | 'workspace context'
   | 'symbol and LSP inspection'
-  | 'embedding search'
   | 'diagnostics'
   | 'tool-output artifacts';
 
@@ -118,7 +116,73 @@ export interface NativeToolExecutionBudget {
   readonly maxMs: number;
 }
 
+/**
+ * Every icon/colour family a step in the activity trace can carry, in the
+ * order the activity filter lists them. Native tools pick one in their
+ * `activity`; the renderer adds the families of calls outside the catalog
+ * (delegations, MCP calls, the host's meta tools, unknown names).
+ */
+export const VERB_FAMILIES = [
+  'ask',
+  'call',
+  'canvas',
+  'delegate',
+  'edit',
+  'memory',
+  'other',
+  'read',
+  'run',
+  'search',
+  'skill',
+  'tasks',
+  'tools',
+  'web',
+  'worktree',
+] as const;
+
+export type VerbFamily = (typeof VERB_FAMILIES)[number];
+
+/**
+ * Whether the resting summary folds a verb's distinct targets into a file
+ * count, and from which count. Set ONLY on verbs whose target IS a file —
+ * never inferred from the family, since `read` also covers directory listings,
+ * artifact reads and context reads ("Listed 2 files" was the defect).
+ * `'always'` counts from one ("Edited 1 file": an edit names its file even
+ * alone); `'plural'` counts only from two ("Read 2 files", but a single read
+ * stays the bare "Read").
+ */
+export type ActivityFileCountMode = 'always' | 'plural';
+
+/** How a call reads as a step in the activity trace. */
+export interface NativeToolActivity {
+  /** Present participle while the step runs: "Reading". */
+  readonly active: string;
+  /** Set only on file-targeted verbs; see `ActivityFileCountMode`. */
+  readonly countsFiles?: ActivityFileCountMode;
+  /** Past tense once it settled: "Read". */
+  readonly done: string;
+  /** Icon/colour family for the step row and summary grouping. */
+  readonly family: VerbFamily;
+  /**
+   * The action as it was asked for, neither running nor done: "Run skill
+   * script". A call that never ran (declined or blocked) and an approval,
+   * which names the action it asks for, read this form.
+   */
+  readonly request: string;
+  /**
+   * The argument that names the step's target chip. Absent: the generic
+   * reading (`extractPrimaryArg`'s priority keys, then the first string). A
+   * key: that argument alone; several keys: the first present (a list of
+   * names reads as one list). `null`: the arguments name no target at all —
+   * they carry content (working memory's markdown, a canvas's HTML), which is
+   * never a target.
+   */
+  readonly targetArg?: string | readonly string[] | null;
+}
+
 interface NativeToolDefinitionBase<Id extends string, In extends NativeToolInputSchema> {
+  /** How a call of this tool reads in the activity trace. */
+  readonly activity: NativeToolActivity;
   /** Load-ordering/UI taxonomy, prompt-budget estimate, approval flag, and explicit risk bucket. */
   readonly defaults: NativeToolDefaultMetadata;
   /** ONE prose source: the model-facing tool description AND the settings inspector text. */
@@ -205,6 +269,16 @@ export class InvalidNativeToolDefinitionError extends Error {
   }
 }
 
+function assertActivityForms(definition: NativeToolDefinition): void {
+  const { active, done, request } = definition.activity;
+  if (active === '' || done === '' || request === '' || active === done || request === active) {
+    throw new InvalidNativeToolDefinitionError(
+      definition.id,
+      'activity needs distinct, non-empty active, done and request forms'
+    );
+  }
+}
+
 function assertExecutionBudget(definition: NativeToolDefinition): void {
   const budget = definition.executionBudget;
   if (budget === undefined) {
@@ -241,12 +315,15 @@ function assertExecutionBudget(definition: NativeToolDefinition): void {
  * - a deferred desktop tool must declare a `discovery.family` (otherwise it is
  *   behind `search_tools` with no advertised capability).
  * - a declared executionBudget must be two positive integers with defaultMs <= maxMs.
+ * - the activity's active, done and request forms must be non-empty and distinct
+ *   (active vs done, request vs active), so a step reads as running, settled or asked.
  */
 export function defineNativeTool<const Definition extends NativeToolDefinition>(
   definition: Definition
 ): Definition {
   resolveToolRiskCategory(definition.defaults);
   assertExecutionBudget(definition);
+  assertActivityForms(definition);
   if (definition.defaults.loadingTier === 'critical') {
     if (definition.discovery !== undefined) {
       throw new InvalidNativeToolDefinitionError(

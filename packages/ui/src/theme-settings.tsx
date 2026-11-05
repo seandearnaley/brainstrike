@@ -5,16 +5,21 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { type ComponentType, type ReactNode, useId } from 'react';
 import { Button } from './button';
+import { Input } from './input';
 import { cn } from './lib/utils';
 import { type ThemeMode, useTheme } from './theme-provider';
 import {
+  CODE_FONT_SIZES,
   CODE_FONTS,
   CODE_THEMES,
-  type CodeThemeDefinition,
+  type CodeThemeId,
   FONTS,
   type FontDefinition,
+  MOTION_PREFERENCES,
   THEMES,
   type ThemeDefinition,
+  TRANSCRIPT_TEXT_SIZES,
+  TRANSCRIPT_WIDTHS,
 } from './themes';
 
 const MODE_OPTIONS: ReadonlyArray<{
@@ -133,6 +138,71 @@ function ChoiceGroup<Id extends string>({
   );
 }
 
+/**
+ * A compact single-row radio group for short text choices (sizes, widths),
+ * with the same native-radio keyboard model as {@link ChoiceGroup}.
+ */
+function SegmentedChoice<Id extends string>({
+  description,
+  label,
+  onChange,
+  options,
+  testIdPrefix,
+  value,
+}: {
+  description: string;
+  label: string;
+  onChange: (id: Id) => void;
+  options: readonly { readonly id: Id; readonly label: string }[];
+  testIdPrefix: string;
+  value: Id;
+}) {
+  const groupName = useId();
+  const labelId = useId();
+  return (
+    <div className="space-y-2">
+      <p className="text-sm leading-none font-medium" id={labelId}>
+        {label}
+      </p>
+      <div
+        aria-labelledby={labelId}
+        className="border-border bg-muted/40 inline-flex flex-wrap gap-1 rounded-lg border p-1"
+        role="radiogroup"
+      >
+        {options.map((option) => (
+          <label
+            className={cn(
+              'has-[:focus-visible]:ring-ring cursor-pointer rounded-md px-3 py-1 text-sm transition-colors has-[:focus-visible]:ring-2',
+              value === option.id
+                ? 'bg-primary text-primary-foreground font-medium shadow-xs'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+            )}
+            data-testid={`${testIdPrefix}-${option.id}`}
+            key={option.id}
+          >
+            <input
+              checked={value === option.id}
+              className="sr-only"
+              name={groupName}
+              onChange={() => onChange(option.id)}
+              type="radio"
+              value={option.id}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+      <p className="text-muted-foreground text-sm">{description}</p>
+    </div>
+  );
+}
+
+/** Code font size options; `default` stands for no chosen size. */
+const CODE_FONT_SIZE_OPTIONS: readonly { readonly id: string; readonly label: string }[] = [
+  { id: 'default', label: 'Default' },
+  ...CODE_FONT_SIZES.map((size) => ({ id: String(size), label: `${size}px` })),
+];
+
 function ThemePreview({ theme }: { theme: ThemeDefinition }) {
   return (
     <>
@@ -170,30 +240,128 @@ function FontPreview({ font, sample }: { font: FontDefinition<string>; sample: s
   );
 }
 
-/**
- * A few tokens painted with the `--syntax-*` colours. `data-code-theme` on the
- * preview scopes code-themes.css to this card, so each card shows its own
- * scheme in the current light or dark mode.
- */
-function CodeThemePreview({ codeTheme }: { codeTheme: CodeThemeDefinition }) {
+/** Diff tints that read on any scheme's background, light or dark. */
+const REMOVED_ROW = 'rgba(248, 81, 73, 0.16)';
+const ADDED_ROW = 'rgba(46, 160, 67, 0.18)';
+
+function PreviewRow({
+  children,
+  kind,
+  line,
+}: {
+  children: ReactNode;
+  kind?: 'added' | 'removed';
+  line: number;
+}) {
   return (
-    <>
-      <span
-        aria-hidden="true"
-        className="bg-background border-border block rounded-sm border px-2 py-1 font-mono text-xs leading-snug"
-        data-code-theme={codeTheme.id}
-      >
-        <span style={{ color: 'var(--syntax-keyword)' }}>const</span>{' '}
-        <span style={{ color: 'var(--syntax-function)' }}>greet</span> ={' '}
-        <span style={{ color: 'var(--syntax-string)' }}>&quot;hi&quot;</span>
-        <br />
-        <span style={{ color: 'var(--syntax-comment)', fontStyle: 'italic' }}>
-          {'// '}
-          <span style={{ color: 'var(--syntax-number)', fontStyle: 'normal' }}>42</span>
-        </span>
+    <div
+      className="flex border-l-2 px-2 whitespace-pre"
+      style={{
+        backgroundColor:
+          kind === 'added' ? ADDED_ROW : kind === 'removed' ? REMOVED_ROW : undefined,
+        borderLeftColor:
+          kind === 'added'
+            ? 'rgb(46, 160, 67)'
+            : kind === 'removed'
+              ? 'rgb(248, 81, 73)'
+              : 'transparent',
+      }}
+    >
+      <span className="w-6 shrink-0 text-right" style={{ color: 'var(--syntax-comment)' }}>
+        {line}
       </span>
-      <span className="text-sm font-medium">{codeTheme.label}</span>
-    </>
+      <span className="pl-3">{children}</span>
+    </div>
+  );
+}
+
+/**
+ * A small diff painted with one code theme on its own background. The
+ * `data-code-theme-light`/`-dark` attribute scopes code-themes.css to the
+ * preview, and the dark preview carries `.dark`, so each shows its scheme
+ * whatever mode the app is in.
+ */
+function CodeThemeDiffPreview({
+  codeTheme,
+  scheme,
+}: {
+  codeTheme: CodeThemeId;
+  scheme: 'dark' | 'light';
+}) {
+  const keyword = { color: 'var(--syntax-keyword)' };
+  const string = { color: 'var(--syntax-string)' };
+  const attributes =
+    scheme === 'dark'
+      ? { 'data-code-theme-dark': codeTheme }
+      : { 'data-code-theme-light': codeTheme };
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        'border-border overflow-hidden rounded-md border py-1.5 font-mono text-xs leading-relaxed',
+        scheme === 'dark' && 'dark'
+      )}
+      data-testid={`code-theme-preview-${scheme}`}
+      style={{ backgroundColor: 'var(--syntax-background)', color: 'var(--syntax-foreground)' }}
+      {...attributes}
+    >
+      <PreviewRow line={1}>
+        <span style={keyword}>function</span>{' '}
+        <span style={{ color: 'var(--syntax-function)' }}>greet</span>
+        (name: <span style={{ color: 'var(--syntax-type)' }}>string</span>) {'{'}
+      </PreviewRow>
+      <PreviewRow kind="removed" line={2}>
+        {'  '}
+        <span style={keyword}>return</span> <span style={string}>{'"Hello, "'}</span>
+        {' + name;'}
+      </PreviewRow>
+      <PreviewRow kind="added" line={2}>
+        {'  '}
+        <span style={keyword}>return</span> <span style={string}>{'`Hello, ${'}</span>
+        {'name'}
+        <span style={string}>{'}!`'}</span>
+        {';'}
+      </PreviewRow>
+      <PreviewRow line={3}>{'}'}</PreviewRow>
+    </div>
+  );
+}
+
+/** One mode's code theme: a select and a diff preview of the chosen theme. */
+function CodeThemePicker({
+  onChange,
+  scheme,
+  value,
+}: {
+  onChange: (id: CodeThemeId) => void;
+  scheme: 'dark' | 'light';
+  value: CodeThemeId;
+}) {
+  const selectId = useId();
+  return (
+    <div className="min-w-0 space-y-2">
+      <label className="text-muted-foreground text-sm" htmlFor={selectId}>
+        {scheme === 'dark' ? 'Dark mode' : 'Light mode'}
+      </label>
+      <select
+        className="border-input dark:bg-input/30 focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-hidden focus-visible:ring-[3px]"
+        id={selectId}
+        onChange={(event) => {
+          const next = CODE_THEMES.find((theme) => theme.id === event.target.value);
+          if (next) {
+            onChange(next.id);
+          }
+        }}
+        value={value}
+      >
+        {CODE_THEMES.map((theme) => (
+          <option key={theme.id} value={theme.id}>
+            {theme.label}
+          </option>
+        ))}
+      </select>
+      <CodeThemeDiffPreview codeTheme={value} scheme={scheme} />
+    </div>
   );
 }
 
@@ -211,16 +379,29 @@ function byId<Definition extends { readonly id: string }>(
 export function ThemeSettings() {
   const {
     codeFont,
-    codeTheme,
+    codeFontSize,
+    codeThemeDark,
+    codeThemeLight,
+    customCodeFont,
     font,
     mode,
+    motion,
     setCodeFont,
-    setCodeTheme,
+    setCodeFontSize,
+    setCodeThemeDark,
+    setCodeThemeLight,
+    setCustomCodeFont,
     setFont,
     setMode,
+    setMotion,
     setTheme,
+    setTranscriptTextSize,
+    setTranscriptWidth,
     theme,
+    transcriptTextSize,
+    transcriptWidth,
   } = useTheme();
+  const customCodeFontId = useId();
 
   return (
     <div className="grid gap-6">
@@ -246,7 +427,7 @@ export function ThemeSettings() {
         </p>
       </div>
       <ChoiceGroup
-        description="Pick a colour palette for the interface."
+        description="Pick a color palette for the interface."
         label="Theme"
         onChange={setTheme}
         options={THEMES}
@@ -263,8 +444,32 @@ export function ThemeSettings() {
         testIdPrefix="font-card"
         value={font}
       />
+      <SegmentedChoice
+        description="The size of messages in chat."
+        label="Transcript text size"
+        onChange={setTranscriptTextSize}
+        options={TRANSCRIPT_TEXT_SIZES}
+        testIdPrefix="transcript-size"
+        value={transcriptTextSize}
+      />
+      <SegmentedChoice
+        description="Narrow keeps chat in a reading column, Wide caps it on a wide panel, Full uses the whole panel."
+        label="Transcript width"
+        onChange={setTranscriptWidth}
+        options={TRANSCRIPT_WIDTHS}
+        testIdPrefix="transcript-width"
+        value={transcriptWidth}
+      />
+      <SegmentedChoice
+        description="Reduced turns off animations and smooth scrolling. System follows your device setting."
+        label="Motion"
+        onChange={setMotion}
+        options={MOTION_PREFERENCES}
+        testIdPrefix="motion"
+        value={motion}
+      />
       <ChoiceGroup
-        description="The typeface for the editor, diffs and code in chat."
+        description="The typeface for the editor, diffs, code in chat and the terminal."
         label="Code font"
         onChange={setCodeFont}
         options={CODE_FONTS}
@@ -272,15 +477,47 @@ export function ThemeSettings() {
         testIdPrefix="code-font-card"
         value={codeFont}
       />
-      <ChoiceGroup
-        description="Syntax colours for the editor, diffs and code in chat. Each follows the light or dark mode."
-        label="Code theme"
-        onChange={setCodeTheme}
-        options={CODE_THEMES}
-        renderOption={(id) => <CodeThemePreview codeTheme={byId(CODE_THEMES, id)} />}
-        testIdPrefix="code-theme-card"
-        value={codeTheme}
+      <div className="space-y-2">
+        <label className="block text-sm leading-none font-medium" htmlFor={customCodeFontId}>
+          Custom code font
+        </label>
+        <Input
+          autoComplete="off"
+          className="max-w-xs"
+          id={customCodeFontId}
+          onChange={(event) => setCustomCodeFont(event.target.value)}
+          placeholder="e.g. Berkeley Mono"
+          spellCheck={false}
+          value={customCodeFont}
+        />
+        <p className="text-muted-foreground text-sm">
+          A monospace font installed on this computer, used for code and the terminal. If it is
+          missing, the code font above is used.
+        </p>
+      </div>
+      <SegmentedChoice
+        description="Applies to the editor, diffs, code in chat and the terminal. Default keeps each one's own size."
+        label="Code font size"
+        onChange={(id) =>
+          setCodeFontSize(
+            id === 'default' ? null : (CODE_FONT_SIZES.find((size) => String(size) === id) ?? null)
+          )
+        }
+        options={CODE_FONT_SIZE_OPTIONS}
+        testIdPrefix="code-font-size"
+        value={codeFontSize === null ? 'default' : String(codeFontSize)}
       />
+      <div className="space-y-2">
+        <p className="text-sm leading-none font-medium">Code theme</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <CodeThemePicker onChange={setCodeThemeLight} scheme="light" value={codeThemeLight} />
+          <CodeThemePicker onChange={setCodeThemeDark} scheme="dark" value={codeThemeDark} />
+        </div>
+        <p className="text-muted-foreground text-sm">
+          Syntax colors for the editor, diffs and code in chat, chosen separately for light and dark
+          mode.
+        </p>
+      </div>
     </div>
   );
 }

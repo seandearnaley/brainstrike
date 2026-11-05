@@ -7,6 +7,7 @@ import { buildWorkspaceRootLocalActions } from '../context-actions/workspace-roo
 import { workspaceRootToTarget } from '../context-actions/workspace-root-target';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { useOpenFolderFor } from './thread-checkout-context';
 
 const logger = createLogger('FileExplorerSidebar');
 
@@ -87,6 +88,8 @@ export function useRootSectionContextMenu({
 }: UseRootSectionContextMenuOptions): UseRootSectionContextMenuResult {
   const activeRootIds = useFileExplorerStoreSelector((s) => s.activeRootIds);
   const setMainRoot = useFileExplorerStoreSelector((s) => s.setMainRoot);
+  // The thread's worktree, shown in place of its folder, makes that folder Main (ADR-0034).
+  const openFolderId = useOpenFolderFor(rootId);
   const controller = useContextMenuTarget();
   const { setTarget } = controller;
 
@@ -113,13 +116,14 @@ export function useRootSectionContextMenu({
         // recognize (a legacy path-identity root — `RootSection`'s
         // `rootIdentity` fallback can still produce one). Check first so
         // the menu can toast instead of silently doing nothing.
-        if (!activeRootIds.includes(target.rootId)) {
+        const mainRootId = target.rootId === rootId ? openFolderId : target.rootId;
+        if (mainRootId === null || !activeRootIds.includes(mainRootId)) {
           return {
             error: 'Cannot set Main: this root has no durable id.',
             ok: false,
           };
         }
-        setMainRoot(target.rootId);
+        setMainRoot(mainRootId);
         return { ok: true };
       },
     }),
@@ -149,9 +153,7 @@ export function useRootSectionContextMenu({
 export interface UseSingleRootHeaderMenuOptions {
   /** Client-declared main root (`activeRootIds[0]`) — badges the primary root. */
   readonly mainRootId: string | undefined;
-  readonly onRemoveRoot?:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  readonly onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   readonly rootActions?: readonly AnyContextAction[] | undefined;
   readonly rootDirectoryHandle: DirectoryHandle | null;
   readonly rootIdByPath?: ReadonlyMap<string, string> | undefined;
@@ -163,7 +165,7 @@ export interface UseSingleRootHeaderMenuResult {
   readonly isDisconnectDialogOpen: boolean;
   readonly localActions: readonly AnyContextAction[];
   readonly onCloseAutoFocus: () => void;
-  readonly onDisconnectConfirm: (options: { deleteData: boolean }) => void;
+  readonly onDisconnectConfirm: () => void;
   readonly reset: () => void;
   readonly restoreFocusRef: RefObject<HTMLDivElement | null>;
   readonly rootIdentity: string;
@@ -192,6 +194,7 @@ export function useSingleRootHeaderMenu({
   // stamped rootId, then the path→id map, then the path) — never
   // `currentFolderId`, which is FOCUS state, not root identity.
   const rootIdentity = getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? '';
+  const openFolderId = useOpenFolderFor(rootIdentity);
   // A web FSA handle's `path` IS its `name` — same hoisted normalization
   // `RootSectionInner` uses for its own `rootPath`.
   const path =
@@ -203,12 +206,14 @@ export function useSingleRootHeaderMenu({
     setIsDisconnectDialogOpen(true);
   };
 
-  const onDisconnectConfirm = (options: { deleteData: boolean }) => {
+  const onDisconnectConfirm = () => {
     setIsDisconnectDialogOpen(false);
     // Fire-and-forget is safe here for the same reason RootSectionInner's
     // handleDisconnectConfirm is: removeRootDirectory catches every
     // failure path internally and surfaces a toast instead of rejecting.
-    void onRemoveRoot?.(rootIdentity, options);
+    if (openFolderId !== null) {
+      void onRemoveRoot?.(openFolderId);
+    }
   };
 
   const restoreFocusRef = useRef<HTMLDivElement | null>(null);
@@ -216,8 +221,8 @@ export function useSingleRootHeaderMenu({
   const { claim, controller, localActions, onCloseAutoFocus, reset } = useRootSectionContextMenu({
     displayName: rootDirectoryHandle?.name ?? '',
     isDisconnectDialogOpen,
-    isMain: mainRootId !== undefined && mainRootId === rootIdentity,
-    ...(onRemoveRoot ? { onDisconnect: handleDisconnectRequest } : {}),
+    isMain: mainRootId !== undefined && mainRootId === openFolderId,
+    ...(onRemoveRoot && openFolderId !== null ? { onDisconnect: handleDisconnectRequest } : {}),
     path,
     restoreFocusRef,
     rootActions,

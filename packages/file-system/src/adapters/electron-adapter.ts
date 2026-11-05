@@ -1,7 +1,19 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import type { IFileNode } from '@brainstrike/types';
+import type {
+  DirectoryHandle,
+  DirectoryReadOptions,
+  DirectoryStreamCallback,
+  FileHandle,
+  FileSystemAdapter,
+  FileSystemChange,
+  FileSystemWatchBatchMetadata,
+  FileSystemWatchSignal,
+  IFileNode,
+  StreamingDirectoryReadOptions,
+  WatcherHealthTransition,
+} from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils';
 import { isDurableRootId, isFullyQualifiedFileSystemPath } from '../absolute-read-path.ts';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.ts';
@@ -12,18 +24,6 @@ import {
   type MetadataCacheStats,
 } from '../metadata-cache.ts';
 import { resolveValidatedPath } from '../path-validation.ts';
-import type {
-  DirectoryHandle,
-  DirectoryReadOptions,
-  DirectoryStreamCallback,
-  FileHandle,
-  FileSystemAdapter,
-  FileSystemChange,
-  FileSystemWatchBatchMetadata,
-  FileSystemWatchSignal,
-  StreamingDirectoryReadOptions,
-  WatcherHealthTransition,
-} from '../types.ts';
 import { validateDirectoryPath } from '../utils.ts';
 import { normalizeDirectoryReadOptions } from '../utils-browser.ts';
 import { assertValidRootWatchFilterOptions, startRootWatch } from './root-watchers.ts';

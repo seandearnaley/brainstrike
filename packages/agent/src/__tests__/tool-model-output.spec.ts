@@ -1,6 +1,6 @@
 import type { ToolPayloadTransform, ToolPayloadTransformTarget } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import type { HostToolDefinitions } from '../host-tool-definition';
 import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
@@ -53,7 +53,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-type TestTool = ToolsInput[string] & {
+type TestTool = HostToolDefinitions[string] & {
   execute?: (...args: unknown[]) => unknown;
   toModelOutput?: (output: unknown) => unknown;
   transform?: ToolPayloadTransform;
@@ -62,10 +62,10 @@ type TestTool = ToolsInput[string] & {
 const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
 
 function applyToolModelOutputProjections(
-  tools: ToolsInput,
+  tools: HostToolDefinitions,
   toolNameMap: ReadonlyMap<string, string>,
   observer?: (toolName: string, output: unknown) => void
-): ToolsInput {
+): HostToolDefinitions {
   return applyToolModelOutputProjectionsWithBudget(
     tools,
     toolNameMap,

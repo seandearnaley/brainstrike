@@ -8,8 +8,11 @@ import {
   readProviderCallWarning,
   readToolTelemetryOmission,
 } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { HostClient } from './client-connection.ts';
 import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
+
+const logger = createLogger('CommittedThreadSession');
 
 export type PendingHostApproval = Extract<HostEvent, { type: 'interaction.requested' }>;
 export interface HostRunView {
@@ -324,6 +327,8 @@ export class CommittedThreadSession {
   private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
   private readonly threadId: string;
   private readonly deliveryThrottleMs: number | undefined;
+  /** The connected subscription's held deliveries, delivered now; undefined while disconnected. */
+  private flushHeld: (() => void) | undefined;
 
   constructor(
     client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
@@ -346,6 +351,15 @@ export class CommittedThreadSession {
     this.view.subscribe(() => this.update({ rows: this.view.getSnapshot() }));
   }
   readonly getSnapshot = (): HostThreadSnapshot => this.snapshot;
+  /**
+   * Deliver now the rows and telemetry this session has received and is
+   * holding for its delivery throttle. The host publishes a command's rows
+   * before it answers the command, so a caller that has the answer calls this
+   * and its view then holds what the command committed: a started run shows as
+   * running before its send settles, and the composer offers no second send
+   * the host would refuse (BST-2439).
+   */
+  readonly deliverReceived = (): void => this.flushHeld?.();
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -371,8 +385,9 @@ export class CommittedThreadSession {
    * session's does: a refusal rejects rather than being swallowed, and an
    * owner that closes the client must join it first. A request still queued
    * when the client closes fails inside vscode-jsonrpc as an unhandled
-   * rejection. A connection that has already closed ended the subscription
-   * itself, so nothing is sent.
+   * rejection. It names the subscription its `log/subscribe` answered, so it
+   * waits for that answer; a refused subscribe holds none, and a connection
+   * that has already closed ended it itself, so then nothing is sent.
    */
   connect(): () => Promise<void> {
     let active = true;
@@ -386,6 +401,7 @@ export class CommittedThreadSession {
     const queued: ({ row: HostLogRow } | { telemetry: HostRunTelemetry })[] = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
     const flush = (): void => {
+      clearTimeout(timer);
       timer = undefined;
       const rows: HostLogRow[] = [];
       for (const item of queued.splice(0)) {
@@ -406,6 +422,7 @@ export class CommittedThreadSession {
         timer ??= setTimeout(flush, this.deliveryThrottleMs);
       }
     };
+    this.flushHeld = flush;
     const release = this.client.onEvent((row) => {
       if (active) {
         deliver({ row });
@@ -416,9 +433,20 @@ export class CommittedThreadSession {
         deliver({ telemetry: received });
       }
     });
-    this.client.request('log/subscribe', { fromSeq: 0, threadId: this.threadId }).then(
+    const requested = performance.now();
+    const subscribing = this.client.request('log/subscribe', {
+      fromSeq: 0,
+      threadId: this.threadId,
+    });
+    // Only the id outlives the replay, so a disposed session holds none of its rows.
+    const subscribed = subscribing.then(
+      ({ subscriptionId }) => subscriptionId,
+      () => undefined
+    );
+    subscribing.then(
       (result) => {
         if (active) {
+          const received = performance.now();
           // The boundary is set before the replay publishes, so no listener sees
           // replayed rows without it. An empty replay publishes no rows, so it
           // announces the end of loading itself.
@@ -433,6 +461,13 @@ export class CommittedThreadSession {
             this.update({});
           }
           telemetry.replayed(result.telemetry);
+          // How long a thread takes to open: the host's replay, then this view's fold of it.
+          logger.info('Replayed a thread', {
+            applyMs: Math.round(performance.now() - received),
+            replayMs: Math.round(received - requested),
+            rows: result.rows.length,
+            threadId: this.threadId,
+          });
         }
       },
       (cause: unknown) => {
@@ -457,14 +492,18 @@ export class CommittedThreadSession {
     return () => {
       disposed ??= (async (): Promise<void> => {
         active = false;
+        if (this.flushHeld === flush) {
+          this.flushHeld = undefined;
+        }
         // Let a disposed session, and every row it read, be collected.
         closed.listener = undefined;
         clearTimeout(timer);
         queued.length = 0;
         release();
         releaseTelemetry();
-        if (!connectionClosed) {
-          await this.client.request('log/unsubscribe', { threadId: this.threadId });
+        const subscriptionId = await subscribed;
+        if (subscriptionId !== undefined && !connectionClosed) {
+          await this.client.request('log/unsubscribe', { subscriptionId });
         }
       })();
       return disposed;

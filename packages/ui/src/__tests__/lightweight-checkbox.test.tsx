@@ -132,7 +132,7 @@ describe('LightweightCheckbox', () => {
       'border',
       'border-primary'
     );
-    expect(checkbox).toHaveClass('focus-visible:outline-none', 'focus-visible:ring-2');
+    expect(checkbox).toHaveClass('focus-visible:outline-hidden', 'focus-visible:ring-2');
     expect(checkbox).toHaveClass('disabled:cursor-not-allowed', 'disabled:opacity-50');
     expect(checkbox).toHaveClass('cursor-pointer', 'appearance-none');
   });

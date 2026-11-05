@@ -3,9 +3,13 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolPlayground } from '../tool-playground';
+import {
+  TOOL_PLAYGROUND_STORAGE_KEY,
+  useToolPlaygroundInputsStore,
+} from '../tool-playground-store.ts';
 import type { ToolExecutionResult } from '../types';
 
 // Mock @brainstrike/ui
@@ -40,33 +44,28 @@ vi.mock('@brainstrike/ui', () => ({
   ),
 }));
 
-// Mock localStorage
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-  return {
-    clear: vi.fn(() => {
-      store = {};
-    }),
-    getItem: vi.fn((key: string) => store[key] ?? null),
-    removeItem: vi.fn((key: string) => {
-      delete store[key];
-    }),
-    setItem: vi.fn((key: string, value: string) => {
-      store[key] = value;
-    }),
-  };
-})();
+/** Reads `localStorage` again into a fresh store, as the app does when it reopens. */
+async function reopen(): Promise<void> {
+  const saved = localStorage.getItem(TOOL_PLAYGROUND_STORAGE_KEY);
+  // Emptying the store saves its defaults; put back what the last session saved.
+  useToolPlaygroundInputsStore.setState(useToolPlaygroundInputsStore.getInitialState(), true);
+  if (saved === null) {
+    localStorage.removeItem(TOOL_PLAYGROUND_STORAGE_KEY);
+  } else {
+    localStorage.setItem(TOOL_PLAYGROUND_STORAGE_KEY, saved);
+  }
+  await useToolPlaygroundInputsStore.persist.rehydrate();
+}
 
-Object.defineProperty(window, 'localStorage', {
-  value: localStorageMock,
-});
+function jsonInput(): HTMLTextAreaElement {
+  return screen.getByTestId('json-input') as HTMLTextAreaElement;
+}
 
 describe('ToolPlayground', () => {
   const mockOnExecute = vi.fn<(input: unknown) => Promise<ToolExecutionResult>>();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorageMock.clear();
   });
 
   describe('rendering', () => {
@@ -84,15 +83,6 @@ describe('ToolPlayground', () => {
 
       const input = screen.getByTestId('json-input') as HTMLTextAreaElement;
       expect(input.value).toBe('{}');
-    });
-
-    it('loads stored input from localStorage', () => {
-      localStorageMock.setItem('tool-playground-test.tool', '{"query": "test"}');
-
-      render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
-
-      const input = screen.getByTestId('json-input') as HTMLTextAreaElement;
-      expect(input.value).toBe('{"query": "test"}');
     });
 
     it('removes aria-controls when the parameters panel is collapsed', () => {
@@ -125,16 +115,25 @@ describe('ToolPlayground', () => {
       expect((input as HTMLTextAreaElement).value).toBe('{"key": "value"}');
     });
 
-    it('persists input to localStorage', () => {
+    it('keeps what was typed for each tool across a reopen', async () => {
+      const { unmount } = render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
+      fireEvent.change(jsonInput(), { target: { value: '{"stored": true}' } });
+      unmount();
+
+      await reopen();
       render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
+      expect(jsonInput().value).toBe('{"stored": true}');
+      cleanup();
+      render(<ToolPlayground onExecute={mockOnExecute} toolId="other.tool" />);
+      expect(jsonInput().value).toBe('{}');
+    });
 
-      const input = screen.getByTestId('json-input');
-      fireEvent.change(input, { target: { value: '{"stored": true}' } });
+    it('opens on the empty input when the saved inputs are unreadable', async () => {
+      localStorage.setItem(TOOL_PLAYGROUND_STORAGE_KEY, '{"query": "test"');
+      await reopen();
 
-      expect(localStorageMock.setItem).toHaveBeenCalledWith(
-        'tool-playground-test.tool',
-        '{"stored": true}'
-      );
+      render(<ToolPlayground onExecute={mockOnExecute} toolId="test.tool" />);
+      expect(jsonInput().value).toBe('{}');
     });
   });
 
@@ -210,7 +209,7 @@ describe('ToolPlayground', () => {
       fireEvent.click(executeButton);
 
       await waitFor(() => {
-        expect(screen.getByText('Running...')).toBeInTheDocument();
+        expect(screen.getByText('Running…')).toBeInTheDocument();
         expect(executeButton).toBeDisabled();
       });
 
@@ -323,7 +322,7 @@ describe('ToolPlayground', () => {
 
       await waitFor(() => {
         const result = screen.getByTestId('execution-result');
-        expect(result.className).toContain('border-green-500/50');
+        expect(result.className).toContain('border-success/50');
       });
     });
 

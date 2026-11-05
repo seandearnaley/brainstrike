@@ -7,7 +7,6 @@ import {
   type ToolContent,
   TypeValidationError,
 } from 'ai';
-import { Schema } from 'effect';
 import { executableInputSchema } from '../executable-input-schema.ts';
 import type { HostToolContext } from '../ports.ts';
 /** One structural context; execution authority never comes from model arguments. */
@@ -41,15 +40,6 @@ export function canonicalToolModelOutput(
     throw new Error('Canonical tool model projection is not a tool result');
   }
   return part.output;
-}
-/** Public SDK schema projection for the private platform capability transport. */
-export async function canonicalToolInputJsonSchema(
-  schema: FlexibleSchema<unknown>
-): Promise<Record<string, unknown>> {
-  return Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.MutableJson), {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(await asSchema(schema).jsonSchema);
 }
 export async function validateCanonicalToolInput(
   schema: FlexibleSchema<unknown>,

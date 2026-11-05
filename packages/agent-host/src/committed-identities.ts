@@ -1,4 +1,5 @@
 import { Predicate } from 'effect';
+import type { HostRunState } from './core-state.ts';
 import type { HostEvent, HostLogRow } from './protocol.ts';
 
 export interface CommittedRunIdentity {
@@ -18,14 +19,42 @@ const RUN_ADMISSIONS: ReadonlySet<string> = new Set(['run/regenerate', 'run/star
 
 /**
  * The root turn a root thread's run belongs to, from its `run.started`: a wake
- * continues the turn whose children it delivers; any other run starts its own.
- * A run/stop of that turn's ID ends its background children (`hostRunTurnId`).
+ * continues the turn whose children it delivers, and a run the host started to
+ * carry a run's task on (ADR-0028 step 3) the turn it names; any other run
+ * starts its own. A run/stop of that turn's ID ends its background children
+ * (`hostRunTurnId`).
  */
 export function hostRootRunTurnId(started: {
   readonly delivery?: Extract<HostEvent, { type: 'run.started' }>['delivery'] | undefined;
   readonly runId: string;
+  readonly turnId?: string | undefined;
 }): string {
-  return started.delivery?.via === 'wake' ? started.delivery.turnId : started.runId;
+  if (started.delivery?.via === 'wake') {
+    return started.delivery.turnId;
+  }
+  return started.turnId ?? started.runId;
+}
+
+/**
+ * The root turn a run belongs to, as its `run.started` committed it
+ * (`startedHostRun`): a wake or a carried-on run keeps its turn's ID, a worker
+ * its invocation's, and any other run starts its own.
+ */
+export function hostRunTurnId(run: HostRunState): string {
+  return run.turnId ?? run.origin?.turnId ?? run.id;
+}
+/**
+ * The one "turn stopped" fact (audit SC-5): a Stop of a run that carries the
+ * turn itself, on any thread: its first run, a wake or a continuation. A Stop
+ * of one of the turn's workers ends that worker, not the turn.
+ */
+export function hostTurnStopped(runs: ReadonlyMap<string, HostRunState>, turnId: string): boolean {
+  for (const run of runs.values()) {
+    if (run.stopped && hostRunTurnId(run) === turnId && run.origin?.turnId !== turnId) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Existing SQLite primary-key address, encoded for a library's string-ID port. */

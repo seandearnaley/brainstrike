@@ -1,8 +1,10 @@
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testing';
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
+import { seedWorkspaceFolders } from './utils/seed-root';
 
 interface BufferedLogRecord {
   readonly args: readonly unknown[];
@@ -18,24 +20,40 @@ interface PersistedEnvelope<TState> {
   readonly version: number;
 }
 
-/** Test mode's default mock root, in the host's own grammar (see file-system-ipc.ts). */
-const RESTORED_FOLDER_PATH = path.resolve('/mock/test/directory');
-/** Display name of the restored root (handle.name) — NOT its identity. */
-const RESTORED_FOLDER_NAME = 'directory';
 /**
  * Fixed RootId for the seeded state (storage v5): currentFolderId, folderStates
  * keys, and selection composite keys all carry this UUID, never the path. The
- * seed also writes a matching `rootsList` entry so main's restoreRoots resolves
- * RESTORED_FOLDER_PATH to this exact id after restart.
+ * host's root record is seeded with the same id, so its restore resolves the
+ * restored folder to this exact id after restart.
  */
 const RESTORED_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000002';
-const RESTORED_ROOT_ADDED_AT = 1_700_000_000_000;
 const RESTORED_FILE_NAME = 'mock-file1.txt';
-const RESTORED_FILE_PATH = path.join(RESTORED_FOLDER_PATH, RESTORED_FILE_NAME);
-const RESTORED_COMPOSITE_KEY = `${RESTORED_ROOT_ID}|@|${RESTORED_FILE_PATH}`;
-const RESTORED_TAB_ID = `${RESTORED_ROOT_ID}:${RESTORED_COMPOSITE_KEY}`;
 
-function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> {
+/** The restored folder: the harness's real disposable workspace, holding one file. */
+interface RestoredFolder {
+  readonly compositeKey: string;
+  readonly filePath: string;
+  /** Display name of the restored root (handle.name) — NOT its identity. */
+  readonly name: string;
+  readonly path: string;
+  readonly tabId: string;
+}
+
+function restoredFolder(folderPath: string): RestoredFolder {
+  const filePath = path.join(folderPath, RESTORED_FILE_NAME);
+  const compositeKey = `${RESTORED_ROOT_ID}|@|${filePath}`;
+  return {
+    compositeKey,
+    filePath,
+    name: path.basename(folderPath),
+    path: folderPath,
+    tabId: `${RESTORED_ROOT_ID}:${compositeKey}`,
+  };
+}
+
+function createPersistedFileExplorerState(
+  folder: RestoredFolder
+): PersistedEnvelope<SerializedState> {
   return {
     state: {
       activeRootIds: [RESTORED_ROOT_ID],
@@ -68,8 +86,8 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
       quickFilter: DEFAULT_STATE.quickFilter,
       rootDescriptors: {
         [RESTORED_ROOT_ID]: {
-          displayName: RESTORED_FOLDER_NAME,
-          path: RESTORED_FOLDER_PATH,
+          displayName: folder.name,
+          path: folder.path,
           rootId: RESTORED_ROOT_ID,
         },
       },
@@ -89,18 +107,18 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
   };
 }
 
-function createPersistedTabState(): PersistedEnvelope<{
+function createPersistedTabState(folder: RestoredFolder): PersistedEnvelope<{
   activeTabId: string;
   tabs: Array<{ compositeKey: string; id: string; path: string }>;
 }> {
   return {
     state: {
-      activeTabId: RESTORED_TAB_ID,
+      activeTabId: folder.tabId,
       tabs: [
         {
-          compositeKey: RESTORED_COMPOSITE_KEY,
-          id: RESTORED_TAB_ID,
-          path: RESTORED_FILE_PATH,
+          compositeKey: folder.compositeKey,
+          id: folder.tabId,
+          path: folder.filePath,
         },
       ],
     },
@@ -108,115 +126,25 @@ function createPersistedTabState(): PersistedEnvelope<{
   };
 }
 
-async function seedRestoredStartupState(page: Page): Promise<void> {
-  const fileExplorerState = createPersistedFileExplorerState();
-  const tabState = createPersistedTabState();
+async function seedRestoredStartupState(page: Page, folder: RestoredFolder): Promise<void> {
+  await writeFile(folder.filePath, 'Restored file content\n');
+  const fileExplorerState = createPersistedFileExplorerState(folder);
+  const tabState = createPersistedTabState(folder);
 
   await page.evaluate(
-    async ({
-      nextFileExplorerState,
-      nextTabState,
-      restoredFolderName,
-      restoredFolderPath,
-      restoredRootAddedAt,
-      restoredRootId,
-    }) => {
-      localStorage.setItem('tab-manager.v1', JSON.stringify(nextTabState));
+    ({ nextFileExplorerState, nextTabState }) => {
+      localStorage.setItem('brainstrike:tab-manager.v1', JSON.stringify(nextTabState));
 
-      const fileExplorerStore = (
-        window as Window & {
-          __brainstrike_file_explorer_store__?: {
-            setState?: (state: Record<string, unknown>) => void;
-          };
-        }
-      ).__brainstrike_file_explorer_store__;
-      const api = (
-        window as Window & {
-          electronAPI?: {
-            storage?: { setItem?: (key: string, value: string) => Promise<void> };
-          };
-        }
-      ).electronAPI;
-
-      if (!api?.storage?.setItem) {
-        throw new Error('Electron storage.setItem bridge is not available');
-      }
-      if (!fileExplorerStore?.setState) {
-        throw new Error('File explorer store is not available on window');
-      }
-
-      const runtimeFolderState = {
-        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        expandedDirectoryPaths: new Set<string>(),
-        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        lastAccessed: Date.now(),
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        selectedFilePaths: new Set<string>(),
-        useRegex: nextFileExplorerState.state.useRegex,
-        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
-      };
-
-      fileExplorerStore.setState({
-        currentFolderId: restoredRootId,
-        devInlineFixtureEnabled: nextFileExplorerState.state.devInlineFixtureEnabled,
-        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
-        expandedDirectoryPaths: new Set<string>(),
-        folderAccessOrder: [restoredRootId],
-        folderStates: {
-          [restoredRootId]: runtimeFolderState,
-        },
-        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
-        includeFilters: [...nextFileExplorerState.state.includeFilters],
-        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
-        isFiltersExpanded: nextFileExplorerState.state.isFiltersExpanded ?? true,
-        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
-        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
-        quickFilter: nextFileExplorerState.state.quickFilter,
-        rootDirectoryHandle: {
-          kind: 'directory',
-          name: restoredFolderName,
-          path: restoredFolderPath,
-          platform: 'electron',
-        },
-        selectedFilePaths: new Set<string>(),
-        selectionModel: {
-          explicitPaths: new Set<string>(),
-          materializedAt: nextFileExplorerState.state.selectionModel?.materializedAt ?? null,
-          materializedPaths: null,
-          mode: nextFileExplorerState.state.selectionModel?.mode ?? 'explicit',
-        },
-        useRegex: nextFileExplorerState.state.useRegex,
-        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
-      });
-
-      await api.storage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
-      // Storage v5: write the rootsList entry with the fixed RootId so main's
-      // restoreRoots() resolves restoredFolderPath to this exact id on boot.
-      await api.storage.setItem(
-        'rootsList',
-        JSON.stringify([
-          { addedAt: restoredRootAddedAt, path: restoredFolderPath, rootId: restoredRootId },
-        ])
+      localStorage.setItem(
+        'brainstrike:file-explorer-storage-v5',
+        JSON.stringify(nextFileExplorerState)
       );
-      // Seed the lastFolderPath preference directly: this block seeds
-      // persisted startup state for a restore regression test, it does not
-      // exercise the setLastFolder IPC — and setLastFolder now throws unless
-      // its path already references a persisted, mounted root, which is not
-      // yet true at this pre-boot seeding step.
-      await api.storage.setItem('lastFolderPath', restoredFolderPath);
     },
-    {
-      nextFileExplorerState: fileExplorerState,
-      nextTabState: tabState,
-      restoredFolderName: RESTORED_FOLDER_NAME,
-      restoredFolderPath: RESTORED_FOLDER_PATH,
-      restoredRootAddedAt: RESTORED_ROOT_ADDED_AT,
-      restoredRootId: RESTORED_ROOT_ID,
-    }
+    { nextFileExplorerState: fileExplorerState, nextTabState: tabState }
   );
+  // The host's open folders: the seeded record carries the fixed RootId, so the renderer's
+  // restore on boot resolves the restored folder to this exact id.
+  await seedWorkspaceFolders(page, { roots: [{ path: folder.path, rootId: RESTORED_ROOT_ID }] });
 }
 
 async function getRendererLogRecords(page: Page): Promise<BufferedLogRecord[]> {
@@ -262,7 +190,8 @@ test.describe('Startup Restore Regression', () => {
     electronHarness,
     window,
   }) => {
-    await seedRestoredStartupState(window);
+    const folder = restoredFolder(electronHarness.getWorkspaceRoot());
+    await seedRestoredStartupState(window, folder);
     const restartedContext = await electronHarness.restart();
     const restartedWindow = restartedContext.window;
     await expect(
@@ -299,7 +228,7 @@ test.describe('Startup Restore Regression', () => {
         typeof details === 'object' && details !== null
           ? (details as { folderId?: unknown }).folderId
           : undefined;
-      return folderId === RESTORED_ROOT_ID || folderId === RESTORED_FOLDER_PATH;
+      return folderId === RESTORED_ROOT_ID || folderId === folder.path;
     });
     const noOpWarmCacheLogs = records.filter((record) => {
       if (!recordContainsText(record, 'Warm cache effect: preloading folders')) {

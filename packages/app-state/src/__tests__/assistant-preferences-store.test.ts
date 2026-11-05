@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import { MODEL_ID_MIGRATIONS } from '../stores/assistant-model-id-migrations.ts';
 import {
-  __resetAssistantPreferencesStoreForTests,
   ASSISTANT_PREFERENCES_STORE_VERSION,
   useAssistantPreferencesStore,
 } from '../stores/assistant-preferences-store.ts';
@@ -34,7 +33,6 @@ const storeWithPersist = useAssistantPreferencesStore as PersistApi<
 
 describe('assistant-preferences-store', () => {
   beforeEach(() => {
-    __resetAssistantPreferencesStoreForTests();
     __resetSettingsTestOverridesForTests();
     storeWithPersist.persist?.clearStorage?.();
     vi.restoreAllMocks();
@@ -357,7 +355,7 @@ describe('assistant-preferences-store', () => {
       version: 3,
     };
 
-    options.storage.setItem(options.name, legacyState);
+    localStorage.setItem(options.name, JSON.stringify(legacyState));
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
@@ -395,7 +393,7 @@ describe('assistant-preferences-store', () => {
       }
       const { name, storage } = options;
       const snapshot: StorageValue<unknown> = { state, version };
-      storage.setItem(name, snapshot);
+      localStorage.setItem(name, JSON.stringify(snapshot));
       return {
         readPersisted: async () => {
           const raw: unknown = await storage.getItem(name);
@@ -660,7 +658,7 @@ describe('assistant-preferences-store', () => {
       version: 5,
     };
 
-    options.storage.setItem(options.name, priorState);
+    localStorage.setItem(options.name, JSON.stringify(priorState));
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
@@ -728,7 +726,7 @@ describe('assistant-preferences-store', () => {
       version: 7,
     };
 
-    options.storage.setItem(options.name, staleSnapshot);
+    localStorage.setItem(options.name, JSON.stringify(staleSnapshot));
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
@@ -767,7 +765,7 @@ describe('assistant-preferences-store', () => {
       version: 8,
     };
 
-    options.storage.setItem(options.name, staleSnapshot);
+    localStorage.setItem(options.name, JSON.stringify(staleSnapshot));
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
@@ -806,7 +804,7 @@ describe('assistant-preferences-store', () => {
       version: 1,
     };
 
-    options.storage.setItem(options.name, legacyProviderState);
+    localStorage.setItem(options.name, JSON.stringify(legacyProviderState));
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
@@ -958,7 +956,7 @@ describe('assistant-preferences-store', () => {
         version: 6,
       };
 
-      options.storage.setItem(options.name, priorState);
+      localStorage.setItem(options.name, JSON.stringify(priorState));
       await persistApi.rehydrate?.();
 
       expect(useAssistantPreferencesStore.getState().recentModels).toEqual([]);
@@ -1000,7 +998,7 @@ describe('assistant-preferences-store', () => {
         version: 6,
       };
 
-      options.storage.setItem(options.name, priorState);
+      localStorage.setItem(options.name, JSON.stringify(priorState));
       await persistApi.rehydrate?.();
 
       expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(true);
@@ -1023,7 +1021,7 @@ describe('assistant-preferences-store', () => {
         version: 6,
       };
 
-      options.storage.setItem(options.name, priorState);
+      localStorage.setItem(options.name, JSON.stringify(priorState));
       await persistApi.rehydrate?.();
 
       expect(useAssistantPreferencesStore.getState().planModeEnabled).toBe(false);

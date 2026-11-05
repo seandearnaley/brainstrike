@@ -116,6 +116,44 @@ describe('CodeSurface', () => {
     expect(cancelAnimationFrame).toHaveBeenCalled();
   });
 
+  it('reports the scroll position once scrolling settles', async () => {
+    const onScrollTopChange = vi.fn();
+    render(
+      <CodeSurface onScrollTopChange={onScrollTopChange} testId="scroll-report" value="a\nb" />
+    );
+    const scroller = (await screen.findByTestId('scroll-report')).querySelector('.cm-scroller');
+    if (!scroller) {
+      throw new Error('missing .cm-scroller');
+    }
+
+    fireEvent.scroll(scroller, { target: { scrollTop: 120 } });
+    expect(onScrollTopChange).not.toHaveBeenCalled();
+    fireEvent(scroller, new Event('scrollend'));
+    expect(onScrollTopChange).toHaveBeenCalledExactlyOnceWith(120);
+  });
+
+  it('reports a scroll that has not settled when it unmounts, and nothing without one', async () => {
+    const scrolled = vi.fn();
+    const scrolledView = render(
+      <CodeSurface onScrollTopChange={scrolled} testId="scrolled" value="a\nb" />
+    );
+    const scroller = (await screen.findByTestId('scrolled')).querySelector('.cm-scroller');
+    if (!scroller) {
+      throw new Error('missing .cm-scroller');
+    }
+    fireEvent.scroll(scroller, { target: { scrollTop: 90 } });
+    scrolledView.unmount();
+    expect(scrolled).toHaveBeenCalledExactlyOnceWith(90);
+
+    const untouched = vi.fn();
+    const untouchedView = render(
+      <CodeSurface onScrollTopChange={untouched} testId="untouched" value="a\nb" />
+    );
+    await screen.findByTestId('untouched');
+    untouchedView.unmount();
+    expect(untouched).not.toHaveBeenCalled();
+  });
+
   it('scrolls initialLine into view and lets it win over initialScrollTop', async () => {
     const animationFrames: FrameRequestCallback[] = [];
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation(

@@ -1,6 +1,5 @@
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { clearPersistedStorageForTests } from './persist-api.ts';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 interface TokenPreferencesData {
@@ -13,78 +12,7 @@ interface TokenPreferencesActions {
 
 export type TokenPreferencesStore = TokenPreferencesData & TokenPreferencesActions;
 
-const STORE_NAME = 'token-preferences.v1' as const;
-
-function readLocalStorage(): Storage | undefined {
-  try {
-    return typeof globalThis.localStorage === 'undefined' ? undefined : globalThis.localStorage;
-  } catch {
-    return;
-  }
-}
-
-function removeStoredValue(storage: Storage | undefined, key: string): void {
-  try {
-    storage?.removeItem(key);
-  } catch {
-    // Best effort: blocked storage should not make cleanup flows fail.
-  }
-}
-
-function createTokenPreferencesStorage(): StateStorage {
-  const memory = new Map<string, string>();
-
-  const shouldPersistValue = (value: string): boolean => {
-    try {
-      const parsed = JSON.parse(value) as { state?: { accurateCounting?: unknown } };
-      return parsed.state?.accurateCounting === false;
-    } catch {
-      return true;
-    }
-  };
-
-  return {
-    getItem: (key) => {
-      const storage = readLocalStorage();
-      const raw = storage?.getItem(key) ?? memory.get(key) ?? null;
-      if (raw === null) {
-        return null;
-      }
-
-      try {
-        JSON.parse(raw);
-        return raw;
-      } catch {
-        removeStoredValue(storage, key);
-        memory.delete(key);
-        return null;
-      }
-    },
-    removeItem: (key) => {
-      removeStoredValue(readLocalStorage(), key);
-      memory.delete(key);
-    },
-    setItem: (key, value) => {
-      if (!shouldPersistValue(value)) {
-        removeStoredValue(readLocalStorage(), key);
-        memory.delete(key);
-        return;
-      }
-      const storage = readLocalStorage();
-      if (storage) {
-        try {
-          storage.setItem(key, value);
-          return;
-        } catch {
-          // Fall through to in-memory storage for quota/private-mode failures.
-        }
-      }
-      memory.set(key, value);
-    },
-  };
-}
-
-const storage = createJSONStorage(() => createTokenPreferencesStorage());
+const STORE_NAME = 'brainstrike:token-preferences.v1' as const;
 
 function sanitizePersistedData(state: unknown): TokenPreferencesData {
   const snapshot =
@@ -96,7 +24,8 @@ function sanitizePersistedData(state: unknown): TokenPreferencesData {
 }
 
 export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       accurateCounting: true,
       setAccurateCounting: (enabled) => set({ accurateCounting: !!enabled }),
@@ -106,11 +35,9 @@ export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
         sanitizePersistedData
       ),
       migrate: sanitizePersistedData,
-      name: STORE_NAME,
       partialize: (store) => ({
         accurateCounting: store.accurateCounting,
       }),
-      storage,
       version: 1,
     }
   )
@@ -119,9 +46,3 @@ export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
 export const tokenPreferencesSelectors = {
   accurateCounting: (store: TokenPreferencesStore) => store.accurateCounting,
 };
-
-// Test-only helper to reset state between suites
-export function __resetTokenPreferencesStoreForTests() {
-  clearPersistedStorageForTests(useTokenPreferencesStore);
-  useTokenPreferencesStore.setState({ accurateCounting: true });
-}

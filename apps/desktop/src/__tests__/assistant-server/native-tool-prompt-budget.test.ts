@@ -10,12 +10,12 @@ import {
 } from '@brainstrike/agent';
 import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { runSkillScriptExecutor } from '@brainstrike/host-capabilities/native-tools';
+import { readHostSystemContext } from '@brainstrike/host-capabilities/workspace-context';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { readDesktopHostSystemContext } from '../../agent-host-platform/desktop-host-context';
 import { desktopHostToolExecutors } from '../../agent-host-platform/host-executed-tools';
-import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
 import {
   buildHostNativeTools,
   nativeRuntimeFor,
@@ -194,7 +194,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // raise is a change of INSTRUMENT, not of authored text. The instruction half
 // used to be `createMastraAgentRuntime(...).agent.getInstructions()` plus a
 // hand-pinned copy of Mastra's SkillsProcessor block. It is now
-// `readDesktopHostSystemContext` — the assembler that gives every production
+// `readHostSystemContext` — the assembler that gives every production
 // host run its system text — so the measured text gained what the engine added
 // through processors rather than inside `getInstructions()`: the current-date
 // note, the context-budget note, and the vendor's real `formatSkillsCatalog`
@@ -242,10 +242,15 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // Merging the three into one action-union tool was REJECTED: the union costs
 // more tokens than it saves and diverges from the vendor's own tool shapes.
 // Both bounds move to centre 10521 (10,100 → 10,671 and 9,800 → 10,371).
-/** The same 39 the eager-baseline gate above counts: the tool half is unchanged. */
-const AUTHORED_PROVIDER_TOOL_COUNT = 39;
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_671;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_371;
+//
+// BST-2435 DROP: the retrieval decision (BST-2428) deletes `hybridSearch`,
+// `queryEmbeddingSpace` and `listEmbeddingSpaces`, their instructions and the
+// workspace index hint. A deliberate drop: measured 9752, so both bounds move
+// down to centre it (10,671 → 9,902 and 10,371 → 9,602), width 300 unchanged.
+/** The same 36 the eager-baseline gate above counts: the tool half is unchanged. */
+const AUTHORED_PROVIDER_TOOL_COUNT = 36;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9902;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9602;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',
@@ -330,10 +335,12 @@ function buildPromptBudgetDesktopTools(
         nativeRuntimeFor(runtimeData),
         PROMPT_BUDGET_APP_PATHS
       ),
-      [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(
-        skillScriptResolver,
-        unusedPythonExecutable
-      ),
+      [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(skillScriptResolver, {
+        resolvePythonExecutable: unusedPythonExecutable,
+        windowsCommandEntry: () => {
+          throw new Error('The prompt-budget suite never runs a skill script');
+        },
+      }),
     },
     ports: {
       artifactReader: {
@@ -347,8 +354,8 @@ function buildPromptBudgetDesktopTools(
 
 /**
  * The system text the PRODUCTION host sends for this tool set, through the
- * desktop host's own assembler. This is the real seam: `readDesktopHostSystemContext`
- * is what `desktop-host-context.ts` gives every run, so the instruction half of
+ * desktop host's own assembler. This is the real seam: `readHostSystemContext`
+ * is what `host-system-context.ts` gives every run, so the instruction half of
  * this budget is measured on the text the model actually receives.
  *
  * It replaces a `createMastraAgentRuntime(...).agent.getInstructions()` call
@@ -381,7 +388,7 @@ async function readDesktopHostSystemContextForBudget(args: {
     })
   );
   vi.useFakeTimers({ now: PROMPT_BUDGET_CLOCK, toFake: ['Date'] });
-  const assembled = await readDesktopHostSystemContext({
+  const assembled = await readHostSystemContext({
     configurationRoots: [],
     inputTokenLimit: PROMPT_BUDGET_INPUT_TOKEN_LIMIT,
     planMode: false,
@@ -696,12 +703,14 @@ describe('desktop native tool provider prompt budget', () => {
     // took the description from +40 to +19 and the field from +25 to +23.
     // Main measured 8820 and this 8860, so both bounds move to centre it
     // (8670 → 8710, 8970 → 9010), width 300 unchanged.
+    // BST-2435: the three retrieval tools are deleted; measured 8120, so both
+    // bounds move to centre it (8710 → 7970, 9010 → 8270), width 300 unchanged.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8710);
+    ).toBeGreaterThanOrEqual(7970);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9010
+      8270
     );
     // BST-2328: executeCommand is critical tier, so the same +40 lands here;
     // main measured 2292 and this 2332, so both bounds move to centre it
@@ -760,7 +769,8 @@ describe('desktop native tool provider prompt budget', () => {
       // −1 for the removed `querySelf` (BST-1995), with its +358/+44/+105 above.
       // −2 for the retired context selection tools (BST-2019).
       // +3 for browserClick, browserType and browserSelectOption (BST-2324).
-      eagerToolCount: 39,
+      // −3 for the deleted retrieval tools (BST-2435).
+      eagerToolCount: 36,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns
@@ -805,9 +815,11 @@ describe('desktop native tool provider prompt budget', () => {
       // action union's discriminant is now Effect's one-element
       // `enum: ["start"]` where zod emitted `const: "start"`, which costs one
       // token per tool. See docs/agents/effect-schema-migration.md.
+      // 483 → 519: manageCommandSession now says a session that ends by itself
+      // is reported in a later message, so the model does not poll it.
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 328,
-        brainstrike_manageCommandSession: 483,
+        brainstrike_manageCommandSession: 519,
       },
     });
   });

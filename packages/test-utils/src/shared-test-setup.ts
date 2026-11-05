@@ -1,7 +1,7 @@
 import { Blob as NodeBlob } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
-import { afterEach, beforeEach, vi } from 'vitest';
-import { resetStore } from './test-utils.js';
+import { afterEach, vi } from 'vitest';
+import './zustand-store-reset.js';
 
 /**
  * Hooks, globals and polyfills shared by `vitest.setup.ts` and
@@ -20,11 +20,6 @@ export function installSharedTestSetup(domCleanup: (() => void) | undefined): vo
     // @ts-expect-error - IS_REACT_ACT_ENVIRONMENT is a React internal flag
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   }
-
-  // Reset store state for each test to ensure isolation
-  beforeEach(() => {
-    resetStore();
-  });
 
   // Global safety: always restore real timers and cleanup React between tests
   afterEach(() => {

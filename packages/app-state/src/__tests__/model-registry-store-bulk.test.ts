@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetModelRegistryStoreForTests,
-  type DbModel,
-  useModelRegistryStore,
-} from '../stores/model-registry-store.ts';
+import { type DbModel, useModelRegistryStore } from '../stores/model-registry-store.ts';
 import { __resetSettingsTestOverridesForTests } from './settings-test-overrides-test-helper.ts';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -38,7 +34,6 @@ function enabledStates(): Record<string, boolean> {
 
 describe('model-registry-store setModelsEnabled (BST-1805)', () => {
   beforeEach(() => {
-    __resetModelRegistryStoreForTests();
     __resetSettingsTestOverridesForTests();
     useModelRegistryStore.setState({
       models: [model('a', false), model('b', true), model('c', false)],

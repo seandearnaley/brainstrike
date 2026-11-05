@@ -4,7 +4,6 @@
   "type": "module",
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
@@ -44,8 +43,6 @@
     "./stores/explorer-column-sizes-store": "./src/stores/explorer-column-sizes-store.ts",
     "./stores/explorer-column-visibility-store": "./src/stores/explorer-column-visibility-store.ts",
     "./stores/explorer-sort-state-store": "./src/stores/explorer-sort-state-store.ts",
-    "./stores/index-config-store": "./src/stores/index-config-store.ts",
-    "./stores/indexing-activity-store": "./src/stores/indexing-activity-store.ts",
     "./stores/model-registry-store": "./src/stores/model-registry-store.ts",
     "./stores/native-tool-preferences-store": "./src/stores/native-tool-preferences-store.ts",
     "./stores/notification-preferences-store": "./src/stores/notification-preferences-store.ts",
@@ -56,11 +53,8 @@
     "./stores/subagent-personas-store": "./src/stores/subagent-personas-store.ts",
     "./stores/token-preferences-store": "./src/stores/token-preferences-store.ts",
     "./stores/tree-table-column-sizes-store": "./src/stores/tree-table-column-sizes-store.ts",
-    "./stores/workspace-collection-sync-status-helpers": "./src/stores/workspace-collection-sync-status-helpers.ts",
-    "./stores/workspace-collection-sync-status-store": "./src/stores/workspace-collection-sync-status-store.ts",
     "./stores/workspace-instructions-preferences-store": "./src/stores/workspace-instructions-preferences-store.ts",
     "./stores/worktree-setup-consent-store": "./src/stores/worktree-setup-consent-store.ts",
-    "./hooks/use-available-embedding-models": "./src/hooks/use-available-embedding-models.ts",
     "./stores/assistant-preferences-store-name": "./src/stores/assistant-preferences-store-name.ts"
   },
   "license": "ISC",
@@ -70,9 +64,7 @@
   },
   "private": true,
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   }
 }

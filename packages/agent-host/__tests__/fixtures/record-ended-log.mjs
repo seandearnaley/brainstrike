@@ -127,7 +127,7 @@ function port(store) {
     getSetting: (key) => store.getSetting(key),
     holdBlobGc: () => store.holdBlobGc(),
     read: (threadId, fromSeq) => store.read(threadId, fromSeq),
-    readHydration: () => store.readHydration(),
+    readHydration: (types) => store.readHydration(types),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),

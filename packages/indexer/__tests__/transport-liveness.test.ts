@@ -1,6 +1,7 @@
 // Liveness is the process's exit, never a clock (lifecycle redesign R2/R5, PR D): a slow
 // request or a slow startup is load, not death, so nothing retires the process for it.
-import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store';
+import os from 'node:os';
+import { CHILD_SIGNAL_GRACE_MS, canonicalRoot } from '@brainstrike/state-store';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   createIndexerConnection,
@@ -9,15 +10,20 @@ import {
 } from '../src/transport.js';
 
 const dbPath = '/index/index.sqlite';
-const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/root'] };
+const options = {
+  dbPath,
+  stateProjection: {
+    mode: 'dev',
+    module: new URL('./fixtures/state-schema.mjs', import.meta.url).href,
+  },
+  stateRoot: canonicalRoot(os.tmpdir()),
+};
 const deadlines = { closeMs: 1000 };
 const info = {
   dbPath,
   journalMode: 'wal',
   pid: 1,
-  readerQueryOnly: 1,
   storeId: 'a'.repeat(64),
-  vecVersion: 'v0.1.9',
   writerThreadId: 1,
 };
 

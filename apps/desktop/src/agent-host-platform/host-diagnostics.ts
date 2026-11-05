@@ -18,9 +18,15 @@ const DELIVERY_SCOPE = 'DesktopHostDiagnosticDelivery';
 /** MCP's own tap already forwards these scopes at every level, and reports its own failures. */
 const MCP_DELIVERY_SCOPE = 'DesktopMcpDiagnosticDelivery';
 
+const FORWARDED_LEVELS = new Set<LogRecord['level']>([
+  LogLevel.WARN,
+  LogLevel.ERROR,
+  LogLevel.FATAL,
+]);
+
 function forwarded(record: LogRecord): boolean {
   return (
-    (record.level === LogLevel.ERROR || record.level === LogLevel.FATAL) &&
+    FORWARDED_LEVELS.has(record.level) &&
     record.scope !== DELIVERY_SCOPE &&
     record.scope !== MCP_DELIVERY_SCOPE &&
     !Schema.is(McpDiagnosticScopeSchema)(record.scope)
@@ -28,9 +34,11 @@ function forwarded(record: LogRecord): boolean {
 }
 
 /**
- * BST-2202: the agent host's error and fatal log records, with the correlation
- * ids they carry, delivered to Main's diagnostics the way MCP records are
- * (`createDesktopMcpDiagnostics`). The host's stderr keeps every record.
+ * BST-2202: the agent host's warn, error and fatal log records, with the
+ * correlation ids they carry, delivered to Main's diagnostics the way MCP
+ * records are (`createDesktopMcpDiagnostics`). A warning such as an
+ * unadmitted wake is otherwise only on the host's stderr, which a packaged app
+ * discards. The host's stderr keeps every record.
  * `send` is the raw platform request: a sender that logs its own failures
  * through a forwarded scope would feed them back to this tap.
  */

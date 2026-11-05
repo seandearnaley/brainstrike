@@ -79,13 +79,13 @@ test('a 12 s renderer flush and a 4 s host exit still quit with exit 0 after eve
   expect(steps.filter((step) => step.failed)).toEqual([]);
   // Every physical native join ran after the slow renderer instead of being skipped.
   expect(steps.map((step) => step.step)).toEqual(
-    expect.arrayContaining(['renderers', 'native-index', 'file-system', 'database-close'])
+    expect.arrayContaining(['renderers', 'host-profile', 'file-system', 'database-close'])
   );
   const elapsed = (name: string): number =>
     steps.find((step) => step.step === name)?.elapsedMs ?? Number.NaN;
   // The delays were in the joined path: the renderer's ACK and the host's exit.
   expect(elapsed('renderers')).toBeGreaterThanOrEqual(RENDERER_FLUSH_MS);
-  expect(elapsed('native-index')).toBeGreaterThanOrEqual(CHILD_EXIT_MS);
+  expect(elapsed('host-profile')).toBeGreaterThanOrEqual(CHILD_EXIT_MS);
   // A slow step is only waited for, never a failure or a forced exit.
   expect(records.map((record) => record.msg)).not.toContain(
     'Graceful shutdown completed with cleanup failures'

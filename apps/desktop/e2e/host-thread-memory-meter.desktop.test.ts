@@ -11,7 +11,7 @@ const THREAD_TITLE = 'Memory meter';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
-const MEMORY_SETTINGS_KEY = 'assistant-memory-preferences.v1';
+const MEMORY_SETTINGS_KEY = 'brainstrike:assistant-memory-preferences.v1';
 const MEMORY_SETTINGS_VERSION = 2;
 
 // No Google credential reaches this profile, whatever the runner's own environment holds.
@@ -76,24 +76,19 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
     { timeout: 30_000 }
   );
 
-  // Semantic recall saved on a Google embedder whose credential the profile
-  // does not hold. Settings offers only keyed embedders, so a key removed
-  // after the embedder was chosen is how a profile reaches this state.
+  // Observations saved on a Google observer whose credential the profile does
+  // not hold. Settings offers only keyed observers, so a key removed after the
+  // observer was chosen is how a profile reaches this state.
   const settings = {
     ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-    semanticRecall: {
-      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-      embeddingModelTarget: 'google/gemini-embedding-001',
-      enabled: true,
+    observationalMemory: {
+      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+      modelTarget: 'google/gemini-2.5-flash',
     },
   };
   await page.evaluate(
-    async ({ key, value }) => {
-      const storage = window.electronAPI?.storage;
-      if (!storage) {
-        throw new Error('The app storage bridge is unavailable');
-      }
-      await storage.setItem(key, value);
+    ({ key, value }) => {
+      window.localStorage.setItem(key, value);
     },
     {
       key: MEMORY_SETTINGS_KEY,
@@ -108,7 +103,7 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
   // The reason is the error run/start would fail with, shown before any send.
   await expect(
     reopened.getByText(
-      'Semantic recall requires a configured Google AI Studio API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn semantic recall off.'
+      'Observational memory requires a configured Google AI Studio API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.'
     )
   ).toBeVisible({ timeout: 30_000 });
   await expect(reopened.getByRole('textbox', { name: 'Message input' })).toBeDisabled();

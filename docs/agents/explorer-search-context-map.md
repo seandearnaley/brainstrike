@@ -9,9 +9,9 @@ an explicit mounted-root capability; web reads preserve handle/permission semant
 Late content results are generation-fenced, per-key failures remain visible, and
 Retry targets the failed key instead of restarting every consumer.
 
-Search hits retain exact file/chunk identity, source text, offsets and line ranges.
-Open the actual owning file and range; do not reconstruct snippets or count an
-unverified fragment as an answer. File tabs use those same source ranges. Raw file
+Search hits retain exact file identity, the matching line's text and its line
+number. Open the actual owning file at that line; do not reconstruct snippets or
+count an unverified fragment as an answer. Raw file
 content remains ephemeral in explorer state; it is not copied into durable
 selection snapshots or diagnostics. Markdown previews must not
 execute content or load arbitrary external resources.
@@ -26,7 +26,7 @@ compaction or branch rules. A result the fold can't read shows as unmapped, and 
 unmeasured request as "not measured", never as zero. It is desktop-only: web has
 no committed run log.
 
-A thread's direct subagents are lanes of its Context tab (BST-2021). The host
+A thread's direct subagents are lanes of its Context tab. The host
 lists the children; a child's lane appears from the parent turn whose run started
 it, on the displayed branch. Each lane reads the child's own committed log through
 the host and folds it with the same fold and branch rules as the child's own view,
@@ -55,22 +55,68 @@ one). Approval for mutations remains a separate contract on top.
 
 Beneath every layer, the shared matcher holds a credential floor
 (`isWorkspaceSecretFile`): `.env` and `.env.*` (not `.env.example`, `.env.sample`
-or `.env.template`), `*.pem`, `*.key` and `id_rsa*` are never walked, grepped, read
-or indexed. No negation in any ignore file and no includeIgnored lifts it, and it
+or `.env.template`), `*.pem`, `*.key` and `id_rsa*` are never walked, grepped or read. No negation in any ignore file and no includeIgnored lifts it, and it
 reads as hard. Direct reads refuse it by name as a credential file (ADR-0016
 amendment).
 
 Bounded traversal reports truncation and unverifiable coverage honestly. An
-excluded-path probe must itself honor hard ignores. Canonical indexing receives
-unchanged parser/chunker output; [indexer](indexer.md) owns publication and
-coverage, not the preview UI.
+excluded-path probe must itself honor hard ignores.
+
+## Search
+
+The Search tab reads the open folders on disk (ADR-0035). There is no index to wait
+for, and a saved file is found at once.
+
+- One engine: the host's streaming ripgrep core (`streamLiveGrep` in
+  `host-capabilities`), the same one the agent's grep collects. Entry policy, agent
+  ignore files, credential floor and caps are shared; never add a second search path
+  or a client-side filter.
+- On desktop the window calls `workspace/files/search`, gated to the private client
+  like the reads below. It searches every live root through its pinned handle and
+  reports each match by `rootId` and root-relative path, which are the Explorer's
+  identities. ripgrep only picks candidates; every file is read through the handle,
+  so in-root symlinks are skipped as the reads refuse them, and a root whose path no
+  longer resolves to the handle's canonical path is reported unreadable. Matches stream as `workspace/files/search/batch` on the caller's
+  connection, tagged with the request's `searchId`.
+- A new query, an option change or closing the tab aborts the request: the host kills
+  ripgrep and sends no batch after the abort, and the store's generation drops any
+  that were in flight. Batches reach the store once per animation frame; the tree is
+  the virtualized `TreeTable`.
+- A finished search names every cap it hit (match cap, file cap, a no-literal regex
+  at the file cap, time limit, unreadable folders). The match cap ends the search
+  cleanly (`stop`), keeping what it covered; `signal` is cancellation only. An invalid regex and "no folder
+  open" are refusals with a remedy, shown in the error card.
+- ripgrep is the bundled `@vscode/ripgrep` (unpacked from the asar when packaged).
+  There is no PATH lookup and no walk in its place: a ripgrep that cannot run fails
+  the search visibly.
+
+## Reads
+
+On desktop the agent host serves the Explorer's reads (ADR-0029 stage 4):
+`workspace/files/list`, `workspace/files/read` and `workspace/files/exists`, gated to
+the desktop's private client. Each read is confined to a root the host's catalog
+records as live, through that root's pinned `SecureRoot`: the host opens it at first
+use and keeps that handle and canonical path for every read and root watch, closing it
+once the root stops being live or the host closes. A folder renamed and replaced by a
+symlink never redirects the root. A `rootId` anchors a read to its root; otherwise the deepest live root containing the
+path serves it; `rootPath` binds it to exactly that root. Realpath containment
+authorizes the target and native I/O keeps the lexical path, so in-root symlinks are
+never followed. A listing carries each entry's native absolute path, joined by the host;
+the sandboxed renderer uses it as it is and never joins paths itself. A missing or
+oversized file answers `NOT_FOUND` or `TOO_LARGE`. E2E
+reads real disposable folders; there is no synthetic tree.
 
 ## Live refresh
 
-Use the existing watcher capability and event channel. Desktop keeps one `fs.watch`
-subscription per owner/resolved root with independently disposable logical IDs;
-unsupported engines fail rather than falling back. Missing web observation is
-visibly unwatched. Do not add polling to disguise it.
+Use the existing watcher capability and event channel. On desktop the agent host
+owns the Explorer's watches (ADR-0029 stage 4): a window calls
+`workspace/files/watch` on its host connection with the exact path of a live root,
+and batches and health arrive on that connection's `workspace/files/event` stream.
+The host keeps one `fs.watch` per canonical root for every window that watches it,
+with independently disposable watch IDs; a connection's watches end when it closes,
+and a watch whose host ended reports a retryable failure. Unsupported engines fail
+rather than falling back. Missing web observation is visibly unwatched. Do not add
+polling to disguise it.
 
 Watch events invalidate shared state through one pipeline. Filter exclusions
 root-relatively, preserve explicitly opened roots and revalidate active generation
@@ -80,6 +126,8 @@ cannot stand in for a full scan. Disposers join their actual subscriptions and
 cannot remove a replacement owner's watch.
 
 Decisions: [ADR-0016](../adr/0016-workspace-trust-and-ignore-chain.md),
-[ADR-0021](../adr/0021-thread-context-map-and-explicit-attachment.md).
+[ADR-0021](../adr/0021-thread-context-map-and-explicit-attachment.md),
+[ADR-0035](../adr/0035-workspace-retrieval-is-live-search.md).
 Implementation: `packages/file-explorer`, `packages/file-explorer-ui`,
-`packages/file-system` and desktop workspace readers.
+`packages/file-system`, `packages/workspace-search`,
+`packages/host-capabilities/src/workspace-files` and desktop workspace readers.

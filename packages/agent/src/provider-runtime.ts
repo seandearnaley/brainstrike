@@ -3,6 +3,7 @@
  * Credentials remain direct parameters, outside durable runtime configuration.
  */
 
+export type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 export {
   COMPACTION_SUMMARIZER_INSTRUCTIONS,
   hasCompactionSummarySchema,
@@ -32,12 +33,10 @@ export {
 } from './providers/provider-auth-input.ts';
 export {
   type ConcreteLanguageModel,
-  createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
   type ProviderModelConfiguration,
 } from './providers/provider-factory.ts';
-export type { SupportedProvider } from './providers/types.ts';
 export {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,

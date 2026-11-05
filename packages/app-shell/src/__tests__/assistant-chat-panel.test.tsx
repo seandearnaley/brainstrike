@@ -115,9 +115,7 @@ describe('AssistantChatPanel', () => {
 
     render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
-    expect(
-      screen.getByText('The assistant status endpoint reported that the assistant is disabled.')
-    ).toBeInTheDocument();
+    expect(screen.getByText('The assistant reported that it is turned off.')).toBeInTheDocument();
     expect(screen.getByText('Reason: future_server_reason')).toBeInTheDocument();
   });
 
@@ -300,22 +298,5 @@ describe('AssistantChatPanel', () => {
     expect(assistantUiPanelWrapperLazyMock.mock.calls.at(-1)?.[0]['fixedProviderModels']).toBe(
       firstModels
     );
-  });
-
-  it('surfaces an advertised provider without a registry default instead of crashing render', () => {
-    useAssistantAvailabilityMock.mockReturnValue({
-      model: 'gpt-5.6-terra',
-      provider: 'openai',
-      providers: ['openai', 'cohere'],
-      state: 'enabled',
-    });
-
-    render(<AssistantChatPanel />, { wrapper: PanelProviders });
-
-    expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
-    expect(
-      screen.getByText('Assistant status provider cohere has no registry default model')
-    ).toBeInTheDocument();
-    expect(assistantUiPanelWrapperLazyMock).not.toHaveBeenCalled();
   });
 });

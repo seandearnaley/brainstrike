@@ -55,6 +55,7 @@ test('the private platform transports typed root operations and rejects extra au
       fixture.main.sendRequest('host/workspace-roots', {
         operation: 'register',
         root: {
+          canonicalPath: '/disposable/Alpha',
           displayName: 'Alpha',
           path: '/disposable/Alpha',
           preferredId: 'root-alpha',
@@ -68,20 +69,21 @@ test('the private platform transports typed root operations and rejects extra au
   }
 });
 
-test('physical store admission joins before the private endpoint closes', async () => {
+test('a store read in flight joins before the private endpoint closes', async () => {
   const entered = Promise.withResolvers<void>();
   const committed = Promise.withResolvers<void>();
+  let held = false;
   const workspaceRoots = vi.fn<WorkspaceRootPort['workspaceRoots']>(async () => {
-    entered.resolve();
-    await committed.promise;
+    if (!held) {
+      held = true;
+      entered.resolve();
+      await committed.promise;
+    }
     return { roots: [] };
   });
   const fixture = transport({ workspaceRoots });
   try {
-    const request = fixture.client.workspaceRoots({
-      mountedPaths: [],
-      operation: 'disconnect-except',
-    });
+    const request = fixture.client.workspaceRoots({ operation: 'list' });
     await entered.promise;
     let closed = false;
     const closing = fixture.serving.close().then(() => {
@@ -110,7 +112,7 @@ test('an authenticated attachment stays usable during index-only retirement and 
   const catalog = createDesktopWorkspaceRootCatalog(acquire);
   try {
     await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
-    acquire.mockRejectedValue(new Error('Native index admission is closed'));
+    acquire.mockRejectedValue(new Error('Profile admission is closed'));
     await expect(catalog.workspaceRoots({ operation: 'list' })).resolves.toEqual({ roots: [] });
     expect(acquire).toHaveBeenCalledTimes(1);
     closed.resolve();
@@ -133,7 +135,7 @@ test('a request the closed attachment never sent goes back through admission (BS
       // Reset disposes the connection before the transport's own close settles.
       closed: new Promise<void>(() => undefined),
     }) as HostAttachment & { catalog: ReturnType<typeof createHostCatalogClient> };
-  const resetRefusal = new Error('Native index activation is closed for terminal retirement.');
+  const resetRefusal = new Error('The profile is closed for terminal retirement.');
   const acquire = vi.fn(async () => attach(retired));
   const catalog = createDesktopWorkspaceRootCatalog(acquire);
   try {

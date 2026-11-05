@@ -1,69 +1,4 @@
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type {
-  ContentClearCapability,
-  FileSystemWatchEvent,
-  IFileNode,
-  RecentRootEntry,
-  RootDescriptor,
-  WatcherHealthEvent,
-  WatcherHealthTransition,
-} from '@brainstrike/types';
-import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
-
-export interface DesktopStorageBridge {
-  getAllKeys: () => Promise<string[]>;
-  getItem: (key: string) => Promise<string | null>;
-  removeItem: (key: string) => Promise<void>;
-  setItem: (key: string, value: string) => Promise<void>;
-}
-
-export interface DesktopFileSystemBridge {
-  addRoot: () => Promise<RootDescriptor>;
-  addRootByPath: (path: string) => Promise<RootDescriptor>;
-  deleteRootData: (rootId: string) => Promise<void>;
-  exists: (path: string) => Promise<boolean>;
-  getWatcherTelemetry: () => Promise<{
-    activeWatchers: number;
-    batches: number;
-    cleanups: number;
-    degradedTransitions: number;
-    duplicateRegistrations: number;
-    events: number;
-    failures: number;
-    healthPushes: number;
-    lastSetupLatencyMs: number;
-    retries: number;
-    setupLatencySamples: number;
-  }>;
-  listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
-  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void;
-  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void;
-  readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
-  readFile: (handle: FileHandle) => Promise<string>;
-  readFileByAbsolutePath: (
-    absolutePath: string,
-    rootPath: string,
-    rootId: string
-  ) => Promise<string>;
-  readFileByPath: (absolutePath: string) => Promise<string>;
-  removeRoot: (rootId: string) => Promise<void>;
-  requestDirectoryAccess: () => Promise<DirectoryHandle>;
-  restoreLastFolder: () => Promise<DirectoryHandle | null>;
-  restoreRoots: () => Promise<RootDescriptor[]>;
-  retryWatch: (watchId: string) => Promise<
-    | { retried: true }
-    | {
-        reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
-        retried: false;
-        retryAfterMs?: number;
-      }
-  >;
-  saveLastFolder: (folderPath: string) => Promise<void>;
-  unwatchDirectory: (watchId: string) => Promise<void>;
-  watchDirectory: (
-    handle: DirectoryHandle
-  ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
-}
+import type { ContentClearCapability } from '@brainstrike/types';
 
 interface DesktopFactoryResetBridge {
   resetLocal: () => Promise<{ message?: string; success: boolean }>;
@@ -73,9 +8,7 @@ interface DesktopFactoryResetBridge {
 export interface VisibleDesktopElectronApi {
   content: ContentClearCapability;
   factoryReset: DesktopFactoryResetBridge;
-  fileSystem: DesktopFileSystemTransport;
   getUserDataPath: () => Promise<string>;
-  storage: DesktopStorageBridge;
 }
 
 type ExactKeyList<Shape, Keys extends readonly (keyof Shape)[]> =
@@ -88,9 +21,7 @@ function defineExactKeys<Shape>() {
 const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
   'content',
   'factoryReset',
-  'fileSystem',
   'getUserDataPath',
-  'storage',
 ]);
 const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
   'resetLocal',

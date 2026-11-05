@@ -28,13 +28,8 @@ const EXPECTED_DEFERRED_NAMESPACES = {
     'brainstrike.readWorkspaceDirectory',
   ],
   database: ['brainstrike.queryDiagnostics'],
-  embeddings: ['brainstrike.listEmbeddingSpaces', 'brainstrike.queryEmbeddingSpace'],
   execution: ['brainstrike.runPython'],
-  semantics: [
-    'brainstrike.findWorkspaceSymbol',
-    'brainstrike.hybridSearch',
-    'brainstrike.lspInspect',
-  ],
+  semantics: ['brainstrike.findWorkspaceSymbol', 'brainstrike.lspInspect'],
   sessions: ['brainstrike.inspectCommandSessions', 'brainstrike.manageCommandSession'],
   skills: ['brainstrike.runSkillScript', 'skill', 'skill_read', 'skill_search'],
   web: [
@@ -193,16 +188,6 @@ describe('native tool discovery contract', () => {
       'permission-denied',
       'unsupported-adapter',
     ]);
-  });
-
-  it('refuses an embeddings-only provider rather than resolving a chat adapter', () => {
-    // Voyage declares `capabilities.llm: false`, so discovery names that as
-    // the reason instead of handing back an adapter nothing can run.
-    expect(resolveToolDiscoveryAdapter({ modelId: 'any-model', provider: 'voyage' })).toEqual({
-      adapter: 'unsupported',
-      reason: 'provider-has-no-llm',
-      status: 'unsupported',
-    });
   });
 
   it('treats enabled as eligible, never as automatically active', () => {

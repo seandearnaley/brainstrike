@@ -1,80 +1,17 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StateStorage } from 'zustand/middleware';
-
-const STORE_KEY = '__brainstrike_file_explorer_store__';
-const STORE_BRAND = '__brainstrike_store_brand__';
-
-function createLocalStorageMock() {
-  const values = new Map<string, string>();
-  return {
-    clear: vi.fn(() => values.clear()),
-    getItem: vi.fn((key: string) => values.get(key) ?? null),
-    removeItem: vi.fn((key: string) => {
-      values.delete(key);
-    }),
-    setItem: vi.fn((key: string, value: string) => {
-      values.set(key, value);
-    }),
-  };
-}
 
 describe('store coverage', () => {
   beforeEach(() => {
-    vi.resetModules();
-    delete (globalThis as Record<string, unknown>)[STORE_KEY];
-    (globalThis as Record<string, unknown>)['localStorage'] = undefined;
+    localStorage.clear();
   });
 
-  it('uses browser localStorage when it is available', async () => {
-    const localStorageMock = createLocalStorageMock();
-    (globalThis as Record<string, unknown>)['localStorage'] = localStorageMock;
+  it('saves a store in localStorage', async () => {
+    const { createFileExplorerStore } = await import('../store');
 
-    const mod = await import('../store');
-    const { useFileExplorerStore } = mod;
-    // The persist storage is a string-based wrapper at runtime (see
-    // createStorageWrapper); type it as StateStorage to exercise it directly.
-    const storage = useFileExplorerStore.persist.getOptions().storage as unknown as
-      | StateStorage
-      | undefined;
+    createFileExplorerStore().getState().setQuickFilter('saved-filter');
 
-    await storage?.setItem('store-key', 'store-value');
-    const result = await storage?.getItem('store-key');
-    await storage?.removeItem('store-key');
-
-    expect(result).toBe('store-value');
-    expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      'store-key',
-      JSON.stringify('store-value')
-    );
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('store-key');
-  }, 15_000);
-
-  it('reuses a valid branded singleton from globalThis', async () => {
-    const existingStore = Object.assign(vi.fn(), {
-      getState: vi.fn(),
-      setState: vi.fn(),
-      [STORE_BRAND]: 2,
-    });
-    (globalThis as Record<string, unknown>)[STORE_KEY] = existingStore;
-
-    const mod = await import('../store');
-
-    expect(mod.useFileExplorerStore).toBe(existingStore);
-  });
-
-  it('replaces a previous cache-lifetime branded singleton', async () => {
-    const invalidStore = Object.assign(vi.fn(), {
-      getState: vi.fn(),
-      setState: vi.fn(),
-      [STORE_BRAND]: 1,
-    });
-    (globalThis as Record<string, unknown>)[STORE_KEY] = invalidStore;
-
-    const mod = await import('../store');
-
-    expect(mod.useFileExplorerStore).not.toBe(invalidStore);
-    expect(typeof mod.useFileExplorerStore.getState).toBe('function');
+    expect(localStorage.getItem('brainstrike:file-explorer-storage-v5')).toContain('saved-filter');
   });
 
   it('stateCreator wires explorer-only setter actions', async () => {

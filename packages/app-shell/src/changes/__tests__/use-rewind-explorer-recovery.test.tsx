@@ -73,13 +73,6 @@ function createHarness(): Harness {
     platform: 'electron',
     retryWatcher,
   };
-  const storageAdapter = {
-    clear: vi.fn(),
-    getAllKeys: vi.fn(),
-    getItem: vi.fn(),
-    removeItem: vi.fn(),
-    setItem: vi.fn(),
-  };
   return {
     pushHealth: (event) => {
       act(() => {
@@ -88,10 +81,7 @@ function createHarness(): Harness {
     },
     retryWatcher,
     wrapper: ({ children }: { children: ReactNode }) => (
-      <AdaptersProvider
-        fileSystemAdapter={adapter as FileSystemAdapter}
-        storageAdapter={storageAdapter as never}
-      >
+      <AdaptersProvider fileSystemAdapter={adapter as FileSystemAdapter}>
         {children}
       </AdaptersProvider>
     ),

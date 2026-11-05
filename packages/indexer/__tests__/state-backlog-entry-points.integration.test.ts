@@ -182,8 +182,6 @@ beforeAll(async () => {
   const dbPath = path.join(root, 'index.sqlite');
   options = {
     dbPath,
-    embedding: { indexMode: 'text-only' },
-    rootIds: ['canonical'],
     stateProjection: { mode: 'dev', module: producer },
     stateRoot: root,
   };

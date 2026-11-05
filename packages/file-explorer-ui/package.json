@@ -17,7 +17,6 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/workers": "workspace:*",
     "react-hotkeys-hook": "catalog:",
     "react-resizable-panels": "catalog:"
   },
@@ -49,7 +48,6 @@
     "./shell": "./src/shell/index.ts",
     "./shell/file-explorer-provider": "./src/shell/file-explorer-provider.tsx",
     "./shell/file-system-provider": "./src/shell/file-system-provider.tsx",
-    "./shell/root-data-deletion-context": "./src/shell/root-data-deletion-context.tsx",
     "./styles.css": "./styles.css",
     "./tree": "./src/tree/index.ts",
     "./editor-view-state-store": "./src/editor-view-state-store.ts",
@@ -63,9 +61,7 @@
   },
   "private": true,
   "scripts": {
-    "lint": "pnpm -w lint",
-    "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run --exclude \"**/*.integration.test.*\"",
-    "test:watch": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest",
+    "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module"

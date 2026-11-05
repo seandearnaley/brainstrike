@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { expect, test, vi } from 'vitest';
 import {
   createRegistry,
@@ -55,8 +55,8 @@ test.each(['recent-roots read', 'managed-worktree authorization'] as const)(
     const registry = createRegistry(
       {
         createSecureRoot: open,
+        recents: storage,
         resolveReadPath: async (requested) => requested,
-        storage,
       },
       request
     );
@@ -86,9 +86,6 @@ test.each(['recent-roots read', 'managed-worktree authorization'] as const)(
       const root = await adding;
       await preparation;
       expect(root).toMatchObject({ handle: { path }, persisted: true });
-      await expect(
-        registry.readFileByAbsolutePath(join(path, 'file.txt'), path, root.rootId)
-      ).resolves.toBe('inside');
       expect(open).toHaveBeenCalledOnce();
       expect(handle.close).not.toHaveBeenCalled();
       expect(authorizer).toHaveBeenCalledTimes(authorization === 'recent-roots read' ? 0 : 1);
@@ -119,7 +116,7 @@ test.each(['recents', 'managed'] as const)(
         : {}
     );
     const open = vi.fn(async () => secureRoot('/late'));
-    const registry = createRegistry({ createSecureRoot: open, storage });
+    const registry = createRegistry({ createSecureRoot: open, recents: storage });
     const authorizer = vi.fn(async () => 'authorized' as const);
     registry.setManagedWorktreeAuthorizer(authorizer);
     await registry.prepareClose();
@@ -159,7 +156,7 @@ test.each(['storage failure', 'authorizer exception', 'authorizer denial'] as co
     const open = vi.fn(async () => secureRoot('/denied'));
     const granted = vi.fn();
     const registry = createRegistry(
-      { createSecureRoot: open, onRootGranted: granted, storage },
+      { createSecureRoot: open, onRootGranted: granted, recents: storage },
       request
     );
     const authorizer = vi.fn(async () => {
@@ -205,7 +202,8 @@ test.each(['storage failure', 'authorizer exception', 'authorizer denial'] as co
       // The refusal is the caller's; quit joins it without failing.
       await expect(preparation).resolves.toBeUndefined();
       expect(open).not.toHaveBeenCalled();
-      expect(request).not.toHaveBeenCalled();
+      // The folder's record is read to find a recorded folder; nothing is written.
+      expect(request.mock.calls.filter(([input]) => input.operation !== 'list')).toEqual([]);
       expect(storage.setItem).not.toHaveBeenCalled();
       expect(granted).not.toHaveBeenCalled();
     } finally {
@@ -234,7 +232,7 @@ test('a pickerless workflow queued before close finishes without re-entering the
         }
         return handle;
       },
-      storage: createStorage({
+      recents: createStorage({
         recentRootsList: JSON.stringify([{ lastGrantedAt: 1, path: SECOND }]),
       }),
     },

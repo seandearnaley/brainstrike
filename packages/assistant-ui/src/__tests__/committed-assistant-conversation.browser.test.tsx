@@ -598,7 +598,7 @@ describe('refused dispatch and unavailable capabilities', () => {
     expect(within(userRow).queryByRole('button', { name: 'Edit message' })).toBeNull();
     await userEvent.hover(answerRow);
     expect(await within(answerRow).findByRole('button', { name: 'Copy message' })).toBeVisible();
-    expect(within(answerRow).queryByRole('button', { name: 'Regenerate response' })).toBeNull();
+    expect(within(answerRow).queryByRole('button', { name: 'Retry' })).toBeNull();
 
     // Non-vacuous: the same installed controls appear once the owner supplies ports.
     const onEdit = vi.fn(async () => undefined);
@@ -608,7 +608,7 @@ describe('refused dispatch and unavailable capabilities', () => {
     expect(await within(userRow).findByRole('button', { name: 'Edit message' })).toBeVisible();
     await userEvent.hover(answerRow);
     const regenerate = await within(answerRow).findByRole('button', {
-      name: 'Regenerate response',
+      name: 'Retry',
     });
     await act(async () => source.setConnection(false));
     await press(regenerate);

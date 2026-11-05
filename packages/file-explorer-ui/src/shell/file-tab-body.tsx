@@ -24,6 +24,7 @@ import {
   MIN_PANE_WIDTH_PCT,
   useFileTabPaneStore,
 } from '../stores/file-tab-pane-store';
+import { type FileFolderStatus, OPEN_FOLDER } from './file-folder-status.ts';
 import { FileTabBreadcrumbPopover } from './file-tab-breadcrumb-popover';
 import { buildFileBreadcrumbSegments } from './file-tab-breadcrumb-segments';
 import { FileTabExplorerPane } from './file-tab-explorer-pane';
@@ -32,6 +33,7 @@ import {
   FileContentErrorScreen,
   FileContentPendingScreen,
   FileNotFoundScreen,
+  FolderClosedScreen,
   InaccessibleFileScreen,
   PermissionRequiredScreen,
 } from './file-tab-status-screens';
@@ -45,8 +47,13 @@ const MarkdownSurfaceLazy = lazy(() =>
 export interface FileTabBodyProps {
   readonly content: string | undefined;
   readonly contentError?: Error;
+  /** Where the file's folder stands; only an open folder's files can load. */
+  readonly folderStatus?: FileFolderStatus;
   readonly isLoading: boolean;
   readonly isRestoring: boolean;
+  readonly onCloseTab: () => void;
+  /** Reopen the file's closed folder; absent when the platform cannot or the folder is unknown. */
+  readonly onReopenFolder?: (() => void) | undefined;
   readonly onRetryContent: () => void;
   readonly rootPath?: string | null;
   readonly status: TabFileStatus | undefined;
@@ -59,6 +66,9 @@ export function FileTabBody({
   contentError,
   isLoading,
   isRestoring,
+  folderStatus = OPEN_FOLDER,
+  onCloseTab,
+  onReopenFolder,
   onRetryContent,
   rootPath = null,
   status,
@@ -128,10 +138,12 @@ export function FileTabBody({
   const renderBreadcrumbPopover = (segment: { label: string; path: string }, close: () => void) => (
     <FileTabBreadcrumbPopover
       compositeKey={tab.compositeKey}
+      folderStatus={folderStatus}
       onPickFile={(filePath) => {
         handleBreadcrumbPick(filePath);
         close();
       }}
+      onReopenFolder={onReopenFolder}
       rootPath={rootPath}
       segmentPath={segment.path}
     />
@@ -303,6 +315,16 @@ export function FileTabBody({
     body = (
       <FileContentErrorScreen contentError={contentError} onRetry={onRetryContent} path={path} />
     );
+  } else if (typeof content !== 'string' && folderStatus.kind === 'closed') {
+    // The content can only load once the file's folder is open again; waiting would never end.
+    body = (
+      <FolderClosedScreen
+        onCloseTab={onCloseTab}
+        onReopen={onReopenFolder}
+        path={path}
+        status={folderStatus}
+      />
+    );
   } else if (typeof content !== 'string') {
     // Three reasons content may be missing here, none of which is "the file is gone":
     //  1. Restoration is still in flight (status not yet emitted).
@@ -312,6 +334,7 @@ export function FileTabBody({
     body = (
       <FileContentPendingScreen
         isPending={isLoading || isRestoring || status?.status === 'pending'}
+        openingFolder={folderStatus.kind === 'opening' ? folderStatus : undefined}
       />
     );
   } else if (content === BINARY_CONTENT_MESSAGE) {
@@ -319,10 +342,9 @@ export function FileTabBody({
     // dedicated screen instead of dumping the sentinel into a code surface.
     body = <BinaryFilePreview rootPath={rootPath} tab={tab} />;
   } else if (content.startsWith(INACCESSIBLE_CONTENT_PREFIX)) {
-    // Short-circuit before truncation: the inaccessible branch renders the full `content`
-    // verbatim, so running getDisplayContent first would do throwaway work and (for a very
-    // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
-    body = <InaccessibleFileScreen content={content} />;
+    // Short-circuit before truncation: the inaccessible branch shows the read's reason, not the
+    // content, so running getDisplayContent first would only do throwaway work.
+    body = <InaccessibleFileScreen content={content} onRetry={onRetryContent} path={path} />;
   } else {
     const { text, truncated } = getDisplayContent(content);
     const target = getTarget(tab.compositeKey);
@@ -417,6 +439,8 @@ export function FileTabBody({
               <div className="h-full min-h-0" data-testid="file-tab-explorer-pane">
                 <FileTabExplorerPane
                   compositeKey={tab.compositeKey}
+                  folderStatus={folderStatus}
+                  onReopenFolder={onReopenFolder}
                   revealNonce={revealRequest.nonce}
                   revealPath={revealRequest.path}
                 />

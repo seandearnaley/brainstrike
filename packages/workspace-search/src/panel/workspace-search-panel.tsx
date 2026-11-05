@@ -3,162 +3,107 @@ import { AlertCircle, Loader2, Search } from 'lucide-react';
 import type * as React from 'react';
 import { useEffect, useRef } from 'react';
 import { useWorkspaceSearchStore } from '../core/workspace-search-store';
-import { SearchCoverageBanner } from './search-coverage-banner';
 import { SearchInputBar } from './search-input-bar';
-import { SearchModeToggle } from './search-mode-toggle';
-import { type SearchOpenTarget, SearchResultsTree } from './search-results-tree';
-import { SEMANTIC_UNAVAILABLE_NO_CHUNKS, type SemanticAvailability } from './semantic-availability';
+import {
+  type SearchOpenTarget,
+  SearchResultsTree,
+  type SearchSelectionBridge,
+} from './search-results-tree';
 
-/** Text-mode live-search debounce window. */
-const TEXT_DEBOUNCE_MS = 250;
-/** Minimum text-query length before an automatic search fires. */
-const MIN_TEXT_QUERY_LENGTH = 3;
+/**
+ * Search-as-you-type debounce. Short: each search is a live ripgrep run the
+ * next keystroke cancels, so waiting longer only delays the first result.
+ */
+const SEARCH_DEBOUNCE_MS = 100;
+/** Minimum query length before an automatic search fires. */
+const MIN_QUERY_LENGTH = 2;
 
 export interface WorkspaceSearchPanelProps {
-  allowTextPaging?: boolean;
   /** Attach a result file to the active thread; absent where nothing reads mentions (web). */
   onAttachFile?: ((compositeKey: string) => void) | undefined;
   onOpenFile: (compositeKey: string, target?: SearchOpenTarget) => void;
-  resolveAdapterRootId: (dbRootId: string) => string | null;
-  runSemanticSearch: () => void;
-  runTextSearch: () => void;
-  semanticAvailability: SemanticAvailability;
-  /** DB root ids of currently mounted, live workspace roots (query scope). */
-  workspaceDbRootIds: readonly string[];
+  /** The name the Explorer shows for an open folder. */
+  rootName: (rootId: string) => string;
+  /** Starts a search of the store's query, cancelling the one running. */
+  runSearch: () => void;
+  /** The explorer selection that result checkboxes drive. */
+  selection: SearchSelectionBridge;
+  /** How many folders are open. */
+  workspaceRootCount: number;
 }
 
 /**
- * The workspace-search tab content: the mode toggle, the query
- * input, coverage banner and the status-driven results area. Presentation + store only — the executor lives at the composition
- * layer (Task 11) and is passed down as the two run callbacks.
+ * The workspace-search tab content: the query input and the status-driven
+ * results area. Results show as they stream in. Presentation + store only:
+ * the search itself lives at the composition layer and arrives as `runSearch`.
  */
 export function WorkspaceSearchPanel({
-  allowTextPaging = true,
-  semanticAvailability,
   onAttachFile,
   onOpenFile,
-  workspaceDbRootIds,
-  resolveAdapterRootId,
-  runTextSearch,
-  runSemanticSearch,
+  rootName,
+  runSearch,
+  selection,
+  workspaceRootCount,
 }: WorkspaceSearchPanelProps): React.ReactNode {
-  const mode = useWorkspaceSearchStore((state) => state.mode);
   const status = useWorkspaceSearchStore((state) => state.status);
   const error = useWorkspaceSearchStore((state) => state.error);
   const query = useWorkspaceSearchStore((state) => state.query);
   const caseSensitive = useWorkspaceSearchStore((state) => state.caseSensitive);
   const isRegex = useWorkspaceSearchStore((state) => state.isRegex);
   const wholeWord = useWorkspaceSearchStore((state) => state.wholeWord);
+  const hasMatches = useWorkspaceSearchStore((state) => state.files.length > 0);
 
-  // Same availability signal the mode toggle gates on. Load-bearing for the
-  // SUBMIT gate below, not just the toggle's entry gate.
-  const { available: semanticAvailable, reason: semanticReason } = semanticAvailability;
-
-  // Gate the SUBMIT path, not just the toggle's ENTRY: the toggle only blocks
-  // clicking into semantic, but Enter/Retry route to `runSemanticSearch` off the
-  // store `mode` alone. Running a semantic search against a confirmed-zero
-  // embedded set silently degrades — the hybrid executor's FTS arm scopes by
-  // `embedding_set_id` WITHOUT `embedding IS NOT NULL`, so it returns
-  // lexical-only matches under a pressed Semantic mode (a silent fallback).
-  // Instead we fail VISIBLY (error card) while PRESERVING the user's mode —
-  // `beginSearch` + `failSearch` reuse the generation-guarded store transition
-  // so the surfaced error can't clobber a newer in-flight run.
-  const onSubmit = () => {
-    if (mode !== 'semantic') {
-      runTextSearch();
-      return;
-    }
-    if (semanticAvailable) {
-      runSemanticSearch();
-      return;
-    }
-    const store = useWorkspaceSearchStore.getState();
-    const generation = store.beginSearch();
-    store.failSearch(semanticReason ?? SEMANTIC_UNAVAILABLE_NO_CHUNKS, generation);
-  };
-
-  // Show-more paging (text mode only, Task P2): bump the store's cap, then
-  // rerun the current text search — `beginSearch()` inside `runTextSearch`
-  // supplies the generation guard, so a mode switch (or any other invalidating
-  // change) right after this click drops the late results instead of
-  // resurrecting a now-stale run.
-  const handleShowMore = () => {
-    useWorkspaceSearchStore.getState().increaseTextResultLimit();
-    runTextSearch();
-  };
-
-  // Latest-value refs keep the debounce effect's dependency list scoped to the
-  // query controls (not the run-callback/mode identity) while still calling the
-  // current callback and checking the live mode at fire time. Assigned in an
+  // A latest-value ref keeps the debounce effect's dependency list scoped to the
+  // query controls (not the run-callback identity) while still calling the
+  // current callback at fire time. Assigned in an
   // effect (never during render) so the React Compiler can optimize the
   // component; the effect has no dep array so the refs track every render, and
   // it is declared BEFORE the debounce effect so it settles first each pass.
-  const runTextSearchRef = useRef(runTextSearch);
-  const modeRef = useRef(mode);
+  const runSearchRef = useRef(runSearch);
   useEffect(() => {
-    runTextSearchRef.current = runTextSearch;
-    modeRef.current = mode;
+    runSearchRef.current = runSearch;
   });
   // Trimmed length of the query the previous effect run observed. `null` on the
   // initial mount so a seeded results/searching state is not wiped on first
   // render — only an actual shrink across the threshold clears results.
   const prevQueryLengthRef = useRef<number | null>(null);
 
-  // caseSensitive/isRegex/wholeWord are load-bearing deps even
-  // though the body reads them via the run callback, not directly: changing any
-  // search parameter must restart the 250ms debounce so a fresh query fires.
+  // caseSensitive/isRegex/wholeWord are load-bearing deps even though the body
+  // reads them via the run callback, not directly: changing any search
+  // parameter must restart the debounce so a fresh search fires.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional restart triggers, not effect-body reads.
   useEffect(() => {
     const trimmedLength = query.trim().length;
     const previousLength = prevQueryLengthRef.current;
     prevQueryLengthRef.current = trimmedLength;
-    if (trimmedLength < MIN_TEXT_QUERY_LENGTH) {
-      // The query is too short to auto-search. In text mode, drop any results
-      // (and any in-flight run) from a previous longer query so shrinking the
-      // box below the threshold never leaves stale matches on screen. We clear
-      // ONLY on an actual shrink across the threshold (previousLength was at or
-      // above the minimum) — never on the initial mount, so an intentionally
-      // seeded results/searching state survives first render. Semantic mode is
-      // submit-driven and left untouched.
-      if (
-        modeRef.current === 'text' &&
-        previousLength !== null &&
-        previousLength >= MIN_TEXT_QUERY_LENGTH
-      ) {
+    if (trimmedLength < MIN_QUERY_LENGTH) {
+      // Too short to auto-search. Drop any results (and any running search)
+      // from a previous longer query so shrinking the box below the threshold
+      // never leaves stale matches on screen. Only on an actual shrink across
+      // the threshold, never on the initial mount, so a seeded state survives
+      // the first render.
+      if (previousLength !== null && previousLength >= MIN_QUERY_LENGTH) {
         const store = useWorkspaceSearchStore.getState();
-        if (store.results !== null || store.status === 'searching') {
+        if (store.status !== 'idle') {
           store.clearResults();
         }
       }
       return;
     }
-    const timer = setTimeout(() => {
-      if (modeRef.current === 'text') {
-        runTextSearchRef.current();
-      }
-    }, TEXT_DEBOUNCE_MS);
+    const timer = setTimeout(() => runSearchRef.current(), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query, caseSensitive, isRegex, wholeWord]);
 
-  const handleRetry = () => {
-    onSubmit();
-  };
+  const showResults = status === 'results' || (status === 'searching' && hasMatches);
 
   return (
     // One column the panel's width: an `auto` track grew to its widest row's
     // unbreakable content (311px in a 180px panel, BST-1981), pushing controls
     // and results past the panel's clipped edge.
     <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr]">
-      {/* Fixed header: search controls, query input, coverage status. Rows
-          wrap rather than overflow, so every control stays inside the panel. */}
+      {/* Fixed header: the query input and its toggles. */}
       <div className="flex flex-col gap-2 border-b p-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <SearchModeToggle semanticAvailability={semanticAvailability} />
-        </div>
-
-        <SearchInputBar onSubmit={onSubmit} />
-
-        <SearchCoverageBanner rootIds={workspaceDbRootIds} />
+        <SearchInputBar onSubmit={runSearch} />
       </div>
 
       {/* Scrollable results / status area. */}
@@ -166,10 +111,10 @@ export function WorkspaceSearchPanel({
         {status === 'idle' ? (
           <div className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
             <Search className="h-8 w-8 opacity-40" />
-            <p className="text-sm">Search your workspace by text or meaning.</p>
+            <p className="text-sm">Search the text of your workspace's files.</p>
           </div>
         ) : null}
-        {status === 'searching' ? (
+        {status === 'searching' && !hasMatches ? (
           <div
             className="text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center"
             role="status"
@@ -189,23 +134,33 @@ export function WorkspaceSearchPanel({
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 {error ?? 'Search failed'}
               </p>
-              <Button className="self-start" onClick={handleRetry} size="sm" variant="outline">
+              <Button className="self-start" onClick={runSearch} size="sm" variant="outline">
                 Retry
               </Button>
             </div>
           </div>
         ) : null}
-        {status === 'results' ? (
+        {showResults ? (
           // Flex column so SearchResultsTree's flex-1 height chain reaches the
           // TreeTable's 100%-height viewport (a plain block breaks it, collapsing
           // the tree to content height).
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2">
+            {status === 'searching' ? (
+              <p
+                className="text-muted-foreground flex items-center gap-1.5 pb-1 text-xs"
+                data-testid="workspace-search-streaming"
+                role="status"
+              >
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Searching…
+              </p>
+            ) : null}
             <SearchResultsTree
               onAttachFile={onAttachFile}
               onOpenFile={onOpenFile}
-              {...(allowTextPaging ? { onShowMore: handleShowMore } : {})}
-              resolveAdapterRootId={resolveAdapterRootId}
-              workspaceRootCount={workspaceDbRootIds.length}
+              rootName={rootName}
+              selection={selection}
+              workspaceRootCount={workspaceRootCount}
             />
           </div>
         ) : null}

@@ -54,6 +54,8 @@ function notificationFor(row: HostLogRow): RunNotificationEvent | undefined {
  */
 export class HostThreadRuns implements AssistantThreadHostRuns {
   private readonly latest = new Map<string, LatestRun>();
+  /** Each thread's run command this window sent before it opened the thread's view. */
+  private readonly ownSends = new Map<string, string>();
   private snapshot: ReadonlyMap<string, AssistantThreadHostRun> = new Map();
   private readonly listeners = new Set<() => void>();
 
@@ -75,7 +77,17 @@ export class HostThreadRuns implements AssistantThreadHostRuns {
     }
   }
 
+  /**
+   * This window sent `commandId` to `threadId` before opening its view (a new
+   * thread's first send): the view it opens next announces what follows that
+   * command, even what its replay already holds (BST-2441).
+   */
+  sentBeforeOpening(threadId: string, commandId: string): void {
+    this.ownSends.set(threadId, commandId);
+  }
+
   delete(threadId: string): void {
+    this.ownSends.delete(threadId);
     if (this.latest.delete(threadId)) {
       this.publish();
     }
@@ -87,7 +99,10 @@ export class HostThreadRuns implements AssistantThreadHostRuns {
     source: CommittedHostRunSource,
     onNotification: (event: RunNotificationEvent) => void
   ): () => void {
-    return observeCommittedHostRuns(source, {
+    // Only the view this window opens after its send: a later one is a reopen.
+    const ownCommandId = this.ownSends.get(threadId);
+    this.ownSends.delete(threadId);
+    return observeCommittedHostRuns(source, ownCommandId, {
       onLatestRun: (latest) => {
         if (this.replace(threadId, latestRun(latest.run))) {
           this.publish();
@@ -123,9 +138,13 @@ export interface CommittedHostRunSource {
  * Fold a session's committed rows incrementally. Rows past the replay's
  * boundary were committed while this view watched, so only they notify: a
  * reopened thread never re-announces a run that ended before it was shown.
+ * A view opened after this window's own send (`ownCommandId`) also announces
+ * what its replay holds after that command's acceptance: the run may commit
+ * its question before the view has subscribed (BST-2441).
  */
 function observeCommittedHostRuns(
   source: CommittedHostRunSource,
+  ownCommandId: string | undefined,
   handlers: {
     readonly onLatestRun: (latest: LatestRunFold) => void;
     readonly onNotification: (event: RunNotificationEvent) => void;
@@ -133,16 +152,26 @@ function observeCommittedHostRuns(
 ): () => void {
   let cursor = 0;
   let latest: LatestRunFold | undefined;
+  let announcedAfter: number | undefined;
   const sync = (): void => {
     const { isLoading, replayedThrough, rows } = source.getSnapshot();
     if (isLoading) {
       return;
     }
+    if (replayedThrough !== undefined && announcedAfter === undefined) {
+      const sent =
+        ownCommandId === undefined
+          ? undefined
+          : rows.find(
+              ({ event }) => event.type === 'command.accepted' && event.commandId === ownCommandId
+            )?.seq;
+      announcedAfter = sent === undefined ? replayedThrough : Math.min(sent, replayedThrough);
+    }
     const previous = latest;
     for (const row of rows.slice(cursor)) {
       latest = foldLatestRun(latest, row);
       const event =
-        replayedThrough !== undefined && row.seq > replayedThrough && notificationFor(row);
+        announcedAfter !== undefined && row.seq > announcedAfter && notificationFor(row);
       if (event) {
         handlers.onNotification(event);
       }

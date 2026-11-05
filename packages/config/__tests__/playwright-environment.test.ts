@@ -6,7 +6,6 @@ import {
   getEnvironmentConfig,
   getGlobalTimeout,
   getRetryCount,
-  getWorkerCount,
   harmonizeColorEnvironment,
   logEnvironmentConfig,
   parsePlaywrightCliOverrides,
@@ -50,16 +49,12 @@ describe('playwright-environment helpers', () => {
     }
   });
 
-  it('computes worker count and retries per env', () => {
-    expect(getWorkerCount({ isCI: true, isCodex: true, isGitHubActions: false })).toBe(1);
-    expect(getWorkerCount({ isCI: true, isCodex: false, isGitHubActions: true })).toBe(2);
-    expect(getWorkerCount({ isCI: true, isCodex: false, isGitHubActions: false })).toBe(1);
-    expect(getWorkerCount({ isCI: false, isCodex: false, isGitHubActions: false })).toBe('50%');
+  it('computes retries per env', () => {
     expect(getRetryCount({ isCI: true, isCodex: true, isGitHubActions: false })).toBe(1);
     expect(getRetryCount({ isCI: false, isCodex: false, isGitHubActions: false })).toBe(0);
   });
 
-  it('runs GitHub Actions on two workers that schedule single tests', () => {
+  it('schedules single tests on GitHub Actions', () => {
     const originalCI = process.env['CI'];
     const originalGH = process.env['GITHUB_ACTIONS'];
     const originalCodex = process.env['CODEX_ENV'];
@@ -71,7 +66,6 @@ describe('playwright-environment helpers', () => {
 
       const cfg = getEnvironmentConfig();
 
-      expect(cfg.workers).toBe(2);
       expect(cfg.fullyParallel).toBe(true);
     } finally {
       if (typeof originalCI === 'string') {
@@ -134,11 +128,11 @@ describe('playwright-environment helpers', () => {
         '--shard',
         '2/4',
         '--grep-invert',
-        '@desktop-embedding-',
+        '@slow',
       ])
     ).toEqual({
       globalTimeout: '720000',
-      grepInvert: '@desktop-embedding-',
+      grepInvert: '@slow',
       maxFailures: '1',
       project: 'regression',
       retries: '0',
@@ -209,7 +203,6 @@ describe('playwright-environment helpers', () => {
       isCodex: false,
       isGitHubActions: true,
       retries: 2,
-      workers: 2,
     };
 
     logEnvironmentConfig('Desktop', cfg, undefined, [
@@ -223,7 +216,6 @@ describe('playwright-environment helpers', () => {
 
     const output = String(stdoutSpy.mock.calls[0]?.[0]);
     expect(output).toContain('source=base-config');
-    expect(output).toContain('baseWorkers=2');
     expect(output).toContain('baseGlobalTimeout=0');
     expect(output).toContain('baseRetries=2');
     expect(output).not.toContain(' workers=2');
@@ -247,7 +239,6 @@ describe('playwright-environment helpers', () => {
       isCodex: false,
       isGitHubActions: true,
       retries: 2,
-      workers: 2,
     };
 
     logEnvironmentConfig('Desktop', cfg, undefined, ['apps/desktop/e2e/example.test.ts']);

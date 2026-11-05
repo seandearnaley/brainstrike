@@ -52,6 +52,7 @@ import {
   withLinuxSeccompApplyPath,
 } from './fence-readiness.ts';
 import { FenceReadinessError } from './fence-readiness-error.ts';
+import { isFenceSupported } from './fence-support.ts';
 
 /** Poll interval while confirming that a SIGKILLed process group is gone. */
 const PROCESS_GROUP_EXIT_POLL_MS = 10;
@@ -204,28 +205,6 @@ export class FenceProcessGroupTeardownError extends Error {
     this.outcome = outcome;
     this.pid = pid;
   }
-}
-
-/**
- * The explicit `darwin`/`linux` list is LOAD-BEARING and must not be
- * "simplified" to `SandboxManager.isSupportedPlatform()` alone (BST-1068).
- *
- * srt's own probe returns TRUE on Windows — its Windows fence is real (a
- * dedicated `srt-sandbox` account, kernel WFP filters, NTFS DACLs) — and
- * `currentExecPlatform()` already accepts `'win32'`. So dropping this literal
- * would silently enable Windows with a truthful `os-fence` capability and a
- * QUIETLY WRONG filesystem policy: Windows srt fixes filesystem scope at
- * `initialize()` and supports neither the per-execution `updateConfig` nor the
- * per-command config override this executor relies on, so every execution
- * after the first would run under the first execution's policy while claiming
- * to honour its own. That is the exact silent degradation the seam forbids,
- * and it would present as a working sandbox.
- *
- * Windows stays unavailable until the mechanism can express a per-execution
- * `ExecPolicy` — not merely until it is out of alpha.
- */
-export function isFenceSupported(): boolean {
-  return (platform === 'darwin' || platform === 'linux') && SandboxManager.isSupportedPlatform();
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +402,7 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
   // NOTE: 'unsignalable' (EPERM) deliberately does NOT throw here. It is
   // inconclusive, not a denial — every member of this group is our own
   // descendant running as us, so a genuine permission failure is impossible
-  // (the same reasoning agent-host-platform/desktop-terminals.ts records for its own group
+  // (the same reasoning host-capabilities/src/command-sessions/pty-terminals.ts records for its own group
   // kill). What it reports is the post-reap race: a just-SIGKILLed zombie
   // leader the kernel will not route a group signal through. SIGKILL therefore
   // falls through to the confirmation loop below, which resolves it; any other

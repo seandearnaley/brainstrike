@@ -1,9 +1,6 @@
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
-import { afterEach, describe, expect, it } from 'vitest';
-import {
-  __resetAssistantSubagentPreferencesStoreForTests,
-  useAssistantSubagentPreferencesStore,
-} from '../stores/assistant-subagent-preferences-store.ts';
+import { describe, expect, it } from 'vitest';
+import { useAssistantSubagentPreferencesStore } from '../stores/assistant-subagent-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useAssistantSubagentPreferencesStore as PersistApi<
@@ -11,10 +8,6 @@ const storeWithPersist = useAssistantSubagentPreferencesStore as PersistApi<
 >;
 
 describe('assistant subagent preferences store', () => {
-  afterEach(() => {
-    __resetAssistantSubagentPreferencesStoreForTests();
-  });
-
   it('defaults to the contract defaults', () => {
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
@@ -25,34 +18,26 @@ describe('assistant subagent preferences store', () => {
     const store = useAssistantSubagentPreferencesStore.getState();
     store.setMaxChildSteps(48);
     store.setSynthesisOutputTokens(4096);
-    store.setMaxChildOutputTokens(65_536);
     store.setMaxStepOutputTokens(16_384);
     store.setMaxDepth(5);
     store.setMaxInvocations(40);
     store.setMaxConcurrentWork(3);
-    store.setMaxTreeOutputTokens(262_144);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
-      maxChildOutputTokens: 65_536,
       maxChildRuntimeMs: null,
       maxChildSteps: 48,
       maxConcurrentWork: 3,
       maxDepth: 5,
       maxInvocations: 40,
       maxStepOutputTokens: 16_384,
-      maxTreeOutputTokens: 262_144,
       synthesisOutputTokens: 4096,
     });
   });
 
-  it('THROWS on an out-of-range tree limit and on a tree output budget below the child budget', () => {
+  it('THROWS on an out-of-range tree limit and lands nothing', () => {
     const store = useAssistantSubagentPreferencesStore.getState();
     expect(() => store.setMaxDepth(9)).toThrow(/maxDepth/u);
     expect(() => store.setMaxInvocations(0)).toThrow(/maxInvocations/u);
     expect(() => store.setMaxConcurrentWork(21)).toThrow(/maxConcurrentWork/u);
-    // Default child output is 32,768: the tree budget cannot drop below it.
-    expect(() => store.setMaxTreeOutputTokens(16_384)).toThrow(
-      /maxChildOutputTokens must not exceed maxTreeOutputTokens/u
-    );
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
     );
@@ -64,24 +49,22 @@ describe('assistant subagent preferences store', () => {
       expect(() => store.setMaxChildSteps(invalid)).toThrow(/Subagent settings are malformed/u);
     }
     expect(() => store.setSynthesisOutputTokens(255)).toThrow(/synthesisOutputTokens/u);
-    // Cross-field: a synthesis reservation cannot exceed the child's whole budget.
-    store.setSynthesisOutputTokens(512);
-    store.setMaxStepOutputTokens(512);
-    store.setMaxChildOutputTokens(1024);
-    expect(() => store.setSynthesisOutputTokens(2048)).toThrow(/must not exceed/u);
-    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
-      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      maxChildOutputTokens: 1024,
-      maxStepOutputTokens: 512,
-      synthesisOutputTokens: 512,
-    });
+    expect(() => store.setMaxStepOutputTokens(65_537)).toThrow(/maxStepOutputTokens/u);
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
   });
 
-  it('refuses a child output budget below the current synthesis or step budget', () => {
-    // Defaults: synthesis 2048 and step 8192 both exceed 1024, so the write is
-    // refused rather than silently shrinking them.
+  it('sets an output cap and turns it back Off', () => {
     const store = useAssistantSubagentPreferencesStore.getState();
-    expect(() => store.setMaxChildOutputTokens(1024)).toThrow(/must not exceed/u);
+    store.setMaxStepOutputTokens(4096);
+    store.setSynthesisOutputTokens(1024);
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toMatchObject({
+      maxStepOutputTokens: 4096,
+      synthesisOutputTokens: 1024,
+    });
+    store.setMaxStepOutputTokens(null);
+    store.setSynthesisOutputTokens(null);
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
     );
@@ -95,10 +78,13 @@ describe('assistant subagent preferences store', () => {
     if (options.version === undefined) {
       throw new Error('persist version unavailable for test');
     }
-    options.storage.setItem(options.name, {
-      state: { settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 1001 } },
-      version: options.version,
-    });
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({
+        state: { settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 1001 } },
+        version: options.version,
+      })
+    );
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
       DEFAULT_RUNTIME_SUBAGENT_SETTINGS
@@ -114,7 +100,10 @@ describe('assistant subagent preferences store', () => {
       throw new Error('persist version unavailable for test');
     }
     const settings = { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxChildSteps: 12 };
-    options.storage.setItem(options.name, { state: { settings }, version: options.version });
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({ state: { settings }, version: options.version })
+    );
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(settings);
   });
@@ -142,15 +131,17 @@ describe('assistant subagent preferences store', () => {
     const v1 = {
       maxChildOutputTokens: 65_536,
       maxChildSteps: 32,
-      maxStepOutputTokens: 8192,
+      maxStepOutputTokens: 4096,
       synthesisOutputTokens: 8192,
     };
-    options.storage.setItem(options.name, { state: { settings: v1 }, version: 1 });
+    localStorage.setItem(options.name, JSON.stringify({ state: { settings: v1 }, version: 1 }));
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
       ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      ...v1,
       maxChildRuntimeMs: null,
+      maxChildSteps: 32,
+      maxStepOutputTokens: 4096,
+      synthesisOutputTokens: 8192,
     });
   });
 
@@ -159,7 +150,6 @@ describe('assistant subagent preferences store', () => {
     if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
       throw new Error('persist storage unavailable for test');
     }
-    expect(options.version).toBe(3);
     // A v2 payload predates the tree limits (they were host constants).
     const v2 = {
       maxChildOutputTokens: 131_072,
@@ -168,14 +158,50 @@ describe('assistant subagent preferences store', () => {
       maxStepOutputTokens: 16_384,
       synthesisOutputTokens: 4096,
     };
-    options.storage.setItem(options.name, { state: { settings: v2 }, version: 2 });
+    localStorage.setItem(options.name, JSON.stringify({ state: { settings: v2 }, version: 2 }));
     await storeWithPersist.persist.rehydrate();
     expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
-      ...v2,
+      maxChildRuntimeMs: 5_400_000,
+      maxChildSteps: 640,
       maxConcurrentWork: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxConcurrentWork,
       maxDepth: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxDepth,
       maxInvocations: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxInvocations,
-      maxTreeOutputTokens: DEFAULT_RUNTIME_SUBAGENT_SETTINGS.maxTreeOutputTokens,
+      maxStepOutputTokens: 16_384,
+      synthesisOutputTokens: 4096,
+    });
+  });
+
+  it('turns v3 output caps left at the old defaults Off and drops the unenforced budgets', async () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!(options?.storage && options.name && storeWithPersist.persist?.rehydrate)) {
+      throw new Error('persist storage unavailable for test');
+    }
+    expect(options.version).toBe(4);
+    const v3 = {
+      maxChildOutputTokens: 32_768,
+      maxChildRuntimeMs: null,
+      maxChildSteps: 100,
+      maxConcurrentWork: 6,
+      maxDepth: 3,
+      maxInvocations: 200,
+      maxStepOutputTokens: 8192,
+      maxTreeOutputTokens: 6_553_600,
+      synthesisOutputTokens: 2048,
+    };
+    localStorage.setItem(options.name, JSON.stringify({ state: { settings: v3 }, version: 3 }));
+    await storeWithPersist.persist.rehydrate();
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
+      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
+    );
+    // A cap the user chose carries over.
+    localStorage.setItem(
+      options.name,
+      JSON.stringify({ state: { settings: { ...v3, maxStepOutputTokens: 4096 } }, version: 3 })
+    );
+    await storeWithPersist.persist.rehydrate();
+    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual({
+      ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+      maxStepOutputTokens: 4096,
     });
   });
 

@@ -1,5 +1,4 @@
 import {
-  __resetModelRegistryStoreForTests,
   type DbModel,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
@@ -58,7 +57,6 @@ describe('useModelBulkToggle', () => {
   beforeEach(() => {
     toast.mockReset();
     toggleMany.mockReset();
-    __resetModelRegistryStoreForTests();
   });
 
   it('writes once and offers Undo on success', async () => {

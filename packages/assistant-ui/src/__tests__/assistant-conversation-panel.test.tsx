@@ -623,12 +623,10 @@ describe('shared conversation panel', () => {
         </TooltipProvider>
       );
       if (!canReload) {
-        expect(
-          screen.queryByRole('button', { name: 'Regenerate response' })
-        ).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
         return;
       }
-      await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate response' }));
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Retry' }));
       expect(onReload).toHaveBeenCalledTimes(1);
       expect(onNew).not.toHaveBeenCalled();
     }

@@ -74,6 +74,25 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Motion variants also follow Reduced motion in Settings > Appearance, which
+   the theme provider marks as `data-motion="reduce"` on <html>. */
+@custom-variant motion-reduce {
+  @media (prefers-reduced-motion: reduce) {
+    @slot;
+  }
+  &:where(:root[data-motion="reduce"] *) {
+    @slot;
+  }
+}
+
+@custom-variant motion-safe {
+  @media (prefers-reduced-motion: no-preference) {
+    &:where(:root:not([data-motion="reduce"]) *) {
+      @slot;
+    }
+  }
+}
+
 @theme {
   /* ========================================================================
    * TYPOGRAPHY SCALE - 2025 Visual Identity

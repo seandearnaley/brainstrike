@@ -3,12 +3,10 @@ import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import type { ModelProviderShim } from './utils/model-provider-shim';
 import { startThread } from './utils/new-thread';
 
 async function openHostThread(page: Page): Promise<void> {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
   await ensureAssistantShellVisible(page);
@@ -16,24 +14,20 @@ async function openHostThread(page: Page): Promise<void> {
 
 function assistantRegion(page: Page) {
   const region = page.getByRole('region', { exact: true, name: 'Assistant' });
-  return { input: region.getByRole('textbox', { name: 'Message input' }), region };
+  return {
+    input: region.getByRole('textbox', { name: 'Message input' }),
+    queue: region.getByRole('list', { name: 'Queued follow-up messages' }),
+    region,
+  };
 }
 
 /**
- * BST-1981: the composer's running state follows the host's committed run, so
- * it lags the host's admission of a send. Only the external provider is
- * simulated; admission, the committed log and the composer are the real ones.
+ * A host run scripted to hold its reply until `hold` resolves. The title
+ * request carries no tools; the thread's opening turn replies at once.
  */
-test('a second send while the first is being admitted keeps its draft and starts no second run', async ({
-  electron,
-  modelProvider,
-}) => {
-  test.setTimeout(120_000);
-  const page = await electron.ensureWindow();
-  await openHostThread(page);
+function holdFirstReply(modelProvider: ModelProviderShim): PromiseWithResolvers<void> {
   const hold = Promise.withResolvers<void>();
   modelProvider.setScript(({ messages, toolNames }) => {
-    // The title request carries no tools.
     if (toolNames.length === 0) {
       return { finalText: 'Send lifecycle' };
     }
@@ -45,11 +39,89 @@ test('a second send while the first is being admitted keeps its draft and starts
       ? { beforeFinalText: hold.promise, finalText: 'FIRST_REPLY' }
       : { finalText: 'OPENED_REPLY' };
   });
-  // The sends race on an existing thread; the new-thread screen's first send creates it.
+  return hold;
+}
+
+/** An open thread, idle after its opening turn: the sends race on an existing thread. */
+async function openIdleThread(page: Page) {
+  await openHostThread(page);
+  // The new-thread screen's first send creates the thread.
   await startThread(page, 'Open the thread');
-  const { input, region } = assistantRegion(page);
-  await expect(region.getByText('OPENED_REPLY', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+  const assistant = assistantRegion(page);
+  await expect(assistant.region.getByText('OPENED_REPLY', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(assistant.region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+  return assistant;
+}
+
+/** The run turns (the title request carries no tools) whose prompt holds `text`. */
+function runTurnsWith(modelProvider: ModelProviderShim, text: string) {
+  return modelProvider
+    .requests()
+    .filter(({ toolNames }) => toolNames.length > 0)
+    .map(({ messages }) => JSON.stringify(messages))
+    .filter((sent) => sent.includes(text));
+}
+
+/** The second message ran once, after the first run's reply, and the host refused nothing. */
+async function expectSecondRanAfterFirst(page: Page, modelProvider: ModelProviderShim) {
+  const { input, queue, region } = assistantRegion(page);
+  await expect(region.getByText('SECOND_REPLY', { exact: true })).toBeVisible({ timeout: 30_000 });
+  const second = runTurnsWith(modelProvider, 'Second message');
+  expect(second).toHaveLength(1);
+  expect(second[0]).toContain('FIRST_REPLY');
+  await expect(queue).toHaveCount(0);
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
+  expect(modelProvider.refusals()).toEqual([]);
+}
+
+/**
+ * BST-1981/BST-2439: while a run is running, a second send waits in the queue
+ * and is sent once the first reply ends; the host never refuses it. Only the
+ * external provider is simulated; admission, the committed log, the queue and
+ * the composer are the real ones.
+ */
+test('a send while a run is running waits in the queue and is sent after the first reply', async ({
+  electron,
+  modelProvider,
+}) => {
+  test.setTimeout(120_000);
+  const page = await electron.ensureWindow();
+  const hold = holdFirstReply(modelProvider);
+  const { input, queue, region } = await openIdleThread(page);
+  await input.fill('First message');
+  await input.press('Enter');
+  await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible({
+    timeout: 30_000,
+  });
+  await input.fill('Second message');
+  await input.press('Enter');
+
+  await expect(queue).toContainText('Second message');
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
+  expect(runTurnsWith(modelProvider, 'Second message')).toEqual([]);
+  hold.resolve();
+  await expect(region.getByText('FIRST_REPLY', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expectSecondRanAfterFirst(page, modelProvider);
+});
+
+/**
+ * BST-1981/BST-2439: two Enters milliseconds apart. The second lands while the
+ * first send is being admitted (its draft is kept) or once its run shows (it
+ * is queued); which one is a matter of timing. Either way it is never
+ * refused, never lost, and never runs while the first run is running.
+ */
+test('a second send milliseconds after the first is never refused, lost or run during the first', async ({
+  electron,
+  modelProvider,
+}) => {
+  test.setTimeout(120_000);
+  const page = await electron.ensureWindow();
+  const hold = holdFirstReply(modelProvider);
+  const { input, queue, region } = await openIdleThread(page);
   await input.fill('First message');
   // Two Enters milliseconds apart, as a fast typist sends them.
   await input.press('Enter');
@@ -59,24 +131,23 @@ test('a second send while the first is being admitted keeps its draft and starts
   await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible({
     timeout: 30_000,
   });
+  // Exactly once, in the composer's draft or in the queue.
+  await expect
+    .poll(
+      async () =>
+        Number((await input.inputValue()) === 'Second message') +
+        (await queue.getByText('Second message', { exact: true }).count())
+    )
+    .toBe(1);
   await expect(page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
-  await expect(input).toHaveValue('Second message');
+  expect(runTurnsWith(modelProvider, 'Second message')).toEqual([]);
   hold.resolve();
   await expect(region.getByText('FIRST_REPLY', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
-  await expect(input).toHaveValue('Second message');
-  const runTurns = () => modelProvider.requests().filter(({ toolNames }) => toolNames.length > 0);
-  expect(JSON.stringify(runTurns().map(({ messages }) => messages))).not.toContain(
-    'Second message'
-  );
-
-  // The kept draft sends normally once the first run has ended.
+  // A kept draft sends now; a queued message has already been sent, and
+  // Enter on the empty composer sends nothing.
   await input.press('Enter');
-  await expect(region.getByText('SECOND_REPLY', { exact: true })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
-  expect(modelProvider.refusals()).toEqual([]);
+  await expectSecondRanAfterFirst(page, modelProvider);
 });
 
 test('a reply the app quit mid-stream keeps its text and one interrupted marker after relaunch (BST-1982)', async ({

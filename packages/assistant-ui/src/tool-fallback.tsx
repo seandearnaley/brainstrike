@@ -3,7 +3,7 @@ import { useId, useMemo, useRef, useState } from 'react';
 import { toolCallRan } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import { CommittedHumanInteraction } from './committed-human-interaction';
 import { CommittedNetworkConsent } from './committed-network-consent';
 import { CommittedOriginConsent } from './committed-origin-consent';
@@ -170,8 +170,8 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
     <div
       className={
         compact
-          ? 'bs-tool-timeline bs-tool-compact focus-visible:ring-ring outline-none focus-visible:ring-2'
-          : `bs-tool-timeline focus-visible:ring-ring my-1 rounded-lg border outline-none focus-visible:ring-2 ${
+          ? 'bs-tool-timeline bs-tool-compact focus-visible:ring-ring outline-hidden focus-visible:ring-2'
+          : `bs-tool-timeline focus-visible:ring-ring my-1 rounded-lg border outline-hidden focus-visible:ring-2 ${
               isError ? 'border-destructive/50 bg-destructive/5' : tint.card
             }`
       }

@@ -319,7 +319,7 @@ function renderTableHeader<T>({
                       sortState
                     )}
                     className={cn(
-                      'focus-visible:ring-ring flex cursor-pointer items-center gap-1 rounded-xs focus-visible:ring-1 focus-visible:outline-none',
+                      'focus-visible:ring-ring flex cursor-pointer items-center gap-1 rounded-xs focus-visible:ring-1 focus-visible:outline-hidden',
                       column.headerContentClassName
                     )}
                     onClick={(event) => {
@@ -680,7 +680,7 @@ function aggregateChildStates<T>(
   children: TreeNode<T>[],
   context: CheckboxStateContext<T>
 ): CheckboxState {
-  // TreeTable data is expected to be shallow (collection/file/chunk/embedding).
+  // TreeTable data is expected to be shallow (a few levels of groups and files).
   // Recursive traversal keeps the state logic straightforward and cacheable.
   let hasSelectedDescendant = false;
   let allChildrenChecked = true;

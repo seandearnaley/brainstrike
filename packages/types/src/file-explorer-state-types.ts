@@ -26,9 +26,14 @@ export interface StoredRootDescriptor {
   displayName: string;
   path: string;
   rootId: string;
+  /**
+   * A managed worktree: mounted for its thread, so it has a descriptor, but never one of the open
+   * folders in `activeRootIds` (ADR-0034).
+   */
+  worktree?: true;
 }
 
-export type PersistenceRecoveryNotice = 'persisted-state-discarded' | 'persisted-state-unavailable';
+export type PersistenceRecoveryNotice = 'persisted-state-discarded';
 
 // Data types
 export interface FileExplorerData {
@@ -196,6 +201,11 @@ export interface FileExplorerState extends FileExplorerData {
    * of a surviving directory retain their selection until that directory is
    * itself enumerated.
    */
+  /**
+   * Open a folder as the project (ADR-0034): the only open folder; every other open folder is
+   * purged as removeActiveRoot would, in one setState. Worktree descriptors stay.
+   */
+  openActiveRoot: (root: StoredRootDescriptor) => void;
   reconcileSelectionWithDirectorySnapshot: (
     folderId: string,
     directoryPath: string,
@@ -228,8 +238,8 @@ export interface FileExplorerState extends FileExplorerData {
   resetSelectionToExplicit: () => void;
   /**
    * Replace both activeRootIds and rootDescriptors atomically.
-   * activeRootIds = roots.map(r => r.rootId) (ordered).
-   * rootDescriptors = keyed by rootId.
+   * activeRootIds = the open folders' ids (ordered); a worktree is never one.
+   * rootDescriptors = every given root, keyed by rootId.
    */
   setActiveRoots: (roots: StoredRootDescriptor[]) => void;
   // Folder state management

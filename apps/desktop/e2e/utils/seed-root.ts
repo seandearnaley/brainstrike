@@ -1,37 +1,25 @@
 /**
- * Seed main's workspace ledgers through the renderer's `storage:` bridge and
- * reload, so the main process restores the roots on boot and the renderer
- * reconciles the durable `roots` rows the UI resolves against.
+ * Seed the agent host's open folders and recent folders through its E2E-only
+ * seed method, then reload, so the renderer restores the folders and reconciles
+ * the durable `roots` rows the UI resolves against.
  *
  * Everything its callers differ on (the recents ledger among them) is a
- * PARAMETER.
- *
- * ONE evaluate, ONE reload — deliberately. `recentRootsList` MUST be written
- * in the same evaluate as `rootsList`, because the reload boots main, which
- * runs `restoreRoots` → `recordRecentRootIfNew`: a read-modify-write on
- * `recentRootsList`. Seeding recents in a SECOND evaluate after that reload
- * races that write, and seeding them before a second reload would just repeat
- * the race. Both ledgers go in before the only boot that reads them.
+ * PARAMETER. Both go in one host call, before the only reload that restores
+ * them, so the restore's own recents bookkeeping never races the seed.
  */
 import type { Page } from '@playwright/test';
-import { updateIndexConfig } from './index-config';
+import { requestAgentHost } from './agent-host-request';
 import { loadElectronHelpers } from './load-electron-helpers';
 
 export interface SeedRootOptions {
   /**
-   * Pause the profile's search index through Main before the reload. Callers
-   * that only exercise the `roots` table and the `git:`/`fs:` bridges want
-   * this: indexing the seeded roots adds work and flake surface for no coverage.
-   */
-  readonly disableBackgroundIndexing?: boolean;
-  /**
-   * Paths to plant in main's recent-roots ledger — the grants that authorize
-   * the picker-less `fs:addRootByPath` (BST-1395). Omit for none.
+   * Paths to plant in the host's recent-folders ledger: the grants that authorize
+   * the picker-less `workspace/roots/add` (BST-1395). Omit for none.
    */
   readonly recentPaths?: readonly string[];
   /** `reloadRenderer` reason string, for log attribution. */
   readonly reloadReason: string;
-  /** The durable root id the seeded `rootsList` entry claims. */
+  /** The durable root id the seeded folder claims. */
   readonly rootId: string;
 }
 
@@ -39,11 +27,6 @@ export interface SeedRootOptions {
 export interface SeededRoot {
   readonly path: string;
   readonly rootId: string;
-}
-
-interface SeedPayload {
-  readonly recentPaths: readonly string[];
-  readonly roots: readonly SeededRoot[];
 }
 
 export async function seedRoot(
@@ -58,48 +41,29 @@ export async function seedRoot(
 export async function seedRoots(
   page: Page,
   roots: readonly SeededRoot[],
-  {
-    disableBackgroundIndexing = false,
-    recentPaths = [],
-    reloadReason,
-  }: Omit<SeedRootOptions, 'rootId'>
+  { recentPaths = [], reloadReason }: Omit<SeedRootOptions, 'rootId'>
 ): Promise<void> {
   if (roots.length === 0) {
     throw new Error('seedRoots needs at least one root');
   }
-  await page.evaluate(
-    async ({ recentPaths: recents, roots: seeded }: SeedPayload) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', seeded[0]?.path ?? '');
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify(
-          seeded.map((root, index) => ({
-            addedAt: 1_800_000_000_000 + index,
-            path: root.path,
-            rootId: root.rootId,
-          }))
-        )
-      );
-      if (recents.length > 0) {
-        await storage.setItem(
-          'recentRootsList',
-          JSON.stringify(recents.map((recentPath) => ({ lastGrantedAt: 1, path: recentPath })))
-        );
-      }
-    },
-    { recentPaths, roots } satisfies SeedPayload
-  );
-  if (disableBackgroundIndexing) {
-    await updateIndexConfig(page, { paused: true });
-  }
+  await seedWorkspaceFolders(page, { recentPaths, roots });
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);
+}
+
+/**
+ * Replaces the agent host's open folders (with their ids) and recent folders through its E2E-only
+ * `workspace/roots/seed-for-e2e`. The renderer restores them on its next reload.
+ */
+export async function seedWorkspaceFolders(
+  page: Page,
+  seed: {
+    readonly recentPaths?: readonly string[];
+    readonly roots: readonly SeededRoot[];
+  }
+): Promise<void> {
+  await requestAgentHost(page, 'workspace/roots/seed-for-e2e', {
+    recentPaths: [...(seed.recentPaths ?? [])],
+    roots: seed.roots.map((root) => ({ path: root.path, rootId: root.rootId })),
+  });
 }

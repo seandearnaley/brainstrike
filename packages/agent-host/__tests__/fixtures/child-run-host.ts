@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
@@ -72,7 +73,7 @@ export function stream(chunks: Chunk[]) {
     stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
   };
 }
-function toolCalls(calls: readonly [string, unknown, string][]): Chunk[] {
+export function toolCalls(calls: readonly [string, unknown, string][]): Chunk[] {
   return [
     { type: 'stream-start', warnings: [] },
     ...calls.map(
@@ -129,6 +130,8 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** The command sessions the host's runs start that end by themselves. */
+  readonly commandSessionExits?: HostPlatform['commandSessionExits'];
   /** Holds a batch's commit until it resolves, to observe the host between a reservation and its commit. */
   readonly holdAppend?: (items: readonly AppendItem[]) => Promise<void>;
   /** The production run owner over the fixture's own store, as the host platform opens it. */
@@ -141,6 +144,8 @@ export interface ChildRunFixture {
   /** What `read_file` does; it returns the fixture notes at once by default. */
   readonly readFile?: () => Promise<unknown>;
   readonly settings?: Partial<RuntimeSubagentSettings>;
+  /** Tools the host admits beside the fixture's own. */
+  readonly tools?: Readonly<Record<string, HostTool>>;
 }
 
 /** A canonical question tool: answered by `interaction/resume`, then it returns the answer. */
@@ -150,6 +155,7 @@ const askUserTool: HostTool = {
   identity: 'native-ask-user-generation-1',
   inputSchema: z.object({ question: z.string() }),
   interaction: { kind: 'question', resumeSchema: z.object({ answer: z.string() }) },
+  permissionToolId: NATIVE_TOOL_ID.askUser,
   risk: 'read',
 };
 
@@ -160,6 +166,7 @@ function fixturePlatform(
 ): HostPlatform {
   return {
     close: async () => undefined,
+    ...(fixture.commandSessionExits ? { commandSessionExits: fixture.commandSessionExits } : {}),
     delegation: {
       personas: fixture.personas ?? [explorer],
       settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...fixture.settings },
@@ -202,6 +209,7 @@ function fixturePlatform(
         inputSchema: z.object({ path: z.string() }),
         risk: 'edit',
       },
+      ...fixture.tools,
     },
   };
 }
@@ -252,7 +260,7 @@ export function crashableStorePort(
     health: () => store.health(),
     holdBlobGc: () => store.holdBlobGc(),
     read: (threadId, fromSeq) => store.read(threadId, fromSeq),
-    readHydration: () => store.readHydration(),
+    readHydration: (types) => store.readHydration(types),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),

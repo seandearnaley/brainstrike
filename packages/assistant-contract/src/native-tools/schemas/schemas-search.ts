@@ -1,8 +1,5 @@
 import { Schema } from 'effect';
 
-const WORKSPACE_SEARCH_ROOT_DESCRIPTION =
-  'Open-folder name/id. Omit for the thread-bound folder; an unbound request searches all open folders. To cover every folder in a bound thread, call once per root id. Results include their root.';
-
 /** grep and glob without a root search every thread folder (BST-1990, D3). */
 const GREP_GLOB_ROOT_DESCRIPTION =
   "Open-folder name/id. Omit to search all of this thread's folders. Results include their root.";
@@ -20,71 +17,11 @@ const positiveInt = (maximum: number, description?: string) =>
     Schema.isGreaterThan(0),
     Schema.isLessThanOrEqualTo(maximum)
   );
-const range = (maximum: number, description?: string) =>
-  Schema.Finite.annotate({ description }).check(
-    Schema.isGreaterThanOrEqualTo(0),
-    Schema.isLessThanOrEqualTo(maximum)
-  );
 const offset = (maximum: number, description?: string) =>
   Schema.Int.annotate({ description }).check(
     Schema.isGreaterThanOrEqualTo(0),
     Schema.isLessThanOrEqualTo(maximum)
   );
-
-export const HybridSearchInputSchema = Schema.Struct({
-  chunkType: Schema.optionalKey(
-    Schema.Literals(['text', 'code', 'sentence', 'recursive']).annotate({
-      description: 'Filter by chunk type',
-    })
-  ),
-  embeddingSetId: Schema.optionalKey(
-    nonempty('Embedding set ID for vector search; omit to use the Workspace Index')
-  ),
-  // Matches the repositories' MAX_INLINE_FILE_PATHS in both search arms.
-  filePaths: Schema.optionalKey(
-    Schema.Array(nonempty())
-      .check(Schema.isMaxLength(500))
-      .annotate({ description: 'Filter to specific file paths (max 500)' })
-  ),
-  ftsWeight: Schema.optionalKey(range(2, 'Weight for full-text search (default 1.0)')),
-  limit: Schema.optionalKey(positiveInt(100, 'Maximum results to return')),
-  query: bounded(1, 2000, 'Search query text'),
-  root: Schema.optionalKey(nonempty(WORKSPACE_SEARCH_ROOT_DESCRIPTION)),
-  vectorThreshold: Schema.optionalKey(range(1, 'Minimum similarity threshold')),
-  vectorWeight: Schema.optionalKey(range(2, 'Weight for vector search (default 1.0)')),
-});
-export type HybridSearchInput = typeof HybridSearchInputSchema.Type;
-
-export const QueryFileTreeInputSchema = Schema.Struct({
-  includeHidden: Schema.optionalKey(
-    Schema.Boolean.annotate({ description: 'Include hidden files/directories' })
-  ),
-  maxDepth: Schema.optionalKey(positiveInt(10, 'Maximum depth to traverse')),
-  path: Schema.optionalKey(
-    Schema.String.annotate({ description: 'Directory path to query (defaults to root)' })
-  ),
-  pattern: Schema.optionalKey(
-    Schema.String.annotate({ description: 'Glob pattern to filter files' })
-  ),
-});
-export type QueryFileTreeInput = typeof QueryFileTreeInputSchema.Type;
-
-export const RetrievalContextInputSchema = Schema.Struct({
-  embeddingSetId: Schema.optionalKey(nonempty()),
-  filePaths: Schema.optionalKey(Schema.Array(nonempty()).check(Schema.isMaxLength(5000))),
-  limit: Schema.optionalKey(positiveInt(100)),
-  maxChunks: Schema.optionalKey(positiveInt(100)),
-  query: bounded(1, 2000),
-  root: Schema.optionalKey(
-    Schema.String.annotate({ description: WORKSPACE_SEARCH_ROOT_DESCRIPTION })
-  ),
-  selectionSnapshotId: Schema.optionalKey(nonempty()),
-  threshold: Schema.optionalKey(range(1)),
-  tokenBudget: Schema.optionalKey(positiveInt(200_000)),
-});
-export type RetrievalContextInput = typeof RetrievalContextInputSchema.Type;
-export const QueryEmbeddingSpaceInputSchema = RetrievalContextInputSchema;
-export type QueryEmbeddingSpaceInput = typeof QueryEmbeddingSpaceInputSchema.Type;
 
 export const GrepSearchInputSchema = Schema.Struct({
   caseSensitive: Schema.optionalKey(

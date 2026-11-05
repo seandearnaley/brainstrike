@@ -36,8 +36,8 @@ it('joins an early Close and does not contradict its response with a startup err
   const completed = runIndexerProcess(
     {
       dbPath: '/tmp/unused-indexer-close.sqlite',
-      embedding: { indexMode: 'text-only' },
-      rootIds: ['root-a'],
+      stateProjection: { mode: 'dev', module: 'file:///unused-producer.mjs' },
+      stateRoot: '/tmp',
     },
     {
       finish,

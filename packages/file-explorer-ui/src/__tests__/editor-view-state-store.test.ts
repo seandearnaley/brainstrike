@@ -7,23 +7,16 @@ describe('editor-view-state-store', () => {
     vi.restoreAllMocks();
   });
 
-  it('coalesces rapid scroll persistence and writes the final value', () => {
-    vi.useFakeTimers();
-    const setItem = vi.spyOn(localStorage, 'setItem');
-    const key = 'root:/foo/rapid-scroll.ts';
+  it('saves the scroll position so the next document restores it', async () => {
+    const key = 'root:/foo/saved-scroll.ts';
+    useEditorViewStateStore.getState().setScrollTop(key, 50);
+    const saved = localStorage.getItem('brainstrike:editor-view-state.v1') ?? '';
+    useEditorViewStateStore.setState(useEditorViewStateStore.getInitialState(), true);
+    localStorage.setItem('brainstrike:editor-view-state.v1', saved);
 
-    for (let top = 1; top <= 50; top += 1) {
-      useEditorViewStateStore.getState().setScrollTop(key, top);
-    }
+    await useEditorViewStateStore.persist.rehydrate();
 
-    expect(setItem).toHaveBeenCalledTimes(0);
-    vi.advanceTimersByTime(500);
-    expect(setItem.mock.calls.length).toBeLessThanOrEqual(2);
-    const persisted = localStorage.getItem('editor-view-state.v1');
-    expect(persisted).not.toBeNull();
-    expect(JSON.parse(persisted ?? '{}')).toMatchObject({
-      state: { scrollTops: { [key]: 50 } },
-    });
+    expect(useEditorViewStateStore.getState().getScrollTop(key)).toBe(50);
   });
 
   it('does not notify subscribers when the clamped scroll value is unchanged', () => {
@@ -152,15 +145,5 @@ describe('editor-view-state-store modes', () => {
     const persistOptions = useEditorViewStateStore.persist.getOptions();
     const partialized = persistOptions.partialize?.(useEditorViewStateStore.getState());
     expect(partialized).toMatchObject({ modes: { [KEY]: 'source' } });
-  });
-
-  it('migrates pre-v2 persisted state by adding an empty modes map', () => {
-    const persistOptions = useEditorViewStateStore.persist.getOptions();
-    const migrated = persistOptions.migrate?.({ scrollTops: { [KEY]: 42 }, selections: {} }, 1) as {
-      modes: Record<string, string>;
-      scrollTops: Record<string, number>;
-    };
-    expect(migrated.modes).toEqual({});
-    expect(migrated.scrollTops[KEY]).toBe(42);
   });
 });

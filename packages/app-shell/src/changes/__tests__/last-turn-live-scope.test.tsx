@@ -38,11 +38,13 @@ function viewForRun(runId: string): ChangesetView {
     changeset: { kind: 'agent-run', runId, threadId: 'thread-1' },
     files: [
       {
+        actions: [],
         additions: null,
         deletions: null,
+        patch: null,
         path: `${runId}.ts`,
         repositoryRoot: null,
-        revertible: true,
+        revision: 'r1',
         rootId: 'root-1',
         status: 'modified',
         worktreePath: null,

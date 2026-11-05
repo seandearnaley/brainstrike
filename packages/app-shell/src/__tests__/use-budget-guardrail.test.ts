@@ -1,11 +1,9 @@
-import {
-  __resetAssistantBudgetPreferencesStoreForTests,
-  useAssistantBudgetPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
+import { useAssistantBudgetPreferencesStore } from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { DailySpendState } from '@brainstrike/assistant-data/cost-tracking';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useBudgetGuardrailBinding } from '../hooks/use-budget-guardrail';
 
 const { useDailySpendMock } = vi.hoisted(() => ({
@@ -29,13 +27,8 @@ function spendState(overrides: Partial<DailySpendState> = {}): DailySpendState {
 
 describe('useBudgetGuardrailBinding', () => {
   beforeEach(() => {
-    __resetAssistantBudgetPreferencesStoreForTests();
     useDailySpendMock.mockReset();
     useDailySpendMock.mockReturnValue(spendState());
-  });
-
-  afterEach(() => {
-    __resetAssistantBudgetPreferencesStoreForTests();
   });
 
   it('is null when no daily cap is configured (feature off by default)', () => {
@@ -119,5 +112,17 @@ describe('useBudgetGuardrailBinding', () => {
 
     rerender();
     expect(result.current?.overridden).toBe(true);
+  });
+
+  it('adjustCap() opens Settings at the cost-tracking cap', () => {
+    useAssistantBudgetPreferencesStore.getState().setDailyCapUsd(5);
+    const { result } = renderHook(() => useBudgetGuardrailBinding());
+
+    act(() => {
+      result.current?.adjustCap?.();
+    });
+
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(window.location.hash).toBe('#settings/cost-tracking');
   });
 });

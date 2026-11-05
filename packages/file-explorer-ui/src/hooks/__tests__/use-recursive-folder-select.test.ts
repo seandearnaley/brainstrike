@@ -16,15 +16,7 @@ vi.mock('@brainstrike/hooks', () => ({
 const showToastMock = vi.fn();
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: () => ({
-    storageAdapter: {
-      clear: vi.fn(),
-      getAllKeys: vi.fn(),
-      getItem: vi.fn(),
-      removeItem: vi.fn(),
-      setItem: vi.fn(async () => undefined),
-    },
-  }),
+  useAdapters: () => ({}),
   useToastManager: () => ({ showToast: showToastMock }),
 }));
 

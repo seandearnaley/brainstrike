@@ -1,13 +1,22 @@
+import path from 'node:path';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { expect, it, vi } from 'vitest';
-import { createRegistry, createStorage, rootHandle } from './workspace-root-registry-test-helpers';
+import {
+  createRegistry,
+  listOpenRoots,
+  openRootsCatalog,
+  rootHandle,
+} from './workspace-root-registry-test-helpers';
+
+// A native absolute path: on Windows the registry stores folders as the OS names them.
+const WORKSPACE = path.resolve('/workspace');
 
 it('reports an unavailable saved root once per absence while preserving retries and descriptors', async () => {
-  const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
-  const storage = createStorage({ rootsList: JSON.stringify([entry]) });
+  const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
+  const catalog = openRootsCatalog([entry]);
   let exists = false;
   const pathExists = vi.fn(async () => exists);
-  const registry = createRegistry({ pathExists, storage });
+  const registry = createRegistry({ pathExists }, catalog);
   const captured: LogRecord[] = [];
   const removeListener = addLogListener((record) => {
     if (record.scope === 'WorkspaceRootRegistry' && record.level === LogLevel.WARN) {
@@ -22,7 +31,7 @@ it('reports an unavailable saved root once per absence while preserving retries 
     }
     expect(captured).toHaveLength(1);
     expect(pathExists).toHaveBeenCalledTimes(7);
-    expect(await storage.getItem('rootsList')).toBe(JSON.stringify([entry]));
+    expect(await listOpenRoots(catalog)).toEqual([{ path: entry.path, rootId: entry.rootId }]);
     exists = true;
     expect(await registry.restoreRoots()).toMatchObject([
       { permissionState: 'granted', rootId: entry.rootId },
@@ -39,9 +48,9 @@ it('reports an unavailable saved root once per absence while preserving retries 
 });
 
 it('reports a new absence after a user grants the formerly unavailable saved root', async () => {
-  const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
-  const storage = createStorage({ rootsList: JSON.stringify([entry]) });
-  const registry = createRegistry({ pathExists: async () => false, storage });
+  const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
+  const catalog = openRootsCatalog([entry]);
+  const registry = createRegistry({ pathExists: async () => false }, catalog);
   const warnings: LogRecord[] = [];
   const removeListener = addLogListener((record) => {
     if (record.scope === 'WorkspaceRootRegistry' && record.level === LogLevel.WARN) {
@@ -59,11 +68,7 @@ it('reports a new absence after a user grants the formerly unavailable saved roo
       { permissionState: 'unknown', rootId: entry.rootId },
     ]);
     expect(warnings).toHaveLength(2);
-    const saved = await storage.getItem('rootsList');
-    if (saved === null) {
-      throw new Error('Saved root identity was removed.');
-    }
-    expect(JSON.parse(saved)).toMatchObject([{ path: entry.path, rootId: entry.rootId }]);
+    expect(await listOpenRoots(catalog)).toEqual([{ path: entry.path, rootId: entry.rootId }]);
   } finally {
     removeListener();
     await registry.dispose();
@@ -71,16 +76,18 @@ it('reports a new absence after a user grants the formerly unavailable saved roo
 });
 
 it('reports mount errors independently and rearms absence after the filesystem path returns', async () => {
-  const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
-  const storage = createStorage({ rootsList: JSON.stringify([entry]) });
+  const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
+  const catalog = openRootsCatalog([entry]);
   let exists = false;
-  const registry = createRegistry({
-    createSecureRoot: async () => {
-      throw new Error('actual mount permission failure');
+  const registry = createRegistry(
+    {
+      createSecureRoot: async () => {
+        throw new Error('actual mount permission failure');
+      },
+      pathExists: async () => exists,
     },
-    pathExists: async () => exists,
-    storage,
-  });
+    catalog
+  );
   const records: LogRecord[] = [];
   const removeListener = addLogListener((record) => {
     if (record.scope === 'WorkspaceRootRegistry') {
@@ -99,7 +106,7 @@ it('reports mount errors independently and rearms absence after the filesystem p
     exists = false;
     await registry.restoreRoots();
     expect(records.filter((record) => record.level === LogLevel.WARN)).toHaveLength(2);
-    expect(await storage.getItem('rootsList')).toBe(JSON.stringify([entry]));
+    expect(await listOpenRoots(catalog)).toEqual([{ path: entry.path, rootId: entry.rootId }]);
   } finally {
     removeListener();
     await registry.dispose();
@@ -109,10 +116,9 @@ it('reports mount errors independently and rearms absence after the filesystem p
 it.each(['remove', 'restore-prune'] as const)(
   'forgets a removed absence through %s before the same saved identity returns',
   async (removal) => {
-    const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
-    const stored = JSON.stringify([entry]);
-    const storage = createStorage({ rootsList: stored });
-    const registry = createRegistry({ pathExists: async () => false, storage });
+    const entry = { addedAt: 1, path: WORKSPACE, rootId: 'root-a' };
+    const catalog = openRootsCatalog([entry]);
+    const registry = createRegistry({ pathExists: async () => false }, catalog);
     const warnings: LogRecord[] = [];
     const removeListener = addLogListener((record) => {
       if (record.scope === 'WorkspaceRootRegistry' && record.level === LogLevel.WARN) {
@@ -124,11 +130,23 @@ it.each(['remove', 'restore-prune'] as const)(
       if (removal === 'remove') {
         await registry.removeRoot(entry.rootId);
       } else {
-        await storage.setItem('rootsList', '[]');
+        await catalog({
+          closeRootIds: [entry.rootId],
+          mountedPaths: [],
+          operation: 'disconnect-except',
+        });
         expect(await registry.restoreRoots()).toEqual([]);
       }
-      expect(await storage.getItem('rootsList')).toBe('[]');
-      await storage.setItem('rootsList', stored);
+      expect(await listOpenRoots(catalog)).toEqual([]);
+      await catalog({
+        operation: 'register',
+        root: {
+          canonicalPath: entry.path,
+          displayName: 'workspace',
+          path: entry.path,
+          preferredId: entry.rootId,
+        },
+      });
       expect(await registry.restoreRoots()).toMatchObject([
         { permissionState: 'unknown', rootId: entry.rootId },
       ]);

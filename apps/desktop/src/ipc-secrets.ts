@@ -8,22 +8,19 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
+import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { ipcMain } from 'electron';
 import type { DesktopEnvLoadFailure } from './desktop-env';
-import {
-  decodeProviderArgs,
-  decodeProviderCredentialArgs,
-  decodeProviderValueArgs,
-} from './ipc-secrets-args';
+import { ProviderArgs, ProviderCredentialArgs, ProviderValueArgs } from './ipc-secrets-args';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { NoArgs } from './platform/ipc-args';
 import {
   resolveAwsEnvChainCredential,
   resolveProviderEnvCredential,
   storedAuthMode,
 } from './provider-api-key';
 import { credentialStoredKeyFingerprint, SecretReadError, type SecretsService } from './secrets';
-import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 /**
  * Serialize a write failure as data. IPC channels never throw domain errors
@@ -223,7 +220,7 @@ function throwEnvFileFailures(failures: readonly DesktopEnvLoadFailure[]): void 
  * cannot pollute a run.
  *
  * **Production Behavior:**
- * - Environment variables are checked first (via resolveProviderEnvKey)
+ * - Environment variables are checked first (via resolveProviderEnvCredential)
  * - Falls back to encrypted platform storage (SecretsService)
  * - Merges both sources in the list operation
  *
@@ -248,8 +245,8 @@ export function registerSecretsIpcHandlers(
   registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.save,
-    async (_event, ...args: readonly unknown[]) => {
-      const [provider, value] = decodeProviderValueArgs(args);
+    ProviderValueArgs,
+    async (_event, provider, value) => {
       try {
         return await secrets.saveKey(provider, value);
       } catch (err) {
@@ -261,17 +258,15 @@ export function registerSecretsIpcHandlers(
   registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.get,
-    async (_event, ...args: readonly unknown[]) => {
-      const [provider] = decodeProviderArgs(args);
-      return await secrets.getKey(provider);
-    }
+    ProviderArgs,
+    async (_event, provider) => await secrets.getKey(provider)
   );
 
   registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.saveCredential,
-    async (_event, ...args: readonly unknown[]) => {
-      const [provider, credential] = decodeProviderCredentialArgs(args);
+    ProviderCredentialArgs,
+    async (_event, provider, credential) => {
       // Single validation site: setCredential's guard.
       try {
         return await secrets.setCredential(provider, credential as ProviderCredential);
@@ -284,8 +279,8 @@ export function registerSecretsIpcHandlers(
   registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.getCredential,
-    async (_event, ...args: readonly unknown[]) => {
-      const [provider] = decodeProviderArgs(args);
+    ProviderArgs,
+    async (_event, provider) => {
       // Failures are serialized as data — invoke drops custom error props.
       try {
         const credential = await secrets.getCredential(provider);
@@ -302,13 +297,11 @@ export function registerSecretsIpcHandlers(
   registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.delete,
-    async (_event, ...args: readonly unknown[]) => {
-      const [provider] = decodeProviderArgs(args);
-      return await secrets.deleteKey(provider);
-    }
+    ProviderArgs,
+    async (_event, provider) => await secrets.deleteKey(provider)
   );
 
-  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.list, async () => {
+  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.list, NoArgs, async () => {
     throwEnvFileFailures(envFileFailures);
 
     // In test mode, only the profile store (ignore env vars)
@@ -329,7 +322,7 @@ export function registerSecretsIpcHandlers(
     return Array.from(providers.values());
   });
 
-  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.listStored, async () => {
+  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.listStored, NoArgs, async () => {
     const storedProviders = new Set<string>();
     const providers = await secrets.listProviders();
     for (const provider of providers) {
@@ -347,7 +340,7 @@ export function registerSecretsIpcHandlers(
   // Read-only env bootstrap projection (BST-1363). Deliberately does NOT call
   // throwEnvFileFailures: `secrets:list` throws on a failed env file, but this
   // channel exists precisely to explain that failure, so it must still answer.
-  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.envBootstrap, () =>
+  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.envBootstrap, NoArgs, () =>
     options.readEnvBootstrapReport()
   );
 

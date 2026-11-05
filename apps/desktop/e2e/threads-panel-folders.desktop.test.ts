@@ -12,7 +12,7 @@
  * the durable root identity returned by the real registry.
  *
  * Isolation: a fresh temp repo per test plus the fixture's per-test
- * `userDataDir`, so neither main's `rootsList` nor the PGlite database can
+ * `userDataDir`, so neither the host's open folders nor its database can
  * leak between tests. Temp dirs are tracked and removed in `afterAll`.
  */
 import { realpathSync } from 'node:fs';
@@ -61,13 +61,11 @@ function freshRepo(label: string): string {
  * container query, and the default 25% left panel is narrower than that on a
  * 1536px window. Seeding the layout store makes the badge's visibility a
  * FACT ABOUT THE BADGE rather than a fact about the panel's default size.
- * Background indexing is seeded OFF: nothing here reads the index, and driving
- * the embedding pipeline would add minutes and flake surface for no coverage.
  */
 async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
   await page.evaluate(() => {
     localStorage.setItem(
-      'panel-layout-store.v1',
+      'brainstrike:panel-layout-store.v1',
       JSON.stringify({
         state: {
           showConsole: false,
@@ -75,12 +73,11 @@ async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
           showRightPanel: true,
           sizes: [45, 15, 20],
         },
-        version: 4,
+        version: 1,
       })
     );
   });
   await seedWorkspaceRoot(page, rootPath, {
-    disableBackgroundIndexing: true,
     reloadReason: 'w2-thread-folders-seed-root',
     rootId: ROOT_ID,
   });

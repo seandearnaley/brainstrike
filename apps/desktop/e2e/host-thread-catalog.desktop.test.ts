@@ -106,7 +106,7 @@ test('@smoke every offered chat opens, New sends, and current conversations surv
   await withAppHost(userData, (client) => client.request('thread/delete', { threadId: retired }));
   // A saved tab is UI state, not permission to reopen a retired conversation.
   await page.evaluate((id) => {
-    const key = 'brainstrike-assistant-threads-v1';
+    const key = 'brainstrike:assistant-threads.v1';
     const saved = JSON.parse(localStorage.getItem(key) ?? 'null') as {
       state: {
         activeThreadIdByResourceId: Record<string, string>;
@@ -122,7 +122,7 @@ test('@smoke every offered chat opens, New sends, and current conversations surv
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'current-chat-saved-retired-tab');
   await ensureAssistantShellVisible(page);
-  await expect(page.getByText(/Your saved conversation is unavailable/u)).toBeVisible();
+  await expect(page.getByText(/This thread is no longer available/u)).toBeVisible();
   await expect(page.getByTestId('assistant-new-thread-button')).toBeEnabled();
 
   const inspectAllChats = async (): Promise<void> => {

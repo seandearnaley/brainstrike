@@ -11,8 +11,6 @@ import {
   type ProviderModelDefinition,
 } from '@brainstrike/assistant-contract/provider-registry';
 
-type CatalogModelType = 'chat' | 'embedding';
-
 export interface CatalogPricing {
   readonly cacheReadPerMTok: number | null;
   readonly cacheWritePerMTok: number | null;
@@ -30,8 +28,6 @@ export interface CatalogRow {
   readonly bestFor: readonly string[];
   readonly contextWindow: number | null;
   readonly description: string | null;
-  /** Embedding output dimension; `null` for chat rows. */
-  readonly dimension: number | null;
   readonly enabled: boolean;
   readonly id: string;
   readonly maxOutputTokens: number | null;
@@ -39,7 +35,7 @@ export interface CatalogRow {
   readonly pricing: CatalogPricing | null;
   readonly providerId: string;
   readonly providerName: string;
-  /** `null` when there is no signal at all (embedding row, or provider absent from the registry). */
+  /** `null` when there is no signal at all (provider absent from the registry). */
   readonly reasoning: ModelReasoningSupport | null;
   /** The offered effort/level ladder; only set when reasoning is `supported`. */
   readonly reasoningEfforts: readonly string[] | null;
@@ -47,18 +43,17 @@ export interface CatalogRow {
   /** Whether the static registry has an entry for this exact model. */
   readonly registered: boolean;
   readonly tagline: string | null;
-  readonly type: CatalogModelType;
   readonly vision: ModelVisionSupport | null;
 }
 
 function findRegistryModel(model: DbModel): ProviderModelDefinition | undefined {
   return findProviderDefinition(model.providerId)?.models.find(
-    (definition) => definition.id === model.id && definition.type === model.capabilities.type
+    (definition) => definition.id === model.id
   );
 }
 
 function toPricing(definition: ProviderModelDefinition | undefined): CatalogPricing | null {
-  if (definition?.type !== 'llm' || !definition.pricing) {
+  if (!definition?.pricing) {
     return null;
   }
   const { cacheReadPerMTok, cacheWritePerMTok, inputPerMTok, outputPerMTok } = definition.pricing;
@@ -84,21 +79,15 @@ function effortLadder(controls: ReasoningControlsAvailability): readonly string[
 
 export function projectCatalogRow(model: DbModel, providerName: string): CatalogRow {
   const definition = findRegistryModel(model);
-  const llm = definition?.type === 'llm' ? definition : undefined;
-  const type: CatalogModelType = model.capabilities.type === 'embedding' ? 'embedding' : 'chat';
   const providerKnown = findProviderDefinition(model.providerId) !== undefined;
-  const reasoning =
-    type === 'chat' && providerKnown
-      ? resolveModelReasoningSupport(model.providerId, model.id)
-      : null;
+  const reasoning = providerKnown ? resolveModelReasoningSupport(model.providerId, model.id) : null;
   return {
     bestFor: Array.isArray(model.bestFor) ? model.bestFor : [],
-    contextWindow: llm?.contextWindow ?? null,
+    contextWindow: definition?.contextWindow ?? null,
     description: model.description,
-    dimension: type === 'embedding' ? (model.capabilities.defaultDimension ?? null) : null,
     enabled: model.isEnabled,
     id: model.id,
-    maxOutputTokens: llm?.maxOutputTokens ?? null,
+    maxOutputTokens: definition?.maxOutputTokens ?? null,
     name: model.name,
     pricing: toPricing(definition),
     providerId: model.providerId,
@@ -111,8 +100,7 @@ export function projectCatalogRow(model: DbModel, providerName: string): Catalog
     recommended: definition?.default === true,
     registered: definition !== undefined,
     tagline: model.tagline,
-    type,
-    vision: llm?.vision ?? null,
+    vision: definition?.vision ?? null,
   };
 }
 

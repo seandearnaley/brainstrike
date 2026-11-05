@@ -53,7 +53,6 @@ export const DEFAULT_USER_PERSONA_MAX_STEPS = MAX_USER_PERSONA_MAX_STEPS;
  * child control. `manageTaskList` belongs to the parent.
  */
 export const DEFAULT_USER_PERSONA_TOOL_IDS: readonly string[] = [
-  NATIVE_TOOL_ID.queryEmbeddingSpace,
   NATIVE_TOOL_ID.grepSearch,
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.findWorkspaceSymbol,
@@ -74,11 +73,6 @@ const PERSONA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 const PROVIDER_TOOL_NAME_MAX_CHARS = 64;
 export const MAX_USER_PERSONA_ID_LENGTH =
   PROVIDER_TOOL_NAME_MAX_CHARS - SUBAGENT_DELEGATION_TOOL_PREFIX.length;
-
-/** Task-list state belongs to the parent; interactive tools are capability-gated at runtime. */
-const USER_PERSONA_DISALLOWED_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.manageTaskList,
-]);
 
 const MODEL_PIN_SEPARATOR = '::';
 
@@ -477,13 +471,6 @@ function resolvePersonaTools(
       : declared.map((id) => normalizeToolId(id, mode));
   if (allowedToolIds.length === 0) {
     return { error: 'persona tools list must not be empty', ok: false };
-  }
-  const disallowed = allowedToolIds.find((toolId) => USER_PERSONA_DISALLOWED_TOOL_IDS.has(toolId));
-  if (disallowed) {
-    return {
-      error: `tool '${disallowed}' is not available to subagent personas: task-list state belongs to the parent`,
-      ok: false,
-    };
   }
   return { ok: true, value: allowedToolIds };
 }

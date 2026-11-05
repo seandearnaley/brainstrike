@@ -1,6 +1,5 @@
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import type { RootDescriptor } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
@@ -31,8 +30,8 @@ function restartAfter(
   focusOrder: readonly RootDescriptor[],
   restored: readonly RootDescriptor[] = mounted
 ) {
-  const storage = createMemoryStorageAdapter();
-  const store = createFileExplorerStore(storage);
+  localStorage.clear();
+  const store = createFileExplorerStore();
   const state = store.getState();
   state.setActiveRoots(
     mounted.map(({ displayName, handle, rootId }) => ({ displayName, path: handle.path, rootId }))
@@ -52,12 +51,13 @@ function restartAfter(
     addActiveRoot: state.addActiveRoot,
     getFolderAccessOrder: () => store.getState().folderAccessOrder,
     getPersistedCurrentFolderId: () => store.getState().currentFolderId,
+    openActiveRoot: state.openActiveRoot,
     removeActiveRoot: state.removeActiveRoot,
     setActiveRoots: state.setActiveRoots,
     setCurrentFolderId: state.setCurrentFolderId,
   };
   const hook = renderHook(() => useFileSystem(parameters), {
-    wrapper: createAdaptersTestWrapper(adapter, storage),
+    wrapper: createAdaptersTestWrapper(adapter),
   });
   return { ...hook, store };
 }

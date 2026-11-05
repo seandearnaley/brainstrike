@@ -3,8 +3,7 @@
  * the selected files' contents as one Markdown document, through the
  * explorer's existing context generation, with its project-tree option.
  */
-import { type ContextGenerationOverrides, useAdapters } from '@brainstrike/file-explorer-hooks';
-import { createLogger } from '@brainstrike/logging';
+import type { ContextGenerationOverrides } from '@brainstrike/file-explorer-hooks';
 import {
   Button,
   Label,
@@ -16,7 +15,6 @@ import {
 } from '@brainstrike/ui';
 import { Clipboard, Download, FileOutput } from 'lucide-react';
 import { type ReactElement, useCallback, useId, useState } from 'react';
-import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -26,12 +24,9 @@ import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectedTokenTotal } from './use-selected-token-total';
 import { useSelectionManager } from './use-selection-manager-context';
 
-const logger = createLogger('ExplorerContextExportAction');
-
 export function ExplorerContextExportAction(): ReactElement {
   const { fileContents, loadMultipleFileContents, rootDirectoryHandle } = useFileExplorer();
   const store = useFileExplorerStoreContext();
-  const { storageAdapter } = useAdapters();
   // The whole forest: in query mode `selectedFilePaths` is the focused root alone.
   const { forestSelection, selectedCount } = useSelectionManager();
   const tokenTotal = useSelectedTokenTotal(forestSelection);
@@ -81,16 +76,6 @@ export function ExplorerContextExportAction(): ReactElement {
     store,
     useRegex,
   });
-
-  const handleIncludeProjectTreeChange = useCallback(
-    (checked: boolean) => {
-      setIncludeProjectTree(checked);
-      persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
-        logger.error('Failed to persist includeProjectTree immediately', { error });
-      });
-    },
-    [setIncludeProjectTree, store, storageAdapter]
-  );
 
   const run = async (
     exportContext: (options: ContextGenerationOverrides) => Promise<{ readonly ok: boolean }>
@@ -143,7 +128,7 @@ export function ExplorerContextExportAction(): ReactElement {
             checked={includeProjectTree}
             data-testid="explorer-export-include-tree"
             id={includeTreeId}
-            onCheckedChange={handleIncludeProjectTreeChange}
+            onCheckedChange={setIncludeProjectTree}
           />
         </div>
         {includeProjectTree ? (
@@ -167,7 +152,7 @@ export function ExplorerContextExportAction(): ReactElement {
                 Tree detail:
               </Label>
               <input
-                className="border-input bg-background focus-visible:ring-ring h-7 w-14 rounded-md border px-1.5 text-center text-sm tabular-nums focus-visible:ring-2 focus-visible:outline-none"
+                className="border-input bg-background focus-visible:ring-ring h-7 w-14 rounded-md border px-1.5 text-center text-sm tabular-nums focus-visible:ring-2 focus-visible:outline-hidden"
                 id={treeDetailId}
                 min="0"
                 onChange={(event) => {

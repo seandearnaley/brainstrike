@@ -1,6 +1,10 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider, INACCESSIBLE_CONTENT_PREFIX } from '@brainstrike/file-explorer-hooks';
+import type {
+  FileContentReadResult,
+  FileReadRequest,
+} from '@brainstrike/file-explorer-hooks/file-content-worker';
 import {
   DEFAULT_MAX_FILE_SIZE,
   type FileSystemAdapter,
@@ -10,14 +14,9 @@ import {
 } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { BINARY_CONTENT_MESSAGE, type IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
-import type {
-  FileContentReadResult,
-  FileReadRequest,
-} from '@brainstrike/workers/file-content-worker';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
@@ -27,7 +26,7 @@ import {
 } from '../use-shared-file-content-loading';
 
 // Mock the worker
-vi.mock('@brainstrike/workers/file-content-worker', () => ({
+vi.mock('@brainstrike/file-explorer-hooks/file-content-worker', () => ({
   createFileContentWorker: vi.fn(() => vi.fn()),
 }));
 
@@ -49,11 +48,10 @@ function useTestHook(fileTree: IFileNode[]) {
 }
 
 function createWrapper(adapter: FileSystemAdapter) {
-  const storage = new MemoryStorageAdapter();
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   };
@@ -104,7 +102,9 @@ describe('useSharedFileContentLoading - caching', () => {
     const findSpy = vi.spyOn(fileExplorer, 'findNodeByPath').mockReturnValue(fileNode);
 
     // Setup worker mock to actually call through to adapter
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi
       .fn()
       .mockImplementation(
@@ -176,7 +176,9 @@ describe('useSharedFileContentLoading - caching', () => {
       .mockReturnValueOnce(fileNode2);
 
     // Setup worker mock to actually call through to adapter
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi
       .fn()
       .mockImplementation(
@@ -258,7 +260,9 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const compositeKey = encodeFileSelection('root1', '/error.txt');
 
     // Setup worker mock to simulate error handling
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(
       vi.fn().mockResolvedValue({
         [compositeKey]: { message: 'Error accessing file', status: 'inaccessible' },
@@ -288,7 +292,9 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const compositeKey = encodeFileSelection('root1', '/image.png');
 
     // Setup worker mock to simulate binary file handling
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(
       vi.fn().mockResolvedValue({
         [compositeKey]: {
@@ -322,7 +328,9 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const key2 = encodeFileSelection('root1', '/two.txt');
 
     // Setup worker mock to properly simulate async loading with progress callbacks
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const processRequest = async (
       req: FileReadRequest,
       progressCallback?: (event: { key: string }) => void
@@ -406,7 +414,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.spyOn(fileContent, 'isBinaryExtension').mockReturnValue(false);
     // Re-establish worker mock after restoreAllMocks
     const { createFileContentWorker } = vi.mocked(
-      await import('@brainstrike/workers/file-content-worker')
+      await import('@brainstrike/file-explorer-hooks/file-content-worker')
     );
     createFileContentWorker.mockReturnValue(vi.fn().mockResolvedValue({}));
   });
@@ -437,7 +445,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     fileNode.size = DEFAULT_MAX_FILE_SIZE + 1;
     const compositeKey = encodeFileSelection('root1', '/too-large.txt');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -464,7 +474,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     fileNode.size = DEFAULT_MAX_FILE_SIZE + 1;
     const compositeKey = encodeFileSelection('root1', '/within-configured-limit.txt');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({
       [compositeKey]: { content: 'loaded', status: 'accessible' },
     });
@@ -492,7 +504,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     fileNode.size = Number.NaN;
     const compositeKey = encodeFileSelection('root1', '/nan-size.txt');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({
       [compositeKey]: { content: 'loaded', status: 'accessible' },
     });
@@ -524,7 +538,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const findSpy = vi.spyOn(fileExplorer, 'findNodeByPath').mockReturnValue(withHandle);
 
     // Setup worker mock
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(
       vi.fn().mockResolvedValue({
         [compositeKey]: { content: 'retry', status: 'accessible' },
@@ -566,7 +582,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const withoutHandle = { ...withHandle, handle: undefined as unknown as FileSystemFileHandle };
     const compositeKey = encodeFileSelection('root1', '/cached.txt');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({
       [compositeKey]: { content: 'cached-content', status: 'accessible' },
     });
@@ -619,7 +637,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const withoutHandle = { ...withHandle, handle: undefined as unknown as FileSystemFileHandle };
     const compositeKey = encodeFileSelection('root1', '/locked.txt');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -655,7 +675,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     const compositeKey = encodeFileSelection('root1', '/missing-locked.txt');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -685,7 +707,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     directoryNode.type = 'directory';
     const compositeKey = encodeFileSelection('root1', '/folder');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -719,7 +743,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     }
 
     // Setup worker mock to handle all files
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi
       .fn()
       .mockImplementation(
@@ -754,7 +780,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const adapter = new MockFileSystemAdapter();
 
     // Setup worker mock for empty input
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(vi.fn().mockResolvedValue({}));
 
     const wrapper = createWrapper(adapter);
@@ -782,7 +810,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     attachAbsolutePathRead(adapter, readFileByPathSpy);
 
     const compositeKey = encodeFileSelection('root1', '/deferred.txt');
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({
       [compositeKey]: { content: 'deferred-content', status: 'accessible' },
     });
@@ -815,7 +845,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
     const compositeKey = encodeFileSelection('root1', '/restored.txt');
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockImplementation(async (requests: FileReadRequest[]) => {
       if (requests.length === 0) {
         return {};
@@ -855,7 +887,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const compositeKey = encodeFileSelection(rootFolderId, 'src/dynamic.ts');
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId });
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi
       .fn()
       .mockImplementation(
@@ -940,7 +974,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const compositeKey = encodeFileSelection(rootId, '/workspace/root/src/restored.ts');
     const otherNode = createFileNode({ path: '/other.txt', rootFolderId: rootId });
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi
       .fn()
       .mockImplementation(
@@ -1024,7 +1060,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const compositeKey = encodeFileSelection('root1', '/missing.txt');
     const fileNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi.fn().mockResolvedValue({});
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -1072,7 +1110,9 @@ describe('useSharedFileContentLoading - cross-root import (Phase 6)', () => {
       version: 1,
     });
 
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     const mockWorker = vi
       .fn()
       .mockImplementation(

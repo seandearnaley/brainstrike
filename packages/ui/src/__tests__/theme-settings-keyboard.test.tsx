@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { ThemeProvider, type ThemeStorageAdapter } from '../theme-provider';
+import { useState } from 'react';
+import { describe, expect, it } from 'vitest';
+import { type SavedAppearance, ThemeProvider } from '../theme-provider';
 import { ThemeSettings } from '../theme-settings';
 import { THEMES, type ThemeId } from '../themes';
 
@@ -13,27 +14,28 @@ import { THEMES, type ThemeId } from '../themes';
  * whether a keypress actually changed the selection.
  */
 
-function createStorage(seed: Record<string, string>): ThemeStorageAdapter {
-  const data = new Map(Object.entries(seed));
-  return {
-    getItem: vi.fn(async (key: string) => data.get(key) ?? null),
-    setItem: vi.fn(async (key: string, value: string) => {
-      data.set(key, value);
-    }),
-  };
-}
-
+/** The app's side: it owns the saved choices and records what the provider reports. */
 async function renderPicker(persisted: ThemeId) {
-  const storage = createStorage({ 'ui-theme-palette': persisted });
+  const reported: SavedAppearance[] = [];
+  function App() {
+    const [appearance, setAppearance] = useState<SavedAppearance>({ theme: persisted });
+    return (
+      <ThemeProvider
+        appearance={appearance}
+        defaultMode="light"
+        onAppearanceChange={(choice) => {
+          reported.push(choice);
+          setAppearance((previous) => ({ ...previous, ...choice }));
+        }}
+      >
+        <ThemeSettings />
+      </ThemeProvider>
+    );
+  }
   const user = userEvent.setup();
-  render(
-    <ThemeProvider defaultMode="light" storageAdapter={storage}>
-      <ThemeSettings />
-    </ThemeProvider>
-  );
-  // The provider renders nothing until storage has resolved.
+  render(<App />);
   await screen.findByRole('radiogroup', { name: 'Theme' });
-  return { storage, user };
+  return { reported, user };
 }
 
 function themeAt(index: number): (typeof THEMES)[number] {
@@ -114,15 +116,15 @@ describe('ThemeSettings palette keyboard model', () => {
     expectOnlyChecked(LAST);
   });
 
-  it('applies and persists the palette an arrow key selects', async () => {
-    const { storage, user } = await renderPicker(themeAt(0).id);
+  it('applies the palette an arrow key selects and reports it for saving', async () => {
+    const { reported, user } = await renderPicker(themeAt(0).id);
     cardFor(0).focus();
 
     await user.keyboard('{ArrowRight}');
 
     const next = themeAt(1).id;
     expect(document.documentElement.dataset['theme']).toBe(next);
-    expect(storage.setItem).toHaveBeenCalledWith('ui-theme-palette', next);
+    expect(reported).toEqual([{ theme: next }]);
   });
 
   it('Space selects a focused card that is not checked', async () => {

@@ -11,7 +11,7 @@ export {
   type ContextPackerOptions,
   type ContextPackerResult,
   type PackedContextChunk,
-} from './context-packer.ts';
+} from '@brainstrike/assistant-contract/context-packer';
 export {
   getProviderDefaultModel,
   getProviderDefinition,
@@ -20,7 +20,6 @@ export {
   getProviderModels,
   isSupportedProvider,
   isValidModelForProvider,
-  listEmbeddingModels,
   listProviders,
   PROVIDER_DEFAULT_ENABLED_MODELS,
   PROVIDER_DEFAULT_MODELS,
@@ -32,8 +31,7 @@ export {
   type ProviderRuntime,
   providerEnvKeys,
   type SupportedProvider,
-  supportsStandardEmbeddingDimension,
-} from './providers/types.ts';
+} from '@brainstrike/assistant-contract/provider-metadata';
 // Tool categories and tiers (browser-safe, no Mastra dependencies)
 export {
   compareByLoadPriority,
@@ -54,11 +52,11 @@ export {
   SKILL_NATIVE_TOOL_IDS,
   type SkillNativeToolId,
   TOOL_CATEGORIES,
+  TOOL_DESCRIPTIONS,
   TOOL_LOADING_TIERS,
   type ToolCategory,
   type ToolCategoryInfo,
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
   type ToolSource,
-} from './registry/tool-categories.ts';
-export { TOOL_DESCRIPTIONS } from './registry/tool-descriptions.ts';
+} from '@brainstrike/assistant-contract/tool-metadata';

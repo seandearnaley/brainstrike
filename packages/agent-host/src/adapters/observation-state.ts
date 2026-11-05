@@ -1,4 +1,3 @@
-import type { VectorProfile } from '@brainstrike/indexer';
 import type { MemoryDomainPort } from '@brainstrike/state-store';
 import type { ObservationalMemoryRecord } from '@mastra/core/storage';
 import type {
@@ -88,36 +87,17 @@ function observationRecord(record: ObservationalMemoryRecord): NonNullable<Obser
   };
 }
 
-/**
- * The models an admission's memory uses: its observer's catalog id and its
- * vector profile's identity. A local profile's precision follows its device.
- */
-export function hostMemoryModels(
-  observerModelId: string | undefined,
-  profile: VectorProfile | undefined
-): HostMemoryModels {
-  return {
-    ...(profile
-      ? {
-          embedder: {
-            dimensions: profile.dimensions,
-            distance: profile.distance,
-            modelId: profile.modelId,
-            provider: profile.provider,
-          },
-        }
-      : {}),
-    ...(observerModelId === undefined ? {} : { observer: observerModelId }),
-  };
+/** The models an admission's memory uses: its observer's catalog id. */
+export function hostMemoryModels(observerModelId: string | undefined): HostMemoryModels {
+  return observerModelId === undefined ? {} : { observer: observerModelId };
 }
 
 /** A live admission's models: its observer runs only while its observational memory is on. */
 export function admittedMemoryModels(
   source: HostObservationSource,
-  observerModelId: string | undefined,
-  profile: VectorProfile | undefined
+  observerModelId: string | undefined
 ): HostMemoryModels {
-  return hostMemoryModels(source.state === 'on' ? observerModelId : undefined, profile);
+  return hostMemoryModels(source.state === 'on' ? observerModelId : undefined);
 }
 
 /** A live admission's source: its native options, or the platform's awaiting reason. */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createShellIpcHandlers, validateExternalUrl } from '../ipc-shell-handlers';
+import { createShellIpcHandlers } from '../ipc-shell-handlers';
 
 function makeShell() {
   return {
@@ -9,11 +9,15 @@ function makeShell() {
   };
 }
 
-describe('validateExternalUrl', () => {
+describe('openExternal URL policy', () => {
   it.each(['https://example.com/a?b=1', 'http://localhost:8080', 'mailto:a@b.com'])(
-    'allows %s',
-    (url) => {
-      expect(validateExternalUrl(url)).toEqual({ ok: true, url: expect.any(String) });
+    'opens %s',
+    async (url) => {
+      const shell = makeShell();
+      await expect(createShellIpcHandlers({ shell }).openExternal(url)).resolves.toEqual({
+        ok: true,
+      });
+      expect(shell.openExternal).toHaveBeenCalledOnce();
     }
   );
 
@@ -24,14 +28,11 @@ describe('validateExternalUrl', () => {
     'ftp://x',
     '',
     'not a url',
-  ])('rejects %s', (url) => {
-    const r = validateExternalUrl(url);
-    expect(r.ok).toBe(false);
-  });
-
-  it('rejects non-strings', () => {
-    expect(validateExternalUrl(42).ok).toBe(false);
-    expect(validateExternalUrl(undefined).ok).toBe(false);
+  ])('refuses %s without touching shell', async (url) => {
+    const shell = makeShell();
+    const result = await createShellIpcHandlers({ shell }).openExternal(url);
+    expect(result.ok).toBe(false);
+    expect(shell.openExternal).not.toHaveBeenCalled();
   });
 });
 

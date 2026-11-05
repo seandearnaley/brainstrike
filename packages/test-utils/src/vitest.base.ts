@@ -1,24 +1,37 @@
-import type { InlineConfig } from 'vitest/node';
+import { defineConfig, type ViteUserConfig } from 'vitest/config';
+import LostTestFileReporter from '../vitest-lost-file-reporter.mjs';
 
-// Shared Vitest base config for Brainstrike
-// Packages can import and spread this into their local config:
-//   import { defineConfig } from 'vitest/config';
-//   import { testBase } from '@brainstrike/test-utils/vitest.base';
-//   export default defineConfig({ test: { ...testBase, /* package overrides */ } });
+/** Coverage runs in CI or with COVERAGE=true; COVERAGE=false turns it off. */
+export const coverageEnabled =
+  process.env['COVERAGE'] !== 'false' &&
+  (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
 
-export const testBase: InlineConfig = {
-  clearMocks: true,
-  // Default to happy-dom for React unit/integration tests; override per package if needed
-  environment: 'happy-dom',
-  globals: true,
-  hookTimeout: 15_000,
-  // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
-  maxWorkers: process.env['CI'] ? '50%' : '100%',
-  mockReset: true,
-  // Forks, Vitest's default. Node 26 worker threads segfault in ModuleWrap's per-Environment
-  // module map under load, on macOS and Linux (BST-2002); forks start no worker threads.
-  pool: 'forks',
-  restoreMocks: true,
-  setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
-  testTimeout: 10_000,
-};
+/**
+ * What every package's Vitest config shares. Each package merges its own
+ * options on top with Vitest's `mergeConfig` (arrays concatenate):
+ *
+ *   export default mergeConfig(sharedConfig, defineConfig({ test: { include: [...] } }));
+ *
+ * Workspace packages resolve through their `exports`; Vitest configs carry no aliases.
+ */
+export const sharedConfig = defineConfig({
+  test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
+    globals: true,
+    reporters: ['default', new LostTestFileReporter()],
+  },
+});
+
+/**
+ * A package's `test:integration` lane: its config with `include` replaced (the
+ * `test` script excludes the same files, so the lanes partition the suite) and
+ * coverage off, since both lanes can run at once and would share one
+ * coverage directory.
+ */
+export function integrationLane(config: ViteUserConfig, include: string[]): ViteUserConfig {
+  return {
+    ...config,
+    test: { ...config.test, coverage: { ...config.test?.coverage, enabled: false }, include },
+  };
+}

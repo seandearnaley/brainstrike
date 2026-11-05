@@ -1,62 +1,21 @@
 # @brainstrike/storage
 
-String key/value adapters for browser preferences, Electron preference files and
-explicit in-memory tests. This package is separate from the canonical host
-StateStore, conversation log and derived index.
+The renderer's durable stores, separate from the host StateStore, conversation log and derived index.
 
-## Actual API
+## Durable renderer stores
 
-All asynchronous adapters implement `StorageAdapter` in
-[`types.ts`](src/types.ts): `getItem`, `setItem`, `removeItem`, `getAllKeys` and
-`clear`. Values are strings; a missing key returns `null`. Serialize and validate
-structured values at their owning boundary.
+`persistDurable(key, creator, options)` ([`durable-store.ts`](src/durable-store.ts)) is the one way a renderer store keeps state across reloads. It is zustand's [`persist`](https://zustand.docs.pmnd.rs/middlewares/persist) over this renderer's `localStorage` as JSON.
 
 ```ts
-import { createMemoryStorageAdapter } from '@brainstrike/storage';
-
-const storage = createMemoryStorageAdapter();
-await storage.setItem('theme', 'dark');
-const theme = await storage.getItem('theme');
-await storage.removeItem('theme');
+export const useExampleStore = create<ExampleState>()(
+  persistDurable('brainstrike:example.v1', (set) => ({ ... }), { partialize, version: 1 })
+);
 ```
 
-## Choose the adapter explicitly
-
-- `createBrowserStorageAdapter()` / `WebStorageAdapter` wrap browser
-  `localStorage`. The async interface does not make underlying browser I/O
-  nonblocking. `WebStorageAdapter` also accepts an injected `Storage` instance.
-- `createMemoryStorageAdapter()` / `MemoryStorageAdapter` are explicitly
-  ephemeral. They are not a persistence fallback.
-- Electron main imports `ElectronStorageAdapter` from
-  `@brainstrike/storage/electron`. Its constructor takes an optional filename,
-  defaulting to `electron-storage.json` under `app.getPath('userData')`.
-  It uses JSON files and ordered temporary-file/rename writes, not `electron-store`.
-  Invalid paths or corrupt/unreadable existing storage reject visibly. The root
-  package entry does not export this Node-only adapter.
-
-## Other persistence helpers
-
-[`safe-storage.ts`](src/safe-storage.ts) exposes a separate synchronous JSON
-storage interface and persistence-issue reporting; it is not the asynchronous
-adapter API. Read its failure policy before using it for durable state.
-[`write-behind-writer.ts`](src/write-behind-writer.ts) is the one renderer
-write-behind writer: it buffers writes by key for `delayMs`, and its awaited
-`flush()` resolves only once nothing is buffered or in flight, values buffered
-while it waits included. It rejects while any key's newest write was refused,
-even one refused before the flush, until a newer write of that key lands.
-Read-after-write sees pending values and removal cancels the
-pending write. It owns no unload listener; each document unload joins the flush
-through `@brainstrike/app-state/renderer-close`. A queued save is not proof that
-persistence completed; a resolved `flush()` is.
-
-Preferences are not a secret store. Provider credentials use the existing
-credential owner. New durable state participates in the existing
-[reset lifecycle](../../docs/agents/platform-contracts.md).
-
-## Development
-
-Declare `"@brainstrike/storage": "workspace:*"` in a consuming workspace.
-[`package.json`](package.json) owns exports and scripts. From this package use
-`pnpm build`, `pnpm type-check`, `pnpm test` or `pnpm test:browser` as appropriate.
-**CI is disabled due to cost; validation must run locally.** See
-`pnpm check`.
+- Keys are `DurableKey`s, under `DURABLE_KEY_PREFIX` (`brainstrike:`). Tests and E2E seeds read and write the same key.
+- `name` and `storage` are the factory's; every other `persist` option passes through. Validate saved state in `merge` or `migrate`.
+- A saved value that is not JSON reads as nothing saved: the store hydrates on its defaults, the discard is logged and reported to `onUnreadable`, and the next change overwrites it. (zustand's own read rejects and leaves `hasHydrated()` false.)
+- Writes are synchronous: a change is saved when `set` returns. A store owns no fallback, write-behind or reset code.
+- Main's Factory Reset clears the whole origin's storage (`clearStorageData`, ADR-0015), so every store joins reset by construction.
+- Tests get a clean store from `@brainstrike/test-utils/zustand-store-reset` (zustand's testing guide).
+- Preferences are not a secret store; credentials use the credential owner.

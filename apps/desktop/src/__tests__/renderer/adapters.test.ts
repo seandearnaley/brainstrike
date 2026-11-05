@@ -1,13 +1,20 @@
 // @vitest-environment jsdom
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
-import type { WatcherHealthEvent } from '@brainstrike/types';
+import { UserCancelledError } from '@brainstrike/file-system';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetFsWatchDispatcherForTest,
-  ElectronRendererFileSystemAdapter,
-  ElectronRendererStorageAdapter,
-} from '../../renderer/adapters';
-import { mockElectronAPI } from '../setup';
+import { ElectronRendererFileSystemAdapter } from '../../renderer/adapters';
+
+// The adapter's watches reach the agent host; the window's real connector loads the browser transport.
+vi.mock('../../renderer/agent-host-client', () => ({ connectDesktopAgentHost: vi.fn() }));
+const roots = vi.hoisted(() => ({
+  addRootByPath: vi.fn(async () => ({})),
+  listRecentRoots: vi.fn(async () => []),
+  pickRoot: vi.fn(),
+  removeRoot: vi.fn(async () => undefined),
+  restoreRoots: vi.fn(),
+}));
+vi.mock('../../renderer/host-workspace-roots', () => ({
+  resolveDesktopWorkspaceRoots: () => roots,
+}));
 
 describe('ElectronRendererFileSystemAdapter', () => {
   let adapter: ElectronRendererFileSystemAdapter;
@@ -17,206 +24,11 @@ describe('ElectronRendererFileSystemAdapter', () => {
     vi.clearAllMocks();
   });
 
-  it('reconstructs a folder authorization refusal after the context bridge', async () => {
-    mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce({
-      error: {
-        category: 'authorization',
-        code: 'workspace.never-granted',
-        kind: 'refusal',
-        message: 'Folder access was declined.',
-        remedy: 'Choose this folder with Add folder to grant access.',
-      },
-      ok: false,
-    } as never);
-    await expect(adapter.requestDirectoryAccess()).rejects.toMatchObject({
-      code: 'workspace.never-granted',
-      failure: { remedy: 'Choose this folder with Add folder to grant access.' },
-    });
-  });
-
   it('declares platform "electron" (roots registry derives kind "path" from this)', () => {
     expect(adapter.platform).toBe('electron');
   });
 
-  describe('requestDirectoryAccess', () => {
-    it('should call electronAPI.fileSystem.requestDirectoryAccess', async () => {
-      const result = await adapter.requestDirectoryAccess();
-
-      expect(mockElectronAPI.fileSystem.requestDirectoryAccess).toHaveBeenCalledOnce();
-      expect(result).toEqual({
-        kind: 'directory',
-        name: 'mock-directory',
-        path: '/mock/path',
-        platform: 'electron',
-      });
-    });
-
-    it('does not perform a follow-up IPC call to persist the folder path', async () => {
-      const mockHandle = {
-        kind: 'directory' as const,
-        name: 'test-directory',
-        path: '/test/folder/path',
-        platform: 'electron' as const,
-      };
-
-      mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce({
-        ok: true,
-        value: mockHandle,
-      });
-
-      await adapter.requestDirectoryAccess();
-
-      // Main owns the last-folder preference via the registry's addRoot, so
-      // the renderer must not perform a separate saveLastFolder write.
-      expect(mockElectronAPI.fileSystem.saveLastFolder).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('readDirectory', () => {
-    it('should call electronAPI.fileSystem.readDirectory with handle', async () => {
-      const mockHandle = {
-        kind: 'directory' as const,
-        name: 'test',
-        path: '/test',
-        platform: 'electron' as const,
-      };
-      const mockFiles = [
-        {
-          depth: 0,
-          isVisible: true,
-          name: 'file1.txt',
-          path: '/test/file1.txt',
-          rootFolderId: 'test',
-          selectionState: 'unchecked',
-          type: 'file',
-        },
-      ];
-
-      mockElectronAPI.fileSystem.readDirectory.mockResolvedValue({ ok: true, value: mockFiles });
-
-      const result = await adapter.readDirectory(mockHandle);
-
-      expect(mockElectronAPI.fileSystem.readDirectory).toHaveBeenCalledWith(mockHandle);
-      expect(result).toEqual(mockFiles);
-    });
-  });
-
-  describe('readFile', () => {
-    it('should call electronAPI.fileSystem.readFile with handle', async () => {
-      const mockHandle = {
-        kind: 'file' as const,
-        name: 'file.txt',
-        path: '/test/file.txt',
-        platform: 'electron' as const,
-      };
-      const mockContent = 'file content';
-
-      mockElectronAPI.fileSystem.readFile.mockResolvedValue({ ok: true, value: mockContent });
-
-      const result = await adapter.readFile(mockHandle);
-
-      expect(mockElectronAPI.fileSystem.readFile).toHaveBeenCalledWith(mockHandle);
-      expect(result).toBe(mockContent);
-    });
-  });
-
-  describe('exists', () => {
-    it('should call electronAPI.fileSystem.exists with path', async () => {
-      const testPath = '/test/path';
-      mockElectronAPI.fileSystem.exists.mockResolvedValue({ ok: true, value: true });
-
-      const result = await adapter.exists(testPath);
-
-      expect(mockElectronAPI.fileSystem.exists).toHaveBeenCalledWith(testPath);
-      expect(result).toBe(true);
-    });
-
-    it('should return false when file does not exist', async () => {
-      const testPath = '/nonexistent/path';
-      mockElectronAPI.fileSystem.exists.mockResolvedValue({ ok: true, value: false });
-
-      const result = await adapter.exists(testPath);
-
-      expect(result).toBe(false);
-    });
-  });
-
-  // BST-307: Tests for readFileByPath
-  describe('readFileByPath', () => {
-    it('should call electronAPI.fileSystem.readFileByPath with absolute path', async () => {
-      const absolutePath = '/Users/test/project/file.ts';
-      const mockContent = 'export const example = "hello";';
-
-      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({ ok: true, value: mockContent });
-
-      const result = await adapter.readFileByPath(absolutePath);
-
-      expect(mockElectronAPI.fileSystem.readFileByPath).toHaveBeenCalledWith(absolutePath);
-      expect(result).toBe(mockContent);
-    });
-
-    it('should return file content for valid paths', async () => {
-      const testPath = '/test/documents/readme.md';
-      const expectedContent = '# Test README\n\nThis is a test file.';
-
-      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({
-        ok: true,
-        value: expectedContent,
-      });
-
-      const result = await adapter.readFileByPath(testPath);
-
-      expect(result).toBe(expectedContent);
-    });
-
-    it('should handle errors from the IPC call', async () => {
-      const testPath = '/nonexistent/file.txt';
-
-      mockElectronAPI.fileSystem.readFileByPath.mockRejectedValue(new Error('File not found'));
-
-      await expect(adapter.readFileByPath(testPath)).rejects.toThrow(INTERNAL_FAULT.message);
-    });
-
-    it('should propagate path validation errors from main process', async () => {
-      const invalidPath = '/etc/passwd';
-
-      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({
-        error: {
-          category: 'input',
-          code: 'workspace.path-invalid',
-          kind: 'refusal',
-          message: 'Invalid path',
-          remedy: 'Choose a connected folder.',
-        },
-        ok: false,
-      } as never);
-
-      await expect(adapter.readFileByPath(invalidPath)).rejects.toThrow('Invalid path');
-      expect(mockElectronAPI.fileSystem.readFileByPath).toHaveBeenCalledWith(invalidPath);
-    });
-  });
-
   describe('readFileByAbsolutePath', () => {
-    it('carries the claimed mounted root through the scoped bridge API', async () => {
-      const absolutePath = '/Users/test/project/file.txt';
-      const rootPath = '/Users/test/project';
-      const rootId = 'root-project';
-      mockElectronAPI.fileSystem.readFileByAbsolutePath.mockResolvedValue({
-        ok: true,
-        value: 'absolute content',
-      });
-
-      await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath, rootId)).resolves.toBe(
-        'absolute content'
-      );
-      expect(mockElectronAPI.fileSystem.readFileByAbsolutePath).toHaveBeenCalledExactlyOnceWith(
-        absolutePath,
-        rootPath,
-        rootId
-      );
-      expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
-    });
-
     it.each([
       { absolutePath: '/workspace/file.txt', rootPath: '' },
       { absolutePath: '/workspace/file.txt', rootPath: '   ' },
@@ -226,15 +38,9 @@ describe('ElectronRendererFileSystemAdapter', () => {
     ])(
       'rejects malformed explicit read authority root=$rootPath path=$absolutePath',
       async ({ absolutePath, rootPath }) => {
-        mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({
-          ok: true,
-          value: 'unsafe-content',
-        });
-
         await expect(
           adapter.readFileByAbsolutePath(absolutePath, rootPath, 'root-project')
         ).rejects.toThrow('absolute path');
-        expect(mockElectronAPI.fileSystem.readFileByPath).not.toHaveBeenCalled();
       }
     );
 
@@ -242,604 +48,51 @@ describe('ElectronRendererFileSystemAdapter', () => {
       await expect(
         adapter.readFileByAbsolutePath('/workspace/file.txt', '/workspace', '')
       ).rejects.toThrow('durable rootId');
-      expect(mockElectronAPI.fileSystem.readFileByAbsolutePath).not.toHaveBeenCalled();
     });
   });
 
-  describe('addRoot', () => {
-    it('should call electronAPI.fileSystem.addRoot and return the descriptor', async () => {
-      const mockDescriptor = {
-        displayName: 'my-project',
-        handle: {
-          kind: 'directory' as const,
-          name: 'my-project',
-          path: '/test/my-project',
-          platform: 'electron' as const,
-        },
-        kind: 'path' as const,
-        permissionState: 'granted' as const,
-        persisted: true,
-        rootId: 'abc-123',
-      };
-      mockElectronAPI.fileSystem.addRoot.mockResolvedValueOnce({ ok: true, value: mockDescriptor });
-
-      const result = await adapter.addRoot();
-
-      expect(mockElectronAPI.fileSystem.addRoot).toHaveBeenCalledOnce();
-      expect(result).toEqual(mockDescriptor);
-    });
-  });
-
-  describe('restoreRoots', () => {
-    it('should call electronAPI.fileSystem.restoreRoots and return descriptors', async () => {
-      const mockDescriptors = [
-        {
-          displayName: 'project-a',
-          handle: {
-            kind: 'directory' as const,
-            name: 'project-a',
-            path: '/test/project-a',
-            platform: 'electron' as const,
-          },
-          kind: 'path' as const,
-          permissionState: 'granted' as const,
-          persisted: true,
-          rootId: 'root-a',
-        },
-      ];
-      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce({
-        ok: true,
-        value: mockDescriptors,
-      });
-
-      const result = await adapter.restoreRoots();
-
-      expect(mockElectronAPI.fileSystem.restoreRoots).toHaveBeenCalledOnce();
-      expect(result).toEqual(mockDescriptors);
-    });
-
-    it('should return empty array when no roots are stored', async () => {
-      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce({ ok: true, value: [] });
-
-      const result = await adapter.restoreRoots();
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('restoreLastFolder', () => {
-    it('should call electronAPI.fileSystem.restoreLastFolder', async () => {
-      const mockHandle = {
-        kind: 'directory' as const,
-        name: 'restored-folder',
-        path: '/restored/folder/path',
-        platform: 'electron' as const,
-      };
-
-      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue({
-        ok: true,
-        value: mockHandle,
-      });
-
-      const result = await adapter.restoreLastFolder();
-
-      expect(mockElectronAPI.fileSystem.restoreLastFolder).toHaveBeenCalledOnce();
-      expect(result).toEqual(mockHandle);
-    });
-
-    it('should return null when no folder to restore', async () => {
-      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue({ ok: true, value: null });
-
-      const result = await adapter.restoreLastFolder();
-
-      expect(mockElectronAPI.fileSystem.restoreLastFolder).toHaveBeenCalledOnce();
-      expect(result).toBeNull();
-    });
-
-    it('should handle errors gracefully', async () => {
-      mockElectronAPI.fileSystem.restoreLastFolder.mockRejectedValue(new Error('Restore failed'));
-
-      await expect(adapter.restoreLastFolder()).rejects.toThrow(INTERNAL_FAULT.message);
-    });
-  });
-});
-
-describe('watcher health capability (BST-568 slice 3)', () => {
-  const handle = {
-    kind: 'directory' as const,
-    name: 'root',
-    path: '/roots/alpha',
-    platform: 'electron' as const,
-  };
-
-  function makeHealthEvent(
-    watchId: string,
-    state: string
-  ): {
-    backend: 'fs-events';
-    failure?: { code: string; message: string; retryable: boolean; terminal: boolean };
-    state: 'degraded' | 'failed' | 'healthy';
-    timestamp: number;
-    watchId: string;
-  } {
-    return {
-      backend: 'fs-events' as const,
-      state: state as 'degraded' | 'failed' | 'healthy',
-      timestamp: 1,
-      watchId,
-    };
-  }
-
-  let adapter: ElectronRendererFileSystemAdapter;
-  let pushHealth: ((event: WatcherHealthEvent) => void) | null;
-
-  beforeEach(() => {
-    __resetFsWatchDispatcherForTest();
-    adapter = new ElectronRendererFileSystemAdapter();
-    vi.clearAllMocks();
-    pushHealth = null;
-    vi.mocked(mockElectronAPI.fileSystem.onWatchHealth).mockImplementation(
-      (callback: (event: WatcherHealthEvent) => void) => {
-        pushHealth = callback;
-        return () => {
-          pushHealth = null;
-        };
-      }
-    );
-    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockResolvedValue({
-      watchId: 'watch-alpha',
-    });
-  });
-
-  it('surfaces an errored signal when fs:watch itself rejects', async () => {
-    // The snapshot path only runs on SUCCESS. When setup rejects outright —
-    // legacy fs.watch throwing EMFILE/EPERM, path validation failing, the
-    // per-renderer cap being hit — main deletes the entry and the invoke
-    // rejects, so there is no watchId to match the pushed 'failed' against AND
-    // no snapshot to fall back on. Console-only here would leave the root
-    // silently unwatched; the web adapter deliberately emits 'errored' for the
-    // exact analogue, and desktop must match.
-    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockRejectedValue(
-      new Error('EMFILE: too many open files')
-    );
-
-    const signals: Array<{ message?: string; type: string }> = [];
-    const stop = adapter.watchDirectory(handle, vi.fn(), (signal) => signals.push(signal));
-
-    await vi.waitFor(() => {
-      expect(signals).toHaveLength(1);
-    });
-    expect(signals[0]).toMatchObject({ type: 'errored' });
-    expect(signals[0]?.message).toContain('EMFILE: too many open files');
-
-    stop();
-  });
-
-  it('applies the health snapshot returned with the watch response', async () => {
-    // A `fs.watch` root watcher in `root-watchers.ts` that fails during setup
-    // has main push fs:watch-health BEFORE the fs:watch response
-    // resolves — at which point this renderer has no watchId registered yet and
-    // drops the event as unknown. With no later replay, the failure chip never
-    // appears while the root sits silently unwatched. Main therefore returns
-    // the latest transition WITH the response, and it must be applied.
-    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockResolvedValue({
-      health: {
-        backend: 'fs-events' as const,
-        failure: {
-          code: 'binding-load-failed',
-          message: 'no prebuild for this platform',
-          retryable: false,
-          terminal: true,
-        },
-        state: 'failed' as const,
-        timestamp: 7,
+  describe('workspace folders through the agent host', () => {
+    const descriptor = (rootId: string, path: string, available = true) => ({
+      displayName: path.split('/').at(-1),
+      handle: {
+        kind: 'directory',
+        name: path.split('/').at(-1),
+        path,
+        platform: 'electron',
+        rootId,
       },
-      watchId: 'watch-alpha',
+      kind: 'path',
+      permissionState: available ? 'granted' : 'unknown',
+      persisted: true,
+      rootId,
     });
 
-    const signals: Array<{ type: string }> = [];
-    const stop = adapter.watchDirectory(handle, vi.fn(), (signal) => signals.push(signal));
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
-    });
-
-    // A subscriber mounting after the fact still learns the root is dead.
-    const received: Array<{ rootPath: string; state: string }> = [];
-    const unsubscribe = adapter.onWatcherHealth((event) => {
-      received.push({ rootPath: event.rootPath, state: event.state });
-    });
-    await vi.waitFor(() => {
-      expect(received).toContainEqual({ rootPath: '/roots/alpha', state: 'failed' });
-    });
-
-    // ...and the shared FileSystemWatchSignal channel (#1764) is driven too.
-    expect(signals).toContainEqual({
-      message: 'no prebuild for this platform',
-      type: 'errored',
-    });
-
-    unsubscribe();
-    stop();
-  });
-
-  it('resolves health events to the rootPath of the owning watch', async () => {
-    const stop = adapter.watchDirectory(handle, vi.fn());
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
-    });
-    const received: Array<{ rootPath: string; state: string }> = [];
-    const unsubscribe = adapter.onWatcherHealth((event) => {
-      received.push({ rootPath: event.rootPath, state: event.state });
-    });
-
-    pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
-    expect(received).toContainEqual({
-      rootPath: '/roots/alpha',
-      state: 'failed',
-    });
-    unsubscribe();
-    stop();
-  });
-
-  it('replays health emitted before the bridge watch promise resolves', async () => {
-    const received: Array<{ rootPath: string; state: string }> = [];
-    const unsubscribe = adapter.onWatcherHealth((event) => {
-      received.push({ rootPath: event.rootPath, state: event.state });
-    });
-    vi.mocked(mockElectronAPI.fileSystem.watchDirectory).mockImplementation(() => {
-      pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
-      return Promise.resolve({ watchId: 'watch-alpha' });
-    });
-
-    const stop = adapter.watchDirectory(handle, vi.fn());
-
-    await vi.waitFor(() => {
-      expect(received).toContainEqual({
-        rootPath: '/roots/alpha',
-        state: 'failed',
+    it('answers the picked folder as a granted root descriptor', async () => {
+      roots.pickRoot.mockResolvedValueOnce(descriptor('root-a', '/test/project-a'));
+      await expect(adapter.addRoot()).resolves.toEqual(descriptor('root-a', '/test/project-a'));
+      roots.pickRoot.mockResolvedValueOnce(descriptor('root-a', '/test/project-a'));
+      await expect(adapter.requestDirectoryAccess()).resolves.toMatchObject({
+        path: '/test/project-a',
+        rootId: 'root-a',
       });
     });
-    unsubscribe();
-    stop();
-  });
 
-  it('replays the latest known state per root to a late subscriber', async () => {
-    const stop = adapter.watchDirectory(handle, vi.fn());
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
-    });
-    // Prime the health state BEFORE anyone subscribes: an early subscription
-    // captures pushHealth, then unsubscribes.
-    const prime = adapter.onWatcherHealth(() => undefined);
-    pushHealth?.(makeHealthEvent('watch-alpha', 'healthy'));
-    pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
-    prime();
-
-    const received: Array<{ rootPath: string; state: string }> = [];
-    const unsubscribe = adapter.onWatcherHealth((event) => {
-      received.push({ rootPath: event.rootPath, state: event.state });
-    });
-    expect(received).toEqual([{ rootPath: '/roots/alpha', state: 'failed' }]);
-    unsubscribe();
-    stop();
-  });
-
-  it('retryWatcher maps the rootPath back to its watchId', async () => {
-    const stop = adapter.watchDirectory(handle, vi.fn());
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
+    it('keeps a picker cancellation a cancellation', async () => {
+      roots.pickRoot.mockRejectedValueOnce(new UserCancelledError());
+      await expect(adapter.addRoot()).rejects.toBeInstanceOf(UserCancelledError);
     });
 
-    const outcome = await adapter.retryWatcher('/roots/alpha');
-    expect(outcome).toEqual({ retried: true });
-    expect(mockElectronAPI.fileSystem.retryWatch).toHaveBeenCalledWith('watch-alpha');
-    stop();
-  });
-
-  it('retryWatcher reports unknown for a root without a live watch', async () => {
-    const outcome = await adapter.retryWatcher('/roots/never-watched');
-    expect(outcome).toEqual({ reason: 'unknown', retried: false });
-    expect(mockElectronAPI.fileSystem.retryWatch).not.toHaveBeenCalled();
-  });
-
-  it('translates health into the shared FileSystemWatchSignal channel (#1764)', async () => {
-    const signals: unknown[] = [];
-    const stop = adapter.watchDirectory(handle, vi.fn(), (signal) => {
-      signals.push(signal);
+    it('routes restore, recents, path re-add and removal to the host', async () => {
+      roots.restoreRoots.mockResolvedValueOnce([descriptor('root-b', '/test/b', false)]);
+      await expect(adapter.restoreRoots()).resolves.toEqual([
+        descriptor('root-b', '/test/b', false),
+      ]);
+      await adapter.listRecentRoots();
+      await adapter.addRootByPath('/test/b');
+      await adapter.removeRoot('root-b');
+      expect(roots.listRecentRoots).toHaveBeenCalledOnce();
+      expect(roots.addRootByPath).toHaveBeenCalledWith('/test/b');
+      expect(roots.removeRoot).toHaveBeenCalledWith('root-b');
     });
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
-    });
-    // Prime the shared subscription so pushHealth is captured.
-    const prime = adapter.onWatcherHealth(() => undefined);
-
-    pushHealth?.(makeHealthEvent('watch-alpha', 'healthy'));
-    expect(signals).toEqual([]);
-
-    pushHealth?.(makeHealthEvent('watch-alpha', 'degraded'));
-    expect(signals).toEqual([{ type: 'overflow' }]);
-
-    pushHealth?.({
-      backend: 'fs-events' as const,
-      failure: { code: 'x', message: 'dead', retryable: true, terminal: false },
-      state: 'failed' as const,
-      timestamp: 2,
-      watchId: 'watch-alpha',
-    });
-    expect(signals).toEqual([{ type: 'overflow' }, { message: 'dead', type: 'errored' }]);
-    prime();
-    stop();
-  });
-
-  it('disposing the watch clears its health state and mapping', async () => {
-    const stop = adapter.watchDirectory(handle, vi.fn());
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalled();
-    });
-    const prime = adapter.onWatcherHealth(() => undefined);
-    pushHealth?.(makeHealthEvent('watch-alpha', 'failed'));
-    prime();
-    stop();
-
-    const received: unknown[] = [];
-    const unsubscribe = adapter.onWatcherHealth((event) => {
-      received.push(event);
-    });
-    expect(received).toEqual([]);
-    const outcome = await adapter.retryWatcher('/roots/alpha');
-    expect(outcome).toEqual({ reason: 'unknown', retried: false });
-    unsubscribe();
-  });
-});
-
-describe('ElectronRendererStorageAdapter', () => {
-  let adapter: ElectronRendererStorageAdapter;
-
-  beforeEach(() => {
-    adapter = new ElectronRendererStorageAdapter();
-    vi.clearAllMocks();
-  });
-
-  describe('getItem', () => {
-    it('should call electronAPI.storage.getItem with key', async () => {
-      const key = 'test-key';
-      const value = 'test-value';
-      mockElectronAPI.storage.getItem.mockResolvedValue(value);
-
-      const result = await adapter.getItem(key);
-
-      expect(mockElectronAPI.storage.getItem).toHaveBeenCalledWith(key);
-      expect(result).toBe(value);
-    });
-
-    it('should return null for non-existent key', async () => {
-      const key = 'nonexistent-key';
-      mockElectronAPI.storage.getItem.mockResolvedValue(null);
-
-      const result = await adapter.getItem(key);
-
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('setItem', () => {
-    it('should call electronAPI.storage.setItem with key and value', async () => {
-      const key = 'test-key';
-      const value = 'test-value';
-
-      await adapter.setItem(key, value);
-
-      expect(mockElectronAPI.storage.setItem).toHaveBeenCalledWith(key, value);
-    });
-  });
-
-  describe('removeItem', () => {
-    it('should call electronAPI.storage.removeItem with key', async () => {
-      const key = 'test-key';
-
-      await adapter.removeItem(key);
-
-      expect(mockElectronAPI.storage.removeItem).toHaveBeenCalledWith(key);
-    });
-  });
-
-  describe('getAllKeys', () => {
-    it('should call electronAPI.storage.getAllKeys', async () => {
-      const mockKeys = ['key1', 'key2', 'key3'];
-      mockElectronAPI.storage.getAllKeys.mockResolvedValue(mockKeys);
-
-      const result = await adapter.getAllKeys();
-
-      expect(mockElectronAPI.storage.getAllKeys).toHaveBeenCalledOnce();
-      expect(result).toEqual(mockKeys);
-    });
-
-    it('should return empty array when no keys exist', async () => {
-      mockElectronAPI.storage.getAllKeys.mockResolvedValue([]);
-
-      const result = await adapter.getAllKeys();
-
-      expect(result).toEqual([]);
-    });
-  });
-});
-
-describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
-  const handle = {
-    kind: 'directory' as const,
-    name: 'workspace',
-    path: '/workspace',
-    platform: 'electron' as const,
-  };
-  const sampleChanges = [
-    { kind: 'file' as const, path: '/workspace/a.ts', type: 'added' as const },
-  ];
-
-  let adapter: ElectronRendererFileSystemAdapter;
-  let pushEvent:
-    | ((event: {
-        changes: typeof sampleChanges;
-        filteredChangeBoundaries?: readonly string[];
-        filteredChangeBoundariesOverflow?: true;
-        watchId: string;
-      }) => void)
-    | null;
-  let unsubscribe: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    __resetFsWatchDispatcherForTest();
-    adapter = new ElectronRendererFileSystemAdapter();
-    vi.clearAllMocks();
-    pushEvent = null;
-    unsubscribe = vi.fn();
-    mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(((
-      callback: (event: {
-        changes: typeof sampleChanges;
-        filteredChangeBoundaries?: readonly string[];
-        filteredChangeBoundariesOverflow?: true;
-        watchId: string;
-      }) => void
-    ) => {
-      pushEvent = callback;
-      return unsubscribe;
-    }) as unknown as () => () => void);
-    mockElectronAPI.fileSystem.watchDirectory.mockResolvedValue({ watchId: 'watch-1' });
-  });
-
-  it('starts a bridge watch for the handle and forwards matching change events', async () => {
-    const onChanges = vi.fn();
-
-    adapter.watchDirectory(handle, onChanges);
-    await vi.waitFor(() => {
-      expect(pushEvent).not.toBeNull();
-    });
-
-    pushEvent?.({ changes: sampleChanges, watchId: 'watch-1' });
-    expect(onChanges).toHaveBeenCalledWith(sampleChanges);
-  });
-
-  it('forwards filtered-boundary evidence through the existing shared watch callback', async () => {
-    const onChanges = vi.fn();
-
-    adapter.watchDirectory(handle, onChanges);
-    await vi.waitFor(() => {
-      expect(pushEvent).not.toBeNull();
-    });
-
-    pushEvent?.({
-      changes: [],
-      filteredChangeBoundaries: ['packages/app/dist'],
-      filteredChangeBoundariesOverflow: true,
-      watchId: 'watch-1',
-    });
-    expect(onChanges).toHaveBeenCalledWith([], {
-      filteredChangeBoundaries: ['packages/app/dist'],
-      filteredChangeBoundariesOverflow: true,
-    });
-  });
-
-  it('ignores change events stamped with a different watchId', async () => {
-    const onChanges = vi.fn();
-
-    adapter.watchDirectory(handle, onChanges);
-    await vi.waitFor(() => {
-      expect(pushEvent).not.toBeNull();
-    });
-
-    pushEvent?.({ changes: sampleChanges, watchId: 'someone-else' });
-    expect(onChanges).not.toHaveBeenCalled();
-  });
-
-  it('shares ONE onWatchEvent subscription across many watches and routes by watchId', async () => {
-    const onChangesA = vi.fn();
-    const onChangesB = vi.fn();
-    mockElectronAPI.fileSystem.watchDirectory
-      .mockResolvedValueOnce({ watchId: 'watch-a' })
-      .mockResolvedValueOnce({ watchId: 'watch-b' });
-
-    adapter.watchDirectory(handle, onChangesA);
-    adapter.watchDirectory({ ...handle, path: '/workspace-2' }, onChangesB);
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalledTimes(2);
-      expect(pushEvent).not.toBeNull();
-    });
-
-    // Only one bridge listener for the whole channel, no matter the root count.
-    expect(mockElectronAPI.fileSystem.onWatchEvent).toHaveBeenCalledTimes(1);
-
-    pushEvent?.({ changes: sampleChanges, watchId: 'watch-b' });
-    expect(onChangesB).toHaveBeenCalledWith(sampleChanges);
-    expect(onChangesA).not.toHaveBeenCalled();
-  });
-
-  it('keeps the shared subscription alive until the LAST watch is disposed', async () => {
-    mockElectronAPI.fileSystem.watchDirectory
-      .mockResolvedValueOnce({ watchId: 'watch-a' })
-      .mockResolvedValueOnce({ watchId: 'watch-b' });
-
-    const disposeA = adapter.watchDirectory(handle, vi.fn());
-    const disposeB = adapter.watchDirectory({ ...handle, path: '/workspace-2' }, vi.fn());
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.watchDirectory).toHaveBeenCalledTimes(2);
-      expect(pushEvent).not.toBeNull();
-    });
-
-    disposeA();
-    expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-a');
-    // One watch remains → shared listener still attached.
-    expect(unsubscribe).not.toHaveBeenCalled();
-
-    disposeB();
-    expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-b');
-    // Last watch gone → shared listener torn down.
-    expect(unsubscribe).toHaveBeenCalledOnce();
-  });
-
-  it('disposer unwatches in main', async () => {
-    const dispose = adapter.watchDirectory(handle, vi.fn());
-    await vi.waitFor(() => {
-      expect(pushEvent).not.toBeNull();
-    });
-
-    dispose();
-
-    expect(unsubscribe).toHaveBeenCalledOnce();
-    expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-1');
-  });
-
-  it('disposing before the watch resolves still unwatches once the id arrives', async () => {
-    let resolveWatch: (value: { watchId: string }) => void = () => {};
-    mockElectronAPI.fileSystem.watchDirectory.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveWatch = resolve;
-        })
-    );
-
-    const onChanges = vi.fn();
-    const dispose = adapter.watchDirectory(handle, onChanges);
-    dispose();
-    resolveWatch({ watchId: 'watch-late' });
-
-    await vi.waitFor(() => {
-      expect(mockElectronAPI.fileSystem.unwatchDirectory).toHaveBeenCalledWith('watch-late');
-    });
-    // Disposed before resolve → never registered, so no bridge subscription.
-    expect(mockElectronAPI.fileSystem.onWatchEvent).not.toHaveBeenCalled();
-    pushEvent?.({ changes: sampleChanges, watchId: 'watch-late' });
-    expect(onChanges).not.toHaveBeenCalled();
-  });
-
-  it('returns a no-op disposer when the bridge lacks the watch capability', () => {
-    const original = mockElectronAPI.fileSystem.watchDirectory;
-    // Simulate an older preload without the watch bridge.
-    (mockElectronAPI.fileSystem as { watchDirectory?: unknown }).watchDirectory = undefined;
-    try {
-      const dispose = adapter.watchDirectory(handle, vi.fn());
-      expect(() => dispose()).not.toThrow();
-      expect(mockElectronAPI.fileSystem.onWatchEvent).not.toHaveBeenCalled();
-    } finally {
-      mockElectronAPI.fileSystem.watchDirectory = original;
-    }
   });
 });

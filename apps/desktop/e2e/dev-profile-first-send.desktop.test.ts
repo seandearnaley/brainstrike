@@ -9,7 +9,11 @@ import path from 'node:path';
 import { test as base, expect, type Page } from '@playwright/test';
 import { createServer } from 'vite';
 import { HomePage } from './page-objects/home-page';
-import { readCommittedRuns, waitForAppHost } from './utils/agent-host-log';
+import {
+  readCommittedRuns,
+  readOpenWorkspaceFolders,
+  waitForAppHost,
+} from './utils/agent-host-log';
 import { type ModelProviderShim, startModelProviderShim } from './utils/model-provider-shim';
 import { startThread } from './utils/new-thread';
 import {
@@ -63,29 +67,23 @@ async function disconnectRoot(page: Page): Promise<void> {
   await expect(page.getByTestId('single-root-header-row')).toHaveCount(0);
 }
 
-async function addRoot(page: Page): Promise<string> {
+/** Adds the folder through the real picker; `hostRoot` is the profile's host Root. */
+async function addRoot(page: Page, hostRoot: string): Promise<string> {
   await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
   await expect(page.getByTestId('single-root-header-row')).toContainText('brainstrike');
-  const roots = await page.evaluate(async () => {
-    if (!window.electronAPI) {
-      throw new Error('Desktop bridge unavailable');
-    }
-    const reply = await window.electronAPI.fileSystem.restoreRoots();
-    if (!reply.ok) {
-      throw new Error(reply.error.message);
-    }
-    return reply.value.map((root) => ({
-      id: root.rootId,
-      permissionState: root.permissionState,
-    }));
-  });
+  const roots = readOpenWorkspaceFolders(hostRoot);
   expect(roots).toHaveLength(1);
-  expect(roots[0]?.permissionState).toBe('granted');
+  expect(roots[0]?.status).toBe('live');
   const id = roots[0]?.id;
   if (!id) {
     throw new Error('Actual picker did not register a root');
   }
   return id;
+}
+
+/** A profile's host Root: its record and store sit in the profile's database root. */
+function profileHostRoot(ordinaryDev: OrdinaryDev, profile: string): string {
+  return path.join(ordinaryDev.directory, 'database/profiles', profile);
 }
 
 interface OrdinaryDev {
@@ -189,7 +187,7 @@ test('ordinary dev excludes a second app, then reopens A with its first Sends an
   // A fresh profile has no model: the new-thread composer waits for one.
   await chooseModel(a.page);
   await send(a.page, 'A_NO_FOLDER');
-  await addRoot(a.page);
+  await addRoot(a.page, profileHostRoot(ordinaryDev, 'incident-a'));
   await send(a.page, 'A_WITH_FOLDER');
 
   const credentialPath = path.join(a.userData, 'brainstrike-credentials.json');
@@ -259,7 +257,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
   // A fresh profile has no model: the new-thread composer waits for one.
   await chooseModel(a.page);
   await send(a.page, 'A_NO_FOLDER');
-  const rootA = await addRoot(a.page);
+  const rootA = await addRoot(a.page, profileHostRoot(ordinaryDev, 'incident-a'));
   await disconnectRoot(a.page);
   await ordinaryDev.close();
 
@@ -273,7 +271,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
   await configureProvider(b.page);
   await chooseModel(b.page);
   await send(b.page, 'B_NO_FOLDER');
-  const rootB = await addRoot(b.page);
+  const rootB = await addRoot(b.page, profileHostRoot(ordinaryDev, 'incident-b'));
   expect(rootB).not.toBe(rootA);
   await send(b.page, 'B_WITH_FOLDER');
   await ordinaryDev.close();
@@ -286,12 +284,12 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
       returnedA.page.getByTestId('assistant-ui-viewport').getByText(text, { exact: true })
     ).toHaveCount(0);
   }
-  const restoredA = await addRoot(returnedA.page);
+  const restoredA = await addRoot(returnedA.page, profileHostRoot(ordinaryDev, 'incident-a'));
   expect(restoredA).toBe(rootA);
   await send(returnedA.page, 'A_RETURN_FIRST_SEND');
   // A's own host committed the first Send after return. The host publishes its
   // record in the profile's database root, beside Electron's per-profile userData.
-  const hostRoot = path.join(ordinaryDev.directory, 'database/profiles/incident-a');
+  const hostRoot = profileHostRoot(ordinaryDev, 'incident-a');
   const threadId = await selectedThreadId(returnedA.page);
   expect((await readCommittedRuns(hostRoot, threadId)).map((run) => run.status)).toEqual([
     'completed',

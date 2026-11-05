@@ -1,4 +1,5 @@
 export { TooltipIconButton, type TooltipIconButtonProps } from '@brainstrike/ui';
+export { ApprovalChangeProvider, type ReadApprovalChange } from './approval-change-context';
 export type { ApprovalOwnerThread } from './approval-owner-thread-context';
 export {
   AssistantConversationPanel,
@@ -23,9 +24,9 @@ export {
 export {
   type ChangesReviewContextValue,
   ChangesReviewProvider,
+  type RunChangesTarget,
   useChangesReviewContext,
 } from './changes-review-context';
-export { ChangesReviewLink } from './changes-review-link';
 export {
   CheckpointTurnRevert,
   CheckpointTurnRevertControl,
@@ -83,7 +84,6 @@ export type {
   MemoryCycleDisplay,
   MemoryCyclesDisplay,
   MemoryModelsDisplay,
-  MemoryRecallDisplay,
   OmAwaitingObserverReason,
   OmMeterState,
   OmRecordLifecycle,
@@ -142,6 +142,7 @@ export {
   useRunVerdictContext,
 } from './run-verdict-context';
 export type { SlashCommand } from './slash-commands';
+export { SubagentChip, type SubagentChipAgent } from './subagent-chip';
 export {
   type DelegatedApprovalOwner,
   DelegatedApprovalOwnerContext,

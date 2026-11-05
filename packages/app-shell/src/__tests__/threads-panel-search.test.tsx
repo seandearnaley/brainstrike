@@ -1,8 +1,8 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { renderMarkedText } from '../thread-search-headline';
-import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
+import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanelSearch } from '../threads-panel-search';
 
 const THREAD: AssistantMemoryThread = {
@@ -55,10 +55,6 @@ describe('renderMarkedText', () => {
 });
 
 describe('ThreadsPanelSearch', () => {
-  beforeEach(() => {
-    resetThreadSearchStore();
-  });
-
   it('renders only the input when idle', () => {
     renderSearch();
     expect(screen.getByTestId('thread-search-input')).toBeInTheDocument();
@@ -134,7 +130,20 @@ describe('ThreadsPanelSearch', () => {
       status: 'results',
     });
     renderSearch();
-    expect(screen.getByTestId('thread-search-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('thread-search-empty')).toHaveTextContent('No matching threads.');
+
+    fireEvent.click(within(screen.getByTestId('thread-search-empty')).getByRole('button'));
+    expect(useThreadSearchStore.getState().query).toBe('');
+    expect(screen.getByTestId('thread-search-input')).toHaveFocus();
+  });
+
+  it('keeps the clear button while a search is running', () => {
+    useThreadSearchStore.setState({ query: 'hnsw', results: null, status: 'searching' });
+    renderSearch();
+
+    expect(screen.getByTestId('thread-search-spinner')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(useThreadSearchStore.getState().query).toBe('');
   });
 
   it('renders the error state with a retry affordance', () => {

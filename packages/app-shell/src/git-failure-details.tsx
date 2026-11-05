@@ -35,7 +35,7 @@ export function GitFailureDetails({
       <p className={summaryClassName}>{summary}</p>
       {full === summary ? null : (
         <details className="w-full text-left text-xs" data-testid="git-failure-details">
-          <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring cursor-pointer select-none focus-visible:ring-1 focus-visible:outline-none">
+          <summary className="text-muted-foreground hover:text-foreground focus-visible:ring-ring cursor-pointer select-none focus-visible:ring-1 focus-visible:outline-hidden">
             Full git output
           </summary>
           <pre className="border-border bg-muted/30 text-foreground mt-2 max-h-64 overflow-auto rounded-md border p-2 font-mono text-[11px] break-all whitespace-pre-wrap">

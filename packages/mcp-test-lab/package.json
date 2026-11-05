@@ -41,9 +41,7 @@
   "scripts": {
     "build": "node ../../scripts/rimraf.mjs dist && tsc && node scripts/verify-built-package.mjs",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "lint": "pnpm -w lint",
-    "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:watch": "vitest",
+    "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,

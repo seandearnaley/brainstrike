@@ -4,7 +4,7 @@
  * - { percent: 32 }
  * - { progress: 0.42 }
  * - { done: 21, total: 100 }
- * - { message: 'embedding chunk 5/100' }
+ * - { message: 'processing file 5/100' }
  */
 
 export interface NormalizedProgress {

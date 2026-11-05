@@ -50,25 +50,35 @@ export interface ConnectFolderApi {
     | ((request: WorkspaceOpenPathRequest) => Promise<DirectoryHandle | null>)
     | undefined;
   /**
-   * The ordinary OS picker — the same call the Folder chip's Add folder…
-   * makes. Present only when `isFileSystemAccessSupported()` says so
-   * (BST-1393 review finding: this used to be unconditional, which un-gated
-   * the ⌘K "Open folder…" command on browsers without FSA — Firefox, Safari
-   * — where invoking it always threw). Desktop is unaffected: the Electron
-   * adapter always reports supported.
+   * Open Folder…: the OS picker, whose folder becomes the window's project in place of the
+   * open folders where the platform can replace them (desktop, ADR-0034), else joins them.
+   * Present only when `isFileSystemAccessSupported()` says so (BST-1393 review finding: this
+   * used to be unconditional, which un-gated the ⌘K "Open folder…" command on browsers without
+   * FSA — Firefox, Safari — where invoking it always threw). Desktop is unaffected: the
+   * Electron adapter always reports supported.
    */
   readonly openPicker?: (() => Promise<void>) | undefined;
+}
+
+/**
+ * A folder dropped on the window, or a worktree an agent moved its thread to, joins the open
+ * folders. Every other request (File ▸ Open Recent, `brainstrike <path>`, open-file, a second
+ * instance) opens the folder as the window's project (ADR-0034).
+ */
+function joinsOpenFolders(origin: WorkspaceOpenPathRequest['origin']): boolean {
+  return origin === 'drop' || origin === 'agent-worktree';
 }
 
 export function useConnectFolder(): ConnectFolderApi {
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
+  const openRootDirectory = fileSystem.openRootDirectory;
   const isFileSystemAccessSupported = fileSystem.isFileSystemAccessSupported;
 
-  const openPicker = async (): Promise<void> => {
+  const runPicker = async (join: boolean): Promise<void> => {
     try {
-      await addRootDirectory();
+      await (join || !openRootDirectory ? addRootDirectory() : openRootDirectory());
     } catch (error: unknown) {
       logger.error('Open Folder failed', { error });
       toast({
@@ -78,6 +88,7 @@ export function useConnectFolder(): ConnectFolderApi {
       });
     }
   };
+  const openPicker = (): Promise<void> => runPicker(false);
 
   const connectPath = async ({
     origin,
@@ -92,8 +103,9 @@ export function useConnectFolder(): ConnectFolderApi {
       });
       return null;
     }
+    const join = joinsOpenFolders(origin) || !openRootDirectory;
     try {
-      const handle = await addRootDirectoryByPath(path);
+      const handle = await (join ? addRootDirectoryByPath(path) : openRootDirectory(path));
       if (!handle) {
         toast({
           description: `${path} could not be connected as a workspace folder.`,
@@ -118,9 +130,9 @@ export function useConnectFolder(): ConnectFolderApi {
             <ToastAction
               altText="Choose this folder in the system picker to grant access"
               data-testid="workspace-connect-grant-action"
-              onClick={() => void openPicker()}
+              onClick={() => void runPicker(join)}
             >
-              Add folder…
+              {join ? 'Add folder…' : 'Open folder…'}
             </ToastAction>
           ),
           description: `${path}: ${message}`,

@@ -36,6 +36,7 @@ import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { summarizeGitFailure } from '../git-failure-summary';
 import { resolvePlatformBridge } from '../platform-bridge';
+import { subscribeRootRegistered } from '../roots/root-registration-events';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreesBridge } from '../workspace-git-services';
 import { useTerminalBridge } from '../workspace-terminal-services';
@@ -508,12 +509,25 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   // show "Local" indefinitely — `currentEntry` can never match anything in
   // an empty list — even though its checkout metadata was persisted
   // correctly. The list is read-only and cheap, so loading it on mount is
-  // the same eager pattern `settings` already uses just above.
+  // the same eager pattern `settings` already uses just above. Each folder
+  // registration reads it again: a worktree mounted after the list was read
+  // (one whose record a reopening thread wrote again, or one under a repository
+  // opened since) would otherwise read as missing until the picker opens.
   useEffect(() => {
-    let cancelled = false;
-    void refreshList(() => cancelled);
+    let cancelRead = (): void => {};
+    const read = (): void => {
+      cancelRead();
+      let cancelled = false;
+      cancelRead = () => {
+        cancelled = true;
+      };
+      void refreshList(() => cancelled);
+    };
+    const unsubscribe = subscribeRootRegistered(read);
+    read();
     return () => {
-      cancelled = true;
+      unsubscribe();
+      cancelRead();
     };
   }, [refreshList]);
 

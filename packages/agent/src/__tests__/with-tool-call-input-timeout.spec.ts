@@ -4,12 +4,10 @@ import {
   withToolCallInputTimeout,
 } from '../stream/with-tool-call-input-timeout';
 
+/** AI SDK 7 `fullStream` parts: tool-input parts name their call `id`. */
 interface TestPart {
-  argsTextDelta?: string;
-  payload?: {
-    argsTextDelta?: string;
-    toolCallId?: string;
-  };
+  delta?: string;
+  id?: string;
   toolCallId?: string | undefined;
   type: string;
 }
@@ -23,30 +21,16 @@ const TOOL_INPUT_DELTA_COUNT = Math.ceil(
 );
 
 async function* completedToolInput(): AsyncIterableIterator<TestPart> {
-  yield { toolCallId: 'call-1', type: 'tool-call-input-streaming-start' };
-  yield { argsTextDelta: '{"path":"index.html"}', toolCallId: 'call-1', type: 'tool-call-delta' };
-  yield { toolCallId: 'call-1', type: 'tool-call-input-streaming-end' };
+  yield { id: 'call-1', type: 'tool-input-start' };
+  yield { delta: '{"path":"index.html"}', id: 'call-1', type: 'tool-input-delta' };
+  yield { id: 'call-1', type: 'tool-input-end' };
 }
 
 async function* stuckToolInput(): AsyncIterableIterator<TestPart> {
-  yield { toolCallId: 'call-stuck', type: 'tool-call-input-streaming-start' };
+  yield { id: 'call-stuck', type: 'tool-input-start' };
   for (let index = 0; index < TOOL_INPUT_DELTA_COUNT; index += 1) {
     await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_DELTA_CADENCE_MS));
-    yield { argsTextDelta: 'x', toolCallId: 'call-stuck', type: 'tool-call-delta' };
-  }
-}
-
-async function* stuckNestedToolInput(): AsyncIterableIterator<TestPart> {
-  yield {
-    payload: { toolCallId: 'call-nested' },
-    type: 'tool-call-input-streaming-start',
-  };
-  for (let index = 0; index < TOOL_INPUT_DELTA_COUNT; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_DELTA_CADENCE_MS));
-    yield {
-      payload: { argsTextDelta: 'x', toolCallId: 'call-nested' },
-      type: 'tool-call-delta',
-    };
+    yield { delta: 'x', id: 'call-stuck', type: 'tool-input-delta' };
   }
 }
 
@@ -58,9 +42,9 @@ describe('withToolCallInputTimeout', () => {
     }
 
     expect(parts.map((part) => part.type)).toEqual([
-      'tool-call-input-streaming-start',
-      'tool-call-delta',
-      'tool-call-input-streaming-end',
+      'tool-input-start',
+      'tool-input-delta',
+      'tool-input-end',
     ]);
   });
 
@@ -133,7 +117,7 @@ describe('withToolCallInputTimeout', () => {
     // cadence assertion is hurt by it. The 200ms / 20ms ratio gives loaded
     // runners ~10x per-gap headroom while still proving deltas cannot reset the
     // absolute deadline.
-    expect(parts.filter((part) => part.type === 'tool-call-delta').length).toBeGreaterThan(1);
+    expect(parts.filter((part) => part.type === 'tool-input-delta').length).toBeGreaterThan(1);
   });
 
   it('notifies the owner with the distinct timeout before source cancellation can mask it', async () => {
@@ -157,27 +141,12 @@ describe('withToolCallInputTimeout', () => {
     });
   });
 
-  it('recognizes Mastra tool-call ids nested in payloads', async () => {
-    await expect(async () => {
-      for await (const _part of withToolCallInputTimeout(
-        stuckNestedToolInput(),
-        TOOL_INPUT_TEST_TIMEOUT_MS
-      )) {
-        // Drain until the absolute tool-input deadline expires.
-      }
-    }).rejects.toMatchObject({
-      code: 'tool_call_input_streaming_timeout',
-      timeoutMs: TOOL_INPUT_TEST_TIMEOUT_MS,
-      toolCallId: 'call-nested',
-    });
-  });
-
   it('does not reopen a completed call when late progress markers arrive', async () => {
     async function* completedBeforeProgress(): AsyncIterableIterator<TestPart> {
       yield { toolCallId: 'call-complete', type: 'tool-call' };
-      yield { toolCallId: 'call-complete', type: 'tool-call-input-streaming-start' };
+      yield { id: 'call-complete', type: 'tool-input-start' };
       await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_LATE_DELTA_DELAY_MS));
-      yield { argsTextDelta: 'late', toolCallId: 'call-complete', type: 'tool-call-delta' };
+      yield { delta: 'late', id: 'call-complete', type: 'tool-input-delta' };
     }
 
     const parts: TestPart[] = [];
@@ -193,11 +162,11 @@ describe('withToolCallInputTimeout', () => {
 
   it('does not reopen an ended input when late progress markers arrive', async () => {
     async function* endedBeforeProgress(): AsyncIterableIterator<TestPart> {
-      yield { toolCallId: 'call-ended', type: 'tool-call-input-streaming-start' };
-      yield { toolCallId: 'call-ended', type: 'tool-call-input-streaming-end' };
-      yield { argsTextDelta: 'late', toolCallId: 'call-ended', type: 'tool-call-delta' };
+      yield { id: 'call-ended', type: 'tool-input-start' };
+      yield { id: 'call-ended', type: 'tool-input-end' };
+      yield { delta: 'late', id: 'call-ended', type: 'tool-input-delta' };
       await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_LATE_DELTA_DELAY_MS));
-      yield { argsTextDelta: 'later', toolCallId: 'call-ended', type: 'tool-call-delta' };
+      yield { delta: 'later', id: 'call-ended', type: 'tool-input-delta' };
     }
 
     const parts: TestPart[] = [];
@@ -213,18 +182,14 @@ describe('withToolCallInputTimeout', () => {
 
   it('rejects an expired deadline before consuming an already-buffered delta', async () => {
     async function* bufferedToolInput(): AsyncIterableIterator<TestPart> {
-      yield { toolCallId: 'call-buffered', type: 'tool-call-input-streaming-start' };
-      yield {
-        argsTextDelta: 'already buffered',
-        toolCallId: 'call-buffered',
-        type: 'tool-call-delta',
-      };
+      yield { id: 'call-buffered', type: 'tool-input-start' };
+      yield { delta: 'already buffered', id: 'call-buffered', type: 'tool-input-delta' };
     }
 
     const iterator = withToolCallInputTimeout(bufferedToolInput(), TOOL_INPUT_TEST_TIMEOUT_MS);
     await expect(iterator.next()).resolves.toMatchObject({
       done: false,
-      value: { type: 'tool-call-input-streaming-start' },
+      value: { type: 'tool-input-start' },
     });
     await new Promise((resolve) => setTimeout(resolve, TOOL_INPUT_LATE_DELTA_DELAY_MS));
 

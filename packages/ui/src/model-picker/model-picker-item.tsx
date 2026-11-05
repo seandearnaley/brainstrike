@@ -21,9 +21,6 @@ export function ModelPickerItem({
   const providerColor = getProviderColor(model.providerId, theme);
   const metadata = [
     model.contextWindow ? formatContextWindow(model.contextWindow) : null,
-    model.capabilities.defaultDimension
-      ? `${model.capabilities.defaultDimension.toLocaleString()} dimensions`
-      : null,
     model.capabilities.streaming ? 'Streaming' : null,
   ].filter((value): value is string => value !== null);
 

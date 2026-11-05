@@ -21,7 +21,7 @@ const rejection = (statusCode: number, code: string) =>
     requestBodyValues: {},
     responseBody: JSON.stringify({ error: { code, message: 'rejected' } }),
     statusCode,
-    url: 'https://memory-provider.invalid/v1/embeddings',
+    url: 'https://memory-provider.invalid/v1/responses',
   });
 
 const outcome = () =>
@@ -35,18 +35,18 @@ test('a memory model’s rejection is memory’s typed failure, never the chat p
   removers.push(addLogListener((record) => records.push(record)));
   const failed = outcome();
   const step = HostMemoryStepError.wrap(
-    'recall',
+    'observe',
     rejection(401, 'invalid_api_key'),
     memoryComponentFailure({
-      component: 'embedder',
+      component: 'observer',
       httpStatus: 401,
-      modelId: 'openai::text-embedding-3-small',
-      step: 'recall',
+      modelId: 'openai::gpt-4.1-mini',
+      step: 'observe',
     })
   );
   failed.fail(step);
   expect(failed.detail()).toBe(
-    `Memory recall failed because its embedding model (OpenAI text-embedding-3-small) failed. Check the OpenAI API key in Settings → Providers, or choose another embedding model in Settings → Assistant Memory. Provider response: OpenAI returned HTTP 401. Reference: ${step.failure.correlationId}`
+    `Memory observe failed because its observer model (OpenAI gpt-4.1-mini) failed. Check the OpenAI API key in Settings → Providers, or choose another observer model in Settings → Assistant Memory. Provider response: OpenAI returned HTTP 401. Reference: ${step.failure.correlationId}`
   );
   expect(failed.detail()).not.toMatch(/OpenRouter/u);
   // The one record of this failure carries its code, reference and run.
@@ -60,7 +60,7 @@ test('a memory model’s rejection is memory’s typed failure, never the chat p
       args: [
         'Assistant model attempt failed',
         expect.objectContaining({
-          code: 'memory.embedder-failed',
+          code: 'memory.observer-failed',
           correlationId: step.failure.correlationId,
           runId: 'run-1',
           threadId: 'thread-1',

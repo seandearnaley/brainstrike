@@ -5,19 +5,20 @@
  * admission, and the result the parent's model reads.
  */
 import { createHash } from 'node:crypto';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { standardInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
   type AssistantPersonaDefinition,
   delegationDescriptionForPersona,
   delegationToolNameForPersona,
   effectiveChildStepBudget,
+  PARENT_ONLY_TOOL_IDS,
   personaMode,
 } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { hostAnswerText } from './child-answer.ts';
+import { hostChildCallSign } from './child-presentation.ts';
 import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.ts';
 import { canonical, jsonValue } from './json-value.ts';
 import type { HostDelegation, HostRunAdmission, HostTool } from './ports.ts';
@@ -132,8 +133,9 @@ export function withHostDelegationTools(
  * The child's authority: the parent's admitted executors narrowed by the
  * persona (the shipped selectCandidateTools rule). A read-only persona keeps
  * only its declared read-risk tools; a worker keeps its declared tools, or with
- * a sole `*` every parent tool. Task-list state stays the parent's, and
- * delegation tools are granted by depth, never inherited.
+ * a sole `*` every parent tool. The task list, questions and plans stay the
+ * parent's (ADR-0028 rule 1), and delegation tools are granted by depth, never
+ * inherited.
  */
 function narrowHostChildTools(
   parent: Readonly<Record<string, HostTool>>,
@@ -145,7 +147,7 @@ function narrowHostChildTools(
   return Object.fromEntries(
     Object.entries(parent).filter(([id, tool]) => {
       const canonical = tool.permissionToolId ?? id;
-      if (tool.delegation || canonical === NATIVE_TOOL_ID.manageTaskList) {
+      if (tool.delegation || PARENT_ONLY_TOOL_IDS.has(canonical)) {
         return false;
       }
       return worker
@@ -242,10 +244,13 @@ export function deriveHostChildAdmission(
           throw new Error('A child step requires a resolved model instance');
         }
         const synthesis = maxSteps >= 2 && (request.stepNumber ?? 0) >= maxSteps - 1;
+        // Off (null) leaves the step at the model's own output limit.
         const cap = synthesis ? settings.synthesisOutputTokens : settings.maxStepOutputTokens;
         return {
           ...prepared,
-          maxOutputTokens: Math.min(prepared.maxOutputTokens ?? cap, cap),
+          ...(cap === null
+            ? {}
+            : { maxOutputTokens: Math.min(prepared.maxOutputTokens ?? cap, cap) }),
           model: hostPermitModel(prepared.model, queue, request.signal),
           system,
           ...(synthesis
@@ -301,12 +306,16 @@ function missingAnswerText(persona: AssistantPersonaDefinition, calls: number): 
     'gather the remainder directly.'
   );
 }
-/** The shipped Mastra acknowledgement for a background dispatch. */
+/**
+ * The shipped Mastra acknowledgement for a background dispatch, naming the
+ * child by the call sign the user sees for it.
+ */
 export function hostChildStarted(childThreadId: string, toolName: string): HostChildResult {
+  const callSign = hostChildCallSign(childThreadId);
   return {
     childThreadId,
     status: 'started',
-    text: `Background task started. Task ID: ${childThreadId}. The tool "${toolName}" is running in the background. You will be notified when it completes.`,
+    text: `Background task started. Task ID: ${childThreadId}. The tool "${toolName}" is running in the background as ${callSign}, the name the user sees for it. You will be notified when it completes.`,
   };
 }
 /** What the parent's model reads for a settled child; never an empty success. */

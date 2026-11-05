@@ -148,8 +148,6 @@ async function enableCatalogModel(page: Page, provider: string, model: string): 
 }
 
 async function sendPrompt(page: Page, provider: string, model: string): Promise<void> {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(page);
   await configureAssistantProvider(page, { compositeModelKey: `${provider}::${model}`, provider });
   expect(await enableCatalogModel(page, provider, model)).toEqual([
     { id: model, isEnabled: true, providerId: provider },

@@ -1,19 +1,13 @@
-export {
-  buildSearchTreeNodes,
-  childNodeId,
-  fileNodeId,
-  type SearchNodeData,
-  textChunkNodeId,
-} from './build-tree-nodes';
-export { SearchCoverageBanner, type SearchCoverageBannerProps } from './search-coverage-banner';
+export { buildSearchTreeNodes, matchNodeId, type SearchNodeData } from './build-tree-nodes';
 export { SearchInputBar, type SearchInputBarProps } from './search-input-bar';
-export { SearchModeToggle } from './search-mode-toggle';
 export {
+  type FileSelectionState,
   type HeadlineSegment,
   highlightQuery,
+  type SearchOpenTarget,
   SearchResultsTree,
   type SearchResultsTreeProps,
-  splitHeadline,
+  type SearchSelectionBridge,
 } from './search-results-tree';
 export {
   WorkspaceSearchPanel,

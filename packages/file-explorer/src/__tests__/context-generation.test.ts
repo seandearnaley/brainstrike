@@ -75,10 +75,6 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     return () => {};
   }
 
-  restoreLastFolder?(): Promise<DirectoryHandle | null> {
-    return Promise.resolve(null);
-  }
-
   private navigate(path: string): Record<string, MockFileEntry> | null {
     if (!path) {
       return this.mockFileSystem;

@@ -2,7 +2,7 @@
  * Plan-mode tool gate: a PURE tool-map filter applied to the run's tool map
  * BEFORE it is bound, alongside the permission gate. The host applies
  * {@link filterToolsForPlanMode} in
- * `apps/desktop/src/agent-host-platform/desktop-host-context.ts`: when the run
+ * `packages/host-capabilities/src/workspace-context/host-system-context.ts`: when the run
  * is in plan mode, keep only risk ∈ {read, mcp} and OMIT every edit/execute
  * tool, so the model can investigate and propose a plan but cannot mutate
  * anything until it is approved. Runs BEFORE the permission gate (a dropped

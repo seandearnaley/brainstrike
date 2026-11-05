@@ -4,6 +4,12 @@ import type { FileExplorerState, RootDescriptor, StoredRootDescriptor } from '@b
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
 import { useAdapters } from './adapters-context.js';
 import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers.js';
+import {
+  type FolderRequestOutcome,
+  type FolderRequests,
+  NO_FOLDER_REQUESTS,
+  nextFolderRequests,
+} from './folder-requests.ts';
 
 const logger = createLogger('FileSystemHook');
 
@@ -26,6 +32,11 @@ interface UseFileSystemParams {
    * when the folder ID matches what will be hydrated from persistence.
    */
   getPersistedCurrentFolderId?: () => string | null;
+  /**
+   * Store action that makes one folder the only open folder (ADR-0034). Called by
+   * openRootDirectory AFTER the focus shift, as removeActiveRoot. REQUIRED — see addActiveRoot.
+   */
+  openActiveRoot: FileExplorerState['openActiveRoot'];
   /**
    * Store action to atomically purge a disconnected root from
    * activeRootIds/rootDescriptors/folderStates/folderAccessOrder.
@@ -50,9 +61,13 @@ interface UseFileSystemParams {
 }
 
 interface FileSystemState {
+  /** Mounts in flight by the path asked for, and the last failure of each. */
+  folderRequests: FolderRequests;
   isAccessLoading: boolean;
   /** Monotonic signal that a supported flow may have mutated Recents. */
   recentRootsRevision: number;
+  /** The start-up restore has not answered yet, so any folder may still be opening. */
+  restorePending: boolean;
   rootDirectoryHandle: DirectoryHandle | null;
   /** All active roots (ordered). rootDirectoryHandle is always in this list (or null when empty). */
   rootDirectoryHandles: DirectoryHandle[];
@@ -63,8 +78,12 @@ interface FileSystemState {
 type FileSystemAction =
   | { type: 'setRoot'; handle: DirectoryHandle | null }
   | { type: 'setAccessLoading'; loading: boolean }
+  | { type: 'folderRequest'; path: string; outcome: FolderRequestOutcome }
+  | { type: 'restoreSettled' }
   | { type: 'addOrFocusHandle'; handle: DirectoryHandle; rootId?: string }
   | { type: 'removeHandle'; rootId: string }
+  /** ADR-0034: the opened folder replaces every open folder; worktree mounts stay. */
+  | { type: 'openHandle'; handle: DirectoryHandle }
   | { type: 'recordRecentRootMutation' }
   | {
       type: 'setAllHandles';
@@ -204,6 +223,13 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
     }
     case 'setAccessLoading':
       return { ...state, isAccessLoading: action.loading };
+    case 'folderRequest':
+      return {
+        ...state,
+        folderRequests: nextFolderRequests(state.folderRequests, action.path, action.outcome),
+      };
+    case 'restoreSettled':
+      return { ...state, restorePending: false };
     case 'addOrFocusHandle': {
       // Stamp the rootId so the stored handle self-identifies — keying by path
       // would collapse two same-named web roots into one entry. ensureStamped is
@@ -248,6 +274,21 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
         rootDirectoryHandle: wasFocused ? (remaining[0] ?? null) : state.rootDirectoryHandle,
         rootDirectoryHandles: remaining,
         rootIdByPath: newRootIdByPath,
+      };
+    }
+    case 'openHandle': {
+      const key = rootKeyOf(action.handle);
+      const handles = [
+        action.handle,
+        ...state.rootDirectoryHandles.filter(
+          (handle) => handle.worktree === true && rootKeyOf(handle) !== key
+        ),
+      ];
+      return {
+        ...state,
+        rootDirectoryHandle: action.handle,
+        rootDirectoryHandles: handles,
+        rootIdByPath: new Map(handles.map((handle) => [handle.path, rootKeyOf(handle)])),
       };
     }
     case 'setAllHandles':
@@ -359,9 +400,15 @@ async function runMultiRootRestore({
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.
+    // A managed worktree keeps its descriptor but is never an open folder (ADR-0034).
     const storedDescriptors: StoredRootDescriptor[] = granted
       .filter((d) => d.persisted)
-      .map((d) => ({ displayName: d.displayName, path: d.handle.path, rootId: d.rootId }));
+      .map((d) => ({
+        displayName: d.displayName,
+        path: d.handle.path,
+        rootId: d.rootId,
+        ...(d.handle.worktree ? { worktree: true as const } : {}),
+      }));
     setActiveRootsRef.current(storedDescriptors);
   } catch (error) {
     if (!cancelledRef.value) {
@@ -371,6 +418,7 @@ async function runMultiRootRestore({
     if (!cancelledRef.value) {
       hasAttemptedRestoreRef.current = true;
       dispatch({ loading: false, type: 'setAccessLoading' });
+      dispatch({ type: 'restoreSettled' });
     }
     isRestoringRef.current = false;
   }
@@ -382,23 +430,32 @@ export function useFileSystem({
   getPersistedCurrentFolderId,
   getFolderAccessOrder,
   addActiveRoot,
+  openActiveRoot,
   removeActiveRoot,
   setActiveRoots,
 }: UseFileSystemParams) {
   const { fileSystemAdapter } = useAdapters();
 
+  // An adapter that restores folders is loading access from the first render until its restore
+  // settles, so nothing reads "no folder" before the restore has answered.
+  const restores =
+    typeof (fileSystemAdapter as { restoreRoots?: unknown }).restoreRoots === 'function';
   const [
     {
+      folderRequests,
       rootDirectoryHandle,
       rootDirectoryHandles,
       isAccessLoading,
       recentRootsRevision,
+      restorePending,
       rootIdByPath,
     },
     dispatch,
   ] = useReducer(reducer, {
-    isAccessLoading: false,
+    folderRequests: NO_FOLDER_REQUESTS,
+    isAccessLoading: restores,
     recentRootsRevision: 0,
+    restorePending: restores,
     rootDirectoryHandle: null,
     rootDirectoryHandles: [],
     rootIdByPath: new Map<string, string>(),
@@ -465,7 +522,12 @@ export function useFileSystem({
         updateCurrentFolderId(rootId);
         // Only register in the persistent store when the handle was actually persisted
         if (persisted) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
@@ -507,6 +569,7 @@ export function useFileSystem({
     }
     return async (rootPath: string): Promise<DirectoryHandle | null> => {
       dispatch({ loading: true, type: 'setAccessLoading' });
+      dispatch({ outcome: 'started', path: rootPath, type: 'folderRequest' });
       const addRoot = async (): Promise<DirectoryHandle> => {
         const { handle, rootId, displayName, persisted } = await adapterAddRootByPath.call(
           fileSystemAdapter,
@@ -515,18 +578,91 @@ export function useFileSystem({
         dispatch({ handle, rootId, type: 'addOrFocusHandle' });
         updateCurrentFolderId(rootId);
         if (persisted) {
-          addActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+          addActiveRoot({
+            displayName,
+            path: getCanonicalFolderId(handle),
+            rootId,
+            ...(handle.worktree ? { worktree: true as const } : {}),
+          });
         }
         dispatch({ type: 'recordRecentRootMutation' });
         return handle;
       };
       return addRoot()
-        .catch((error: unknown) => {
-          throw mapFileSystemError(error);
-        })
+        .then(
+          (handle) => {
+            dispatch({ outcome: 'settled', path: rootPath, type: 'folderRequest' });
+            return handle;
+          },
+          (error: unknown) => {
+            const mapped = mapFileSystemError(error);
+            dispatch({
+              outcome: { failure: mapped.message },
+              path: rootPath,
+              type: 'folderRequest',
+            });
+            throw mapped;
+          }
+        )
         .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
     };
   }, [adapterAddRootByPath, addActiveRoot, fileSystemAdapter, updateCurrentFolderId]);
+
+  const adapterOpenRoot = fileSystemAdapter.openRoot;
+
+  /**
+   * Desktop-only (ADR-0034): open a folder as the window's project, a recent one by path or
+   * through the picker. The platform closed every other open folder in the same write, so
+   * their handles and store entries go and the opened folder becomes the only one (and Main);
+   * managed worktrees stay, as their threads' checkouts. Resolves null when the person cancels
+   * the picker. `undefined` when the adapter lacks the capability (web).
+   */
+  const openRootDirectory = useMemo(() => {
+    if (typeof adapterOpenRoot !== 'function') {
+      return;
+    }
+    return async (rootPath?: string): Promise<DirectoryHandle | null> => {
+      dispatch({ loading: true, type: 'setAccessLoading' });
+      // A recent folder opened by path is opening; the picker's choice is unknown until it answers.
+      const settle = (outcome: FolderRequestOutcome): void => {
+        if (rootPath !== undefined) {
+          dispatch({ outcome, path: rootPath, type: 'folderRequest' });
+        }
+      };
+      settle('started');
+      const open = async (): Promise<DirectoryHandle> => {
+        const { handle, rootId, displayName } = await adapterOpenRoot.call(
+          fileSystemAdapter,
+          rootPath
+        );
+        const opened = ensureStamped(stampRootId(handle, rootId), 'openRootDirectory');
+        // Both replacements read the state they replace, so overlapping opens converge.
+        dispatch({ handle: opened, type: 'openHandle' });
+        // Focus first: it snapshots the outgoing folder's state, which the purge below removes.
+        updateCurrentFolderId(rootId);
+        openActiveRoot({ displayName, path: getCanonicalFolderId(handle), rootId });
+        dispatch({ type: 'recordRecentRootMutation' });
+        return opened;
+      };
+      return open()
+        .then(
+          (handle) => {
+            settle('settled');
+            return handle;
+          },
+          (error: unknown) => {
+            if (isUserCancellation(error)) {
+              settle('settled');
+              return null;
+            }
+            const mapped = mapFileSystemError(error);
+            settle({ failure: mapped.message });
+            throw mapped;
+          }
+        )
+        .finally(() => dispatch({ loading: false, type: 'setAccessLoading' }));
+    };
+  }, [adapterOpenRoot, fileSystemAdapter, openActiveRoot, updateCurrentFolderId]);
 
   /** Desktop-only companion to addRootDirectoryByPath; see its note. */
   const listRecentRoots = useMemo(() => {
@@ -737,51 +873,15 @@ export function useFileSystem({
     dispatch({ loading, type: 'setAccessLoading' });
   }, []);
 
-  const applyRestoredFolderState = useCallback(
-    async (restored: DirectoryHandle, isCancelled: () => boolean) => {
-      if (isCancelled()) {
-        return;
-      }
-      // CRITICAL: Wait for store hydration before calling setCurrentFolderId.
-      // Without this, the store may still have empty initial state, and
-      // setCurrentFolderId would read from the empty folderStates, overwriting
-      // the persisted selections that are about to be hydrated.
-      if (waitForHydration) {
-        await waitForHydration();
-      }
-      if (isCancelled()) {
-        return;
-      }
-      // Legacy single-root (Branch B): REUSE the persisted currentFolderId as
-      // this root's RootId. For the single restored root, the persisted id IS
-      // the prior session's identity — reusing it keeps the storage v5
-      // contract (currentFolderId = RootId) and preserves the keyed
-      // folderStates entry. A per-boot crypto.randomUUID() could never match
-      // any persisted id. Only mint a fresh UUID when nothing was persisted
-      // (true first run).
-      const persistedFolderId = getPersistedCurrentFolderId?.() ?? null;
-      const rootId = persistedFolderId ?? crypto.randomUUID();
-      dispatch({ handle: restored, rootId, type: 'addOrFocusHandle' });
-
-      if (persistedFolderId === null) {
-        updateCurrentFolderId(rootId);
-      } else {
-        // currentFolderId already equals rootId in the persisted store; skip
-        // the redundant write so the folder-switching logic doesn't re-run
-        // against freshly-hydrated state.
-        logger.debug('Skipping setCurrentFolderId - reusing persisted folder id as rootId', {
-          folderId: rootId,
-        });
-      }
-    },
-    [getPersistedCurrentFolderId, updateCurrentFolderId, waitForHydration]
-  );
-
-  // Auto-restore on startup. Runs once and never changes hook order.
-  // Branch A: adapter has restoreRoots → restore ALL granted roots (multi-root).
-  // Branch B: adapter has restoreLastFolder only → legacy single-root path.
+  // Auto-restore on startup: an adapter with restoreRoots restores ALL granted roots.
+  // Runs once and never changes hook order.
   useEffect(() => {
-    if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
+    if (hasAttemptedRestoreRef.current || isRestoringRef.current) {
+      return;
+    }
+    if (rootDirectoryHandle) {
+      // A folder was mounted before any restore finished, so nothing waits on one any more.
+      dispatch({ type: 'restoreSettled' });
       return;
     }
 
@@ -789,86 +889,35 @@ export function useFileSystem({
       restoreRoots?: () => Promise<RootDescriptor[]>;
     };
 
-    // --- Branch A: multi-root restore ---
-    if (typeof adapterWithRestoreRoots.restoreRoots === 'function') {
-      isRestoringRef.current = true;
-      dispatch({ loading: true, type: 'setAccessLoading' });
-      // Use a mutable object so the cleanup closure can signal cancellation.
-      const cancelledRef = { value: false };
-      void runMultiRootRestore({
-        cancelledRef,
-        dispatch,
-        getFolderAccessOrderRef,
-        getPersistedCurrentFolderId,
-        hasAttemptedRestoreRef,
-        isRestoringRef,
-        // BIND: the web adapter's restoreRoots reads this.handleCache — an
-        // unbound reference would lose `this` and throw at call time.
-        restoreRoots: adapterWithRestoreRoots.restoreRoots.bind(fileSystemAdapter),
-        setActiveRootsRef,
-        updateCurrentFolderId,
-        waitForHydration,
-      });
-      return () => {
-        cancelledRef.value = true;
-        isRestoringRef.current = false;
-      };
-    }
-
-    // --- Branch B: legacy single-root restore ---
-    if (typeof fileSystemAdapter.restoreLastFolder !== 'function') {
+    if (typeof adapterWithRestoreRoots.restoreRoots !== 'function') {
       return;
     }
-
-    // CRITICAL: Set loading state SYNCHRONOUSLY before starting async operation.
-    // This prevents race conditions where other effects (like stale state clearing)
-    // might see isAccessLoading=false and rootDirectoryHandle=null before the
-    // restore completes, causing them to incorrectly clear persisted state.
     isRestoringRef.current = true;
     dispatch({ loading: true, type: 'setAccessLoading' });
-
-    let cancelled = false;
-
-    const restore = async () => {
-      const restoreFn = (
-        fileSystemAdapter as { restoreLastFolder?: () => Promise<DirectoryHandle | null> }
-      ).restoreLastFolder;
-      if (!restoreFn) {
-        return;
-      }
-      // BIND: same unbound-method hazard as restoreRoots above.
-      const restored = await restoreFn.call(fileSystemAdapter);
-      if (!restored || cancelled) {
-        return;
-      }
-      await applyRestoredFolderState(restored, () => cancelled);
-    };
-    const run = () =>
-      restore()
-        .catch((error: unknown) => {
-          if (!cancelled) {
-            logger.warn('Failed to restore last folder', { error });
-          }
-        })
-        .finally(() => {
-          if (!cancelled) {
-            // Mark as attempted only after a non-cancelled completion.
-            // This allows retries when a run is cancelled (e.g. effect preflight cleanup).
-            hasAttemptedRestoreRef.current = true;
-            dispatch({ loading: false, type: 'setAccessLoading' });
-          }
-          isRestoringRef.current = false;
-        });
-    void run();
+    // Use a mutable object so the cleanup closure can signal cancellation.
+    const cancelledRef = { value: false };
+    void runMultiRootRestore({
+      cancelledRef,
+      dispatch,
+      getFolderAccessOrderRef,
+      getPersistedCurrentFolderId,
+      hasAttemptedRestoreRef,
+      isRestoringRef,
+      // BIND: the web adapter's restoreRoots reads this.handleCache — an
+      // unbound reference would lose `this` and throw at call time.
+      restoreRoots: adapterWithRestoreRoots.restoreRoots.bind(fileSystemAdapter),
+      setActiveRootsRef,
+      updateCurrentFolderId,
+      waitForHydration,
+    });
     return () => {
-      cancelled = true;
+      cancelledRef.value = true;
       isRestoringRef.current = false;
     };
   }, [
     fileSystemAdapter,
     rootDirectoryHandle,
     updateCurrentFolderId,
-    applyRestoredFolderState,
     waitForHydration,
     getPersistedCurrentFolderId,
     // NOTE: getFolderAccessOrder and setActiveRoots are intentionally omitted from
@@ -883,12 +932,15 @@ export function useFileSystem({
       addRootDirectory,
       addRootDirectoryByPath,
       clearRootDirectory,
+      folderRequests,
       isAccessLoading,
       isFileSystemAccessSupported,
       listRecentRoots,
+      openRootDirectory,
       recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,
+      restorePending,
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
@@ -901,11 +953,14 @@ export function useFileSystem({
       rootDirectoryHandle,
       rootDirectoryHandles,
       rootIdByPath,
+      folderRequests,
       isAccessLoading,
+      restorePending,
       addExternalRootHandle,
       addRootDirectory,
       addRootDirectoryByPath,
       listRecentRoots,
+      openRootDirectory,
       recentRootsRevision,
       registerRestoredHandles,
       removeRootDirectory,

@@ -498,12 +498,9 @@ export function isTreeTableRowProps<T>(value: unknown): value is TreeTableRowPro
  * Can be customized via the rowHeight prop on TreeTable.
  */
 export const DEFAULT_ROW_HEIGHTS: Record<string, number> = {
-  chunk: 60,
-  collection: 48,
   default: 40,
   file: 44,
   group: 40,
-  vector: 80,
 };
 
 /**

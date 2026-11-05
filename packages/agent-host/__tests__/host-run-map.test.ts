@@ -6,8 +6,8 @@ const run = (threadId: string, runId: string) =>
     threadId,
     runId,
     'openai::gpt-6-sol',
-    { parentMessageId: null, prompt: runId, userMessageId: `user-${runId}` },
-    { categories: new Set(), tools: new Set() }
+    { author: 'person', parentMessageId: null, prompt: runId, userMessageId: `user-${runId}` },
+    { categories: new Set(), outsideSandbox: new Set(), tools: new Set() }
   );
 
 describe("Core's runs, by id and by thread", () => {

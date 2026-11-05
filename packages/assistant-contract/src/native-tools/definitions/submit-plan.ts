@@ -6,6 +6,12 @@ import { SubmitPlanInputSchema } from '../schemas/schemas-tasks.ts';
 // askUser — its own suspension is the gate; do NOT let the permission engine
 // double-gate it with an approval prompt.
 export const submitPlan = defineNativeTool({
+  activity: {
+    active: 'Proposing plan',
+    done: 'Proposed plan',
+    family: 'ask',
+    request: 'Propose plan',
+  },
   defaults: {
     category: 'action',
     estimatedTokens: 140,

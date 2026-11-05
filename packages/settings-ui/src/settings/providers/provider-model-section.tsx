@@ -17,14 +17,6 @@ export interface ProviderModelSectionProps {
   readonly recommendedModelIds: ReadonlySet<string>;
 }
 
-function ModelTypeBadge({ model }: { readonly model: DbModel }) {
-  return (
-    <Badge className="h-5 px-1.5 text-[10px]" variant="outline">
-      {model.capabilities.type === 'embedding' ? 'Embedding' : 'Chat'}
-    </Badge>
-  );
-}
-
 export function ProviderModelSection({
   busyModelIds,
   models,
@@ -118,7 +110,6 @@ export function ProviderModelSection({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="truncate text-sm font-medium">{model.name}</span>
-                  <ModelTypeBadge model={model} />
                   {isRecommended ? (
                     <Badge
                       className="h-5 px-1.5 text-[10px]"

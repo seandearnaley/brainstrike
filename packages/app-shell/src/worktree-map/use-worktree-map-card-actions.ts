@@ -21,7 +21,7 @@ const logger = createLogger('WorktreeMapSurface');
 
 /**
  * The exact refusal text `resolveGrantedRootHandle` throws
- * (`apps/desktop/src/ipc-domains/workspace-recent-roots.ts`'s
+ * (`packages/assistant-service/src/node-workspace/workspace-recent-roots.ts`'s
  * `NEVER_GRANTED_MESSAGE`) when neither of its two picker-less grants — an
  * exact-path recents match, or `managedWorktreeAuthorizer`'s live-ledger-row
  * + reachable-checkout rule (under the managed directory, or inside a
@@ -57,7 +57,6 @@ export interface UseWorktreeMapCardActionsInput {
 export interface WorktreeMapCardActions {
   readonly actionError: string | null;
   readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
-  readonly onAddAsRoot: (card: WorktreeMapCardModel) => void;
   readonly onAdopt: (card: WorktreeMapCardModel) => void;
   readonly onArchive: (card: WorktreeMapCardModel) => void;
   /**
@@ -116,8 +115,9 @@ export function useWorktreeMapCardActions(
       return;
     }
     if (!addRootDirectoryByPath) {
-      // Same desktop-only seam `onAddAsRoot` already gates on below.
-      setActionError('Adding a workspace root by path is unavailable in this build.');
+      // The Map only registers on desktop, so a missing by-path seam is a
+      // wiring bug worth stating, never a silent no-op.
+      setActionError('Mounting a worktree by path is unavailable in this build.');
       return;
     }
     setActionError(null);
@@ -180,31 +180,6 @@ export function useWorktreeMapCardActions(
             ? `"${card.entry.name}" was adopted, but Brainstrike couldn't confirm it's inside an open folder or its managed worktrees folder, so it can't be mounted automatically. Use the workspace bar's "Add Folder" to grant this worktree's folder directly, then try "New thread here" again.`
             : message
         );
-      });
-  };
-
-  const onAddAsRoot = (card: WorktreeMapCardModel) => {
-    if (!addRootDirectoryByPath) {
-      // The Map only registers on desktop, so a missing by-path seam is a
-      // wiring bug worth stating, never a silent no-op.
-      setActionError('Adding a workspace root by path is unavailable in this build.');
-      return;
-    }
-    setActionError(null);
-    addRootDirectoryByPath(card.entry.path)
-      .then((handle) => {
-        if (!handle) {
-          setActionError(`Could not add "${card.entry.name}" as a workspace root.`);
-        }
-        // No refresh() on success — same racy-write reason as onNewThread's
-        // mount above; the root-identity subscription re-loads the Map.
-      })
-      .catch((caught: unknown) => {
-        logger.error('worktree map could not add a root', {
-          error: caught,
-          path: card.entry.path,
-        });
-        setActionError(errorMessage(caught));
       });
   };
 
@@ -359,7 +334,6 @@ export function useWorktreeMapCardActions(
   return {
     actionError,
     archiveConfirmation,
-    onAddAsRoot,
     onAdopt,
     onArchive,
     onHandOffToLocal,

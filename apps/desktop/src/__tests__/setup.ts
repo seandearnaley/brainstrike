@@ -6,8 +6,6 @@ import { configureDesktopRendererTarget } from '../desktop-renderer-target';
 import type { VisibleDesktopElectronApi } from '../types/desktop-electron-api';
 import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
-type WatchHealthCallback = Parameters<VisibleDesktopElectronApi['fileSystem']['onWatchHealth']>[0];
-
 // Install the renderer target the loaders and the sender-frame allowlist
 // (the IPC dispatcher's second factor, BST-1641) resolve. Production
 // configures it from `main.ts` once the launch mode is known; the unit lane
@@ -28,98 +26,26 @@ vi.mock(
 // `const {app, ipcMain, shell} = electron` at import time, so when `electron`
 // is aliased to the test stub (see vitest.config.mts) any per-test
 // `vi.mock('electron', …)` that returns only a partial surface would otherwise
-// crash electron-store at import. Tests inject fake stores via DI, so an inert
-// constructor is sufficient here; files that exercise electron-store directly
-// still override this with their own per-file `vi.mock('electron-store', …)`.
+// crash electron-store at import. Each store keeps its values in memory: Main
+// reads its settings store at boot (where a tray shows, the app-lifetime choices).
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();
+  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
+    const values = new Map<string, unknown>();
+    Object.assign(this, {
+      get: (key: string) => values.get(key),
+      set: (key: string, value: unknown) => {
+        values.set(key, value);
+      },
+    });
+  });
   return { default: MockElectronStore };
 });
 
 // Mock Electron APIs
 const mockElectronAPI = {
-  fileSystem: {
-    addRoot: vi.fn().mockResolvedValue({
-      ok: true,
-      value: {
-        displayName: 'mock-directory',
-        handle: {
-          kind: 'directory',
-          name: 'mock-directory',
-          path: '/mock/path',
-          platform: 'electron',
-        },
-        kind: 'path',
-        permissionState: 'granted',
-        persisted: true,
-        rootId: 'mock-root-id',
-      },
-    }),
-    addRootByPath: vi.fn().mockResolvedValue({
-      ok: true,
-      value: {
-        displayName: 'mock-directory',
-        handle: {
-          kind: 'directory',
-          name: 'mock-directory',
-          path: '/mock/path',
-          platform: 'electron',
-        },
-        kind: 'path',
-        permissionState: 'granted',
-        persisted: true,
-        rootId: 'mock-root-id',
-      },
-    }),
-    deleteRootData: vi.fn(),
-    exists: vi.fn().mockResolvedValue({ ok: true, value: true }),
-    getWatcherTelemetry: vi.fn().mockResolvedValue({
-      activeWatchers: 0,
-      batches: 0,
-      cleanups: 0,
-      degradedTransitions: 0,
-      duplicateRegistrations: 0,
-      events: 0,
-      failures: 0,
-      healthPushes: 0,
-      lastSetupLatencyMs: 0,
-      retries: 0,
-      setupLatencySamples: 0,
-    }),
-    listRecentRoots: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    onWatchEvent: vi.fn(() => () => {}),
-    onWatchHealth: vi.fn((_callback: WatchHealthCallback) => () => {}),
-    readDirectory: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    readFile: vi.fn().mockResolvedValue({ ok: true, value: 'mock file content' }),
-    readFileByAbsolutePath: vi
-      .fn()
-      .mockResolvedValue({ ok: true, value: 'mock file content by absolute path' }),
-    readFileByPath: vi.fn().mockResolvedValue({ ok: true, value: 'mock file content by path' }),
-    removeRoot: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
-    requestDirectoryAccess: vi.fn().mockResolvedValue({
-      ok: true,
-      value: {
-        kind: 'directory',
-        name: 'mock-directory',
-        path: '/mock/path',
-        platform: 'electron',
-      },
-    }),
-    restoreLastFolder: vi.fn().mockResolvedValue({ ok: true, value: null }),
-    restoreRoots: vi.fn().mockResolvedValue({ ok: true, value: [] }),
-    retryWatch: vi.fn().mockResolvedValue({ retried: true }),
-    saveLastFolder: vi.fn().mockResolvedValue({ ok: true, value: undefined }),
-    unwatchDirectory: vi.fn().mockResolvedValue(undefined),
-    watchDirectory: vi.fn().mockResolvedValue({ watchId: 'mock-watch-id' }),
-  },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
-  storage: {
-    getAllKeys: vi.fn().mockResolvedValue([]),
-    getItem: vi.fn().mockResolvedValue(null),
-    removeItem: vi.fn().mockResolvedValue(undefined),
-    setItem: vi.fn().mockResolvedValue(undefined),
-  },
-} satisfies Pick<VisibleDesktopElectronApi, 'fileSystem' | 'getUserDataPath' | 'storage'>;
+} satisfies Pick<VisibleDesktopElectronApi, 'getUserDataPath'>;
 
 // Guard: this file's `Object.defineProperty(window, ...)` calls below are
 // jsdom-only bootstrapping. `window` is always defined under this package's
@@ -175,25 +101,16 @@ if (typeof window !== 'undefined') {
 
 const mockProviderDefinitions = [
   {
-    capabilities: { embeddings: true, llm: true, streaming: true },
+    capabilities: { streaming: true },
     displayName: 'OpenAI',
     // Mirrors the registry's canonical two-name scheme (BST-1361 review 10c).
     envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
-    models: [
-      { default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' as const },
-      {
-        default: true,
-        defaultDimension: 1536,
-        id: 'text-embedding-3-small',
-        supportsStandardDimension: true,
-        type: 'embedding' as const,
-      },
-    ],
+    models: [{ default: true, id: 'gpt-5.2', supportsStreaming: true, type: 'llm' as const }],
     runtime: 'hosted',
   },
   {
-    capabilities: { embeddings: false, llm: true, streaming: true },
+    capabilities: { streaming: true },
     displayName: 'Anthropic',
     envKeys: ['BRAINSTRIKE_ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
     id: 'anthropic',
@@ -201,20 +118,11 @@ const mockProviderDefinitions = [
     runtime: 'hosted',
   },
   {
-    capabilities: { embeddings: true, llm: true, streaming: true },
+    capabilities: { streaming: true },
     displayName: 'Google AI Studio',
     envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
-    models: [
-      { default: true, id: 'gemini-3.8-flash', type: 'llm' as const },
-      {
-        default: true,
-        defaultDimension: 3072,
-        id: 'gemini-embedding-001',
-        supportsStandardDimension: true,
-        type: 'embedding' as const,
-      },
-    ],
+    models: [{ default: true, id: 'gemini-3.8-flash', type: 'llm' as const }],
     runtime: 'hosted',
   },
 ] as const;
@@ -244,16 +152,6 @@ const mockProviderDefaultEnabledModels = Object.fromEntries(
       .map((model) => model.id),
   ])
 ) as Record<MockProviderId, string[]>;
-
-type MockModelDefinition = (typeof mockProviderDefinitions)[number]['models'][number];
-type MockEmbeddingModelDefinition = Extract<MockModelDefinition, { type: 'embedding' }>;
-
-const mockEmbeddingModels = Object.fromEntries(
-  mockProviderDefinitions.map((definition) => [
-    definition.id,
-    definition.models.filter((model) => model.type === 'embedding'),
-  ])
-) as Record<MockProviderId, MockEmbeddingModelDefinition[]>;
 
 const mockProviderDisplayNames = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [definition.id, definition.displayName])
@@ -315,8 +213,6 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     getTierInfo: actual.getTierInfo,
     isNativeTool: actual.isNativeTool,
     isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
-    listEmbeddingModels: (provider: string) =>
-      mockEmbeddingModels[provider as MockProviderId] ?? [],
     // Provider-related mocks
     listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
     // Tool-related exports (pass through from actual module)
@@ -326,10 +222,6 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,
     PROVIDER_MODELS: mockProviderModels,
     providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],
-    supportsStandardEmbeddingDimension: (provider: string) =>
-      (mockEmbeddingModels[provider as MockProviderId] ?? []).some(
-        (model) => model.supportsStandardDimension
-      ),
     TOOL_CATEGORIES: actual.TOOL_CATEGORIES,
     TOOL_DESCRIPTIONS: actual.TOOL_DESCRIPTIONS,
     TOOL_LOADING_TIERS: actual.TOOL_LOADING_TIERS,

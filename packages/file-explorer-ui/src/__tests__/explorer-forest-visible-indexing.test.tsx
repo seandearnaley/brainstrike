@@ -16,7 +16,6 @@
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act } from '@brainstrike/test-utils/react-act';
 import { screen, waitFor } from '@testing-library/react';
@@ -114,10 +113,7 @@ function renderForest(rootDirectoryHandles = [handleA, handleB]): {
 } {
   let latestKeys: ReadonlySet<string> = new Set<string>();
   const wrapper = composeWrappers(({ children }) => (
-    <FileExplorerTestWrapper
-      mockFileSystemAdapter={makeAdapter()}
-      mockStorageAdapter={new MemoryStorageAdapter()}
-    >
+    <FileExplorerTestWrapper mockFileSystemAdapter={makeAdapter()}>
       {children}
     </FileExplorerTestWrapper>
   ));

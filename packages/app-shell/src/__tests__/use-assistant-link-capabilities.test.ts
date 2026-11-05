@@ -1,10 +1,7 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import type { AssistantLinkChoices } from '@brainstrike/assistant-ui';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserBridge } from '../browser-pane/browser-bridge';
@@ -36,7 +33,6 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     setPlatform(undefined);
     toastMock.mockClear();
     vi.restoreAllMocks();
-    __resetWorkspaceTabSelectionStoreForTests();
     useAssistantThreadStore.setState({ activeThreadIdByResourceId: {} });
     usePanelLayoutStore.getState().setActiveTab('explorer');
   });

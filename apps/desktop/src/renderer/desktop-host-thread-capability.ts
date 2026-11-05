@@ -1,7 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { notifyWorkspaceTrustChanged } from '@brainstrike/app-shell/workspace-trust-revision';
-import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   type ThreadWorkspaceBinding,
   ThreadWorkspaceBindingSchema,
@@ -12,11 +11,6 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
-import {
-  hostThreadWorkspaceRepository,
-  projectHostThread,
-  projectStartedHostThread,
-} from '@brainstrike/host-conversation';
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { connectDesktopAgentHost } from './agent-host-client';
@@ -24,9 +18,11 @@ import { createDesktopHostConnection, type DesktopHostConnection } from './deskt
 import { resolveDesktopWorkspaceGitServices } from './host-git-workspace';
 import { createHostRewindPort } from './host-rewind-port';
 import { HostThreadCanvases } from './host-thread-canvases';
+import { projectHostThread, projectStartedHostThread } from './host-thread-catalog';
 import { openHostThreadContext } from './host-thread-context';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
+import { hostThreadWorkspaceRepository } from './host-thread-workspace';
 
 const logger = createLogger('DesktopHostThreads');
 /**
@@ -100,6 +96,8 @@ export function createWindowThreadCapability(
   };
   let catalogLoaded = false;
   let seededBy: HostClient | undefined;
+  /** The host client whose cost views have answered, so whose catalog is Core's folded one. */
+  let foldedBy: HostClient | undefined;
   // Host-owned thread IDs; every request goes to the connection's current client.
   const threads = new Set<string>();
   const childViews = new Map<
@@ -110,13 +108,33 @@ export function createWindowThreadCapability(
     }
   >();
   const client = (): Promise<HostClient> => connection.current();
+  // Core's ledger answers once Core has folded its log. The first answer from
+  // a host, or its refusal (one uncostable row fails the whole read), re-lists
+  // the catalog, which answered before that fold: a run the restart recovered
+  // has finished since, and a row only the fold reads may have shown damage.
+  const seedLedger = (host: HostClient): void => {
+    const folded = (): void => {
+      if (foldedBy !== host) {
+        foldedBy = host;
+        entryCommitted();
+      }
+    };
+    host.request('ledger/read', {}).then(
+      (costs) => {
+        ledger.seed(costs.threads);
+        folded();
+      },
+      (error: unknown) => {
+        logger.error('The agent host cost views could not be read', { error });
+        folded();
+      }
+    );
+  };
   // The catalog and Core's ledger: two reads, whatever the threads' lengths.
+  // Only the catalog is waited on; it answers before Core folds history.
   const listThreads = async (resourceId: string): Promise<readonly AssistantMemoryThread[]> => {
     const host = await client();
-    const [catalog, costs] = await Promise.all([
-      host.request('thread/list', {}),
-      host.request('ledger/read', {}),
-    ]);
+    const catalog = await host.request('thread/list', {});
     for (const { threadId } of catalog.threads) {
       threads.add(threadId);
     }
@@ -126,7 +144,7 @@ export function createWindowThreadCapability(
         latestRun ? [[threadId, latestRun] as const] : []
       )
     );
-    ledger.seed(costs.threads);
+    seedLedger(host);
     catalogLoaded = true;
     return catalog.threads.map((entry) => projectHostThread(resourceId, entry));
   };
@@ -239,14 +257,6 @@ export function createWindowThreadCapability(
       readOpenRouterModel: async (model) =>
         await (await client()).request('providers/openrouter-model', { model }),
       readStatus: async () => await (await client()).request('host/status', {}),
-      // BST-2227: the host resolves the embedder as a run's admission does.
-      testMemoryEmbedder: async (settings) =>
-        await (await client()).request('memory/embedder/probe', {
-          memorySettings: wireDecoder(Schema.Record(Schema.String, Schema.MutableJson), {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })(JSON.parse(JSON.stringify(settings))),
-        }),
       verifyProvider: async (provider) =>
         await (await client()).request('providers/verify', { provider }),
     },

@@ -8,8 +8,7 @@
  * own — this module registers no hooks and touches no globals beyond
  * @testing-library/dom's own config, which is the whole reason it is a separate
  * file. Today packages/settings-ui and packages/app-state (neither wants the
- * shared beforeEach/afterEach hooks) and packages/db (whose own vitest.setup.ts
- * imports it) load it through `vitest.dom-aware-timeouts.setup.ts`, which skips
+ * shared beforeEach/afterEach hooks) load it through `vitest.dom-aware-timeouts.setup.ts`, which skips
  * node-environment files. A lane whose tests call waitFor/findBy* and loads
  * NEITHER setup is back on the library's unscalable 1s default — the BST-1299
  * defect.

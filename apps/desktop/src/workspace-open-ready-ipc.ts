@@ -4,6 +4,7 @@
  * for the window load before flushing queued folder-open requests.
  * The handler is registered once and routes by `event.sender.id`.
  */
+import { Result, Schema } from 'effect';
 import { ipcMain } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
@@ -31,22 +32,17 @@ export type WorkspaceOpenReadySignal =
       readonly senderWebContentsId: number;
     };
 
-const readResetGeneration = (payload: unknown): string | null | undefined => {
-  if (!(payload && typeof payload === 'object')) {
-    return undefined;
-  }
-  const keys = Object.keys(payload);
-  if (keys.length !== 1 || keys[0] !== 'resetGeneration') {
-    return undefined;
-  }
-  const resetGeneration = (payload as Record<string, unknown>)['resetGeneration'];
-  if (resetGeneration === null) {
-    return null;
-  }
-  return typeof resetGeneration === 'string' && resetGeneration.length > 0
-    ? resetGeneration
-    : undefined;
-};
+/**
+ * The acknowledgement's payload. The dispatcher passes it through undecoded: a
+ * malformed acknowledgement is an `invalid` signal, so a factory reset waiting
+ * on this renderer fails at once instead of at its timeout.
+ */
+const decodeReadyPayload = Schema.decodeUnknownResult(
+  Schema.Struct({
+    resetGeneration: Schema.NullOr(Schema.String.check(Schema.isNonEmpty())),
+  }),
+  { onExcessProperty: 'error' }
+);
 
 /**
  * Registers the `workspace:open-path-ready` method. Call ONCE, at
@@ -64,10 +60,11 @@ export function registerWorkspaceOpenReadyIpcHandlers(
   registry.handle(
     'workspace',
     DESKTOP_IPC_CHANNELS.workspace.openPathReady,
-    (event, payload: unknown) => {
+    Schema.Tuple([Schema.Unknown]),
+    (event, payload) => {
       const senderWebContentsId = event.sender.id;
-      const resetGeneration = readResetGeneration(payload);
-      if (resetGeneration === undefined) {
+      const decoded = decodeReadyPayload(payload);
+      if (Result.isFailure(decoded)) {
         handlers.onOpenPathReady({
           diagnostic: `Renderer ${senderWebContentsId} readiness acknowledgement has malformed payload`,
           kind: 'invalid',
@@ -77,7 +74,7 @@ export function registerWorkspaceOpenReadyIpcHandlers(
       }
       handlers.onOpenPathReady({
         kind: 'ready',
-        resetGeneration,
+        resetGeneration: decoded.success.resetGeneration,
         senderWebContentsId,
       });
     }

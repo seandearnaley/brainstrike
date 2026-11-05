@@ -19,7 +19,6 @@ import {
   ensureAssistantShellVisible,
   ensureMockWorkspaceOpen,
 } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { type ModelProviderRequest, startModelProviderShim } from './utils/model-provider-shim';
 import { startThread } from './utils/new-thread';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -59,8 +58,6 @@ function lastUserMessage({ messages }: ModelProviderRequest): string {
 
 /** Mocked workspace files for the cases that need no real workspace root. */
 async function prepareMockWorkspace(window: Page): Promise<void> {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
 }
 
@@ -311,7 +308,7 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
 
   // A decision in flight ("claimed") has no host form: `interaction/respond` is one
   // atomic command. An interrupted decision is AT-06's restart case.
-  test('reload shows a delegated child’s answered approval and question locked, never resubmitted', async ({
+  test('reload shows a delegated child’s answered approval locked, never resubmitted', async ({
     electron,
   }, testInfo) => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-decision-states-'));
@@ -319,11 +316,10 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     await mkdir(personas, { recursive: true });
     await writeFile(
       path.join(personas, 'decision-states.md'),
-      '---\nname: Decision States\ndescription: Asks a question, then reads a file.\ntools:\n  - askUser\n  - readWorkspaceFile\n---\nAsk the user, then read evidence.txt and report.'
+      '---\nname: Decision States\ndescription: Reads a file.\ntools:\n  - readWorkspaceFile\n---\nRead evidence.txt and report.'
     );
     await writeFile(path.join(workspace, 'evidence.txt'), 'DECISION_EVIDENCE_1243');
-    const parentPrompt = 'Delegate to Decision States to ask me and read the evidence.';
-    const answer = 'DECISION_ANSWER_1243';
+    const parentPrompt = 'Delegate to Decision States to read the evidence.';
     const childResult = 'CHILD_DECISIONS_COMPLETE_1243';
     const parentResult = 'PARENT_DECISIONS_COMPLETE_1243';
     const provider = await startModelProviderShim((request) => {
@@ -336,30 +332,18 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
           toolCall: {
             arguments: {
               _background: { enabled: false },
-              prompt: 'Ask the user, then read evidence.txt.',
+              prompt: 'Read evidence.txt.',
             },
             name: 'agent-decision-states',
           },
         };
       }
-      // One pause per step: the question first, then the read's approval.
-      const history = JSON.stringify(request.messages);
-      if (history.includes('DECISION_EVIDENCE_1243')) {
+      if (JSON.stringify(request.messages).includes('DECISION_EVIDENCE_1243')) {
         return { finalText: childResult };
-      }
-      if (history.includes(answer)) {
-        return {
-          finalText: childResult,
-          ignorePriorToolResults: true,
-          toolCall: {
-            arguments: { path: 'evidence.txt' },
-            name: 'brainstrike_readWorkspaceFile',
-          },
-        };
       }
       return {
         finalText: childResult,
-        toolCall: { arguments: { question: 'Which workspace?' }, name: 'brainstrike_askUser' },
+        toolCall: { arguments: { path: 'evidence.txt' }, name: 'brainstrike_readWorkspaceFile' },
       };
     });
     // Agent turns advertise tools; a thread-title request has none.
@@ -407,7 +391,8 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         await trustWorkspaceFromComposer(root);
         await root.getByRole('textbox', { name: 'Message input' }).fill(parentPrompt);
         await root.getByRole('button', { exact: true, name: 'Send' }).click();
-        await expect(root.getByTestId('host-child-waiting')).toBeVisible();
+        // The root's strip counts the child's approval; the child answers it itself.
+        await expect(root.getByRole('button', { name: 'Review 1 pending approval' })).toBeVisible();
         await ensureActivityExpanded(root);
         await root.getByRole('button', { name: /Open .* conversation/u }).click();
         const childTab = window
@@ -418,9 +403,6 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
           exact: true,
           name: (await childTab.innerText()).trim(),
         });
-        const question = child.getByRole('group', { name: 'Question for you' });
-        await question.getByRole('textbox', { name: 'Your answer' }).fill(answer);
-        await question.getByRole('button', { exact: true, name: 'Send answer' }).click();
         const approve = child.getByRole('button', {
           exact: true,
           name: 'Approve brainstrike.readWorkspaceFile',
@@ -443,11 +425,8 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
               ).length,
             }));
         };
-        // Each decision answered exactly once.
-        const answered = [
-          { kind: 'question', responses: 1 },
-          { kind: 'approval', responses: 1 },
-        ];
+        // The approval answered exactly once.
+        const answered = [{ kind: 'approval', responses: 1 }];
         await expect.poll(childDecisions).toEqual(answered);
         const completedCalls = modelCalls();
 
@@ -458,10 +437,8 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         });
         await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
         await ensureAssistantShellVisible(window);
-        // Both answered decisions are history: no control can submit either again.
+        // The answered approval is history: no control can submit it again.
         await expect(child.getByText(childResult, { exact: true })).toBeVisible();
-        await expect(child.getByRole('group', { name: 'Question for you' })).toHaveCount(0);
-        await expect(child.getByRole('button', { name: 'Send answer' })).toHaveCount(0);
         await expect(approve).toHaveCount(0);
         await expect(
           child.getByRole('button', { exact: true, name: 'Decline brainstrike.readWorkspaceFile' })

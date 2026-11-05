@@ -17,11 +17,10 @@ import {
 } from '@brainstrike/file-tree-worker';
 import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
+import { fileNodeCollator } from '@brainstrike/utils/collator';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useEffectEvent, useRef } from 'react';
-
 import { runWithConcurrency } from '../utils/concurrency';
-import { fileNodeCollator } from '../utils/file-node-collator';
 import { loadDirectoryChildren } from '../utils/lazy-tree-loader';
 import {
   addHandlesToMap,

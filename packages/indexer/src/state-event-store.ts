@@ -2,7 +2,7 @@ import { blobsOf } from '@brainstrike/state-store/run-log-format';
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import type { IndexerOptions } from './contracts.ts';
+import { checkedTruncateCheckpoint } from './checked-checkpoint.ts';
 import {
   decoder,
   IndexerError,
@@ -18,14 +18,12 @@ import {
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.ts';
-import { StateMessageVectors } from './state-message-vectors.ts';
-import { StateObservationVectors } from './state-observation-vectors.ts';
 import type { StateProjection } from './state-projection.ts';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);
 const stateSourceDefinition =
-  'CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT,resource_grants TEXT NOT NULL)';
+  'CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT)';
 /** Gap 10: one searchable conversation row per committed event, with its own FTS. */
 const searchDefinition = `
   CREATE TABLE state_search_rows(event_pk INTEGER PRIMARY KEY REFERENCES state_event_rows(pk) ON DELETE CASCADE,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),run_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('user','assistant')),text TEXT NOT NULL);
@@ -72,18 +70,7 @@ const quote = (text: string): string => `"${text.replaceAll('"', '""')}"`;
 export class StateEventStore {
   private readonly failures: string[] = [];
 
-  static assertProjection(root: string | undefined, projection: StateProjection | undefined): void {
-    if (root !== undefined && !projection) {
-      throw new TypeError('State writer requires its acquired producer schema.');
-    }
-  }
-
-  static initialize(
-    db: Database.Database,
-    root: string | undefined,
-    projection: StateProjection | undefined,
-    options: IndexerOptions
-  ): void {
+  static initialize(db: Database.Database, root: string, projection: StateProjection): void {
     db.exec(`
       ${stateSourceDefinition};
       CREATE TABLE state_event_rows(pk INTEGER PRIMARY KEY,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),payload TEXT NOT NULL,content TEXT,gap_reason TEXT,UNIQUE(thread_id,seq));
@@ -105,22 +92,10 @@ export class StateEventStore {
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
       ${searchDefinition}
     `);
-    StateMessageVectors.initialize(db);
-    db.exec(StateMessageVectors.sourcesDefinition);
-    StateObservationVectors.initialize(db);
-    db.prepare('INSERT INTO state_index_source VALUES(1,?,?,?)').run(
-      root ?? null,
-      projection?.identity ?? null,
-      JSON.stringify(options.stateResources ?? [])
-    );
+    db.prepare('INSERT INTO state_index_source VALUES(1,?,?)').run(root, projection.identity);
   }
 
-  static validateRoot(
-    db: Database.Database,
-    root: string | undefined,
-    projection: StateProjection | undefined,
-    options: IndexerOptions
-  ): void {
+  static validateRoot(db: Database.Database, root: string, projection: StateProjection): void {
     const stored = decoder(Schema.NullOr(Schema.String))(
       db.prepare('SELECT root FROM state_index_source WHERE singleton=1').pluck().get()
     );
@@ -130,16 +105,7 @@ export class StateEventStore {
         .pluck()
         .get()
     );
-    const grants = decoder(Schema.String)(
-      db.prepare('SELECT resource_grants FROM state_index_source WHERE singleton=1').pluck().get()
-    );
-    if (grants !== JSON.stringify(options.stateResources ?? [])) {
-      throw new IndexerError(
-        'rebuild-required',
-        'State message resource/Root acquisition grants changed.'
-      );
-    }
-    if (stored !== (root ?? null) || identity !== (projection?.identity ?? null)) {
+    if (stored !== root || identity !== projection.identity) {
       throw new IndexerError(
         'rebuild-required',
         'State projection belongs to a different immutable truth root or producer schema.'
@@ -151,16 +117,9 @@ export class StateEventStore {
   static validateLayout(db: Database.Database): void {
     const objects: readonly (readonly [string, string])[] = [
       ['state_index_source', 'table'],
-      ['state_message_generation', 'table'],
-      ['state_message_profiles', 'table'],
-      ['state_message_vectors', 'table'],
-      ['state_message_scope', 'index'],
-      ['state_observation_vectors', 'table'],
-      ['state_observation_scope', 'index'],
       ['state_search_rows', 'table'],
       ['state_search_thread', 'index'],
       ['state_search_fts', 'table'],
-      ['state_message_sources', 'table'],
     ];
     const stored = decoder(
       Schema.Array(Schema.Struct({ name: Schema.String, type: Schema.String }))
@@ -185,37 +144,12 @@ export class StateEventStore {
         .pluck()
         .all()
     );
-    if (
-      JSON.stringify(columns) !==
-      JSON.stringify(['singleton', 'root', 'projection_identity', 'resource_grants'])
-    ) {
+    if (JSON.stringify(columns) !== JSON.stringify(['singleton', 'root', 'projection_identity'])) {
       throw new IndexerError(
         'rebuild-required',
         'State source schema disagrees with its declared version.'
       );
     }
-  }
-
-  /** Caller owns the native transaction that acquires the store. */
-  static acquire(
-    db: Database.Database,
-    root: string | undefined,
-    truth: StateTruthReader | undefined,
-    projection: StateProjection | undefined,
-    options: IndexerOptions
-  ): StateEventStore | undefined {
-    StateEventStore.validateRoot(db, root, projection, options);
-    if (root === undefined) {
-      StateMessageVectors.validateStorage(db);
-      return;
-    }
-    if (!projection) {
-      throw new TypeError('State projection requires its acquired producer schema.');
-    }
-    if (!truth) {
-      throw new TypeError('State projection requires its authoritative truth reader.');
-    }
-    return new StateEventStore(db, truth, projection, options);
   }
 
   private writeSearch(pk: number, threadId: string, seq: number, search: StateSearchRow): void {
@@ -225,8 +159,6 @@ export class StateEventStore {
     }
   }
 
-  readonly messages: StateMessageVectors;
-  readonly observations: StateObservationVectors;
   private readonly statements: ReturnType<typeof projectionStatements>;
   /** Where the last bounded catch-up over this exact thread list stopped. */
   private resume: { readonly index: number; readonly key: string } | undefined;
@@ -236,17 +168,10 @@ export class StateEventStore {
   private readonly projection: StateProjection;
 
   /** `truth` reads the state DB this store projects; its host owns the connection under it. */
-  constructor(
-    db: Database.Database,
-    truth: StateTruthReader,
-    projection: StateProjection,
-    options: IndexerOptions
-  ) {
+  constructor(db: Database.Database, truth: StateTruthReader, projection: StateProjection) {
     this.db = db;
     this.truth = truth;
     this.projection = projection;
-    this.messages = new StateMessageVectors(db, this.truth, projection, options);
-    this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
     this.statements = projectionStatements(db);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
@@ -344,30 +269,23 @@ export class StateEventStore {
     if (row?.kind !== 'event' || row.seq !== seq) {
       throw new Error('State reindex requires the exact verified committed truth event');
     }
-    // Persist retirement before fallible projection/observation reads; a failed cleanup stays fenced.
-    this.messages.invalidate(threadId, seq);
     this.db.transaction(() => {
-      this.observations.invalidate(threadId);
       this.replace(threadId, seq, row.raw);
     })();
-    this.messages.finishCleanup();
+    // A purge resolves only once the replaced row's pages are out of the WAL.
+    checkedTruncateCheckpoint(this.db);
     return true;
   }
 
   /**
-   * Re-projects the thread from its first event: its vectors are invalidated and
-   * its cursor reset, and the caller's bounded catch-up steps then overwrite every
+   * Re-projects the thread from its first event: its cursor is reset, and the
+   * caller's bounded catch-up steps then overwrite every
    * row (`replace` upserts each row with its references, search row and text
    * index). No request deletes the thread's whole projection at once.
    */
   rebuild(input: unknown): boolean {
     const threadId = decoder(Schema.NonEmptyString)(input);
-    this.messages.invalidate(threadId);
-    this.db.transaction(() => {
-      this.observations.invalidate(threadId);
-      this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
-    })();
-    this.messages.finishCleanup();
+    this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
     return true;
   }
 
@@ -455,18 +373,16 @@ export class StateEventStore {
     if (this.truth.watermark(threadId) !== 0) {
       throw new Error('State thread deletion requires authoritative truth deletion first');
     }
-    this.messages.invalidate(threadId);
     this.db.transaction(() => {
       this.db
         .prepare(
           'INSERT OR IGNORE INTO state_dropped_blob_refs SELECT ?,r.hash FROM state_event_blob_refs r JOIN state_event_rows e ON e.pk=r.event_pk WHERE e.thread_id=?'
         )
         .run(threadId, threadId);
-      this.observations.invalidate(threadId);
       this.db.prepare('DELETE FROM state_event_rows WHERE thread_id=?').run(threadId);
       this.db.prepare('DELETE FROM state_thread_cursors WHERE thread_id=?').run(threadId);
     })();
-    this.messages.finishCleanup();
+    checkedTruncateCheckpoint(this.db);
     return decoder(Schema.Array(Schema.String))(
       this.db
         .prepare('SELECT hash FROM state_dropped_blob_refs WHERE thread_id=? ORDER BY hash')

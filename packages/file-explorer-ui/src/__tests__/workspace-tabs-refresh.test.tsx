@@ -14,10 +14,7 @@ import {
 import { WorkspaceBody } from '../shell/workspace-body';
 import { WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
 import { useFileTabPaneStore } from '../stores/file-tab-pane-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { stubMatchMedia } from './setup/stub-match-media';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -169,10 +166,12 @@ async function configureRejectedFileExplorer(
       fileContentErrors,
       fileContents,
       fileTree: [],
+      folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
       loadFileContent,
       loadingFiles,
       loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       reloadFileContents,
+      restorePending: false,
       rootDescriptors: {},
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>;
@@ -184,7 +183,6 @@ describe('workspace tabs open-file refresh', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     capturedFileExplorerStore = null;
-    __resetWorkspaceTabSelectionStoreForTests();
 
     const tabModule = await import('../hooks/use-tab-manager');
     const empty: UseTabManagerReturn = {
@@ -222,10 +220,12 @@ describe('workspace tabs open-file refresh', () => {
       fileContentErrors: new Map<string, Error>(),
       fileContents: {},
       fileTree: [],
+      folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
       loadFileContent,
       loadingFiles: new Set<string>(),
       loadMultipleFileContents: vi.fn().mockResolvedValue(undefined),
       reloadFileContents: vi.fn().mockResolvedValue(undefined),
+      restorePending: false,
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 

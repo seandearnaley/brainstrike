@@ -1,19 +1,26 @@
+import os from 'node:os';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createIndexerConnection, type IndexerTransport } from '@brainstrike/indexer/transport';
+import { canonicalRoot } from '@brainstrike/state-store';
 import { expect, it, vi } from 'vitest';
 import { HOST_STATE_INDEX_DEADLINES } from '../src/host-state-index.ts';
 import { createStateIndexOwner } from '../src/host-state-index-owner.ts';
 
 const dbPath = '/state/state-index.sqlite';
-const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] };
+const options = {
+  dbPath,
+  stateProjection: {
+    mode: 'prod',
+    module: new URL('../src/state-projection.ts', import.meta.url).href,
+  },
+  stateRoot: canonicalRoot(os.tmpdir()),
+};
 const deadlines = { closeMs: 50 };
 const info = {
   dbPath,
   journalMode: 'wal',
   pid: 1,
-  readerQueryOnly: 1,
   storeId: 'a'.repeat(64),
-  vecVersion: 'v0.1.9',
   writerThreadId: 1,
 };
 const healthy = { indexerErrors: [] };
@@ -399,4 +406,24 @@ it('replacements that cannot be created stop at the bound like any other', async
   });
   expect(starts()).toBe(4);
   await index.close();
+});
+
+it('a first start that fails is retired, and the next request replaces it', async () => {
+  const { index, starts } = owner([fake(['serve'], { starts: 'error' }), fake(['serve'])]);
+  await expect(index.open()).rejects.toBeDefined();
+
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(2);
+  await index.close();
+});
+
+it('a close during the first start ends it: open resolves, and nothing starts after it', async () => {
+  const { index, starts } = owner([fake(['serve'], { starts: 'never' })]);
+  const opening = index.open();
+  await vi.waitFor(() => expect(starts()).toBe(1));
+  await index.close();
+
+  await expect(opening).resolves.toBeUndefined();
+  await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
+  expect(starts()).toBe(1);
 });

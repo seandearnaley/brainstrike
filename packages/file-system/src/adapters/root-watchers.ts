@@ -39,21 +39,17 @@
 //   subscription root: a root deliberately opened inside an excluded tree
 //   watches normally. Nested excluded trees stay ignored at the watch itself.
 //   DEFAULT_IGNORE_PATTERNS stay ignored at the watch by default. Only the
-//   concrete main Explorer owner opts into `reportDefaultFilteredChanges`
-//   (BST-1180): that one subscription broadens bounded `dist`, `build`, and
-//   `.DS_Store` activity into root-relative boundary evidence for Git views
-//   while Explorer/indexing keep detailed records filtered. High-cardinality
+//   Explorer's root watches opt into `reportDefaultFilteredChanges` (BST-1180;
+//   the agent host's, and Main's mounted-root owner the index borrows): they
+//   broaden bounded `dist`, `build`, and `.DS_Store` activity into
+//   root-relative boundary evidence for Git views while Explorer/indexing keep
+//   detailed records filtered. High-cardinality
 //   dependency/cache trees stay ignored at the watch.
 //   A per-subscription override (BST-1112) still REPLACES all default layers
 //   for that non-Explorer caller, including the watch-level ignore.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import {
-  isExcludedBackgroundIndexingPath,
-  isUnconditionalExcludedNativePath,
-} from '@brainstrike/utils/background-indexing-policy';
-import { buildIgnorePatternRegex, DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import type {
   DirectoryHandle,
   FileSystemChange,
@@ -62,7 +58,12 @@ import type {
   WatcherFailure,
   WatcherHealthState,
   WatcherHealthTransition,
-} from '../types.ts';
+} from '@brainstrike/types';
+import {
+  isExcludedBackgroundIndexingPath,
+  isUnconditionalExcludedNativePath,
+} from '@brainstrike/utils/background-indexing-policy';
+import { buildIgnorePatternRegex, DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import { createFileSystemChangeBatcher } from './electron-watchers.ts';
 
 const logger = createLogger('RootWatchers');
@@ -159,8 +160,8 @@ export interface StartRootWatchOptions {
   /**
    * Preserve bounded root-relative evidence for reportable default filters.
    * Default false: legacy consumers keep every default at the watch boundary.
-   * The desktop Explorer fs:watch owner is the sole production opt-in; even
-   * there, high-cardinality dependency/cache defaults stay ignored.
+   * The Explorer's root watches are the only production opt-in; even there,
+   * high-cardinality dependency/cache defaults stay ignored.
    * Mutually exclusive with every explicit `ignorePatterns` override,
    * including `[]`.
    */

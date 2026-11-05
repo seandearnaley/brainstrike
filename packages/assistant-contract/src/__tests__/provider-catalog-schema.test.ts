@@ -5,11 +5,7 @@ import {
   ProviderCatalogSchema,
   parseProviderCatalog,
 } from '../provider-catalog-schema.js';
-import type {
-  EmbeddingModelDefinition,
-  LlmModelDefinition,
-  ProviderDefinition,
-} from '../provider-registry.js';
+import type { LlmModelDefinition, ProviderDefinition } from '../provider-registry.js';
 
 /**
  * BST-1650: the catalog moved out of the TypeScript literal into
@@ -34,7 +30,7 @@ const WELL_FORMED_MODEL: Record<string, unknown> = {
 function catalogWith(model: Record<string, unknown>, providerNote?: string): unknown {
   const provider: Record<string, unknown> = {
     authType: 'api_key',
-    capabilities: { embeddings: false, llm: true, streaming: true },
+    capabilities: { streaming: true },
     displayName: 'OpenAI',
     envKeys: ['BRAINSTRIKE_OPENAI_API_KEY', 'OPENAI_API_KEY'],
     id: 'openai',
@@ -115,23 +111,13 @@ describe('ProviderCatalogSchema', () => {
  * type-level only — `tsconfig.test.json` covers this file.
  */
 type ParsedLlmModel = Extract<ParsedProvider['models'][number], { type: 'llm' }>;
-type ParsedEmbeddingModel = Extract<ParsedProvider['models'][number], { type: 'embedding' }>;
 
 function assertSchemaMatchesTypes(): void {
   const providerForward: ProviderDefinition = {} as ParsedProvider;
   const providerBackward: ParsedProvider = {} as ProviderDefinition;
   const llmForward: LlmModelDefinition = {} as ParsedLlmModel;
   const llmBackward: ParsedLlmModel = {} as LlmModelDefinition;
-  const embeddingForward: EmbeddingModelDefinition = {} as ParsedEmbeddingModel;
-  const embeddingBackward: ParsedEmbeddingModel = {} as EmbeddingModelDefinition;
-  void [
-    providerForward,
-    providerBackward,
-    llmForward,
-    llmBackward,
-    embeddingForward,
-    embeddingBackward,
-  ];
+  void [providerForward, providerBackward, llmForward, llmBackward];
 }
 
 describe('provider catalog schema and registry types', () => {

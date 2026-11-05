@@ -1,11 +1,5 @@
-import {
-  __resetAssistantPreferencesStoreForTests,
-  useAssistantPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-preferences-store';
-import {
-  __resetSecretsStoreForTests,
-  useSecretsStore,
-} from '@brainstrike/app-state/stores/secrets-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -42,11 +36,9 @@ function providerSourceWrapper(
 
 afterEach(() => {
   __resetConfiguredAssistantProvidersForTests();
-  __resetAssistantPreferencesStoreForTests();
   useAssistantPreferencesStore.setState({
     getAvailableProviders: originalGetAvailableProviders,
   });
-  __resetSecretsStoreForTests();
 });
 
 describe('useConfiguredAssistantProviders', () => {

@@ -1,17 +1,18 @@
 import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
+import { ThreadCheckoutProvider } from '../shell/thread-checkout-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const ROOT_ID_A = 'root-1';
 const ROOT_ID_B = 'root-2';
 const ROOT_ID_FSA = 'root-fsa';
+const ROOT_ID_WORKTREE = 'root-worktree';
 
 const handleA = {
   _internal: {} as FileSystemDirectoryHandle,
@@ -26,6 +27,15 @@ const handleB = {
   name: 'project-b',
   path: '/project-b',
   platform: 'web' as const,
+};
+// The active thread's worktree of project-a, shown in project-a's place (ADR-0034).
+const worktreeHandle = {
+  _internal: {} as FileSystemDirectoryHandle,
+  kind: 'directory' as const,
+  name: 'project-a-bright-fox',
+  path: '/worktrees/project-a-bright-fox',
+  platform: 'web' as const,
+  worktree: true as const,
 };
 const fsaHandle = {
   _internal: {} as FileSystemDirectoryHandle,
@@ -47,17 +57,23 @@ async function closeMenuAndFlushFocusRestore(): Promise<void> {
   });
 }
 
-function renderRootSections(options: { rootActions?: readonly AnyContextAction[] } = {}) {
+function renderRootSections(
+  options: { rootActions?: readonly AnyContextAction[]; worktree?: boolean } = {}
+) {
+  const shownA = options.worktree ? worktreeHandle : handleA;
+  const shownAId = options.worktree ? ROOT_ID_WORKTREE : ROOT_ID_A;
+  const checkout = options.worktree
+    ? { localRootId: ROOT_ID_A, worktreeRootId: ROOT_ID_WORKTREE }
+    : null;
   const adapter = new MockFileSystemAdapter();
   vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(
     async (_handle, onBatch, _options) => {
       onBatch([], { done: true, total: 0 });
     }
   );
-  const storageAdapter = new MemoryStorageAdapter();
   const Wrapper = composeWrappers(({ children }) => (
-    <FileExplorerTestWrapper mockFileSystemAdapter={adapter} mockStorageAdapter={storageAdapter}>
-      {children}
+    <FileExplorerTestWrapper mockFileSystemAdapter={adapter}>
+      <ThreadCheckoutProvider checkout={checkout}>{children}</ThreadCheckoutProvider>
     </FileExplorerTestWrapper>
   ));
   const renderWithProviders = makeRenderWithProviders(Wrapper);
@@ -78,7 +94,7 @@ function renderRootSections(options: { rootActions?: readonly AnyContextAction[]
         <StoreProbe />
         <div data-testid="explorer-scroll-root">
           <FileExplorerSidebar
-            currentFolderId={ROOT_ID_A}
+            currentFolderId={shownAId}
             filterError={null}
             isInitialLoad={false}
             isLoading={false}
@@ -87,11 +103,12 @@ function renderRootSections(options: { rootActions?: readonly AnyContextAction[]
             onRemoveRoot={removeRootMock}
             quickFilteredTree={[]}
             rootActions={options.rootActions}
-            rootDirectoryHandle={handleA}
-            rootDirectoryHandles={[handleA, handleB, fsaHandle]}
+            rootDirectoryHandle={shownA}
+            rootDirectoryHandles={[shownA, handleB, fsaHandle]}
             rootIdByPath={
               new Map([
                 [handleA.path, ROOT_ID_A],
+                [worktreeHandle.path, ROOT_ID_WORKTREE],
                 [handleB.path, ROOT_ID_B],
                 [fsaHandle.path, ROOT_ID_FSA],
               ])
@@ -129,7 +146,7 @@ function renderRootSections(options: { rootActions?: readonly AnyContextAction[]
  */
 function renderSingleRoot(
   options: {
-    onRemoveRoot?: ((rootId: string, opts?: { deleteData?: boolean }) => Promise<void>) | null;
+    onRemoveRoot?: ((rootId: string) => Promise<void>) | null;
     rootActions?: readonly AnyContextAction[];
   } = {}
 ) {
@@ -139,11 +156,8 @@ function renderSingleRoot(
       onBatch([], { done: true, total: 0 });
     }
   );
-  const storageAdapter = new MemoryStorageAdapter();
   const Wrapper = composeWrappers(({ children }) => (
-    <FileExplorerTestWrapper mockFileSystemAdapter={adapter} mockStorageAdapter={storageAdapter}>
-      {children}
-    </FileExplorerTestWrapper>
+    <FileExplorerTestWrapper mockFileSystemAdapter={adapter}>{children}</FileExplorerTestWrapper>
   ));
   const renderWithProviders = makeRenderWithProviders(Wrapper);
   const removeRootMock = vi.fn().mockResolvedValue(undefined);
@@ -230,6 +244,26 @@ describe('root section context menu', () => {
     fireEvent.click(await screen.findByText('Disconnect…'));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(removeRootMock).not.toHaveBeenCalled();
+  });
+
+  it("acts on the folder a thread's worktree stands in for: Main and Disconnect never touch the checkout", async () => {
+    const { removeRootMock, setMainRootMock } = renderRootSections({ worktree: true });
+    const header = screen.getAllByTestId('root-section-header-row')[0];
+    if (!header) {
+      throw new Error('expected a root header row');
+    }
+    fireEvent.contextMenu(header);
+    fireEvent.click(await screen.findByText('Set as Main'));
+    await waitFor(() => {
+      expect(setMainRootMock).toHaveBeenCalledExactlyOnceWith(ROOT_ID_A);
+    });
+    await closeMenuAndFlushFocusRestore();
+    fireEvent.contextMenu(header);
+    fireEvent.click(await screen.findByText('Disconnect…'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
+    await waitFor(() => {
+      expect(removeRootMock).toHaveBeenCalledExactlyOnceWith(ROOT_ID_A);
+    });
   });
 
   it('renders injected host actions alongside the local ones', async () => {

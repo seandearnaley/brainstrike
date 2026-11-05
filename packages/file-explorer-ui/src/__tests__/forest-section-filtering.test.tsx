@@ -7,7 +7,6 @@
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
@@ -113,12 +112,7 @@ function renderForest(adapter: MockFileSystemAdapter) {
     return null;
   }
   const wrapper = composeWrappers(({ children }) => (
-    <FileExplorerTestWrapper
-      mockFileSystemAdapter={adapter}
-      mockStorageAdapter={new MemoryStorageAdapter()}
-    >
-      {children}
-    </FileExplorerTestWrapper>
+    <FileExplorerTestWrapper mockFileSystemAdapter={adapter}>{children}</FileExplorerTestWrapper>
   ));
   const renderWithProviders = makeRenderWithProviders(wrapper);
   act(() => {

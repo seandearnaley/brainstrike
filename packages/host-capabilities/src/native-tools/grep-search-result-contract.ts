@@ -3,13 +3,6 @@ import type { GrepMatch } from '@brainstrike/assistant-contract';
 import type { GrepContentDelivery } from '@brainstrike/assistant-contract/context-provenance';
 import { Predicate } from 'effect';
 
-/**
- * One grep match as the model and the thread context map receive it. Grep reads
- * the disk only (ADR 0026), so a match carries no index provenance; stored
- * results with a `source` label still parse, because unread fields are ignored.
- */
-export type ModelFacingGrepMatch = Omit<GrepMatch, 'chunkId' | 'chunkStartLine' | 'chunkEndLine'>;
-
 export interface GrepFileSummary {
   firstLine: number;
   matchCount: number;
@@ -29,7 +22,7 @@ interface GrepToolResultBase {
   ambiguousRootNames?: string[];
   candidatesTruncated: boolean;
   hint?: string;
-  liveEngine: 'ripgrep' | 'js-walk' | 'js-files' | 'skipped';
+  liveEngine: 'ripgrep' | 'js-files' | 'skipped';
   liveNote?: string;
   /**
    * BST-1188: set only by the repeated-identical-call loop guard on the 3rd
@@ -68,7 +61,11 @@ export interface GrepFilesToolResult extends GrepToolResultBase {
 }
 
 export interface GrepContentToolResult extends GrepToolResultBase {
-  matches: ModelFacingGrepMatch[];
+  /**
+   * Grep reads the disk only (ADR 0026), so a match carries no index provenance; stored
+   * results with a `source` label still parse, because unread fields are ignored.
+   */
+  matches: GrepMatch[];
   outputMode: 'content';
 }
 
@@ -78,7 +75,7 @@ type DeliveryFields<T> = { [K in keyof T as string extends K ? never : K]: T[K] 
 type MatchDelivery = DeliveryFields<GrepContentDelivery['matches'][number]>;
 // The thread context map reads each kept match's lines (ADR-0021): dropping or
 // retyping a field it reads fails here, not in the renderer.
-const grepDeliveryHolds: ModelFacingGrepMatch extends MatchDelivery
+const grepDeliveryHolds: GrepMatch extends MatchDelivery
   ? GrepContentToolResult['offset'] extends GrepContentDelivery['offset']
     ? true
     : never
@@ -155,16 +152,11 @@ function requireGrepBase(record: Record<string, unknown>): void {
   if (
     !(
       record['liveEngine'] === 'ripgrep' ||
-      record['liveEngine'] === 'js-walk' ||
       record['liveEngine'] === 'js-files' ||
       record['liveEngine'] === 'skipped'
     )
   ) {
-    rejectField(
-      'liveEngine',
-      '"ripgrep", "js-walk", "js-files", or "skipped"',
-      record['liveEngine']
-    );
+    rejectField('liveEngine', '"ripgrep", "js-files", or "skipped"', record['liveEngine']);
   }
   requireOptionalString(record, 'hint');
   requireOptionalString(record, 'liveNote');

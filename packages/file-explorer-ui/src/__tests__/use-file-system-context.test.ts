@@ -1,6 +1,5 @@
 import type { DirectoryHandle, FileSystemWatchBatchMetadata } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemChange } from '@brainstrike/types';
 import { useToast } from '@brainstrike/ui';
@@ -15,9 +14,9 @@ import {
   FILE_EXPLORER_REFRESH_EVENT,
   type FileExplorerRefreshEventDetail,
 } from '../shell/file-explorer-refresh-event';
-import { RootDataDeletionProvider } from '../shell/root-data-deletion-context';
 import { useFileSystemInstance as useFileSystem } from '../shell/use-file-system-context';
-import { createDeletionTestWrapper, FileExplorerTestWrapper } from './test-helpers';
+import { grantedRoots } from './restored-roots';
+import { FileExplorerTestWrapper } from './test-helpers';
 import { createTokenCacheTestWrapper } from './token-cache-test-helpers';
 
 // File-wide (vi.mock is hoisted above these imports and applies to every
@@ -467,12 +466,8 @@ describe('useFileSystem context hook', () => {
       restoredHandle
     );
 
-    const isolatedStorageAdapter = new MemoryStorageAdapter();
     const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(FileExplorerTestWrapper, {
-        children,
-        mockStorageAdapter: isolatedStorageAdapter,
-      });
+      createElement(FileExplorerTestWrapper, { children });
     const { result } = renderHook(() => useExposed(), { wrapper });
 
     const SELECTION_KEY = `${CONTROLLED_ROOT_ID}|@|file-0.ts`;
@@ -532,29 +527,23 @@ describe('useFileSystem context hook', () => {
     } as DirectoryHandle;
 
     const adapterWithRestore = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => restoredHandle),
+      restoreRoots: vi.fn(async () => grantedRoots(restoredHandle)),
     });
 
-    // Isolated storage: legacy single-root restore REUSES a persisted
-    // currentFolderId as the rootId (storage v5). Without isolation, ids
-    // persisted by earlier tests in this file leak into this fresh-boot case.
-    const isolatedStorageAdapter = new MemoryStorageAdapter();
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(FileExplorerTestWrapper, {
         children,
         mockFileSystemAdapter: adapterWithRestore,
-        mockStorageAdapter: isolatedStorageAdapter,
       });
 
     const { result } = renderHook(() => useExposed(), { wrapper });
 
     await waitFor(() => {
-      // The restored handle is stamped with a durable RootId (storage v5), so
+      // The restored handle is stamped with its durable RootId (storage v5), so
       // it's a superset of the input handle — match the known fields.
       expect(result.current.fs.rootDirectoryHandle).toMatchObject(restoredHandle);
-      // v5: on a true first run (nothing persisted) currentFolderId is a
-      // freshly minted durable RootId UUID, not the handle path.
-      expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/u);
+      // v5: currentFolderId is the restored folder's RootId, not the handle path.
+      expect(result.current.store.getState().currentFolderId).toBe('restored-root-id');
     });
   });
 
@@ -751,9 +740,6 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
   });
 
   it('debounces watcher changes into one typed incremental refresh event', async () => {
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
-      'bbbbbbbb-cccc-dddd-eeee-ffffffffffff' as ReturnType<typeof crypto.randomUUID>
-    );
     const refreshCapture = captureFileExplorerRefreshEvents();
 
     try {
@@ -769,7 +755,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       } as DirectoryHandle;
 
       const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-        restoreLastFolder: vi.fn(async () => handle),
+        restoreRoots: vi.fn(async () => grantedRoots(handle)),
         watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
           capturedCallback = cb;
           return vi.fn();
@@ -784,7 +770,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
 
       renderHook(() => useExposed(), { wrapper });
 
-      // Allow restoreLastFolder to settle so the watcher root is registered
+      // Allow restoreRoots to settle so the watcher root is registered
       await act(async () => {
         await vi.runAllTimersAsync();
       });
@@ -823,7 +809,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
         roots: [
           {
             changes,
-            rootId: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+            rootId: 'debounce-root-id',
             rootPath: '/debounce-root',
           },
         ],
@@ -848,7 +834,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       rootId: 'filtered-root-id',
     } as DirectoryHandle;
     const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => handle),
+      restoreRoots: vi.fn(async () => grantedRoots(handle)),
       watchDirectory: vi.fn(
         (
           _handle: DirectoryHandle,
@@ -932,7 +918,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
       } as DirectoryHandle;
 
       const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-        restoreLastFolder: vi.fn(async () => handle),
+        restoreRoots: vi.fn(async () => grantedRoots(handle)),
         watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
           capturedCallback = cb;
           return vi.fn();
@@ -1229,7 +1215,7 @@ describe('useFileSystem — handleWatcherChanges debounce', () => {
     } as DirectoryHandle;
 
     const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => handle),
+      restoreRoots: vi.fn(async () => grantedRoots(handle)),
       watchDirectory: vi.fn((_h: DirectoryHandle, cb: (changes: FileSystemChange[]) => void) => {
         capturedCallback = cb;
         return vi.fn();
@@ -1304,7 +1290,7 @@ describe('useFileSystem — watcher health signals (overflow / errored)', () => 
     } as DirectoryHandle;
 
     const adapterWithWatch = Object.assign(new MockFileSystemAdapter(), {
-      restoreLastFolder: vi.fn(async () => handle),
+      restoreRoots: vi.fn(async () => grantedRoots(handle)),
       watchDirectory: vi.fn(
         (
           _h: DirectoryHandle,
@@ -1424,140 +1410,6 @@ describe('useFileSystem — watcher health signals (overflow / errored)', () => 
   });
 });
 
-describe('useFileSystem — cascade delete (Phase 6)', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  // Isolated storage: the shared wrapper hydrates persisted state leaked by
-  // earlier tests in this file (see the restored-root note above).
-  function makeDeletionWrapper(deleteRootData?: (rootId: string) => Promise<void>) {
-    const storage = new MemoryStorageAdapter();
-    return ({ children }: { children: ReactNode }) =>
-      createElement(FileExplorerTestWrapper, {
-        // biome-ignore lint/correctness/noChildrenProp: createElement's TS overload requires children inside props when the component declares them required (.ts file, no JSX)
-        children: deleteRootData
-          ? createElement(RootDataDeletionProvider, { children, deleteRootData })
-          : children,
-        mockStorageAdapter: storage,
-      });
-  }
-
-  async function addRoot(result: { current: ReturnType<typeof useExposed> }) {
-    const mockHandle: DirectoryHandle = {
-      kind: 'directory',
-      name: 'mock-root',
-      path: 'mock-root',
-      platform: 'web',
-    } as DirectoryHandle;
-    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockResolvedValue(
-      mockHandle
-    );
-    await act(async () => {
-      await result.current.fs.selectRootDirectory();
-    });
-    const rootId = result.current.store.getState().currentFolderId;
-    if (!rootId) {
-      throw new Error('Root was not added');
-    }
-    return rootId;
-  }
-
-  it('deleteData: deletion runs and the root disconnects on success', async () => {
-    const deleteRootData = vi.fn().mockResolvedValue(undefined);
-    const { result } = renderHook(() => useExposed(), {
-      wrapper: makeDeletionWrapper(deleteRootData),
-    });
-    const rootId = await addRoot(result);
-
-    await act(async () => {
-      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
-    });
-
-    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(rootId);
-    expect(result.current.fs.rootDirectoryHandles).toHaveLength(0);
-    expect(result.current.store.getState().activeRootIds).not.toContain(rootId);
-  });
-
-  it('deleteData: a FAILED deletion aborts the disconnect (root stays connected)', async () => {
-    const deleteRootData = vi.fn().mockRejectedValue(new Error('db down'));
-    const { result } = renderHook(() => useExposed(), {
-      wrapper: makeDeletionWrapper(deleteRootData),
-    });
-    const rootId = await addRoot(result);
-
-    await act(async () => {
-      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
-    });
-
-    expect(deleteRootData).toHaveBeenCalledExactlyOnceWith(rootId);
-    // Disconnect ABORTED: the handle and store registration both survive.
-    expect(result.current.fs.rootDirectoryHandles).toHaveLength(1);
-    expect(result.current.store.getState().activeRootIds).toContain(rootId);
-  });
-
-  it('plain disconnect (no deleteData) never touches the deletion seam', async () => {
-    const deleteRootData = vi.fn().mockResolvedValue(undefined);
-    const { result } = renderHook(() => useExposed(), {
-      wrapper: makeDeletionWrapper(deleteRootData),
-    });
-    const rootId = await addRoot(result);
-
-    await act(async () => {
-      await result.current.fs.removeRootDirectory(rootId);
-    });
-
-    expect(deleteRootData).not.toHaveBeenCalled();
-    expect(result.current.fs.rootDirectoryHandles).toHaveLength(0);
-  });
-
-  it('deleteData WITHOUT a mounted provider aborts the disconnect', async () => {
-    const { result } = renderHook(() => useExposed(), { wrapper: makeDeletionWrapper() });
-    const rootId = await addRoot(result);
-
-    await act(async () => {
-      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
-    });
-
-    // No seam → fail loudly and keep the root connected (never silent no-op).
-    expect(result.current.fs.rootDirectoryHandles).toHaveLength(1);
-  });
-
-  it('removeRootDirectory picks up a genuinely-changed deleteRootData instead of a stale closure (BST-1446 M1)', async () => {
-    // Regression coverage for the exhaustive-deps audit: removeRootDirectory
-    // is a local wrapper stabilized via useCallback([deleteRootData, ...]).
-    // Pre-fix it was a plain function omitted from the outer return-object
-    // memo's deps, so swapping the RootDataDeletionProvider's callback alone
-    // (nothing else the memo tracked changed) left `fs.removeRootDirectory`
-    // pointing at the FIRST render's closure — the wrong deleteRootData ran.
-    const storage = new MemoryStorageAdapter();
-    const deleteA = vi.fn().mockResolvedValue(undefined);
-    const deleteB = vi.fn().mockResolvedValue(undefined);
-    let activeDeleteRootData: typeof deleteA = deleteA;
-
-    const Wrapper = createDeletionTestWrapper(storage, () => activeDeleteRootData);
-
-    const { result, rerender } = renderHook(() => useExposed(), { wrapper: Wrapper });
-    const rootId = await addRoot(result);
-
-    // Swap to a genuinely different callback identity, then force a re-render
-    // that touches NOTHING else the memo tracks (no new root, no loading-state
-    // change) — this isolates the stale-closure failure mode from any other
-    // dep already covered elsewhere.
-    activeDeleteRootData = deleteB;
-    act(() => {
-      rerender();
-    });
-
-    await act(async () => {
-      await result.current.fs.removeRootDirectory(rootId, { deleteData: true });
-    });
-
-    expect(deleteB).toHaveBeenCalledExactlyOnceWith(rootId);
-    expect(deleteA).not.toHaveBeenCalled();
-  });
-});
-
 describe('useFileSystem — removeRootDirectory adapter disconnect failures (Fix A)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -1567,14 +1419,7 @@ describe('useFileSystem — removeRootDirectory adapter disconnect failures (Fix
     const removeRootFn = vi.fn().mockRejectedValue(new Error('registry disconnect failed'));
     const adapter = Object.assign(new MockFileSystemAdapter(), { removeRoot: removeRootFn });
     const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(
-        FileExplorerTestWrapper,
-        {
-          mockFileSystemAdapter: adapter,
-          mockStorageAdapter: new MemoryStorageAdapter(),
-        },
-        children
-      );
+      createElement(FileExplorerTestWrapper, { mockFileSystemAdapter: adapter }, children);
     const rendered = renderHook(() => ({ ...useExposed(), toastState: useToast() }), { wrapper });
 
     const mockHandle: DirectoryHandle = {
@@ -1595,8 +1440,7 @@ describe('useFileSystem — removeRootDirectory adapter disconnect failures (Fix
     }
 
     // The registry rejection must not propagate out of removeRootDirectory —
-    // it is caught, toasted, and logged instead (mirrors the deleteRootData
-    // failure path immediately above it).
+    // it is caught, toasted, and logged instead.
     await act(async () => {
       await rendered.result.current.fs.removeRootDirectory(rootId);
     });

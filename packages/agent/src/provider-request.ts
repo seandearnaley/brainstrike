@@ -15,31 +15,29 @@ import type {
   AssistantToolCallUsage,
   PromptToolCall,
 } from '@brainstrike/assistant-contract/context-breakdown';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-metadata';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import { type MastraDBMessage, TripWire } from '@mastra/core/agent';
-import { type ProcessLLMRequestArgs, type Processor, TokenLimiter } from '@mastra/core/processors';
-import { buildBedrockMessageHygieneInputProcessor } from './mastra-processors/bedrock-message-hygiene.ts';
-import { buildProviderHistoryCompatInputProcessor } from './mastra-processors/error-processors.ts';
-import { buildOpenAIDuplicateItemCompatInputProcessor } from './mastra-processors/openai-duplicate-item-compat.ts';
-import { buildOpenAIToolSearchHistoryCompatInputProcessor } from './mastra-processors/openai-tool-search-history-compat.ts';
-import { ProjectionSafeToolCallFilter } from './mastra-processors/projection-safe-tool-call-filter.ts';
-import { rewriteToolProjectionPrompt } from './mastra-processors/tool-projection-rewrite-processor.ts';
-import { createCanonicalLimiterView } from './providers/canonical-provider-limiter.ts';
+import type { MastraDBMessage } from '@mastra/core/agent';
+import { cleanBedrockPrompt } from './providers/bedrock-message-hygiene.ts';
 import {
   collectProviderCallProvenance,
   type ProviderCallProvenance,
+  stripForeignExecutedToolPairs,
 } from './providers/foreign-provider-history.ts';
 import { buildModelSettingsOption } from './providers/generation-settings.ts';
+import { canonicalizeOpenAIDuplicateItems } from './providers/openai-duplicate-item-compat.ts';
 import { classifyOpenAIStoredItemError } from './providers/openai-expired-item.ts';
+import { canonicalizeOpenAIToolSearchHistory } from './providers/openai-tool-search-history-compat.ts';
+import { ProjectionSafeToolCallFilter } from './providers/projection-safe-tool-call-filter.ts';
+import { applyProviderHistoryCompat } from './providers/provider-history-compat.ts';
 import {
   assertProviderRequestBoundaries,
   dropAbortedOpenAIItems,
-  healInterruptedToolCalls,
   ProviderRequestBoundaryError,
 } from './providers/request-history.ts';
-import type { SupportedProvider } from './providers/types.ts';
+import { rewriteToolProjectionPrompt } from './providers/tool-projection-rewrite.ts';
 import {
   createPreparedTokenMeasurement,
   type PreparedTokenMeasurement,
@@ -59,6 +57,7 @@ export {
 export {
   healInterruptedModelMessages,
   ProviderRequestBoundaryError,
+  type ToolInterruption,
 } from './providers/request-history.ts';
 
 export interface ProviderRequestContext {
@@ -67,7 +66,6 @@ export interface ProviderRequestContext {
   /** Replay provenance for canonical eligibility and signed-reasoning rules. */
   readonly history?: readonly MastraDBMessage[];
   readonly inputTokenLimit?: number;
-  readonly interruptedToolCallIds?: ReadonlySet<string>;
   readonly provider: SupportedProvider;
   readonly rewrites?: ReadonlyMap<string, ToolProjectionRewriteEntry>;
   readonly runtimeData?: Pick<RuntimeData, 'model' | 'modelSettings' | 'providerOptions'>;
@@ -263,89 +261,42 @@ export class ProviderRequestContextOverflowError extends BoundaryFailureError {
   }
 }
 
-type LegacyPrompt = ProcessLLMRequestArgs['prompt'];
-
-/**
- * The shipped processors use Mastra's V2 declaration, but operate only on
- * text/reasoning/tool parts shared with V4. V4-only parts pass through intact.
- * Keep this structural bridge in one place. The read-only provenance view
- * exposes only get.all.db used by the installed signed-reasoning rule; it
- * owns no mutable MessageList or copy of the compatibility algorithms.
- */
-async function applyCanonicalProcessor(
-  processor: Processor | undefined,
-  prompt: LanguageModelV4Prompt,
-  model: LanguageModelV4,
-  history?: readonly MastraDBMessage[]
-): Promise<LanguageModelV4Prompt> {
-  const result = await processor?.processLLMRequest?.({
-    abort: (reason) => {
-      throw new Error(reason ?? 'Provider preparation aborted.');
-    },
-    model: model as unknown as ProcessLLMRequestArgs['model'],
-    ...(history
-      ? {
-          messageList: {
-            get: { all: { db: () => history } },
-          } as unknown as NonNullable<ProcessLLMRequestArgs['messageList']>,
-        }
-      : {}),
-    prompt: prompt as unknown as LegacyPrompt,
-    retryCount: 0,
-    state: {},
-    stepNumber: 0,
-    steps: [],
-  });
-  return (result?.prompt as unknown as LanguageModelV4Prompt | undefined) ?? prompt;
-}
-
 function isOpenAI(provider: SupportedProvider): boolean {
   return provider === 'openai';
 }
 
-async function compatiblePrompt(
-  prompt: LanguageModelV4Prompt,
+/**
+ * Provider fixes, after projection and stale-history filtering: those
+ * transforms can orphan reasoning even without duplicated stored item IDs.
+ */
+function compatiblePrompt(
+  input: LanguageModelV4Prompt,
   model: LanguageModelV4,
   provider: SupportedProvider,
-  history?: readonly MastraDBMessage[],
-  provenance?: ProviderCallProvenance
-): Promise<LanguageModelV4Prompt> {
-  // Runs AFTER projection and stale-history filtering: those transforms can
-  // orphan reasoning even in the absence of duplicated stored item IDs.
-  let compatible = await applyCanonicalProcessor(
-    buildProviderHistoryCompatInputProcessor(provider, provenance),
-    prompt,
-    model,
-    history
+  provenance: ProviderCallProvenance,
+  history?: readonly MastraDBMessage[]
+): LanguageModelV4Prompt {
+  let prompt = applyProviderHistoryCompat(
+    stripForeignExecutedToolPairs(input, provider, provenance),
+    { ...(history ? { history } : {}), model, provider }
   );
   if (isOpenAI(provider)) {
-    compatible = await applyCanonicalProcessor(
-      buildOpenAIToolSearchHistoryCompatInputProcessor('openai'),
-      compatible,
-      model
-    );
-    compatible = await applyCanonicalProcessor(
-      buildOpenAIDuplicateItemCompatInputProcessor('openai'),
-      compatible,
-      model
-    );
+    prompt = canonicalizeOpenAIDuplicateItems(canonicalizeOpenAIToolSearchHistory(prompt));
   }
-  return applyCanonicalProcessor(
-    buildBedrockMessageHygieneInputProcessor(provider),
-    compatible,
-    model
-  );
+  return provider === 'bedrock' ? cleanBedrockPrompt(prompt) : prompt;
 }
 
-function countRequest(
+async function countRequest(
   params: LanguageModelV4CallOptions,
   measurement: PreparedTokenMeasurement,
   removedMessages: number
-): ProviderRequestAccounting {
-  const prompt = measurement.measure(serializeModelOutputForTokenMeasurement(params.prompt));
-  const tools = measurement.measure(
-    params.tools?.length ? serializeModelOutputForTokenMeasurement(params.tools) : ''
-  );
+): Promise<ProviderRequestAccounting> {
+  const [prompt, tools] = await Promise.all([
+    measurement.measure(serializeModelOutputForTokenMeasurement(params.prompt)),
+    measurement.measure(
+      params.tools?.length ? serializeModelOutputForTokenMeasurement(params.tools) : ''
+    ),
+  ]);
   const promptTokens = prompt.status === 'measured' ? prompt.tokenCount : prompt.backstopTokens;
   const toolTokens = tools.status === 'measured' ? tools.tokenCount : tools.backstopTokens;
   return {
@@ -358,45 +309,72 @@ function countRequest(
   };
 }
 
+async function measuredTokens(
+  prompt: LanguageModelV4Prompt,
+  measurement: PreparedTokenMeasurement
+): Promise<number> {
+  const sample = await measurement.measure(serializeModelOutputForTokenMeasurement(prompt));
+  return sample.status === 'measured' ? sample.tokenCount : sample.backstopTokens;
+}
+
+/**
+ * The most recent part of an over-budget conversation that fits, with every
+ * system message. It starts at a user turn: providers require one first, and
+ * a user turn never splits a tool call from its results. The request already
+ * starts at its first user turn (its boundaries are asserted) and its
+ * accounting found it over budget, so that whole prompt is not measured
+ * again. Each shorter candidate is measured exactly as the request is
+ * accounted, and a longer suffix never counts fewer tokens, so a binary search
+ * over the later user turns finds the cut.
+ */
+async function recentPromptWithin(
+  prompt: LanguageModelV4Prompt,
+  budget: number,
+  measurement: PreparedTokenMeasurement
+): Promise<LanguageModelV4Prompt | undefined> {
+  const starts = prompt.flatMap((message, index) => (message.role === 'user' ? [index] : []));
+  const from = (start: number) =>
+    prompt.filter((message, index) => message.role === 'system' || index >= start);
+  const fits = async (candidate: number) =>
+    (await measuredTokens(from(starts[candidate] ?? 0), measurement)) <= budget;
+  let low = 1;
+  let high = starts.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (await fits(middle)) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+  const start = starts[low];
+  return start === undefined ? undefined : from(start);
+}
+
 async function limitProviderPrompt(
   input: LanguageModelV4Prompt,
   model: LanguageModelV4,
   context: ProviderRequestContext,
   provenance: ProviderCallProvenance,
   accounting: ProviderRequestAccounting,
+  measurement: PreparedTokenMeasurement,
   limit: number
 ): Promise<LanguageModelV4Prompt> {
-  // Reuse native grouping and contiguous trimming after memory/projection,
-  // reserving the actual outgoing tool surface. The V4 view is counting-only.
-  const promptLimit = limit - accounting.toolTokens;
-  if (promptLimit <= 0) {
+  // Reserve the actual outgoing tool surface; memory and projection are already in.
+  const limited = await recentPromptWithin(input, limit - accounting.toolTokens, measurement);
+  if (!limited) {
     throw new ProviderRequestContextOverflowError(accounting, limit);
   }
+  const prompt = compatiblePrompt(limited, model, context.provider, provenance, context.history);
   try {
-    const counting = createCanonicalLimiterView(input);
-    const limited = await applyCanonicalProcessor(
-      new TokenLimiter({ limit: promptLimit, trimMode: 'contiguous' }),
-      counting.prompt as unknown as LanguageModelV4Prompt,
-      model
-    );
-    let prompt = counting.restore(limited as unknown as LegacyPrompt);
-    // A native contiguous cut can leave an old assistant/tool group at the
-    // start. Drop that prefix through the first surviving user turn, retaining
-    // every system message. If no user survives, ask the host to compact.
-    const firstUser = prompt.findIndex((message) => message.role === 'user');
-    if (firstUser > 0) {
-      prompt = prompt.filter((message, index) => message.role === 'system' || index >= firstUser);
-    }
-    prompt = await compatiblePrompt(prompt, model, context.provider, context.history, provenance);
     assertProviderRequestBoundaries(prompt);
-    return prompt;
   } catch (cause) {
-    if (cause instanceof TripWire || cause instanceof ProviderRequestBoundaryError) {
+    if (cause instanceof ProviderRequestBoundaryError) {
       throw new ProviderRequestContextOverflowError(accounting, limit, { cause });
     }
-    // Programming/shape failures are not token overflows.
     throw cause;
   }
+  return prompt;
 }
 
 export async function prepareProviderRequest(
@@ -418,25 +396,18 @@ export async function prepareProviderRequest(
     isOpenAI(context.provider) && context.abortedItemIds
       ? dropAbortedOpenAIItems(params.prompt, context.abortedItemIds)
       : params.prompt;
-  prompt = healInterruptedToolCalls(prompt, context.interruptedToolCallIds ?? new Set());
   if (context.history) {
     prompt = new ProjectionSafeToolCallFilter({
       toolNameMap: context.toolNameMap ?? new Map(),
-    }).preparePrompt(
-      prompt as unknown as LegacyPrompt,
-      context.history
-    ) as unknown as LanguageModelV4Prompt;
+    }).preparePrompt(prompt, context.history);
   }
   let rewrittenToolCallIds: ReadonlySet<string> = new Set();
   if (context.rewrites) {
-    const rewritten = rewriteToolProjectionPrompt(
-      prompt as unknown as LegacyPrompt,
-      context.rewrites
-    );
-    prompt = rewritten.prompt as unknown as LanguageModelV4Prompt;
+    const rewritten = rewriteToolProjectionPrompt(prompt, context.rewrites);
+    prompt = rewritten.prompt;
     rewrittenToolCallIds = rewritten.rewrittenToolCallIds;
   }
-  prompt = await compatiblePrompt(prompt, model, context.provider, context.history, provenance);
+  prompt = compatiblePrompt(prompt, model, context.provider, provenance, context.history);
   assertProviderRequestBoundaries(prompt);
   const projectedPrompt = prompt;
   const modelSettings = buildModelSettingsOption(runtimeData).modelSettings;
@@ -452,25 +423,27 @@ export async function prepareProviderRequest(
     (await createPreparedTokenMeasurement(
       resolveTokenMeasurementCapability(context.provider, model.modelId)
     ));
-  let accounting = countRequest(prepared, measurement, 0);
+  let accounting = await countRequest(prepared, measurement, 0);
   const limit = context.inputTokenLimit;
   if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
     throw new RangeError('inputTokenLimit must be a positive integer');
   }
-  if (limit !== undefined) {
+  // A request that fits is measured once, by its accounting above.
+  if (limit !== undefined && accounting.totalTokens > limit) {
     prompt = await limitProviderPrompt(
       prepared.prompt,
       model,
       context,
       provenance,
       accounting,
+      measurement,
       limit
     );
     prepared = { ...prepared, prompt };
-    accounting = countRequest(prepared, measurement, projectedPrompt.length - prompt.length);
+    accounting = await countRequest(prepared, measurement, projectedPrompt.length - prompt.length);
     if (accounting.totalTokens > limit) {
-      // BST-1927 review: a native media safety estimate can undercount inline
-      // text/custom V4 payloads. Never dispatch a measured over-budget prompt.
+      // Provider history rules run after the cut. Never dispatch a measured
+      // over-budget prompt.
       throw new ProviderRequestContextOverflowError(accounting, limit);
     }
   }

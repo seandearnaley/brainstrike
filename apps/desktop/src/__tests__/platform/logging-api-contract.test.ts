@@ -1,124 +1,55 @@
 import { createDefaultLoggingPreferences, LogLevel, type LogRecord } from '@brainstrike/logging';
+import { Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
+import { ipcArgsDecoder } from '../../platform/ipc-args';
 import {
   assertBufferedLogRecord,
-  assertLoggingOpenDestinationTarget,
-  assertLoggingPreferences,
+  LoggingPreferencesPatchSchema,
+  mergeLoggingPreferencesPatch,
+  OpenDestinationArgs,
 } from '../../platform/logging-api-contract';
 
+const decodePatch = ipcArgsDecoder(
+  'logging:update-preferences',
+  Schema.Tuple([LoggingPreferencesPatchSchema])
+);
+const decodeTarget = ipcArgsDecoder('logging:open-destination', OpenDestinationArgs);
+
 describe('logging API contract', () => {
-  it('accepts and clones well-formed logging preferences from the renderer', () => {
-    const preferences = createDefaultLoggingPreferences({
-      file: {
-        append: false,
-        destination: '/tmp/brainstrike.log',
-        enabled: true,
-        level: LogLevel.DEBUG,
-        mkdir: false,
-      },
+  it('merges a renderer patch into the preferences Main holds', () => {
+    const current = createDefaultLoggingPreferences();
+    const [patch] = decodePatch([
+      { file: { destination: '/tmp/brainstrike.log', enabled: true }, redactPaths: ['/secret'] },
+    ]);
+
+    const merged = mergeLoggingPreferencesPatch(current, patch);
+
+    expect(merged).toEqual({
+      ...current,
+      file: { ...current.file, destination: '/tmp/brainstrike.log', enabled: true },
       redactPaths: ['/secret'],
     });
-
-    const parsed = assertLoggingPreferences(preferences);
-
-    expect(parsed).toEqual(preferences);
-    expect(parsed).not.toBe(preferences);
-    expect(parsed.file).not.toBe(preferences.file);
-    expect(parsed.redactPaths).not.toBe(preferences.redactPaths);
   });
 
-  it('rejects malformed logging preferences before they reach mutable main-process state', () => {
-    const sparseRedactPaths = new Array<string>(2);
-    sparseRedactPaths[1] = 'token';
-
-    expect(() => assertLoggingPreferences(null)).toThrow('Logging preferences must be an object.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        consoleEnabled: 'yes',
-      })
-    ).toThrow('Logging preferences consoleEnabled must be a boolean.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        file: null,
-      })
-    ).toThrow('Logging file preferences must be an object.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        level: 'verbose',
-      })
-    ).toThrow('Logging preferences level must be a valid log level.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        file: {
-          ...createDefaultLoggingPreferences().file,
-          level: 'verbose',
-        },
-      })
-    ).toThrow('Logging file preferences level must be a valid log level.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        redactPaths: 'token',
-      })
-    ).toThrow('Logging preferences redactPaths must be a string array.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        redactPaths: sparseRedactPaths,
-      })
-    ).toThrow('Logging preferences redactPaths must be a string array.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        redactPaths: Array.from({ length: 257 }, (_, index) => `secret-${index}`),
-      })
-    ).toThrow('Logging preferences redactPaths cannot exceed 256 entries.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        redactPaths: ['x'.repeat(513)],
-      })
-    ).toThrow('Logging preferences redactPaths entries cannot exceed 512 characters.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        file: {
-          ...createDefaultLoggingPreferences().file,
-          destination: '/tmp/brainstrike\0.log',
-        },
-      })
-    ).toThrow('Logging file preferences destination cannot contain null bytes.');
-    expect(() =>
-      assertLoggingPreferences({
-        ...createDefaultLoggingPreferences(),
-        file: {
-          ...createDefaultLoggingPreferences().file,
-          destination: '/tmp/'.concat('x'.repeat(1025)),
-        },
-      })
-    ).toThrow('Logging file preferences destination cannot exceed 1024 characters.');
+  it.each([
+    ['an unknown level', { level: 'verbose' }],
+    ['an unknown file level', { file: { level: 'verbose' } }],
+    ['a non-boolean switch', { consoleEnabled: 'yes' }],
+    ['more than 256 redact paths', { redactPaths: Array.from({ length: 257 }, String) }],
+    ['a redact path over 512 characters', { redactPaths: ['x'.repeat(513)] }],
+    ['a destination with a null byte', { file: { destination: '/tmp/brainstrike\0.log' } }],
+    ['a destination over 1024 characters', { file: { destination: 'x'.repeat(1025) } }],
+    ['an undeclared field', { unexpected: true }],
+  ])('rejects a patch with %s before it reaches main-process state', (_label, patch) => {
+    expect(() => decodePatch([patch])).toThrow(TypeError);
   });
 
-  it('normalizes only supported open-destination targets', () => {
-    expect(assertLoggingOpenDestinationTarget(null)).toBeNull();
-    expect(assertLoggingOpenDestinationTarget('/tmp/brainstrike.log')).toBe('/tmp/brainstrike.log');
-
-    expect(() => assertLoggingOpenDestinationTarget(undefined)).toThrow(
-      'Logging open-destination target must be a string or null.'
-    );
-    expect(() => assertLoggingOpenDestinationTarget({ path: '/tmp/brainstrike.log' })).toThrow(
-      'Logging open-destination target must be a string or null.'
-    );
-    expect(() => assertLoggingOpenDestinationTarget('/tmp/brainstrike\0.log')).toThrow(
-      'Logging open-destination target cannot contain null bytes.'
-    );
-    expect(() => assertLoggingOpenDestinationTarget('/tmp/'.concat('x'.repeat(1025)))).toThrow(
-      'Logging open-destination target cannot exceed 1024 characters.'
-    );
+  it('accepts a destination path or null as the open-destination target', () => {
+    expect(decodeTarget([null])).toEqual([null]);
+    expect(decodeTarget(['/tmp/brainstrike.log'])).toEqual(['/tmp/brainstrike.log']);
+    for (const target of [undefined, { path: '/tmp/a.log' }, '/tmp/a\0.log', 'x'.repeat(1025)]) {
+      expect(() => decodeTarget([target])).toThrow(TypeError);
+    }
   });
 
   it('validates buffered renderer log records in the shared logging contract', () => {

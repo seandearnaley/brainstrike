@@ -9,6 +9,10 @@ import { join } from 'node:path';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import {
+  createSecureSkillsFs,
+  prepareAdmittedSkills,
+} from '@brainstrike/host-capabilities/workspace-context';
 import type { WorktreeCreateResult, WorktreeListEntry } from '@brainstrike/types';
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
@@ -16,8 +20,6 @@ import {
   PlatformNativeRuntimeSchema,
   PlatformSelectionSchema,
 } from '../agent-host-platform/platform-wire';
-import { prepareAdmittedSkills } from '../assistant-server/request-skills';
-import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 
 // run_python reports a host without an OS fence (Windows) before it resolves the
 // interpreter. Fence support is held on so every OS reaches the interpreter half
@@ -60,13 +62,6 @@ function selection(
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: null,
-          enabled: false,
-          messageRange: 0,
-          scope: 'thread',
-          topK: 1,
-        },
       },
     },
     nativeRuntime: {
@@ -79,63 +74,54 @@ function selection(
       brainstrike_browserNavigate: {
         description: 'Open a page',
         identity: NATIVE_TOOL_ID.browserNavigate,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.browserNavigate,
         risk: 'read',
       },
       brainstrike_browserReadPage: {
         description: 'Read the page tree',
         identity: NATIVE_TOOL_ID.browserReadPage,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.browserReadPage,
         risk: 'read',
       },
       brainstrike_executeCommand: {
         description: 'Shell command',
         identity: NATIVE_TOOL_ID.executeCommand,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.executeCommand,
         risk: 'execute',
       },
       brainstrike_grepSearch: {
         description: 'Content search',
         identity: NATIVE_TOOL_ID.grepSearch,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.grepSearch,
         risk: 'read',
       },
       brainstrike_listWorktrees: {
         description: 'List worktrees',
         identity: NATIVE_TOOL_ID.listWorktrees,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.listWorktrees,
         risk: 'read',
       },
       brainstrike_lspInspect: {
         description: 'Language-server inspection',
         identity: NATIVE_TOOL_ID.lspInspect,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.lspInspect,
         risk: 'read',
       },
       brainstrike_manageWorktree: {
         description: 'Manage worktrees',
         identity: NATIVE_TOOL_ID.manageWorktree,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.manageWorktree,
         risk: 'execute',
       },
       brainstrike_queryDiagnostics: {
         description: 'Diagnostics',
         identity: NATIVE_TOOL_ID.queryDiagnostics,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.queryDiagnostics,
         risk: 'read',
       },
       brainstrike_readWorkspaceContext: {
         description: 'Curated context read',
         identity: NATIVE_TOOL_ID.readWorkspaceContext,
-        inputSchema: { type: 'object' },
         permissionToolId: NATIVE_TOOL_ID.readWorkspaceContext,
         risk: 'read',
       },
@@ -592,7 +578,6 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   selected.tools['brainstrike_runPython'] = {
     description: 'Run Python',
     identity: NATIVE_TOOL_ID.runPython,
-    inputSchema: { type: 'object' },
     permissionToolId: NATIVE_TOOL_ID.runPython,
     risk: 'execute',
   };
@@ -640,6 +625,7 @@ async function skillWorkspace(): Promise<{
   );
   await writeFile(join(skill, 'references', 'notes.md'), 'skill reference notes\n');
   await writeFile(join(skill, 'scripts', 'hello.sh'), 'printf hello-from-skill\n');
+  await writeFile(join(skill, 'scripts', 'hello.py'), 'print("hello-from-python")\n');
   return { home, root };
 }
 function admitSkills(root: string, home: string, masterEnabled = true) {
@@ -681,7 +667,6 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     selected.tools[id.replace('.', '_')] = {
       description: id,
       identity: id,
-      inputSchema: { type: 'object' },
       permissionToolId: id,
       risk,
     };
@@ -722,6 +707,29 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
       execution()
     )
   ).resolves.toMatchObject({ exitCode: 0, stdout: 'hello-from-skill' });
+  // A Python script runs on the bundled runtime the launch app paths name, never a
+  // PATH python: these resources hold none, so the model is told that runtime is missing.
+  await expect(
+    run.execute(
+      {
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'python3',
+        scriptPath: 'scripts/hello.py',
+        skillName: 'demo-skill',
+      },
+      execution()
+    )
+  ).resolves.toMatchObject({
+    error: {
+      message: expect.stringContaining(
+        process.platform === 'win32'
+          ? 'does not support win32'
+          : join(home, 'python-runtime', 'manifest.json')
+      ),
+    },
+    ok: false,
+  });
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
     new Set(['admission/fresh-roots'])
   );
@@ -734,7 +742,6 @@ test('a run with Skills off is admitted without workspace skills', async () => {
   selected.tools['skill'] = {
     description: 'skill',
     identity: 'skill',
-    inputSchema: { type: 'object' },
     permissionToolId: 'skill',
     risk: 'read',
   };
@@ -764,7 +771,6 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
   selected.tools['brainstrike_webExtract'] = {
     description: 'Extract pages',
     identity: NATIVE_TOOL_ID.webExtract,
-    inputSchema: { type: 'object' },
     permissionToolId: NATIVE_TOOL_ID.webExtract,
     risk: 'read',
   };

@@ -4,6 +4,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { grantedRoots } from './restored-roots';
 
 let factoryReset: typeof import('@brainstrike/app-state/factory-reset');
 let useFileSystem: typeof import('../shell/use-file-system-context').useFileSystemInstance;
@@ -18,10 +19,10 @@ const handle = {
   rootId: 'reset-root-id',
 } as DirectoryHandle;
 
-function renderExplorer(restoreLastFolder: () => Promise<DirectoryHandle | null>) {
+function renderExplorer(restore: () => Promise<DirectoryHandle | null>) {
   const disposeWatch = vi.fn();
   const adapter = Object.assign(new MockFileSystemAdapter(), {
-    restoreLastFolder: vi.fn(restoreLastFolder),
+    restoreRoots: vi.fn(async () => grantedRoots(await restore())),
     watchDirectory: vi.fn(() => disposeWatch),
   });
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -85,7 +86,7 @@ describe('useFileSystem — factory reset preparation (BST-2149)', () => {
   it('a restore still pending when preparation begins admits no watch once it resolves', async () => {
     const restore = Promise.withResolvers<DirectoryHandle | null>();
     const { adapter, result } = renderExplorer(() => restore.promise);
-    await waitFor(() => expect(adapter.restoreLastFolder).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(adapter.restoreRoots).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       await factoryReset.prepareFactoryReset();

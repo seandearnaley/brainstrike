@@ -35,11 +35,14 @@ function emptyCatalogHost(): HostClient {
     closed: new Promise<void>(() => undefined),
     onChildrenChanged: vi.fn(() => () => undefined),
     onEvent: vi.fn(() => () => undefined),
+    onFileSearch: vi.fn(() => () => undefined),
     onGitWorkspace: vi.fn(() => () => undefined),
     onMcpPresentation: vi.fn(() => () => undefined),
     onMcpSettings: vi.fn(() => () => undefined),
     onTelemetry: vi.fn(() => () => undefined),
     onTerminal: vi.fn(() => () => undefined),
+    onTreeChanged: vi.fn(() => () => undefined),
+    onWorkspaceFiles: vi.fn(() => () => undefined),
     request: async <Method extends HostMethod>(
       method: Method,
       _params: HostParams<Method>

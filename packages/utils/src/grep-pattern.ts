@@ -1,9 +1,6 @@
 /**
  * Pattern utilities for grep-style search.
  *
- * escapeLikeLiteral: makes user text safe to embed in a LIKE/ILIKE pattern
- * (used with `ESCAPE '\'` in SQL).
- *
  * extractTrigramLiteral: conservatively extracts the longest literal substring
  * that a JS regex GUARANTEES to be present in any match, so it can drive a
  * trigram-indexed ILIKE prefilter. Returns null when no literal of at least
@@ -12,10 +9,6 @@
  */
 
 export const MIN_TRIGRAM_LITERAL_LENGTH = 3;
-
-export function escapeLikeLiteral(literal: string): string {
-  return literal.replace(/[\\%_]/gu, (ch) => `\\${ch}`);
-}
 
 /**
  * Regex constructs we refuse to reason about — bail to bounded scan.

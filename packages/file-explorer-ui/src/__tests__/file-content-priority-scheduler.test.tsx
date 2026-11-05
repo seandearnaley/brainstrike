@@ -1,13 +1,12 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { act } from '@brainstrike/test-utils/react-act';
 import type {
   FileContentReadResult,
   FileReadRequest,
-} from '@brainstrike/workers/file-content-worker';
+} from '@brainstrike/file-explorer-hooks/file-content-worker';
+import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
+import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
@@ -15,7 +14,7 @@ import { useFileContentLoadAuthority } from '../file-content-load-authority-cont
 import { FileExplorerProvider } from '../shell/file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
-vi.mock('@brainstrike/workers/file-content-worker', () => ({
+vi.mock('@brainstrike/file-explorer-hooks/file-content-worker', () => ({
   createFileContentWorker: vi.fn(),
 }));
 
@@ -49,7 +48,6 @@ function createPendingWorker(pendingReads: PendingWorkerRead[]) {
 
 it('runs queued interactive reads before bulk work while bounding bulk starvation', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const nodes = [
     ...Array.from({ length: 3 }, (_, batchIndex) =>
       Array.from({ length: 2 }, (_, fileIndex) =>
@@ -70,13 +68,15 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
   const interactive = keys.slice(6);
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -138,7 +138,6 @@ it('runs queued interactive reads before bulk work while bounding bulk starvatio
 
 it('promotes only a queued matching background key without duplicating its physical read', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const nodesByName = Object.fromEntries(
     [
       'active-a',
@@ -170,13 +169,15 @@ it('promotes only a queued matching background key without duplicating its physi
   const interactive2 = keyFor('interactive-2');
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -261,7 +262,6 @@ it('promotes only a queued matching background key without duplicating its physi
 
 it('promotes a queued background reload for Workspace-tab Retry before its predecessor starts', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const names = ['active-a', 'active-b', 'earlier-background', 'target'] as const;
   const nodes = names.map((name) =>
     createFileNode({ path: `/${name}.txt`, rootFolderId: 'root-retry-promotion' })
@@ -278,13 +278,15 @@ it('promotes a queued background reload for Workspace-tab Retry before its prede
   }
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -349,7 +351,6 @@ it.each([
   'extracts $backgroundShape background promotion into the same interactive FIFO tail',
   async ({ includeHitchhiker }) => {
     const adapter = new MockFileSystemAdapter();
-    const storage = new MemoryStorageAdapter();
     const names = [
       'active-a',
       'active-b',
@@ -375,13 +376,15 @@ it.each([
     }
     const pendingReads: PendingWorkerRead[] = [];
     const worker = createPendingWorker(pendingReads);
-    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const { createFileContentWorker } = await import(
+      '@brainstrike/file-explorer-hooks/file-content-worker'
+    );
     vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
     function Wrapper({ children }: { readonly children: ReactNode }) {
       return (
-        <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-          <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+        <AdaptersProvider fileSystemAdapter={adapter}>
+          <FileExplorerProvider>{children}</FileExplorerProvider>
         </AdaptersProvider>
       );
     }
@@ -454,7 +457,6 @@ it.each([
 
 it('settles promoted tickets once on reset and permits a fresh same-key schedule', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const names = ['active-a', 'active-b', 'target', 'hitchhiker'] as const;
   const nodes = names.map((name) =>
     createFileNode({ path: `/${name}.txt`, rootFolderId: 'root-promotion-reset' })
@@ -471,13 +473,15 @@ it('settles promoted tickets once on reset and permits a fresh same-key schedule
   }
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }
@@ -548,7 +552,6 @@ it('settles promoted tickets once on reset and permits a fresh same-key schedule
 
 it('preserves background intent across twenty singleton reload groups ahead of real interactive work', async () => {
   const adapter = new MockFileSystemAdapter();
-  const storage = new MemoryStorageAdapter();
   const backgroundNodes = Array.from({ length: 20 }, (_, index) =>
     createFileNode({ path: `/background-${index}.txt`, rootFolderId: 'root-logical-priority' })
   );
@@ -564,13 +567,15 @@ it('preserves background intent across twenty singleton reload groups ahead of r
   );
   const pendingReads: PendingWorkerRead[] = [];
   const worker = createPendingWorker(pendingReads);
-  const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+  const { createFileContentWorker } = await import(
+    '@brainstrike/file-explorer-hooks/file-content-worker'
+  );
   vi.mocked(createFileContentWorker).mockReturnValue(worker);
 
   function Wrapper({ children }: { readonly children: ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider fileSystemAdapter={adapter}>
+        <FileExplorerProvider>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   }

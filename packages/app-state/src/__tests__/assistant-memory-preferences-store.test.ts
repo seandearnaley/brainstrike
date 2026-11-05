@@ -1,36 +1,18 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import {
-  __resetAssistantMemoryPreferencesStoreForTests,
   ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
   useAssistantMemoryPreferencesStore,
 } from '../stores/assistant-memory-preferences-store.ts';
 
-type MemoryPersistApi = typeof useAssistantMemoryPreferencesStore & {
-  persist?: {
-    getOptions?: () => {
-      name: string;
-      storage?: {
-        getItem: (name: string) => unknown;
-        setItem: (name: string, value: unknown) => void;
-      };
-    };
-    rehydrate?: () => Promise<void>;
-  };
-};
+/** Saves a snapshot the way the app left it, then reopens the store from it. */
+async function reopenFrom(saved: StorageValue<unknown>): Promise<void> {
+  localStorage.setItem(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME, JSON.stringify(saved));
+  await useAssistantMemoryPreferencesStore.persist.rehydrate();
+}
 
 describe('assistant-memory-preferences-store', () => {
-  beforeEach(() => {
-    __resetAssistantMemoryPreferencesStoreForTests();
-  });
-
   it('migrates a dropped observational memory model target to a supported one', async () => {
-    const persistApi = (useAssistantMemoryPreferencesStore as MemoryPersistApi).persist;
-    const options = persistApi?.getOptions?.();
-    if (!(persistApi && options?.storage && options.name)) {
-      throw new Error('persist storage unavailable for test');
-    }
-
     const legacy: StorageValue<unknown> = {
       state: {
         observationalMemory: {
@@ -41,33 +23,17 @@ describe('assistant-memory-preferences-store', () => {
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
       },
       version: 1,
     };
 
-    options.storage.setItem(options.name, legacy);
-    await persistApi.rehydrate?.();
+    await reopenFrom(legacy);
 
     const settings = useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings();
     expect(settings.observationalMemory.modelTarget).toBe('openai/gpt-5.4-mini');
-    // Embedding target was not dropped, so it is preserved.
-    expect(settings.semanticRecall.embeddingModelTarget).toBe('openai/text-embedding-3-small');
   });
 
   it('self-heals a stale model target persisted at the current version', async () => {
-    const persistApi = (useAssistantMemoryPreferencesStore as MemoryPersistApi).persist;
-    const options = persistApi?.getOptions?.();
-    if (!(persistApi && options?.storage && options.name)) {
-      throw new Error('persist storage unavailable for test');
-    }
-
     // Same version as STORE_VERSION, so zustand's `migrate` does NOT run. The
     // dropped target must still be remapped on hydration so the persisted state
     // and the settings UI never reference a removed model.
@@ -81,19 +47,11 @@ describe('assistant-memory-preferences-store', () => {
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
       },
       version: 2,
     };
 
-    options.storage.setItem(options.name, sameVersionStale);
-    await persistApi.rehydrate?.();
+    await reopenFrom(sameVersionStale);
 
     // Read raw state (not getRuntimeMemorySettings) to prove the persisted value
     // itself was healed, not just normalized on read.
@@ -113,12 +71,6 @@ describe('assistant-memory-preferences-store', () => {
     ['openrouter/inclusionai/ling-3.0-flash:free', 'openrouter/inclusionai/ling-3.0-flash'],
     ['openrouter/kwaipilot/kat-coder-air-v2.5', 'openrouter/kwaipilot/kat-coder-pro-v2.5'],
   ])('remaps the delisted OpenRouter memory target %s', async (from, to) => {
-    const persistApi = (useAssistantMemoryPreferencesStore as MemoryPersistApi).persist;
-    const options = persistApi?.getOptions?.();
-    if (!(persistApi && options?.storage && options.name)) {
-      throw new Error('persist storage unavailable for test');
-    }
-
     const stale: StorageValue<unknown> = {
       state: {
         observationalMemory: {
@@ -129,27 +81,21 @@ describe('assistant-memory-preferences-store', () => {
           retrievalMode: 'off',
           scope: 'thread',
         },
-        semanticRecall: {
-          embeddingModelTarget: 'openai/text-embedding-3-small',
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
       },
       version: 2,
     };
 
-    options.storage.setItem(options.name, stale);
-    await persistApi.rehydrate?.();
+    await reopenFrom(stale);
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory.modelTarget).toBe(to);
   });
 
-  it('enables observations by default with the auto observer target (BST-940) and disables semantic recall', () => {
+  it('enables observations by default with the auto observer target (BST-940)', () => {
     const state = useAssistantMemoryPreferencesStore.getState();
 
-    expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe('assistant-memory-preferences.v1');
+    expect(ASSISTANT_MEMORY_PREFERENCES_STORE_NAME).toBe(
+      'brainstrike:assistant-memory-preferences.v1'
+    );
     expect(state.observationalMemory).toEqual({
       enabled: true,
       messageTokens: 30_000,
@@ -157,13 +103,6 @@ describe('assistant-memory-preferences-store', () => {
       observationTokens: 40_000,
       retrievalMode: 'off',
       scope: 'thread',
-    });
-    expect(state.semanticRecall).toEqual({
-      embeddingModelTarget: 'openai/text-embedding-3-small',
-      enabled: false,
-      messageRange: 2,
-      scope: 'resource',
-      topK: 5,
     });
   });
 
@@ -186,13 +125,11 @@ describe('assistant-memory-preferences-store', () => {
     });
   });
 
-  it('clamps token thresholds and semantic recall result counts to safe Mastra values', () => {
+  it('clamps token thresholds to safe Mastra values', () => {
     const store = useAssistantMemoryPreferencesStore.getState();
 
     store.setObservationMessageTokens(12);
     store.setReflectionObservationTokens(Number.NaN);
-    store.setSemanticRecallTopK(1000);
-    store.setSemanticRecallMessageRange(-10);
 
     expect(useAssistantMemoryPreferencesStore.getState().observationalMemory.messageTokens).toBe(
       1000
@@ -200,16 +137,12 @@ describe('assistant-memory-preferences-store', () => {
     expect(
       useAssistantMemoryPreferencesStore.getState().observationalMemory.observationTokens
     ).toBe(1000);
-    expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.topK).toBe(50);
-    expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.messageRange).toBe(0);
   });
 
   it('returns the exact runtime memory settings passed to Mastra', () => {
     const store = useAssistantMemoryPreferencesStore.getState();
 
-    store.setSemanticRecallEnabled(true);
-    store.setSemanticRecallEmbeddingModelTarget('google/gemini-embedding-001');
-    store.setSemanticRecallScope('thread');
+    store.setObservationalRetrievalMode('messages');
 
     expect(useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings()).toEqual({
       observationalMemory: {
@@ -217,15 +150,8 @@ describe('assistant-memory-preferences-store', () => {
         messageTokens: 30_000,
         modelTarget: 'auto',
         observationTokens: 40_000,
-        retrievalMode: 'off',
+        retrievalMode: 'messages',
         scope: 'thread',
-      },
-      semanticRecall: {
-        embeddingModelTarget: 'google/gemini-embedding-001',
-        enabled: true,
-        messageRange: 2,
-        scope: 'thread',
-        topK: 5,
       },
     });
   });

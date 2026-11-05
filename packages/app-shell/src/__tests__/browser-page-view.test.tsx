@@ -5,10 +5,7 @@
  */
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { WorkspaceTabsContext, type WorkspaceTabsValue } from '@brainstrike/file-explorer-ui/shell';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { resetToastStore, toast } from '@brainstrike/ui';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
@@ -103,7 +100,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   useBrowserTabsStore.getState().reset();
-  __resetWorkspaceTabSelectionStoreForTests();
 });
 
 describe('browser page tab', () => {
@@ -180,6 +176,81 @@ describe('browser page tab', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }));
     expect(bridge.goBack).toHaveBeenCalledExactlyOnceWith('p1');
     expect(screen.getByRole('button', { name: 'Forward' })).toBeDisabled();
+  });
+
+  it('keeps what the person typed when the address bar loses focus, until they navigate (BST-2452)', async () => {
+    const user = userEvent.setup();
+    render(<PageTabs isMenuOpen={false} />);
+
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    await user.clear(address);
+    await user.type(address, 'example.com');
+    // Another window or the page's own view takes focus, and the page reports itself again.
+    act(() => address.blur());
+    act(() => useBrowserTabsStore.getState().setTabs([{ ...PAGE }]));
+    expect(address).toHaveValue('example.com');
+    await user.type(address, '{Enter}');
+    expect(bridge.navigate).toHaveBeenCalledExactlyOnceWith('p1', 'example.com');
+    expect(address).toHaveValue('https://docs.test/');
+
+    // The toolbar's other navigations leave no draft behind either.
+    await user.type(address, 'guide');
+    await user.click(screen.getByRole('button', { name: 'Reload' }));
+    expect(bridge.reload).toHaveBeenCalledExactlyOnceWith('p1');
+    expect(address).toHaveValue('https://docs.test/');
+
+    // Nor does a page that goes somewhere on its own: a link, a redirect, the agent.
+    await user.type(address, 'guide');
+    act(() => useBrowserTabsStore.getState().setTabs([{ ...PAGE, url: 'https://docs.test/next' }]));
+    expect(address).toHaveValue('https://docs.test/next');
+  });
+
+  it("keeps what is typed into a new tab when the tab's first address arrives (BST-2452)", async () => {
+    useBrowserTabsStore.getState().setTabs([{ ...PAGE, title: '', url: '' }]);
+    const user = userEvent.setup();
+    render(<PageTabs isMenuOpen={false} />);
+
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    await user.type(address, 'example.com');
+    act(() => useBrowserTabsStore.getState().setTabs([{ ...PAGE, url: 'about:blank' }]));
+    expect(address).toHaveValue('example.com');
+    await user.type(address, '{Enter}');
+    expect(bridge.navigate).toHaveBeenCalledExactlyOnceWith('p1', 'example.com');
+  });
+
+  it('gives up a typed address on Escape, showing the page URL again', async () => {
+    const user = userEvent.setup();
+    render(<PageTabs isMenuOpen={false} />);
+
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    await user.clear(address);
+    await user.type(address, 'example.com');
+    await user.keyboard('{Escape}');
+
+    expect(address).toHaveValue('https://docs.test/');
+    expect(bridge.navigate).not.toHaveBeenCalled();
+  });
+
+  it('says in the pane when a navigation fails, and tries it again on Retry', async () => {
+    const user = userEvent.setup();
+    bridge.reload.mockRejectedValueOnce(new Error('page crashed'));
+    render(<PageTabs isMenuOpen={false} />);
+
+    await user.click(screen.getByRole('button', { name: 'Reload' }));
+    const failure = await screen.findByTestId('browser-page-error');
+    expect(failure).toHaveTextContent("Couldn't reload the page: page crashed");
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(bridge.reload).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('browser-page-error')).not.toBeInTheDocument();
+  });
+
+  it('shows a progress bar in the toolbar while the page loads', () => {
+    render(<PageTabs isMenuOpen={false} />);
+    expect(screen.queryByRole('progressbar', { name: 'Loading page' })).not.toBeInTheDocument();
+
+    act(() => useBrowserTabsStore.getState().setTabs([{ ...PAGE, isLoading: true }]));
+    expect(screen.getByRole('progressbar', { name: 'Loading page' })).toBeInTheDocument();
   });
 
   it('names the tab after its page, marks it while it loads, and says when the page is closed', () => {

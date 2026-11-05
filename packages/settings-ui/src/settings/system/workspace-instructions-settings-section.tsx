@@ -4,9 +4,9 @@
  * docs/agents/workspace-context.md § "Instructions, prompts and skills").
  *
  * CONSUMES `workspace-instructions-preferences-store.ts` (master toggle +
- * per-root oversized opt-in) and the desktop `window.contextFiles` bridge (a
- * per-root scan of the detected file's size + token estimate + injection
- * status). The bridge is desktop-only; on web the panel shows an empty state.
+ * per-root oversized opt-in) and the agent host's per-root scan of each
+ * trusted root's detected file (size + token estimate + injection status),
+ * which only the desktop supplies; on web the panel shows an empty state.
  *
  * Threshold-hybrid policy surfaced here: a `fits` file is auto-injected; an
  * `oversized` file is "detected but not injected (too large)" until the user
@@ -14,10 +14,7 @@
  */
 
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
-import {
-  resolveContextFilesBridge,
-  type WorkspaceContextFileStatus,
-} from '@brainstrike/assistant-contract/context-files-bridge';
+import type { WorkspaceContextFileStatus } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
   Badge,
@@ -64,7 +61,14 @@ const STATUS_META: Record<
   oversized: { label: 'Too large', variant: 'secondary' },
 };
 
-export function WorkspaceInstructionsSettingsSection() {
+export interface WorkspaceInstructionsSettingsSectionProps {
+  /** The agent host's scan (`workspace/context-files`); absent where no host serves it. */
+  readonly scanContextFiles?: () => Promise<WorkspaceContextFileStatus[]>;
+}
+
+export function WorkspaceInstructionsSettingsSection({
+  scanContextFiles,
+}: WorkspaceInstructionsSettingsSectionProps) {
   const masterEnabled = useWorkspaceInstructionsPreferencesStore((state) => state.masterEnabled);
   const oversizedOptInByRootId = useWorkspaceInstructionsPreferencesStore(
     (state) => state.oversizedOptInByRootId
@@ -86,18 +90,16 @@ export function WorkspaceInstructionsSettingsSection() {
     };
   }, []);
 
-  // Fetch the per-root scan from the desktop bridge. A scan rejection (DB
-  // unavailable, IPC failure, handler bug) is surfaced as a distinct, logged
+  // Fetch the per-root scan from the agent host. A scan rejection (host
+  // unavailable, transport failure, handler bug) is surfaced as a distinct, logged
   // error state — NEVER swallowed into the empty state, which would falsely
   // claim no workspace folders are open. The applier arrows keep setState out of
   // the effect body (react-compiler-friendly data-fetch-in-effect).
   const runScan = () => {
-    const bridge = resolveContextFilesBridge();
-    if (!bridge) {
+    if (!scanContextFiles) {
       return;
     }
-    bridge
-      .scan()
+    scanContextFiles()
       .then((result) => {
         if (mountedRef.current) {
           setStatuses(result);
@@ -121,7 +123,7 @@ export function WorkspaceInstructionsSettingsSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Workspace instructions</CardTitle>
+        <CardTitle>Instruction files</CardTitle>
         <CardDescription>
           Automatically add each open workspace folder’s <code>AGENTS.md</code>,{' '}
           <code>AGENT.md</code>, or <code>CLAUDE.md</code> to the assistant’s context every turn. A
@@ -150,8 +152,8 @@ export function WorkspaceInstructionsSettingsSection() {
             <legend className="text-sm font-medium">Detected files</legend>
             {/* The scan runs on mount; mounting/unmounting a workspace root while
                 this panel stays open leaves the list stale, so offer a manual
-                rescan (bridge is desktop-only — omitted on web). */}
-            {resolveContextFilesBridge() ? (
+                rescan (the host scan is desktop-only — omitted on web). */}
+            {scanContextFiles ? (
               <Button
                 data-testid="context-files-rescan"
                 disabled={!masterEnabled}

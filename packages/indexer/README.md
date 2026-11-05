@@ -1,66 +1,23 @@
 # @brainstrike/indexer
 
-A Node-only, rebuildable SQLite index with one writer process and authorized
-readers. It does no inference and is separate from the canonical host StateStore
-and committed conversation log.
+The host state index: a Node-only, rebuildable SQLite projection of the conversation log (FTS/trigram over committed messages and observations) with one writer and authorized readers. It does no inference and is never a second transcript writer; the host StateStore stays the truth.
 
-## Acquire the existing owner
+## Opening
 
-`openIndexer(options, deadlines)` launches the package process entry and compiled
-writer worker. Desktop uses the explicit Electron utility-process adapter in
-[`indexer-host-manager.ts`](../../apps/desktop/src/indexer-host-manager.ts).
-Both transports share the same process core. Desktop native-index wiring is
-implemented; the original foundation-stage “cutover pending” notes are historical.
+- The agent host runs it on a worker thread: [`host-state-index-worker.ts`](../agent-host/src/host-state-index-worker.ts) calls `runIndexerProcess` (`@brainstrike/indexer/host`), whose process core starts the writer worker. [`host-state-index-owner.ts`](../agent-host/src/host-state-index-owner.ts) owns the connection.
+- `openIndexer(options, deadlines)` forks the same process core as a Node child; tests use it.
+- Shapes: [`contracts.ts`](src/contracts.ts), [`index.ts`](src/index.ts).
+- Options name the database path, the state root it projects and that root's producer module.
+- Deadlines: the owner supplies `closeMs`, the window from close request to exit, after which the process is killed and its exit still joined. Startup and requests have no deadline; the process is retired only on exit or a transport/protocol fault, never for being slow.
 
-The public shapes live in [`contracts.ts`](src/contracts.ts) and
-[`index.ts`](src/index.ts). Opening specifies the owned database path, authorized
-roots/scopes and an explicit mode: `text-only` creates the index and
-`open-existing` requires an existing one. The owner supplies the close window, `closeMs`: from the close request
-to the exit, after which the process is killed and its exit still joined. Startup
-and requests have no deadline: the process is retired only on its exit or a transport
-or protocol fault, never because it is slow.
+## Projection and reads
 
-## Publish and read
-
-Forward the canonical producer's unchanged chunks, source spans, hashes and syntax
-metadata through `prepareFile`/`prepareScopedFile`; do not reparse or split them.
-The standalone line-chunk preparation API has an explicit caller line policy and
-does not prove a tokenizer limit.
-
-A prepared plan captures the previous snapshot. `commitTextFile` commits a
-root-list file's text and syntax; scoped publication validates that authority and
-commits text, vectors and syntax together. Publication acknowledgements, source
-scan completion and coverage are different facts.
-
-The root-list API is text-only. The scoped desktop API carries the full
-`VectorProfile` (provider, model, dimensions and distance) for each
-binding/request, and vectors are partitioned by its `vectorProfileHash`. Vector
-reuse requires matching text and profile identity.
-
-BM25/trigram reads need text; scoped vector reads need the admitted profile and vector.
-Authorize the roots/scopes before ranking, retain canonical hit metadata and exact
-rescoring, and expose incomplete coverage honestly. Hybrid fusion belongs to the
-consumer's explicit retrieval policy. State-message/observation projections are
-also derived indexes, not another transcript writer.
+- Catch-up projects committed events in bounded steps (`catchUpStateStep`) and resumes where the last step committed.
+- `searchState` returns committed conversation rows of the requested threads that match every query word; `matchState` and `stateStats` serve one thread.
+- `stateBlobCounts` answers the StateStore's blob garbage-collection check.
 
 ## Retirement and rebuild
 
-Unsupported profile/schema acquisition refuses visibly; opening never deletes the
-index. Supported schema construction is owned by
-[`index-metadata.ts`](src/index-metadata.ts) and the store acquisition code.
-A rebuild preserves canonical chats/catalog/configuration.
-
-`close()` joins the physical process. `destroy()` joins it before deleting its
-owned database, WAL and shared-memory files. The close window runs from the close
-request to the exit; a process still running then is killed, and only its exit ends
-it. A refused kill is logged, never a fault (ADR-0030).
-
-## Development
-
-Build and check with this package's configured `build`, `test`, `test:integration`
-and `type-check` scripts. Integration checks require actual native dependencies.
-**CI is disabled due to cost; validation must run locally.** Use
-`pnpm check`.
-
-Contract: [indexer](../../docs/agents/indexer.md).
-Decision: [ADR-0018](../../docs/adr/0018-derived-sqlite-indexer.md).
+- Any stored schema but `INDEX_SCHEMA_VERSION` refuses as `rebuild-required`; opening never upgrades or deletes the file. The host owner then destroys and rebuilds it. Schema construction lives in [`index-metadata.ts`](src/index-metadata.ts).
+- A rebuild preserves canonical chats, catalog and configuration.
+- `close()` joins the process; `destroy()` joins it, then deletes the database, WAL and shared-memory files. A refused kill is logged, never a fault (ADR-0030).

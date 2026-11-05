@@ -29,6 +29,9 @@ export function createProvidersSettingsCategory(options: ProvidersSettingsProps)
       'openrouter',
       'models',
       'connect',
+      'test connection',
+      'other credentials',
+      'environment',
     ],
     title: 'Providers',
   };

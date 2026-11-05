@@ -9,10 +9,10 @@ const API_KEY = 'test-key-host-memory-panel';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
-const MEMORY_SETTINGS_KEY = 'assistant-memory-preferences.v1';
+const MEMORY_SETTINGS_KEY = 'brainstrike:assistant-memory-preferences.v1';
 const MEMORY_SETTINGS_VERSION = 2;
-// The assistant panel's persisted Detail level (assistant-detail-level-context.tsx).
-const DETAIL_LEVEL_KEY = 'brainstrike.assistant.detail-level';
+// The assistant panel's persisted Detail level (assistant-detail-level-store.ts).
+const DETAIL_LEVEL_KEY = 'brainstrike:assistant-detail-level.v1';
 const ANSWER = 'MEMORY_PANEL_ANSWER_COMPLETE';
 // Mastra's observer system prompt, as the external provider receives it.
 const OBSERVER = /memory consciousness of an AI assistant\. Your observations/u;
@@ -80,16 +80,12 @@ test('the Developer memory panel shows the observer buffering live, then its buf
       },
     };
     await page.evaluate(
-      async ({ detail, detailKey, key, value }) => {
-        const storage = window.electronAPI?.storage;
-        if (!storage) {
-          throw new Error('The app storage bridge is unavailable');
-        }
-        await storage.setItem(key, value);
+      ({ detail, detailKey, key, value }) => {
+        window.localStorage.setItem(key, value);
         window.localStorage.setItem(detailKey, detail);
       },
       {
-        detail: 'developer',
+        detail: JSON.stringify({ state: { detailLevel: 'developer' }, version: 1 }),
         detailKey: DETAIL_LEVEL_KEY,
         key: MEMORY_SETTINGS_KEY,
         value: JSON.stringify({ state: settings, version: MEMORY_SETTINGS_VERSION }),
@@ -130,7 +126,6 @@ test('the Developer memory panel shows the observer buffering live, then its buf
       '0 (initial)'
     );
     await expect(memory.getByTestId('context-usage-memory-last-buffered')).toContainText('Never');
-    await expect(memory.getByTestId('context-usage-memory-embedder')).toContainText('Off');
     await testInfo.attach('memory-panel-buffering', {
       body: await page.screenshot(),
       contentType: 'image/png',

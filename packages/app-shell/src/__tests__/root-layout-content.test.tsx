@@ -1,5 +1,4 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
@@ -18,7 +17,6 @@ vi.mock('@brainstrike/file-explorer-hooks', async () => {
     AdaptersContext: createContext(null),
     useAdapters: () => ({
       fileSystemAdapter: null,
-      storageAdapter: new MemoryStorageAdapter(),
     }),
   };
 });
@@ -36,7 +34,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   ExplorerContextExportAction: () => null,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
-  RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
   TERMINAL_APP_ID: 'terminal',
   useFileSystem: () => ({
     rootDirectoryHandle: null,
@@ -164,12 +161,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('../background-indexing/indexing-activity-coordinator', () => ({
-  IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
-}));
-
-vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
-  WorkspaceCollectionSyncProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+vi.mock('../roots/workspace-root-identity', () => ({
+  WorkspaceRootIdentity: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('../assistant-chat-panel', () => ({
@@ -232,7 +225,6 @@ describe('RootLayoutContent', () => {
   ) =>
     render(
       <RootLayoutContent
-        deleteRootData={async () => undefined}
         navigationItems={navigationItems}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
         {...overrides}
@@ -253,7 +245,6 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('app-layout')).toBeInTheDocument();
     expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     // The Files app body is the explorer itself, with no nested layout (BST-2018).
     expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
@@ -291,7 +282,6 @@ describe('RootLayoutContent', () => {
     view.rerender(
       <RootLayoutContent
         artifactsPageContent={<div data-testid="artifacts-page">Artifacts</div>}
-        deleteRootData={async () => undefined}
         diagnosticFeatureFlags={['diagnostics-v2']}
         navigationItems={navigationItems}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}

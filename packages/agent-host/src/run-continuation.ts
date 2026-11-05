@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
+import type { ApprovalFileChange, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { describeBoundaryFailure, refusalError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -17,8 +17,11 @@ import {
   type HostBrowserOriginStore,
   saveHostBrowserOrigin,
 } from './browser-origin-answers.ts';
+import { hostTurnStopped } from './committed-identities.ts';
+import type { HostRunExecutionPorts } from './core-run-execution.ts';
 import {
   applyHostPermissionGrant,
+  type HostRunMap,
   hasHostInteractionResponse,
   type PendingInteraction,
   type HostRunState as Run,
@@ -39,8 +42,9 @@ import {
   hostRunPolicyAnswers,
   hostRunToolDecision,
   hostRunTools,
+  outsideSandboxGrantKey,
 } from './run-admission.ts';
-import { hostStartPosition } from './run-branch.ts';
+import { type HostRunCarry, type HostRunPosition, hostStartPosition } from './run-branch.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -182,18 +186,13 @@ function resumedGrant(
   const { action } = decodeNetworkConsent(resumed);
   return answeredGrant(run, pending, grant, action === 'allow' ? 'approve' : 'deny');
 }
-/** Core supplies its sole acceptance writer and continuation owner. */
-export async function commitHostInteractionResponse(
+/** The run's unanswered approval, or other interaction; anything else is stale. */
+function unansweredHostInteraction(
   run: Run,
-  { origins, platform }: HostInteractionOwner,
-  params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
-  accept: (events: readonly HostEvent[]) => Promise<void>,
-  continueRun: () => Promise<void>
-): Promise<{
-  accepted: true;
-}> {
-  const pending = run.approvals.get(params.interactionId);
-  const approval = 'decision' in params;
+  interactionId: string,
+  approval: boolean
+): PendingInteraction {
+  const pending = run.approvals.get(interactionId);
   if (
     run.terminal ||
     !pending ||
@@ -208,6 +207,54 @@ export async function commitHostInteractionResponse(
         : 'Human interaction is stale or belongs to another run'
     );
   }
+  return pending;
+}
+/**
+ * ADR-0036: the file change a waiting approval's call would make, from its
+ * tool's own resolution and matcher. A read: nothing is written or committed.
+ * It queues like an answer, so a closing or deleted thread refuses it.
+ */
+export function hostInteractionPreview(
+  runs: Pick<HostRunMap, 'requireForThread'>,
+  ports: () => Pick<HostRunExecutionPorts, 'admit' | 'platform'>
+): (params: HostParams<'interaction/preview'>, signal: AbortSignal) => Promise<ApprovalFileChange> {
+  return ({ interactionId, runId, threadId }, signal) => {
+    const { admit, platform } = ports();
+    return admit(
+      threadId,
+      async () => {
+        const run = runs.requireForThread(threadId, runId);
+        const pending = unansweredHostInteraction(run, interactionId, true);
+        await ensureHostRunAdmission(platform, run);
+        const registered = hostRunTools(run)[pending.event.toolId];
+        if (!registered || registered.identity !== pending.event.toolIdentity) {
+          throw new Error('Approval tool identity changed');
+        }
+        if (!registered.proposedChange) {
+          throw refusalError(
+            'input',
+            'interaction.preview-unavailable',
+            'This approval has no file change to preview'
+          );
+        }
+        return await registered.proposedChange(pending.event.input, signal);
+      },
+      signal
+    );
+  };
+}
+/** Core supplies its sole acceptance writer and continuation owner. */
+export async function commitHostInteractionResponse(
+  run: Run,
+  { origins, platform }: HostInteractionOwner,
+  params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
+  accept: (events: readonly HostEvent[]) => Promise<void>,
+  continueRun: () => Promise<void>
+): Promise<{
+  accepted: true;
+}> {
+  const approval = 'decision' in params;
+  const pending = unansweredHostInteraction(run, params.interactionId, approval);
   await ensureHostRunAdmission(platform, run);
   const resumed = approval
     ? undefined
@@ -241,6 +288,13 @@ export async function commitHostInteractionResponse(
   ]);
   if (grant) {
     applyHostPermissionGrant(run, grant);
+    // A session grant given on a call that was the person's alone (a command
+    // outside the sandbox) answers such calls of its tool for the session.
+    const registered = hostRunTools(run)[pending.event.toolId];
+    const approved = 'decision' in params && params.decision === 'approve';
+    if (approved && registered?.personApproval?.(pending.event.input) !== undefined) {
+      run.grants.outsideSandbox.add(outsideSandboxGrantKey(registered, pending.event.toolId));
+    }
   }
   if (approval) {
     pending.decision = params.decision;
@@ -302,7 +356,7 @@ function approvedHostPlanRunParams(
   };
 }
 /** ADR-0028 step 3: the `run/start` that carries a run's task on in the worktree it entered. */
-export function enteredWorktreeRunParams(
+function enteredWorktreeRunParams(
   run: Run,
   worktree: NonNullable<Run['enteredWorktree']>
 ): HostParams<'run/start'> {
@@ -318,16 +372,67 @@ export function enteredWorktreeRunParams(
 }
 /**
  * The thread's next run, started by the host: an approved plan carried out,
- * a child's human input (BST-1932), or work moved into a worktree. A next
- * run that cannot start is committed as failed, with its cause, so it never
- * ends silently.
+ * a child's human input (BST-1932), or work moved into a worktree, which
+ * carries on the turn of the run that entered it (`turnId`). `refused`
+ * commits it as failed with that cause instead of starting it.
+ */
+export interface HostNextRun extends HostRunCarry {
+  /**
+   * The turn of the run this one carries on. A Stop of that turn committed
+   * while this run waited to start refuses it at its admission, so it never
+   * starts (`hostCarriedStartPosition`).
+   */
+  readonly follows?: string;
+  readonly params: HostParams<'run/start'>;
+  readonly refused?: Error;
+}
+/** A run carried on from a turn that a Stop ended while it waited: it starts nothing. */
+export class HostTurnStoppedError extends Error {
+  constructor(turnId: string) {
+    super(`Turn ${turnId} was stopped before its next run started`);
+    this.name = 'HostTurnStoppedError';
+  }
+}
+/** A run/start's position; a carried-on run is admitted only while the turn it follows is not stopped. */
+export function hostCarriedStartPosition(
+  runs: ReadonlyMap<string, Run>,
+  params: HostParams<'run/start'>,
+  carry?: Pick<HostNextRun, 'follows' | 'hostPrompt' | 'turnId'>
+): HostRunPosition {
+  if (carry?.follows !== undefined && hostTurnStopped(runs, carry.follows)) {
+    throw new HostTurnStoppedError(carry.follows);
+  }
+  return hostStartPosition(runs.values(), params, carry);
+}
+/**
+ * The run the host starts to carry a completed run's task on: its approved
+ * plan carried out, or the task in the worktree it entered, in the same turn
+ * (`turnId`, ADR-0028 step 3).
+ */
+export function hostContinuationRun(run: Run, turnId: string): HostNextRun | undefined {
+  const plan = approvedHostPlan(run);
+  if (plan) {
+    return { follows: turnId, params: approvedHostPlanRunParams(run, plan) };
+  }
+  return run.enteredWorktree
+    ? // The host wrote this prompt: it is model input, never the person's words.
+      {
+        follows: turnId,
+        hostPrompt: true,
+        params: enteredWorktreeRunParams(run, run.enteredWorktree),
+        turnId,
+      }
+    : undefined;
+}
+/**
+ * Starts the thread's next run. A next run that cannot start is committed as
+ * failed, with its cause, so it never ends silently.
  */
 export async function startHostNextRun(
   runs: Iterable<Run>,
-  params: HostParams<'run/start'>,
+  { follows: _follows, params, refused, ...carry }: HostNextRun,
   start: () => Promise<unknown>,
-  commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>,
-  refused?: Error
+  commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>
 ): Promise<boolean> {
   try {
     if (refused) {
@@ -336,8 +441,12 @@ export async function startHostNextRun(
     await start();
     return true;
   } catch (cause) {
+    // The person stopped the turn: nothing follows it, and nothing failed.
+    if (cause instanceof HostTurnStoppedError) {
+      return false;
+    }
     const runId = randomUUID();
-    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause));
+    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, carry));
     return false;
   }
 }
@@ -346,10 +455,16 @@ export function failedHostStartEvents(
   runs: Iterable<Run>,
   params: HostParams<'run/start'>,
   runId: string,
-  cause: unknown
+  cause: unknown,
+  carry?: HostRunCarry
 ): HostEvent[] {
   return [
-    { ...hostStartPosition(runs, params), modelId: params.modelId, runId, type: 'run.started' },
+    {
+      ...hostStartPosition(runs, params, carry),
+      modelId: params.modelId,
+      runId,
+      type: 'run.started',
+    },
     {
       detail: describeBoundaryFailure(
         toBoundaryFailure(cause, (message, fields) =>
@@ -631,12 +746,11 @@ export interface HostRunContinuationPorts {
   readonly loop: (model: LanguageModel) => Promise<void>;
   readonly openRun: () => Promise<unknown>;
   readonly platform: HostPlatform;
-  readonly startNextRun: (params: HostParams<'run/start'>) => Promise<boolean>;
 }
 /**
  * Continue a run once every decision it waits on is answered: commit the
- * approved calls' results, then start an approved plan's run, finish at the
- * step limit, or loop again.
+ * approved calls' results, then finish (an approved plan, the step limit) or
+ * loop again.
  */
 export async function continueHostRun(run: Run, ports: HostRunContinuationPorts): Promise<void> {
   if (run.terminal) {
@@ -655,10 +769,9 @@ export async function continueHostRun(run: Run, ports: HostRunContinuationPorts)
     // The SDK collects approvals from one final tool message, preserving parallel calls.
     const responses = await createHostApprovalResponses(run, ports.platform, ports.dispatch);
     await ports.commitMessages(responses.length > 0 ? [{ content: responses, role: 'tool' }] : []);
-    const plan = approvedHostPlan(run);
-    if (plan) {
+    // An approved plan's run starts from this run's end (core-run-end.ts).
+    if (approvedHostPlan(run)) {
       await ports.finish('completed');
-      await ports.startNextRun(approvedHostPlanRunParams(run, plan));
       return;
     }
     if (run.steps >= admission.snapshot.maxSteps) {

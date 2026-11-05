@@ -1,10 +1,10 @@
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { getProviderEnvKeys } from '@brainstrike/assistant-contract/provider-registry';
 import type { RuntimeData } from '../types.ts';
-import { getProviderEnvKeys } from './registry.ts';
-import type { SupportedProvider } from './types.ts';
-import { isSupportedProvider } from './types.ts';
 
-export type { SupportedProvider } from './types.ts';
-export { isSupportedProvider } from './types.ts';
+export type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+export { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 
 /**
  * Resolves the API key for a given provider from runtime data or environment variables

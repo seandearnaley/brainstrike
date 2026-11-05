@@ -59,12 +59,9 @@ export type ContextTarget =
    * actions (New, Close All) claim it; `stripId` names the owning strip.
    */
   | { readonly kind: 'tab-strip'; readonly stripId: string }
-  | { kind: 'collection'; id: string; name: string }
-  | { kind: 'collection-file'; id: string; name: string; path: string | null }
-  | { kind: 'chunk'; id: string; content: string }
-  | { kind: 'embedding'; id: string; vectorId: string }
   /**
-   * A row in the Changes surface's changed-files tree (BST-1114). Field
+   * A file in the Changes surface: a changed-files tree row (BST-1114) or a
+   * diff file header. Field
    * shapes are inlined from `@brainstrike/types`'s `ChangedFileEntry` rather
    * than imported — this package stays dependency-light (React-free,
    * Electron-free, and today free of `@brainstrike/types` too), and the
@@ -75,6 +72,8 @@ export type ContextTarget =
    */
   | {
       readonly kind: 'changed-file';
+      /** Git's diff of the file as the view drew it, or null when the view sent none. */
+      readonly patch: string | null;
       readonly path: string;
       readonly repositoryRoot: string | null;
       readonly rootId: string | null;
@@ -174,7 +173,8 @@ export interface ActionServices {
 /** Menu group; determines ordering and separator placement. */
 export type ActionGroup = 'primary' | 'tree' | 'copy' | 'navigate' | 'inspect' | 'danger';
 
-export type ActionShortcutModifier = 'primary' | 'shift' | 'alt';
+/** `primary` is ⌘ on macOS and Ctrl elsewhere; `ctrl` is Control on every platform. */
+export type ActionShortcutModifier = 'primary' | 'ctrl' | 'shift' | 'alt';
 
 /**
  * Semantic shortcut metadata. Renderers translate `primary` to the platform's

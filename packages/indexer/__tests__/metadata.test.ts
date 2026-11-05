@@ -1,18 +1,16 @@
-import { decodeIndexIdentityRow } from '@brainstrike/indexer/metadata';
-import { openConnection } from '@brainstrike/sqlite-native';
+import Database from 'better-sqlite3';
 import { expect, it, vi } from 'vitest';
 import { fault, IndexerError } from '../src/contracts.js';
 import {
+  decodeIndexIdentityRow,
   readIndexIdentity,
   readIndexSchemaVersion,
-  readScopeEpoch,
 } from '../src/index-metadata.js';
-import { validateScopedStorage } from '../src/scoped-vector-validation.js';
 
-it.each([readIndexIdentity, readIndexSchemaVersion, readScopeEpoch, validateScopedStorage])(
+it.each([readIndexIdentity, readIndexSchemaVersion])(
   '%s retains the exact SQL failure and inner cause without extending the fault payload',
   (read) => {
-    const db = openConnection(':memory:');
+    const db = new Database(':memory:');
     const inner = new Error('PRIVATE driver detail');
     const cause = new Error('Metadata read failed.', { cause: inner });
     vi.spyOn(db, 'prepare').mockImplementation(() => {
@@ -42,7 +40,7 @@ it.each([readIndexIdentity, readIndexSchemaVersion, readScopeEpoch, validateScop
 );
 
 const row = {
-  schemaVersion: 16,
+  schemaVersion: 17,
   storeId: 'a'.repeat(64),
 };
 it('decodes raw store identity without a SQLite driver', () => {
@@ -50,7 +48,7 @@ it('decodes raw store identity without a SQLite driver', () => {
   for (const invalid of [
     null,
     { ...row, storeId: 'invalid' },
-    ...[3, 8, 15, 17].map((schemaVersion) => ({ ...row, schemaVersion })),
+    ...[3, 8, 16, 18].map((schemaVersion) => ({ ...row, schemaVersion })),
   ]) {
     expect(() => decodeIndexIdentityRow(invalid)).toThrow('rebuild');
   }

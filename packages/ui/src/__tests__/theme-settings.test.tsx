@@ -10,24 +10,42 @@ vi.mock('../theme-provider', () => ({
 
 describe('ThemeSettings', () => {
   const setCodeFont = vi.fn();
-  const setCodeTheme = vi.fn();
+  const setCodeFontSize = vi.fn();
+  const setCodeThemeDark = vi.fn();
+  const setCodeThemeLight = vi.fn();
+  const setCustomCodeFont = vi.fn();
   const setFont = vi.fn();
   const setMode = vi.fn();
+  const setMotion = vi.fn();
   const setTheme = vi.fn();
+  const setTranscriptTextSize = vi.fn();
+  const setTranscriptWidth = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     (useTheme as ReturnType<typeof vi.fn>).mockReturnValue({
       codeFont: 'geist-mono',
-      codeTheme: 'classic',
+      codeFontSize: null,
+      codeThemeDark: 'classic',
+      codeThemeLight: 'classic',
+      customCodeFont: '',
       font: 'geist',
       mode: 'light',
+      motion: 'system',
       setCodeFont,
-      setCodeTheme,
+      setCodeFontSize,
+      setCodeThemeDark,
+      setCodeThemeLight,
+      setCustomCodeFont,
       setFont,
       setMode,
+      setMotion,
       setTheme,
+      setTranscriptTextSize,
+      setTranscriptWidth,
       theme: 'brainstrike',
+      transcriptTextSize: 'medium',
+      transcriptWidth: 'wide',
     });
   });
 
@@ -66,14 +84,13 @@ describe('ThemeSettings', () => {
       expect(name).toBeTruthy();
       return name;
     });
-    // Four pickers, and no two share a group.
-    expect(new Set(groupNames).size).toBe(4);
+    // Seven pickers, and no two share a group.
+    expect(new Set(groupNames).size).toBe(7);
   });
 
   it.each([
     ['Interface font', FONTS, 'geist', 'inter', setFont],
     ['Code font', CODE_FONTS, 'geist-mono', 'jetbrains-mono', setCodeFont],
-    ['Code theme', CODE_THEMES, 'classic', 'catppuccin', setCodeTheme],
   ] as const)(
     '%s offers every registry entry and switches on click',
     (label, registry, active, next, setter) => {
@@ -87,6 +104,42 @@ describe('ThemeSettings', () => {
     }
   );
 
+  it.each([
+    ['Transcript text size', 'Medium', 'Large', setTranscriptTextSize, 'large'],
+    ['Transcript width', 'Wide', 'Narrow', setTranscriptWidth, 'narrow'],
+    ['Motion', 'System', 'Reduced', setMotion, 'reduced'],
+    ['Code font size', 'Default', '15px', setCodeFontSize, 15],
+  ] as const)(
+    '%s shows the current choice and switches on click',
+    (label, active, next, setter, value) => {
+      render(<ThemeSettings />);
+      const group = within(screen.getByRole('radiogroup', { name: label }));
+      expect(group.getByRole('radio', { name: active })).toBeChecked();
+      fireEvent.click(group.getByRole('radio', { name: next }));
+      expect(setter).toHaveBeenCalledWith(value);
+    }
+  );
+
+  it("goes back to each surface's own code size when Default is picked", () => {
+    vi.mocked(useTheme).mockReturnValue({
+      ...vi.mocked(useTheme)(),
+      codeFontSize: 15,
+    });
+    render(<ThemeSettings />);
+    const group = within(screen.getByRole('radiogroup', { name: 'Code font size' }));
+    expect(group.getByRole('radio', { name: '15px' })).toBeChecked();
+    fireEvent.click(group.getByRole('radio', { name: 'Default' }));
+    expect(setCodeFontSize).toHaveBeenCalledWith(null);
+  });
+
+  it('saves a custom code font as it is typed', () => {
+    render(<ThemeSettings />);
+    fireEvent.change(screen.getByLabelText('Custom code font'), {
+      target: { value: 'Berkeley Mono' },
+    });
+    expect(setCustomCodeFont).toHaveBeenCalledWith('Berkeley Mono');
+  });
+
   it('previews each font in its own typeface', () => {
     render(<ThemeSettings />);
     const inter = FONTS.find((font) => font.id === 'inter');
@@ -95,11 +148,24 @@ describe('ThemeSettings', () => {
     expect(card.querySelector('[style]')).toHaveStyle({ fontFamily: inter?.family });
   });
 
-  it('scopes each code theme preview to its own theme', () => {
-    render(<ThemeSettings />);
-    const card = screen.getByTestId('code-theme-card-solarized');
-    expect(card.querySelector('[data-code-theme="solarized"]')).not.toBeNull();
-  });
+  it.each([
+    ['Light mode', 'light', 'one', setCodeThemeLight],
+    ['Dark mode', 'dark', 'catppuccin', setCodeThemeDark],
+  ] as const)(
+    'picks the %s code theme on its own and previews it as a diff',
+    (label, scheme, next, setter) => {
+      render(<ThemeSettings />);
+      const select = screen.getByLabelText(label);
+      expect(select).toHaveValue('classic');
+      expect(within(select).getAllByRole('option')).toHaveLength(CODE_THEMES.length);
+      fireEvent.change(select, { target: { value: next } });
+      expect(setter).toHaveBeenCalledWith(next);
+
+      const preview = screen.getByTestId(`code-theme-preview-${scheme}`);
+      expect(preview).toHaveAttribute(`data-code-theme-${scheme}`, 'classic');
+      expect(preview.classList.contains('dark')).toBe(scheme === 'dark');
+    }
+  );
 
   it('marks the active theme card checked and switches on click', () => {
     render(<ThemeSettings />);

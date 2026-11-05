@@ -29,7 +29,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
-import { useOptionalRootDataDeletion } from './root-data-deletion-context';
+import { threadCheckoutView, useThreadCheckout } from './thread-checkout-context';
 import { useFactoryResetWatchFence } from './use-factory-reset-watch-fence';
 
 const logger = createLogger('FileSystemContext');
@@ -121,6 +121,7 @@ export function useFileSystemInstance() {
   // Multi-root store actions: without these the boot restore never populates
   // activeRootIds and focus-by-recency always falls back to handles[0].
   const addActiveRoot = useFileExplorerStoreSelector((s) => s.addActiveRoot);
+  const openActiveRoot = useFileExplorerStoreSelector((s) => s.openActiveRoot);
   const removeActiveRoot = useFileExplorerStoreSelector((s) => s.removeActiveRoot);
   const setActiveRoots = useFileExplorerStoreSelector((s) => s.setActiveRoots);
   // Token cache seam: the core hook does not own the token cache, so the
@@ -133,10 +134,6 @@ export function useFileSystemInstance() {
   // is stable per TokenCacheProvider instance (only changes when `db` does).
   const tokenCacheContext = useOptionalTokenCacheContext();
   const tokenCacheStore = tokenCacheContext?.store ?? null;
-  // Cascade-delete seam (Phase 6): app-shell injects the DB deletion; the
-  // disconnect wrapper aborts (with a toast) when deletion is requested but
-  // fails or no provider is mounted — never a silent no-op.
-  const deleteRootData = useOptionalRootDataDeletion();
   const { showToast: showToastRaw } = useToastManager();
   const showToast = useCallback(
     (description: string) => {
@@ -209,6 +206,7 @@ export function useFileSystemInstance() {
     addActiveRoot,
     getFolderAccessOrder,
     getPersistedCurrentFolderId,
+    openActiveRoot,
     removeActiveRoot,
     setActiveRoots,
     setCurrentFolderId,
@@ -255,40 +253,19 @@ export function useFileSystemInstance() {
    *
    * Delegates the orchestration (adapter forget, handle removal, focus shift,
    * store purge) to the core hook, then syncs the store's handle copy and
-   * clears the root's cached token counts. Disconnect ≠ delete: indexed DB
-   * rows are deliberately KEPT so re-adding the folder resumes instantly.
-   *
-   * Phase 6 opt-in (`options.deleteData`): the root's indexed rows are
-   * deleted FIRST via the app-shell-injected seam — if the delete fails the
-   * disconnect is ABORTED (toast + root stays connected, so the user can
-   * retry). The reverse order would orphan rows with no UI left to retry.
+   * clears the root's cached token counts. Disconnect ≠ delete: the root's
+   * saved record is deliberately KEPT so re-adding the folder keeps its identity.
    */
   const removeRootDirectory = useCallback(
-    async (rootId: string, options?: { deleteData?: boolean }): Promise<void> => {
-      if (options?.deleteData) {
-        try {
-          await (deleteRootData
-            ? deleteRootData(rootId)
-            : Promise.reject(
-                new Error('Root data deletion is not available in this environment.')
-              ));
-        } catch (error) {
-          logger.error('removeRootDirectory: data deletion failed — disconnect aborted', {
-            error,
-            rootId,
-          });
-          showToast('Could not delete the folder’s indexed data. The folder stays connected.');
-          return;
-        }
-      }
+    async (rootId: string): Promise<void> => {
       // The core hook performs the snapshot → focus-shift → store-purge sequence
       // internally; the reducer is the sole handle owner, so there is no store
       // handle to sync here (B3: the redundant second focus-write is dropped).
       // The platform-authority adapter call (forgetRootInAdapter) runs BEFORE
       // any renderer state change, so a rejection here means the root is still
-      // connected — mirror the deleteRootData pattern above: log + toast + a
-      // silent return, never letting the failure vanish uncaught (NO SILENT
-      // FALLBACKS — this makes the failure visible instead of losing it).
+      // connected: log + toast + a silent return, never letting the failure
+      // vanish uncaught (NO SILENT FALLBACKS — this makes the failure visible
+      // instead of losing it).
       try {
         await removeCoreRootDirectory(rootId);
       } catch (error) {
@@ -308,7 +285,7 @@ export function useFileSystemInstance() {
         }
       }
     },
-    [deleteRootData, showToast, removeCoreRootDirectory, tokenCacheStore]
+    [showToast, removeCoreRootDirectory, tokenCacheStore]
   );
 
   /**
@@ -392,10 +369,12 @@ export function useFileSystemInstance() {
 
   // CRITICAL: Sync isAccessLoading from core hook to store.
   // The stale state clearing effect in use-file-explorer-context checks the STORE's
-  // isAccessLoading value. On Electron, restoreLastFolder sets the core hook's local
+  // isAccessLoading value. On startup, restoreRoots sets the core hook's local
   // isAccessLoading but not the store's. Without this sync, the stale clearing effect
   // sees store.isAccessLoading=false and incorrectly clears selections/expansions.
-  useEffect(() => {
+  // A layout effect, so the store agrees before the first paint: a file tab reads it to tell a
+  // folder still connecting from one that is not.
+  useLayoutEffect(() => {
     setStoreIsAccessLoading(coreApi.isAccessLoading);
   }, [coreApi.isAccessLoading, setStoreIsAccessLoading]);
 
@@ -646,6 +625,26 @@ export function useFileSystemInstance() {
     roots: watcherRoots,
   });
 
+  // ADR-0034: the folders as the person sees them. A worktree is never an open folder: the
+  // active thread's worktree stands in for the folder it was made from. Watchers above keep
+  // every mounted root, so a checkout switch needs no re-watch.
+  const threadCheckout = useThreadCheckout();
+  const view = useMemo(
+    () =>
+      threadCheckoutView(coreApi.rootDirectoryHandles, coreApi.rootDirectoryHandle, threadCheckout),
+    [coreApi.rootDirectoryHandles, coreApi.rootDirectoryHandle, threadCheckout]
+  );
+  // Focus follows the view, so the store's current folder is a folder the person can see. The
+  // view changes with the active thread, which another store owns, so no handler here sees it.
+  const viewFocusedRootId = view.focused?.rootId;
+  const { setFocusedRoot } = coreApi;
+  // biome-ignore lint/plugin: syncs this store's focus to the thread store's selection
+  useEffect(() => {
+    if (viewFocusedRootId && viewFocusedRootId !== coreApi.rootDirectoryHandle?.rootId) {
+      setFocusedRoot(viewFocusedRootId);
+    }
+  }, [coreApi.rootDirectoryHandle?.rootId, setFocusedRoot, viewFocusedRootId]);
+
   // Memoize the return object. Every member — data values and functions
   // alike — is a referentially-stable dependency (coreApi members via the
   // core hook's own memo; locally-defined wrappers via useCallback above),
@@ -660,19 +659,33 @@ export function useFileSystemInstance() {
        */
       addRootDirectoryByPath: coreApi.addRootDirectoryByPath,
       clearRootDirectory,
+      /** Mounts in flight by the path asked for, and the last failure of each. */
+      folderRequests: coreApi.folderRequests,
       isAccessLoading: coreApi.isAccessLoading,
       isFileSystemAccessSupported: coreApi.isFileSystemAccessSupported,
       /** Desktop-only companion to addRootDirectoryByPath; see its note. */
       listRecentRoots: coreApi.listRecentRoots,
+      /**
+       * Every mounted root, every thread's worktree included. Resolve a root by id here (a tab,
+       * a change, the index); show folders from `rootDirectoryHandles`.
+       */
+      mountedRootHandles: coreApi.rootDirectoryHandles,
+      /**
+       * Desktop-only: open a folder as the window's project, closing the other open folders
+       * (ADR-0034). `undefined` when the adapter lacks the capability (web).
+       */
+      openRootDirectory: coreApi.openRootDirectory,
       /** Shared refresh signal for supported flows that may mutate Recents. */
       recentRootsRevision: coreApi.recentRootsRevision,
       /** Register every handle restored by the restore banner (multi-root, Phase 4+). */
       registerRestoredHandles,
       /** Disconnect a root by RootId (multi-root, Phase 5). Indexed data is kept. */
       removeRootDirectory,
-      rootDirectoryHandle: coreApi.rootDirectoryHandle,
-      /** All active root handles (multi-root, Phase 4+). */
-      rootDirectoryHandles: coreApi.rootDirectoryHandles,
+      /** The start-up restore has not answered yet, so any folder may still be opening. */
+      restorePending: coreApi.restorePending,
+      rootDirectoryHandle: view.focused,
+      /** The open folders, with the active thread's worktree in place of its folder (ADR-0034). */
+      rootDirectoryHandles: view.handles,
       /**
        * Maps handle.path → RootId UUID (storage v5).
        * Consumers use this to resolve the durable identity for a given handle path.
@@ -700,11 +713,14 @@ export function useFileSystemInstance() {
     [
       coreApi.addRootDirectory,
       coreApi.addRootDirectoryByPath,
-      coreApi.rootDirectoryHandle,
+      view,
       coreApi.rootDirectoryHandles,
+      coreApi.folderRequests,
       coreApi.isAccessLoading,
+      coreApi.restorePending,
       coreApi.isFileSystemAccessSupported,
       coreApi.listRecentRoots,
+      coreApi.openRootDirectory,
       coreApi.recentRootsRevision,
       coreApi.rootIdByPath,
       coreApi.setAccessLoading,

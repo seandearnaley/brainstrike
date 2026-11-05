@@ -1,5 +1,4 @@
-import { createSafeJsonStateStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
   CHANGES_APP_ID,
@@ -97,21 +96,12 @@ interface WorkspaceTabSelectionState {
   selection: WorkspaceTabSelection;
 }
 
-/**
- * Frozen at `.v1` even though the schema `version` is now 2 — renaming the
- * storage key would orphan persisted user state (house rule; see
- * `context-explorer-layout-store.ts`).
- */
-const STORE_NAME = 'workspace-tab-selection.v1' as const;
+const STORE_NAME = 'brainstrike:workspace-tab-selection.v1' as const;
 const DEFAULT_SELECTION: WorkspaceTabSelection = {
   appId: CONTEXT_EXPLORER_APP_ID,
   kind: 'app',
 };
 const DEFAULT_OPEN_APP_IDS: readonly string[] = [CONTEXT_EXPLORER_APP_ID];
-
-const storage = createJSONStorage(() =>
-  createSafeJsonStateStorage({ scope: 'WorkspaceTabSelectionStore' })
-);
 
 interface PersistedWorkspaceTabState {
   readonly openAppIds: readonly string[];
@@ -184,7 +174,8 @@ function withMounted(mountedAppIds: readonly string[], appId: string): readonly 
 }
 
 export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set, get) => ({
       addApps: (appIds) =>
         set((state) => {
@@ -279,41 +270,8 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
           mountedAppIds: coerced.selection.kind === 'app' ? [coerced.selection.appId] : [],
         };
       },
-      migrate: (persisted, fromVersion) => {
-        if (fromVersion >= 2) {
-          return persisted as PersistedWorkspaceTabState;
-        }
-        // v1 persisted only { selection }. Seed the open list with the Context
-        // Explorer app (the previous permanent tab) so existing users keep
-        // their current default view; an app selection joins the list too.
-        const selection = coerceSelection(
-          (persisted as Partial<{ selection: unknown }> | null)?.selection
-        );
-        const openAppIds =
-          selection.kind === 'app' && selection.appId !== CONTEXT_EXPLORER_APP_ID
-            ? [...DEFAULT_OPEN_APP_IDS, selection.appId]
-            : DEFAULT_OPEN_APP_IDS;
-        return { openAppIds, selection };
-      },
-      name: STORE_NAME,
       partialize: (s) => ({ openAppIds: s.openAppIds, selection: s.selection }),
-      storage,
-      version: 2,
+      version: 1,
     }
   )
 );
-
-/** Test-only helper to reset store and persisted value between tests. */
-export function __resetWorkspaceTabSelectionStoreForTests(): void {
-  useWorkspaceTabSelectionStore.setState({
-    mountedAppIds: DEFAULT_OPEN_APP_IDS,
-    openAppIds: DEFAULT_OPEN_APP_IDS,
-    selection: DEFAULT_SELECTION,
-  });
-  const persistApi = (
-    useWorkspaceTabSelectionStore as unknown as {
-      persist?: { clearStorage?: () => void };
-    }
-  ).persist;
-  persistApi?.clearStorage?.();
-}

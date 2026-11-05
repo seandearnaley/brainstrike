@@ -4,11 +4,11 @@ import type {
   RuntimeAssistantMemorySettings,
 } from '@brainstrike/assistant-contract/memory-settings';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import { createBrowserJsonStorage } from '@brainstrike/storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persistDurable } from '@brainstrike/storage';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME = 'assistant-memory-preferences.v1' as const;
+export const ASSISTANT_MEMORY_PREFERENCES_STORE_NAME =
+  'brainstrike:assistant-memory-preferences.v1' as const;
 
 const STORE_VERSION = 2;
 /**
@@ -16,13 +16,9 @@ const STORE_VERSION = 2;
  * against them visibly; the store normalizes persisted values into them.
  */
 export const ASSISTANT_MEMORY_NUMBER_LIMITS = {
-  messageRange: { max: 20, min: 0 },
   tokenThreshold: { max: Number.MAX_SAFE_INTEGER, min: 1000 },
-  topK: { max: 50, min: 1 },
 } as const;
 const MIN_TOKEN_THRESHOLD = ASSISTANT_MEMORY_NUMBER_LIMITS.tokenThreshold.min;
-const MAX_SEMANTIC_TOP_K = ASSISTANT_MEMORY_NUMBER_LIMITS.topK.max;
-const MAX_MESSAGE_RANGE = ASSISTANT_MEMORY_NUMBER_LIMITS.messageRange.max;
 
 // Remap `provider/model` memory targets that were dropped in the 2026 frontier
 // refresh so observational memory never runs against a removed model ID.
@@ -60,11 +56,6 @@ interface AssistantMemoryPreferencesActions {
   setObservationalRetrievalMode: (mode: RuntimeAssistantMemoryRetrievalMode) => void;
   setObservationMessageTokens: (value: number) => void;
   setReflectionObservationTokens: (value: number) => void;
-  setSemanticRecallEmbeddingModelTarget: (modelTarget: string | null) => void;
-  setSemanticRecallEnabled: (enabled: boolean) => void;
-  setSemanticRecallMessageRange: (value: number) => void;
-  setSemanticRecallScope: (scope: RuntimeAssistantMemoryScope) => void;
-  setSemanticRecallTopK: (value: number) => void;
 }
 
 interface AssistantMemoryPreferencesData extends RuntimeAssistantMemorySettings {
@@ -73,41 +64,6 @@ interface AssistantMemoryPreferencesData extends RuntimeAssistantMemorySettings 
 
 export type AssistantMemoryPreferencesStore = AssistantMemoryPreferencesData &
   AssistantMemoryPreferencesActions;
-
-interface ElectronStorageBridge {
-  readonly getItem: (key: string) => Promise<string | null>;
-  readonly removeItem: (key: string) => Promise<void>;
-  readonly setItem: (key: string, value: string) => Promise<void>;
-}
-
-function getElectronStorageBridge(): ElectronStorageBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  return (
-    (
-      window as Window & {
-        electronAPI?: {
-          storage?: ElectronStorageBridge;
-        };
-      }
-    ).electronAPI?.storage ?? null
-  );
-}
-
-function createAssistantMemoryPreferencesStorage() {
-  const electronStorage = getElectronStorageBridge();
-  if (electronStorage) {
-    return {
-      getItem: (key: string) => electronStorage.getItem(key),
-      removeItem: (key: string) => electronStorage.removeItem(key),
-      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
-    };
-  }
-
-  return createBrowserJsonStorage();
-}
 
 function clampInteger(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) {
@@ -125,10 +81,7 @@ function normalizeScope(value: unknown): RuntimeAssistantMemoryScope {
 }
 
 function normalizeRetrievalMode(value: unknown): RuntimeAssistantMemoryRetrievalMode {
-  if (value === 'messages' || value === 'vector') {
-    return value;
-  }
-  return 'off';
+  return value === 'messages' ? 'messages' : 'off';
 }
 
 function normalizeMemorySettings(
@@ -136,7 +89,6 @@ function normalizeMemorySettings(
 ): RuntimeAssistantMemorySettings {
   const defaults = DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
   const observational = settings?.observationalMemory;
-  const semantic = settings?.semanticRecall;
 
   return {
     observationalMemory: {
@@ -155,35 +107,19 @@ function normalizeMemorySettings(
       ),
       scope: normalizeScope(observational?.scope ?? defaults.observationalMemory.scope),
     },
-    semanticRecall: {
-      embeddingModelTarget:
-        semantic?.embeddingModelTarget?.trim() || defaults.semanticRecall.embeddingModelTarget,
-      enabled: semantic?.enabled ?? defaults.semanticRecall.enabled,
-      messageRange: clampInteger(
-        semantic?.messageRange ?? defaults.semanticRecall.messageRange,
-        0,
-        MAX_MESSAGE_RANGE
-      ),
-      scope: normalizeScope(semantic?.scope ?? defaults.semanticRecall.scope),
-      topK: clampInteger(semantic?.topK ?? defaults.semanticRecall.topK, 1, MAX_SEMANTIC_TOP_K),
-    },
   };
 }
 
 const initialMemorySettings = normalizeMemorySettings(DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS);
 
-const storage = createJSONStorage(() => createAssistantMemoryPreferencesStorage());
-
 export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferencesStore>()(
-  persist(
+  persistDurable(
+    ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
     (set, get) => ({
       hasHydrated: false,
       ...initialMemorySettings,
       getRuntimeMemorySettings: () =>
-        normalizeMemorySettings({
-          observationalMemory: get().observationalMemory,
-          semanticRecall: get().semanticRecall,
-        }),
+        normalizeMemorySettings({ observationalMemory: get().observationalMemory }),
       setObservationalMemoryEnabled: (enabled: boolean) =>
         set((state) => ({
           observationalMemory: { ...state.observationalMemory, enabled },
@@ -220,42 +156,13 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
             observationTokens: clampTokenThreshold(value),
           },
         })),
-      setSemanticRecallEmbeddingModelTarget: (embeddingModelTarget: string | null) =>
-        set((state) => ({
-          semanticRecall: {
-            ...state.semanticRecall,
-            embeddingModelTarget: embeddingModelTarget?.trim() || null,
-          },
-        })),
-      setSemanticRecallEnabled: (enabled: boolean) =>
-        set((state) => ({
-          semanticRecall: { ...state.semanticRecall, enabled },
-        })),
-      setSemanticRecallMessageRange: (value: number) =>
-        set((state) => ({
-          semanticRecall: {
-            ...state.semanticRecall,
-            messageRange: clampInteger(value, 0, MAX_MESSAGE_RANGE),
-          },
-        })),
-      setSemanticRecallScope: (scope: RuntimeAssistantMemoryScope) =>
-        set((state) => ({
-          semanticRecall: { ...state.semanticRecall, scope },
-        })),
-      setSemanticRecallTopK: (value: number) =>
-        set((state) => ({
-          semanticRecall: {
-            ...state.semanticRecall,
-            topK: clampInteger(value, 1, MAX_SEMANTIC_TOP_K),
-          },
-        })),
     }),
     {
       /**
        * BST-1645: the normalize + `hasHydrated` mark run HERE, not in
        * `onRehydrateStorage`.
        *
-       * `createBrowserJsonStorage().getItem` is synchronous, so zustand's
+       * `localStorage` is synchronous, so zustand's
        * persist middleware resolves hydration DURING `create(...)` — while the
        * module-level `useAssistantMemoryPreferencesStore` binding is still in
        * its temporal dead zone. The old rehydrate callback called
@@ -274,10 +181,7 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
        * `getRuntimeMemorySettings`.
        */
       merge: (persistedState, currentState) => {
-        // No snapshot (first run): keep whatever the user already changed while
-        // an async storage read was pending; only mark hydration complete.
-        // Spreading defaults here would silently revert those edits on desktop,
-        // where the Electron storage bridge is promise-based.
+        // No snapshot (first run): keep the current state; only mark hydration complete.
         if (persistedState === undefined || persistedState === null) {
           return { ...currentState, hasHydrated: true };
         }
@@ -297,30 +201,8 @@ export const useAssistantMemoryPreferencesStore = create<AssistantMemoryPreferen
         }
         return normalizeMemorySettings(persistedState as Partial<RuntimeAssistantMemorySettings>);
       },
-      name: ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
-      partialize: (state) => ({
-        observationalMemory: state.observationalMemory,
-        semanticRecall: state.semanticRecall,
-      }),
-      storage,
+      partialize: (state) => ({ observationalMemory: state.observationalMemory }),
       version: STORE_VERSION,
     }
   )
 );
-
-export function __resetAssistantMemoryPreferencesStoreForTests(): void {
-  try {
-    useAssistantMemoryPreferencesStore.setState({
-      hasHydrated: false,
-      ...initialMemorySettings,
-    });
-    const persistApi = (
-      useAssistantMemoryPreferencesStore as typeof useAssistantMemoryPreferencesStore & {
-        persist?: { clearStorage?: () => void };
-      }
-    ).persist;
-    persistApi?.clearStorage?.();
-  } catch {
-    // Tests still get the in-memory state reset even when browser storage is unavailable.
-  }
-}

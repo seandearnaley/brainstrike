@@ -20,6 +20,12 @@
  * cross-region routing prefix RESOLVES to its catalog row instead of missing
  * it, so region routing never costs a route its caching or reasoning.
  */
+
+import {
+  findLlmModelDefinition,
+  type LlmModelDefinition,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { createLogger } from '@brainstrike/logging';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
 import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching.ts';
@@ -27,11 +33,6 @@ import { stripCrossRegionPrefix } from './bedrock-model-id.ts';
 import { wrapBedrockModelWithPromptCaching } from './bedrock-prompt-caching.ts';
 import { wrapOpenRouterModelWithCacheBreakpoints } from './openrouter-cache-breakpoints.ts';
 import { wrapOpenRouterModelWithPromptCaching } from './openrouter-prompt-caching.ts';
-import {
-  findLlmModelDefinition,
-  type LlmModelDefinition,
-  type SupportedProvider,
-} from './types.ts';
 
 const logger = createLogger('PromptCaching');
 

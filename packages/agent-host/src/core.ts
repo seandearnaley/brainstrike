@@ -4,7 +4,7 @@ import type { LanguageModel, ModelMessage } from 'ai';
 import { acceptHostChildInput } from './child-input.ts';
 import { HostContextCompactions } from './context-compaction.ts';
 import { hostCanvases } from './core-canvases.ts';
-import { type HostChildRunPort, HostChildRuns, hostDeliveryPosition } from './core-child-runs.ts';
+import { type HostChildRunPort, HostChildRuns } from './core-child-runs.ts';
 import { hostMcpTaskOwner } from './core-mcp-owner.ts';
 import { readHostThreadMemory } from './core-memory-read.ts';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.ts';
@@ -21,10 +21,11 @@ import {
   hostRunSettlementFailed,
   joinHostRunOwner,
   queueHostAdmission,
-  recoverHostRun,
+  recoverHostRuns,
   rejectHostRunAdmission,
   retainHostRunWork,
   steerHostRun,
+  stopHostRunOutsideQueue,
   stopHostRunTree,
 } from './core-run-lifecycle.ts';
 import {
@@ -35,6 +36,7 @@ import {
   recordHostConversationId,
 } from './core-state.ts';
 import { deleteHostThread } from './core-thread-deletion.ts';
+import { foldedThreadReads } from './core-thread-reads.ts';
 import { nodeHostRowReader, readHostRow, storedHostEvent } from './event-storage.ts';
 import { beginHostRun } from './hook-context.ts';
 import { type Json, jsonValue } from './json-value.ts';
@@ -75,20 +77,24 @@ import {
   hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.ts';
-
 import {
   approveHostRunByPolicy,
   commitHostInteractionResponse,
   commitHostModelMessages,
   continueHostRun,
+  type HostNextRun,
+  hostCarriedStartPosition,
+  hostInteractionPreview,
   startHostNextRun,
 } from './run-continuation.ts';
 import { userRunVerdict } from './run-verdicts.ts';
 import { HostTelemetryReplay } from './telemetry-replay.ts';
 import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
+import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
 import { HostThreadRewinds } from './thread-rewind.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
+import { HostThreadTrees } from './thread-summary.ts';
 import { HostToolRecords } from './tool-records.ts';
 import { revertHostRunEdits } from './workspace-edits.ts';
 import { HostThreadWorkspaceState } from './workspace-state.ts';
@@ -96,6 +102,8 @@ import { hostWorktreeEntry } from './worktree-binding.ts';
 
 export type { HostEventStore } from './thread-catalog.ts';
 
+/** What Core is opened over: its store, platform and run retention. */
+type HostCoreOwners = [store: HostEventStore, platform: HostPlatform, retainRun: () => () => void];
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
   private readonly commands = new HostCommandLedger();
@@ -157,6 +165,12 @@ export class HostCore {
   });
   private readonly runs = new HostRunMap();
   private readonly children = new HostChildRuns();
+  /** BST-1932: each thread's children, its summary and its delegated tree (`thread/tree`). */
+  readonly trees = new HostThreadTrees(this.projections, this.catalog, this.children, {
+    presentations: this.presentations,
+    runs: this.runs,
+    threads: this.threads,
+  });
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   readonly published = new HostPublishedRows((threadId, fromSeq) => this.read(threadId, fromSeq));
@@ -168,6 +182,9 @@ export class HostCore {
   private admission: Promise<void> = Promise.resolve();
   /** A run's end: its terminal commit, memory settlement, then the next run or wake. */
   private readonly ends = new HostRunEnds({
+    admit: (threadId, perform) => this.admit(threadId, perform),
+    admitWake: ({ origin, params }) =>
+      this.admitRun('wake', params, origin, () => hostStartPosition(this.runs.values(), params)),
     appendTerminal: (threadId, events, beforePublish) =>
       this.append(threadId, events, 'full', beforePublish),
     children: this.children,
@@ -178,16 +195,9 @@ export class HostCore {
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
     runs: () => this.runs,
-    startNextRun: (params, origin, refused) => this.startNextRun(params, origin, refused),
-    wake: (threadId) =>
-      this.admit(threadId, async () => {
-        const wake = this.children.wakeParams(threadId, this.runs, this.selections);
-        if (wake) {
-          await this.admitRun('wake', wake.params, wake.origin, () =>
-            hostStartPosition(this.runs.values(), this.rewinds.position(wake.params))
-          );
-        }
-      }),
+    selections: this.selections,
+    startNextRun: (next, origin) => this.startNextRun(next, origin),
+    tip: (threadId) => this.rewinds.tip(threadId),
   });
   /** The Artifacts gallery's canvas reads, across every thread Core holds. */
   readonly canvases = hostCanvases(this.records, this.children, this.threads);
@@ -201,54 +211,56 @@ export class HostCore {
   });
   private closing = false;
   private closeTask?: Promise<void>;
+  readonly listing = new HostThreadListing();
+  /** Settles once Core has folded its log and recovered its runs; its owners see a failure. */
+  readonly hydrated: Promise<void>;
 
   readonly store: HostEventStore;
   private readonly platform: HostPlatform;
   private readonly retainRun: () => () => void;
 
-  private constructor(store: HostEventStore, platform: HostPlatform, retainRun: () => () => void) {
+  private constructor(...[store, platform, retainRun]: HostCoreOwners) {
     this.store = store;
     this.platform = platform;
     this.retainRun = retainRun;
+    this.hydrated = this.listing.start(store, () => this.hydrate());
   }
 
-  static async open(
-    store: HostEventStore,
-    platform: HostPlatform,
-    retainRun: () => () => void,
-    onAcquired?: (core: HostCore) => void
-  ): Promise<HostCore> {
-    const core = new HostCore(store, platform, retainRun);
-    // The root owner retains partially restored actors if hydration or cleanup fails.
-    onAcquired?.(core);
-    await core.catalog.hydrate(store, nodeHostRowReader(store), core.threads, (row) => {
-      core.projections.apply(row);
-      core.selections.fold(row);
-      core.fold(row);
-    });
-    await core.rewinds.recover();
-    // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
-    platform.attachMcpTaskOwner?.(hostMcpTaskOwner(core.executionPorts()));
-    // ADR-0029: the platform's workspace services ask Core which runs are live.
-    platform.attachThreadReads?.({
-      listThreads: () => core.listThreads(),
-      read: (threadId, fromSeq) => core.published.read(threadId, fromSeq),
-      readLedger: () => core.readLedger(),
-    });
-    for (const run of core.runs.values()) {
-      const recovery = recoverHostRun(run);
-      if (recovery?.kind === 'finish') {
-        // Q-2: a restart wakes no parent; results reach the next user turn.
-        await core.ends.finish(run, recovery.outcome, recovery.detail, false);
-      } else if (recovery) {
-        run.release = retainRun();
-        if (recovery.kind === 'continue') {
-          run.task = core.continueRun(run);
-          run.task.catch(() => undefined);
-        }
-      }
-    }
+  /**
+   * Core before its log is folded: the workspace services and the thread list serve at once,
+   * while thread reads and commands wait on `hydrated`. The owner joins or observes `hydrated`;
+   * `close` waits for it.
+   */
+  static start(...owners: HostCoreOwners): HostCore {
+    const core = new HostCore(...owners);
+    // ADR-0029: the platform's workspace services ask Core which runs are live, once it knows.
+    owners[1].attachThreadReads?.(foldedThreadReads(core));
     return core;
+  }
+
+  /** Core with its log folded and its runs recovered. */
+  static async open(...owners: HostCoreOwners): Promise<HostCore> {
+    const core = HostCore.start(...owners);
+    await core.hydrated;
+    return core;
+  }
+
+  private async hydrate(): Promise<void> {
+    await this.catalog.hydrate(this.store, nodeHostRowReader(this.store), this.threads, (row) => {
+      this.projections.apply(row);
+      this.selections.fold(row);
+      this.fold(row);
+    });
+    await this.rewinds.recover();
+    // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
+    this.platform.attachMcpTaskOwner?.(hostMcpTaskOwner(this.executionPorts()));
+    this.ends.exits.listen(this.platform);
+    await recoverHostRuns(this.runs.values(), {
+      continueRun: (run) => this.continueRun(run),
+      finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, true),
+      refuseInput: (run) => this.ends.takeInput(run, true),
+      retainRun: this.retainRun,
+    });
   }
 
   private fold(row: HostLogRow): void {
@@ -356,15 +368,9 @@ export class HostCore {
     };
   }
 
-  /** BST-1939: a thread's first and latest stored append, child threads included. */
-  threadTimes(threadId: string): { readonly createdAt: number; readonly updatedAt: number } {
-    const { createdAt, updatedAt } = this.catalog.entry(threadId);
-    return { createdAt, updatedAt };
-  }
-
-  /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
-  listChildren(threadId: string): HostResults['thread/children']['children'] {
-    return this.children.listed(threadId, this.threads, this.presentations, this.runs);
+  /** BST-1939: a thread's first and latest stored append and any damage, child threads included. */
+  catalogEntry(threadId: string): ReturnType<HostThreadCatalog['entry']> {
+    return this.catalog.entry(threadId);
   }
 
   updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
@@ -424,6 +430,9 @@ export class HostCore {
     }
     return this.command(method, params, perform);
   }
+
+  /** VC-8: resolves once the thread and its children have no work in flight; it starts none. */
+  readonly idle = (threadId: string): Promise<void> => this.ends.idle(threadId);
 
   private admit<T>(
     threadId: string | undefined,
@@ -513,6 +522,7 @@ export class HostCore {
     this.conversationIds.delete(threadId);
     this.threads.delete(threadId);
     this.children.forget(threadId);
+    this.ends.exits.forget(threadId);
     this.presentations.forget(threadId);
     this.workspaces.forget(threadId);
     this.selections.forget(threadId);
@@ -535,14 +545,19 @@ export class HostCore {
     });
   }
 
-  startRun(params: HostParams<'run/start'>, origin?: HostClientOrigin): Promise<{ runId: string }> {
+  /** A run/start; one the host starts to carry a run's task on records how (`HostRunCarry`). */
+  startRun(
+    params: HostParams<'run/start'>,
+    origin?: HostClientOrigin,
+    carry?: Pick<HostNextRun, 'follows' | 'hostPrompt' | 'turnId'>
+  ): Promise<{ runId: string }> {
     const record = hostStartCommandRecord(params);
     return this.settledCommand('run/start', record, () =>
       this.admitRun(
         'run/start',
         params,
         origin,
-        () => hostStartPosition(this.runs.values(), this.rewinds.position(params)),
+        () => hostCarriedStartPosition(this.runs, this.rewinds.position(params), carry),
         record
       )
     );
@@ -618,12 +633,7 @@ export class HostCore {
           method,
           runId,
         },
-        hostDeliveryPosition(
-          method,
-          params.commandId,
-          selected,
-          this.children.pending(params.threadId, this.runs, admission.delegation, method !== 'wake')
-        ),
+        this.ends.deliveryPosition(method, params, selected, admission.delegation, runId),
         this.children.grants(root),
         admission.snapshot,
         controller
@@ -641,10 +651,12 @@ export class HostCore {
       const references = hostReferencedFileEvents(admission, run.id);
       const events = [...chosen, started, ...unavailable, ...references];
       committed = { runId: run.id };
+      // A live start ends the thread's rewind as recovery's fold does: a later wake follows this run.
+      const { foldRows } = this.rewinds;
       await (method === 'wake'
-        ? this.append(params.threadId, events)
-        : this.accept(params.threadId, method, record, committed, events));
-      this.children.recordDelivery(started.delivery);
+        ? this.append(params.threadId, events, 'normal', foldRows)
+        : this.accept(params.threadId, method, record, committed, events, foldRows));
+      this.ends.recordDelivery(params.threadId, started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
@@ -722,6 +734,7 @@ export class HostCore {
       loop: (child, model) => this.loop(child, model),
       policy: async (threadId) => await this.platform.readPermissionPolicy(threadId),
       retainRun: this.retainRun,
+      runs: this.runs,
       stop: (child, reason) => {
         if (!this.closing) {
           retainHostRunWork(run, this.stopRun(child, reason));
@@ -844,13 +857,11 @@ export class HostCore {
     this.mcpInputs.releaseClient(client);
   }
 
-  respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {
-    return this.answer('interaction/respond', params);
-  }
-
-  resume(params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> {
-    return this.answer('interaction/resume', params);
-  }
+  readonly respond = (params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> =>
+    this.answer('interaction/respond', params);
+  readonly resume = (params: HostParams<'interaction/resume'>): Promise<{ accepted: true }> =>
+    this.answer('interaction/resume', params);
+  readonly previewInteraction = hostInteractionPreview(this.runs, () => this.executionPorts());
 
   private answer(
     method: 'interaction/respond' | 'interaction/resume',
@@ -889,7 +900,6 @@ export class HostCore {
       loop: (model) => this.loop(run, model),
       openRun: () => this.openRun(run),
       platform: this.platform,
-      startNextRun: (params) => this.startNextRun(params, run.input?.origin),
     });
   }
 
@@ -907,8 +917,9 @@ export class HostCore {
       acceptHostChildInput(
         this.runs.requireForThread(params.threadId, params.runId),
         this.children.isChild(params.threadId),
-        params,
-        () => this.accept(params.threadId, 'run/input', params, { accepted: true }, [])
+        () =>
+          this.accept(params.threadId, 'run/input', params, { accepted: true }, [], this.foldRows),
+        (run) => this.ends.takeLateInput(run)
       )
     );
   }
@@ -922,35 +933,28 @@ export class HostCore {
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
-    const join = (): Promise<void> => {
-      const run = this.runs.requireForThread(params.threadId, params.runId);
-      // BST-1932: a root Stop ends its turn's children, foreground and background.
-      const stopped = [run, ...this.children.turnChildren(run, this.runs)];
-      return stopHostRunTree(stopped, (owned, reason) => this.stopRun(owned, reason));
-    };
-    return this.command(
-      'run/stop',
-      params,
-      () =>
-        acceptHostRunStop(
-          this.runs.requireForThread(params.threadId, params.runId),
-          (result) => this.accept(params.threadId, 'run/stop', params, result, []),
-          join
-        ),
-      async (result) => {
-        // The committed command records intent, not proof of physical cleanup.
-        // Repeated Stop must observe the same joined completion, including failure.
-        await join();
-        return result;
-      }
+    const named = this.runs.get(params.runId);
+    const run = named?.threadId === params.threadId ? named : undefined;
+    const join = (): Promise<void> =>
+      // A Stop refused before it marked its run has nothing to join.
+      run?.stopped
+        ? stopHostRunTree([run, ...this.children.turnRuns(run, this.runs)], (owned, reason) =>
+            this.stopRun(owned, reason)
+          )
+        : Promise.resolve();
+    return stopHostRunOutsideQueue(run, join, () =>
+      this.command('run/stop', params, () =>
+        acceptHostRunStop(this.runs.requireForThread(params.threadId, params.runId), (result) =>
+          this.accept(params.threadId, 'run/stop', params, result, [])
+        )
+      )
     );
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
     return openHostRunOwner(this.platform, run, {
       append: (threadId, events) => this.append(threadId, events, 'full'),
-      readCommittedRows: (threadIds) => this.projections.readRunnable(this.catalog, threadIds),
-      telemetry: (telemetry) => this.liveTelemetry.publish(telemetry),
+      readCommittedRows: (ids) => this.projections.readRunnable(this.catalog, ids, run.threadId),
     });
   }
 
@@ -964,18 +968,14 @@ export class HostCore {
     return run.ownerClose;
   }
 
-  private startNextRun(
-    params: HostParams<'run/start'>,
-    origin: HostClientOrigin | undefined,
-    refused?: Error
-  ): Promise<boolean> {
+  private startNextRun(next: HostNextRun, origin: HostClientOrigin | undefined): Promise<boolean> {
+    const { params } = next;
     return startHostNextRun(
       this.runs.values(),
-      params,
-      () => this.startRun(params, origin),
+      next,
+      () => this.startRun(params, origin, next),
       (runId, events) =>
-        this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows),
-      refused
+        this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows)
     );
   }
 
@@ -986,13 +986,15 @@ export class HostCore {
 
   private async closeOwned(): Promise<void> {
     this.closing = true;
+    this.ends.exits.close();
+    // Retirement reads the runs the fold restores; a failed fold still closes what it opened.
+    await this.hydrated.catch(() => undefined);
     const outcomes = await retireHostCoreRuns({
       admission: () => this.admission,
       closeOwner: (owned) => this.closeRunOwner(owned),
       closePlatform: () => this.platform.close(),
       failedAdmissions: () => [...this.failedAdmissions.values()],
-      finish: (owned) =>
-        this.ends.finish(owned, 'interrupted', 'Host closed with a pending decision'),
+      finish: (owned) => this.ends.finish(owned, 'interrupted', 'Host is closing'),
       pendingAdmissions: this.pendingAdmissions.keys(),
       runs: () => [...this.runs.values()],
     });

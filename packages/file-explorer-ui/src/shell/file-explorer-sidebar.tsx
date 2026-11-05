@@ -3,7 +3,7 @@ import { countSelectedInDirectory } from '@brainstrike/file-explorer/selection';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
-import { ActionContextMenu, EmptyState, LightweightCheckbox } from '@brainstrike/ui';
+import { ActionContextMenu, EmptyState, ErrorNotice, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
@@ -28,6 +28,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { useOptionalForestTreeActions } from './forest-tree-actions-context';
+import { useOpenFolderFor } from './thread-checkout-context';
 import {
   useRootSectionContextMenu,
   useSingleRootHeaderMenu,
@@ -56,7 +57,7 @@ const SelectAllLoadingIndicator = () => (
   >
     <div className="bg-background/90 flex items-center gap-2 rounded-md px-3 py-2 shadow-sm">
       <Loader2 className="text-primary h-4 w-4 animate-spin" />
-      <span className="text-muted-foreground text-xs">Selecting files...</span>
+      <span className="text-muted-foreground text-xs">Selecting files…</span>
     </div>
   </div>
 );
@@ -90,11 +91,9 @@ interface FileExplorerSidebarProps {
   /**
    * Disconnect a root by RootId (multi-root, Phase 5). When provided, each
    * forest-mode section header shows a disconnect (X) button guarded by a
-   * confirmation dialog. Disconnect ≠ delete: indexed DB rows are kept.
+   * confirmation dialog. Disconnect ≠ delete: the folder's record is kept.
    */
-  onRemoveRoot?:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
@@ -123,27 +122,32 @@ const ErrorDisplay = ({
   treeError?: Error | null;
   filterError?: Error | null;
 }) => (
-  <div
-    className="m-2 rounded border border-red-400 bg-red-100 p-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900 dark:text-red-200"
-    role="alert"
-  >
-    <strong>Error: </strong>
-    {treeError?.message}
-    {filterError && ` ${filterError.message}`}
-  </div>
+  <ErrorNotice
+    className="m-2"
+    message={[treeError?.message, filterError?.message].filter(Boolean).join(' ')}
+  />
 );
 
-const EmptyStateComponent = ({
+/**
+ * The single-root tree's empty state says WHY it is empty, in the same words
+ * as a forest section: still loading, nothing matches the search, the view
+ * filters hide everything, or the folder really is empty.
+ */
+const SingleRootEmptyState = ({
+  isFilteredOut,
   isLoading,
 }: {
+  isFilteredOut: boolean;
   isLoading: boolean;
-  quickFilteredTree: IFileNode[] | null;
-  rootDirectoryHandle: DirectoryHandle | null;
-}) => (
-  <div className="text-muted-foreground py-8 text-center">
-    {isLoading ? 'Loading files...' : 'No matching files found'}
-  </div>
-);
+}) => {
+  const { includeFilters } = useActiveWorkspaceFilters();
+  const quickFilter = useFileExplorerStoreSelector((s) => s.quickFilter);
+  return (
+    <div className="text-muted-foreground px-4 py-8 text-center text-sm">
+      {treeEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
+    </div>
+  );
+};
 
 /** First few patterns + a count, e.g. "*.tsx, *.ts, *.js, +2 more". */
 function formatFilterHint(patterns: readonly string[]): string {
@@ -151,7 +155,7 @@ function formatFilterHint(patterns: readonly string[]): string {
   return patterns.length > 3 ? `${shown}, +${patterns.length - 3} more` : shown;
 }
 
-function forestEmptyStateMessage(args: {
+function treeEmptyStateMessage(args: {
   includeFilters: readonly string[];
   isFilteredOut: boolean;
   isLoading: boolean;
@@ -207,7 +211,7 @@ const ForestSectionEmptyState = ({
   }
   return (
     <div className="text-muted-foreground px-9 py-1.5 text-xs">
-      {forestEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
+      {treeEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
     </div>
   );
 };
@@ -497,9 +501,7 @@ interface RootSectionProps extends PerRootTreePaneProps {
   isFirstSection?: boolean | undefined;
   /** Client-declared main root (activeRootIds[0]) — badges the primary root. */
   mainRootId?: string | undefined;
-  onRemoveRoot?:
-    | ((rootId: string, options?: { deleteData?: boolean }) => Promise<void>)
-    | undefined;
+  onRemoveRoot?: ((rootId: string) => Promise<void>) | undefined;
   rootActions?: readonly AnyContextAction[] | undefined;
   rootIdByPath?: ReadonlyMap<string, string> | undefined;
   setFocusedRoot?: ((path: string) => void) | undefined;
@@ -678,6 +680,11 @@ const RootSectionInner = ({
   const handleDisconnectRequest = () => {
     setIsDisconnectDialogOpen(true);
   };
+  // The open folder this section acts for: the thread's worktree acts for the folder it
+  // stands in for, so Disconnect closes that folder and never unmounts the checkout (ADR-0034).
+  const openFolderId = useOpenFolderFor(rootIdentity);
+  const canDisconnect = onRemoveRoot !== undefined && openFolderId !== null;
+  const isMain = rest.mainRootId !== undefined && rest.mainRootId === openFolderId;
 
   // A web FSA handle's `path` IS its `name` (packages/types/src/
   // file-system.ts: "on web `path` is only the directory name") — there is
@@ -699,23 +706,25 @@ const RootSectionInner = ({
   } = useRootSectionContextMenu({
     displayName: rootDirectoryHandle.name,
     isDisconnectDialogOpen,
-    isMain: rest.mainRootId !== undefined && rest.mainRootId === rootIdentity,
-    ...(onRemoveRoot ? { onDisconnect: handleDisconnectRequest } : {}),
+    isMain,
+    ...(canDisconnect ? { onDisconnect: handleDisconnectRequest } : {}),
     path: rootPath,
     restoreFocusRef: toggleButtonRef,
     rootActions,
     rootId: rootIdentity,
   });
 
-  const handleDisconnectConfirm = (options: { deleteData: boolean }) => {
+  const handleDisconnectConfirm = () => {
     setIsDisconnectDialogOpen(false);
     // Legacy roots without a RootId use their path AS the id (matches
     // removeRootDirectory's path-doubles-as-id resolution).
     // Fire-and-forget is safe here: removeRootDirectory (use-file-system-
-    // context.ts) catches every failure path internally (deletion AND
-    // adapter disconnect) and surfaces a toast instead of rejecting, so
+    // context.ts) catches every failure path internally (the adapter
+    // disconnect) and surfaces a toast instead of rejecting, so
     // there is no unhandled-rejection path to `.catch` here.
-    void onRemoveRoot?.(rootIdentity, options);
+    if (openFolderId !== null) {
+      void onRemoveRoot?.(openFolderId);
+    }
   };
 
   const handleTreeInteraction = () => {
@@ -742,9 +751,9 @@ const RootSectionInner = ({
             // section's resolved root identity — never the raw path when a durable
             // RootId exists.
             isFocused={rest.currentFolderId !== null && rest.currentFolderId === rootIdentity}
-            isMain={rest.mainRootId !== undefined && rest.mainRootId === rootIdentity}
+            isMain={isMain}
             onContextMenu={claimRootTarget}
-            onDisconnect={onRemoveRoot ? handleDisconnectRequest : undefined}
+            onDisconnect={canDisconnect ? handleDisconnectRequest : undefined}
             onToggleCollapse={handleToggle}
             // Web FSA handles carry no absolute path distinct from the name —
             // suppress the tooltip when the path adds nothing (same hoisted
@@ -1026,7 +1035,10 @@ const FileExplorerSidebar = memo(
               ref={singleRootMenuAnchorRef}
               tabIndex={-1}
             >
-              <span className="text-muted-foreground truncate text-xs">
+              <span
+                className="text-muted-foreground truncate text-xs"
+                title={rootDirectoryHandle.path}
+              >
                 {rootDirectoryHandle.name}
               </span>
               {singleRootFolderId ? <ThreadScopeMarker rootId={singleRootFolderId} /> : null}
@@ -1078,10 +1090,11 @@ const FileExplorerSidebar = memo(
                 showColumnHeader={hasExplorerSort || visibleMetadataColumnIds.length > 0}
               />
             ) : (
-              <EmptyStateComponent
+              <SingleRootEmptyState
+                // The filtered tree came back empty while the canonical one
+                // was not: the search or view filters hid everything.
+                isFilteredOut={isDisplayTreeFiltered === true}
                 isLoading={isLoading}
-                quickFilteredTree={singleRootTree}
-                rootDirectoryHandle={rootDirectoryHandle}
               />
             )}
           </div>

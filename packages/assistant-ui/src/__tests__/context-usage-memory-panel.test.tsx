@@ -1,24 +1,13 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  ASSISTANT_DETAIL_LEVEL_STORAGE_KEY,
-  AssistantDetailLevelProvider,
-} from '../assistant-detail-level-context';
+import { setAssistantDetailLevel } from '../assistant-detail-level-store.ts';
 import type { OmMeterState } from '../context-usage-meter';
 import { ContextUsagePopoverContent } from '../context-usage-popover';
 
 const OBSERVED_AT = Date.UTC(2026, 9, 18, 21, 30, 5);
 const BUFFERED_AT = Date.UTC(2026, 9, 18, 21, 31, 0);
 const READ_AT = Date.UTC(2026, 9, 18, 21, 31, 30);
-const MODELS = {
-  embedder: {
-    dimensions: 1536,
-    distance: 'cosine',
-    modelId: 'text-embedding-3-small',
-    provider: 'openai',
-  },
-  observer: 'openai::gpt-5-mini',
-} as const;
+const MODELS = { observer: 'openai::gpt-5-mini' } as const;
 const LIVE: OmMeterState = {
   bufferedObservationTokens: 120,
   compactionSavedTokens: 5000,
@@ -43,16 +32,14 @@ const LIVE: OmMeterState = {
 
 function popover(omSegment: OmMeterState) {
   return render(
-    <AssistantDetailLevelProvider>
-      <ContextUsagePopoverContent
-        contextWindow={200_000}
-        effectiveInputBudget={126_000}
-        isEstimated={false}
-        omSegment={omSegment}
-        percentage={10}
-        usedTokens={12_600}
-      />
-    </AssistantDetailLevelProvider>
+    <ContextUsagePopoverContent
+      contextWindow={200_000}
+      effectiveInputBudget={126_000}
+      isEstimated={false}
+      omSegment={omSegment}
+      percentage={10}
+      usedTokens={12_600}
+    />
   );
 }
 
@@ -78,10 +65,10 @@ describe('the memory note at every detail level', () => {
 
 describe('the Developer memory panel', () => {
   beforeEach(() => {
-    window.localStorage.setItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY, 'developer');
+    setAssistantDetailLevel('developer');
   });
 
-  it('shows the live flags, last observation and reflection, both thresholds and the models', () => {
+  it('shows the live flags, last observation and reflection, both thresholds and the observer', () => {
     popover(LIVE);
     const panel = screen.getByTestId('context-usage-memory-panel');
     expect(within(panel).getByRole('heading', { name: 'Memory' })).toBeInTheDocument();
@@ -97,9 +84,6 @@ describe('the Developer memory panel', () => {
     expect(row('observe-threshold')).toHaveTextContent('4,000 / 30,000 message tokens');
     expect(row('reflect-threshold')).toHaveTextContent('900 / 40,000 observation tokens');
     expect(row('observer')).toHaveTextContent('openai::gpt-5-mini');
-    expect(row('embedder')).toHaveTextContent(
-      'openai · text-embedding-3-small · 1,536 dims · cosine'
-    );
     expect(screen.queryByTestId('context-usage-memory-error')).not.toBeInTheDocument();
     // The flags are the record's as of this read.
     expect(
@@ -133,9 +117,9 @@ describe('the Developer memory panel', () => {
     popover({
       code: 'memory.credential-missing',
       kind: 'error',
-      reason: 'The OpenAI memory embedder has no API key.',
+      reason: 'The OpenAI memory observer has no API key.',
     });
-    expect(row('error')).toHaveTextContent('The OpenAI memory embedder has no API key.');
+    expect(row('error')).toHaveTextContent('The OpenAI memory observer has no API key.');
     expect(row('error-code')).toHaveTextContent('memory.credential-missing');
   });
 
@@ -150,7 +134,6 @@ describe('the Developer memory panel', () => {
     });
     expect(row('lifecycle')).toHaveTextContent('Not reported by this host');
     expect(row('observer')).toHaveTextContent('Not reported by this host');
-    expect(row('embedder')).toHaveTextContent('Not reported by this host');
   });
 
   it('shows the last observation and reflection cycle, a failed one with its code and reference (BST-2224)', () => {
@@ -188,39 +171,6 @@ describe('the Developer memory panel', () => {
     );
   });
 
-  it('shows the last recall this view saw live, and none before one (BST-2225)', () => {
-    const RECALLED_AT = Date.UTC(2026, 9, 19, 10, 0, 0);
-    const { unmount } = popover(LIVE);
-    expect(screen.queryByTestId('context-usage-memory-last-recall')).toBeNull();
-    unmount();
-    popover({
-      ...LIVE,
-      recall: { at: RECALLED_AT, latencyMs: 1240, messages: 6, scope: 'resource', topK: 4 },
-    });
-    const recall = row('last-recall');
-    expect(recall).toHaveTextContent('Last recall (live)');
-    expect(recall).toHaveTextContent('6 messages · top 4 · all threads · 1,240 ms');
-    expect(within(recall).getByText((_, element) => element?.tagName === 'TIME')).toHaveAttribute(
-      'datetime',
-      new Date(RECALLED_AT).toISOString()
-    );
-  });
-
-  it('keeps the last live recall beside a failed read', () => {
-    popover({
-      code: 'memory.embedder-failed',
-      kind: 'error',
-      reason: 'Memory recall failed because its embedding model failed.',
-      recall: {
-        at: Date.UTC(2026, 9, 19, 10, 0, 0),
-        latencyMs: 90,
-        messages: 1,
-        scope: 'thread',
-      },
-    });
-    expect(row('last-recall')).toHaveTextContent('1 message · this thread · 90 ms');
-  });
-
   it('shows no cycle rows before the thread’s first cycle', () => {
     popover(LIVE);
     expect(screen.queryByTestId('context-usage-memory-last-observation-cycle')).toBeNull();
@@ -245,17 +195,15 @@ describe('the Developer memory panel', () => {
     );
   });
 
-  it('names a waiting observer’s reason, and recall’s embedder while observations are off', () => {
+  it('names a waiting observer’s reason, and Off while observations are off', () => {
     const { unmount } = popover({
       kind: 'awaiting-observer',
       models: {},
       reason: 'model-not-eligible',
     });
     expect(row('observer')).toHaveTextContent('Waiting (model-not-eligible)');
-    expect(row('embedder')).toHaveTextContent('Off');
     unmount();
-    popover({ kind: 'inactive', models: { embedder: MODELS.embedder } });
+    popover({ kind: 'inactive', models: {} });
     expect(row('observer')).toHaveTextContent('Off');
-    expect(row('embedder')).toHaveTextContent('openai · text-embedding-3-small');
   });
 });

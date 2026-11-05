@@ -17,7 +17,7 @@ const ORIGINAL = 'original evidence\n';
 const WRITTEN = 'written by the host thread\n';
 
 /**
- * Every legacy PGlite table the old assistant path writes for a turn and for
+ * Every legacy table the old assistant path writes for a turn and for
  * the task list, canvas, file-edit journal and checkpoint undo it runs: the
  * run ledger and its events, tool telemetry and artifacts, turn snapshots and
  * the Mastra memory. A host thread owns all of these facts in its own log.
@@ -107,7 +107,6 @@ test('a host thread using the task list, a canvas, a file write and its undo wri
   const evidence = path.join(root, 'evidence.md');
   writeFileSync(evidence, ORIGINAL);
   await seedRoot(page, root, {
-    disableBackgroundIndexing: true,
     reloadReason: 'm3-no-legacy-rows',
     rootId: randomUUID(),
   });

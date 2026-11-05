@@ -23,12 +23,13 @@ export function HostApprovalStrip({
 }): ReactElement | null {
   const waiting = useSyncExternalStore(tree.subscribe, tree.getSnapshot, tree.getSnapshot);
   const approvals = waiting.map(
-    ({ approval, owner = self, threadId }): CommittedPendingApproval => {
+    ({ approval, owner = self, ownerColor, threadId }): CommittedPendingApproval => {
       const toolName = approval.toolCatalogId ?? approval.toolId;
       return {
         args: approval.input,
         interactionId: approval.interactionId,
         ...(owner ? { owner } : {}),
+        ...(ownerColor ? { ownerColor } : {}),
         respond: (response) =>
           respondToHostApproval(
             client,

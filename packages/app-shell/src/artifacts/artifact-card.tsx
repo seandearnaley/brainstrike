@@ -48,7 +48,7 @@ export function ArtifactCard({
   return (
     <li className="group relative">
       <button
-        className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring flex w-full flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none"
+        className="border-border bg-card hover:border-primary/40 focus-visible:ring-ring flex w-full flex-col overflow-hidden rounded-lg border text-left transition-colors focus-visible:ring-2 focus-visible:outline-hidden motion-reduce:transition-none"
         data-testid="artifact-card"
         onClick={() => onOpen(artifact)}
         title={`Open ${title} in its thread`}
@@ -62,8 +62,12 @@ export function ArtifactCard({
           version={artifact.version}
         />
         <span className="border-border flex min-w-0 flex-col gap-0.5 border-t px-3 py-2">
-          <span className="text-foreground truncate text-sm font-medium">{title}</span>
-          <span className="text-muted-foreground truncate text-xs">{threadLabel}</span>
+          <span className="text-foreground truncate text-sm font-medium" title={title}>
+            {title}
+          </span>
+          <span className="text-muted-foreground truncate text-xs" title={threadLabel}>
+            {threadLabel}
+          </span>
           <span className="text-muted-foreground truncate text-xs tabular-nums">
             v{artifact.version} · {updatedLabel}
           </span>

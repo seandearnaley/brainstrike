@@ -26,16 +26,10 @@
     "./workspace-root-nodes": "./src/workspace-root-nodes.ts",
     "./config": "./src/config.ts",
     "./secure-file-read": "./src/secure-file-read.ts",
-    "./workspace-scan": "./src/workspace-scan.ts",
-    "./workspace-scan-paths": "./src/workspace-scan-paths.ts",
-    "./workspace-source-content": "./src/workspace-source-content.ts",
-    "./workspace-scan-reconciliation": "./src/workspace-scan-reconciliation.ts",
-    "./workspace-indexing-coordinator": "./src/workspace-indexing-coordinator.ts",
     "./native-watch": "./src/native-watch.ts"
   },
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module"

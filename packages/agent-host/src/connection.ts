@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   BoundaryFailureError,
   fault,
@@ -13,22 +13,31 @@ import { bindHostBrowserOriginMethods } from './browser-origin-answers.ts';
 import type { HostCore } from './core.ts';
 import { hostChildStatusChanged } from './core-child-runs.ts';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.ts';
+import {
+  bindHostFileReadMethods,
+  bindHostFileSearchMethods,
+  bindHostFileWatchMethods,
+  bindHostRootRegistryMethods,
+} from './file-watch-connection.ts';
 import { bindHostGitWorkspaceMethods } from './git-workspace-connection.ts';
 import { bindHostHookTrustMethods } from './hook-trust.ts';
 import { bindHostMcpContentMethods } from './mcp-content-connection.ts';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.ts';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.ts';
-import { probeHostMemoryEmbedder } from './memory-embedder-probe.ts';
 import { bindHostPermissionPolicyMethods } from './permission-policy.ts';
 import type {
   HostAuthService,
   HostClientOrigin,
+  HostFileReads,
+  HostFileSearch,
+  HostFileWatches,
   HostGitWorkspace,
   HostMcpContentService,
   HostMcpPresentationService,
   HostMcpSettingsService,
   HostPlatform,
   HostProviderService,
+  HostRootRegistry,
   HostTerminals,
   HostWorkspaceDiscovery,
 } from './ports.ts';
@@ -36,6 +45,7 @@ import {
   HOST_CHILDREN_CHANGED,
   HOST_RUN_NOT_ADMITTED_CODE,
   HOST_RUN_TELEMETRY,
+  HOST_TREE_CHANGED,
   type HostLogRow,
   type HostMethod,
   type HostParams,
@@ -45,6 +55,7 @@ import { bindHostProviderMethods } from './provider-connection.ts';
 import { storeRefusal } from './store-refusals.ts';
 import { bindHostTerminalMethods } from './terminal-connection.ts';
 import { searchHostThreads } from './thread-search.ts';
+import { bindHostWorkspaceDiscoveryMethods } from './workspace-discovery-connection.ts';
 import { bindHostWorkspaceTrustMethods } from './workspace-trust.ts';
 
 interface HostConnectionLifecycle {
@@ -57,6 +68,12 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
+  /** ADR-0029 stage 4: the desktop Explorer's reads. */
+  readonly fileReads?: HostFileReads;
+  /** ADR-0035: the desktop Explorer's Search tab. */
+  readonly fileSearch?: HostFileSearch;
+  /** ADR-0029 stage 4: the desktop Explorer's root watches. */
+  readonly fileWatches?: HostFileWatches;
   /** ADR-0029 stage 2: the desktop's git cluster, where the host owns one. */
   readonly gitWorkspace?: HostGitWorkspace;
   readonly lifecycle?: HostConnectionLifecycle;
@@ -70,16 +87,15 @@ export interface HostConnectionOptions {
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
-  /** BST-2227: the embedder `memory/embedder/probe` tests, where the host has a composer. */
-  readonly resolveMemoryEmbedder?: HostPlatform['resolveMemoryEmbedder'];
   /**
    * The transport's retirement: each in-flight request's signal aborts as `host.closing`, and a
    * request that arrives afterwards is refused as `host.closing`.
    */
   readonly retiring?: AbortSignal;
+  /** ADR-0029 stage 4: the desktop workspace's open folders. */
+  readonly rootRegistry?: HostRootRegistry;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
-  readonly searchWorkspace?: HostPlatform['searchWorkspace'];
   /** ADR-0029 stage 3: the desktop's Terminal panel, where the host opens terminals. */
   readonly terminals?: HostTerminals;
   /** ADR-0029 stage 2: skills and user slash commands, where the host scans roots. */
@@ -120,6 +136,10 @@ export function bindHostConnection(
 ): () => void {
   const {
     auth,
+    fileReads,
+    fileSearch,
+    rootRegistry,
+    fileWatches,
     gitWorkspace,
     lifecycle,
     mcpContent,
@@ -127,10 +147,8 @@ export function bindHostConnection(
     mcpSettings,
     origin = 'public-socket',
     providers,
-    resolveMemoryEmbedder,
     retiring,
     searchState,
-    searchWorkspace,
     terminals,
     workspaceDiscovery,
   } = options;
@@ -141,21 +159,21 @@ export function bindHostConnection(
       return disposed;
     },
   };
-  // Each view of a thread holds its own subscription: the connection sends a
-  // thread's rows until the last of its views unsubscribes (BST-1932).
-  const subscriptions = new Map<string, { readonly fromSeq: number; readonly views: number }>();
-  const unsubscribe = (threadId: string): void => {
-    const current = subscriptions.get(threadId);
-    if (current && current.views > 1) {
-      subscriptions.set(threadId, { ...current, views: current.views - 1 });
-      return;
+  // Each view of a thread holds its own subscription, named by the id its
+  // `log/subscribe` answered; the connection sends a thread's rows while any
+  // of them wants them (BST-1932).
+  const subscriptions = new Map<string, { readonly fromSeq: number; readonly threadId: string }>();
+  const subscribed = (threadId: string, seq?: number): boolean => {
+    for (const subscription of subscriptions.values()) {
+      if (subscription.threadId === threadId && (seq === undefined || seq > subscription.fromSeq)) {
+        return true;
+      }
     }
-    subscriptions.delete(threadId);
+    return false;
   };
   const disposables: Array<{ dispose(): void }> = [];
   const release = core.onCommitted((row: HostLogRow, parentThreadId?: string) => {
-    const from = subscriptions.get(row.threadId)?.fromSeq;
-    if (from !== undefined && row.seq > from && !disposed) {
+    if (subscribed(row.threadId, row.seq) && !disposed) {
       connection.sendNotification('log/event', row).catch(() => connection.dispose());
     }
     // BST-1932: a child's status change tells every client to re-read its parent's children.
@@ -164,11 +182,19 @@ export function bindHostConnection(
         .sendNotification(HOST_CHILDREN_CHANGED, { threadId: parentThreadId })
         .catch(() => connection.dispose());
     }
+    // A summary change names its thread and every thread above it, so a client
+    // showing any of their trees re-reads it.
+    const threadIds = initialized && !disposed ? core.trees.changedBy(row) : undefined;
+    if (threadIds) {
+      connection
+        .sendNotification(HOST_TREE_CHANGED, { threadIds })
+        .catch(() => connection.dispose());
+    }
   });
   // A running tool's live telemetry goes to the same subscribers as the thread's
   // rows, and is never committed (ADR-0011 amendment).
   const releaseTelemetry = core.onTelemetry((telemetry) => {
-    if (subscriptions.has(telemetry.threadId) && !disposed) {
+    if (subscribed(telemetry.threadId) && !disposed) {
       connection.sendNotification(HOST_RUN_TELEMETRY, telemetry).catch(() => connection.dispose());
     }
   });
@@ -216,6 +242,15 @@ export function bindHostConnection(
       })
     );
   };
+  // Core's reads and commands wait for its log to be folded; the workspace services and the thread list do not.
+  const handleCore = <M extends HostMethod>(
+    method: M,
+    request: (params: HostParams<M>, signal: AbortSignal) => unknown
+  ): void =>
+    handle(method, async (params, signal) => {
+      await core.hydrated;
+      return request(params, signal);
+    });
   handle('host/stop', async () => {
     if (!lifecycle) {
       throw refusalError(
@@ -305,110 +340,85 @@ export function bindHostConnection(
   bindHostMcpContentMethods(handle, mcpContent, origin);
   disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
   disposables.push(bindHostTerminalMethods(handle, connection, terminals, origin));
+  bindHostFileReadMethods(handle, fileReads, origin);
+  bindHostRootRegistryMethods(handle, rootRegistry, origin);
+  disposables.push(bindHostFileWatchMethods(handle, connection, fileWatches, origin));
+  bindHostFileSearchMethods(handle, connection, fileSearch, origin);
   bindHostHookTrustMethods(handle, core.store);
   bindHostWorkspaceTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
   bindHostBrowserOriginMethods(handle, core.store, origin);
-  handle('thread/start', (params) => core.startThread(params));
-  handle('thread/list', () => ({ threads: core.listThreads() }));
-  handle('ledger/read', () => core.readLedger());
-  handle('state/health/read', () => core.readStateHealth());
-  handle('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
-  handle('thread/delete', (params) => core.deleteThread(params));
-  handle('thread/update', (params) => core.updateThread(params));
-  handle('thread/memory/read', (params) => core.readThreadMemory(params, origin));
-  handle('memory/embedder/probe', (params, signal) =>
-    probeHostMemoryEmbedder(resolveMemoryEmbedder, params, signal)
-  );
-  handle('thread/read', async (params) => ({
+  handleCore('thread/start', (params) => core.startThread(params));
+  // The thread list answers before Core has folded its log (thread-listing.ts).
+  handle('thread/list', async () => ({
+    threads: await core.listing.read(() => core.listThreads()),
+  }));
+  handleCore('ledger/read', () => core.readLedger());
+  handleCore('state/health/read', () => core.readStateHealth());
+  handleCore('thread/children', (params) => ({ children: core.trees.children(params.threadId) }));
+  handleCore('thread/tree', (params) => core.trees.read(params.threadId));
+  handleCore('thread/delete', (params) => core.deleteThread(params));
+  handleCore('thread/update', (params) => core.updateThread(params));
+  handleCore('thread/memory/read', (params) => core.readThreadMemory(params, origin));
+  handleCore('thread/read', async (params) => ({
     rows: await core.published.read(params.threadId, params.fromSeq),
   }));
-  handle('workspace/search', async (params, signal) => {
-    if (!searchWorkspace) {
-      throw refusalError(
-        'configuration',
-        'workspace.search-unavailable',
-        'Indexed workspace text search is unavailable on this host'
-      );
-    }
-    const { binding } = core.readWorkspaceBinding(params.threadId);
-    if (
-      binding &&
-      (binding.operatingRootId || binding.secondaryRootIds || binding.checkoutLocalRootId) &&
-      ![
-        binding.operatingRootId,
-        ...(binding.secondaryRootIds ?? []),
-        binding.checkoutLocalRootId,
-      ].includes(params.rootId)
-    ) {
+  bindHostWorkspaceDiscoveryMethods(handle, workspaceDiscovery, origin);
+  handleCore('thread/search', (params) => searchHostThreads(core, searchState, params));
+  handleCore('thread/selection/read', (params) => core.selections.read(params.threadId));
+  handleCore('thread/selection/set', (params) => core.selections.set(params));
+  handleCore('canvas/list', () => core.canvases.list());
+  handleCore('canvas/read', (params) => core.canvases.read(params));
+  handleCore('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
+  handleCore('thread/workspace/set', (params) => core.setWorkspace(params));
+  handleCore('thread/workspace/binding/read', (params) =>
+    core.readWorkspaceBinding(params.threadId)
+  );
+  handleCore('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
+  handleCore('run/start', (params) => core.startRun(params, origin));
+  handleCore('run/regenerate', (params) => core.regenerateRun(params, origin));
+  handleCore('run/steer', (params) => core.steer(params));
+  handleCore('run/input', (params) => core.input(params));
+  handleCore('run/stop', (params) => core.stop(params));
+  handleCore('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handleCore('thread/rewind/preview', (params) => core.rewinds.preview(params));
+  handleCore('thread/rewind', (params) => core.rewinds.rewind(params));
+  handleCore('thread/rewind/redo', (params) => core.rewinds.redo(params));
+  handleCore('run/verdict', (params) => core.recordVerdict(params));
+  // ADR-0036: a preview carries file text, so only the desktop's private client reads it.
+  handleCore('interaction/preview', (params, signal) => {
+    if (origin !== 'desktop-ui') {
       throw refusalError(
         'authorization',
-        'workspace.root-outside-binding',
-        'Search root is outside the thread workspace binding'
+        'interaction.preview-desktop-only',
+        "Approval previews are available only to the desktop's private client"
       );
     }
-    signal.throwIfAborted();
-    const result = await searchWorkspace(params, signal);
-    signal.throwIfAborted();
-    return result;
+    return core.previewInteraction(params, signal);
   });
-  const discovery = (): HostWorkspaceDiscovery => {
-    if (!workspaceDiscovery) {
-      throw refusalError(
-        'configuration',
-        'workspace.discovery-unavailable',
-        'Skills and user commands are unavailable on this host'
-      );
-    }
-    return workspaceDiscovery;
-  };
-  handle('workspace/skills', (_params, signal) => discovery().skills(signal));
-  handle('workspace/commands', (_params, signal) => discovery().commands(signal));
-  handle('workspace/trust/list', (_params, signal) => discovery().trust(signal));
-  handle('thread/search', (params) => searchHostThreads(core, searchState, params));
-  handle('thread/selection/read', (params) => core.selections.read(params.threadId));
-  handle('thread/selection/set', (params) => core.selections.set(params));
-  handle('canvas/list', () => core.canvases.list());
-  handle('canvas/read', (params) => core.canvases.read(params));
-  handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
-  handle('thread/workspace/set', (params) => core.setWorkspace(params));
-  handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
-  handle('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
-  handle('run/start', (params) => core.startRun(params, origin));
-  handle('run/regenerate', (params) => core.regenerateRun(params, origin));
-  handle('run/steer', (params) => core.steer(params));
-  handle('run/input', (params) => core.input(params));
-  handle('run/stop', (params) => core.stop(params));
-  handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
-  handle('thread/rewind/preview', (params) => core.rewinds.preview(params));
-  handle('thread/rewind', (params) => core.rewinds.rewind(params));
-  handle('thread/rewind/redo', (params) => core.rewinds.redo(params));
-  handle('run/verdict', (params) => core.recordVerdict(params));
-  handle('interaction/respond', (params) => core.respond(params));
-  handle('interaction/resume', (params) => core.resume(params));
-  handle('mcp/app/admit', (params) => core.mcpApps.admit(params));
-  handle('mcp/app/call', (params, signal) => core.mcpApps.call(params, signal));
-  handle('mcp/input/read', (params) => core.readMcpInput(params));
-  handle('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
-  handle('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
-  handle('log/subscribe', async (params) => {
-    const current = subscriptions.get(params.threadId);
-    subscriptions.set(params.threadId, {
-      fromSeq: Math.min(current?.fromSeq ?? params.fromSeq, params.fromSeq),
-      views: (current?.views ?? 0) + 1,
-    });
+  handleCore('interaction/respond', (params) => core.respond(params));
+  handleCore('interaction/resume', (params) => core.resume(params));
+  handleCore('mcp/app/admit', (params) => core.mcpApps.admit(params));
+  handleCore('mcp/app/call', (params, signal) => core.mcpApps.call(params, signal));
+  handleCore('mcp/input/read', (params) => core.readMcpInput(params));
+  handleCore('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
+  handleCore('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
+  handleCore('log/subscribe', async (params) => {
+    // Held before the read, so a row committed during it is sent live too.
+    const subscriptionId = randomUUID();
+    subscriptions.set(subscriptionId, { fromSeq: params.fromSeq, threadId: params.threadId });
     try {
       const rows = await core.published.read(params.threadId, params.fromSeq);
       // Taken after the read, in the tick the response is sent: the replay
       // applies over the rows, and later telemetry follows it (ADR-0011 amendment).
-      return { rows, telemetry: core.liveTelemetry.replay(params.threadId) };
+      return { rows, subscriptionId, telemetry: core.liveTelemetry.replay(params.threadId) };
     } catch (cause) {
-      unsubscribe(params.threadId);
+      subscriptions.delete(subscriptionId);
       throw cause;
     }
   });
-  handle('log/unsubscribe', (params) => {
-    unsubscribe(params.threadId);
+  handleCore('log/unsubscribe', (params) => {
+    subscriptions.delete(params.subscriptionId);
     return { unsubscribed: true };
   });
   const close = (): void => {

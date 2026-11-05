@@ -18,6 +18,7 @@ import { resetRootRegistrationEventsForTests } from '../roots/root-registration-
 const fs = {
   addRootDirectory: vi.fn(),
   addRootDirectoryByPath: vi.fn(),
+  folderRequests: { failures: new Map<string, string>(), opening: new Map<string, number>() },
   isFileSystemAccessSupported: vi.fn(() => ({ reason: '', supported: true })),
   listRecentRoots: vi.fn(async () => []),
   recentRootsRevision: 0,
@@ -25,7 +26,11 @@ const fs = {
 };
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => fs }));
 
-const { loggerMock, toastSpy } = vi.hoisted(() => ({
+const { checkoutStatusSpy, loggerMock, toastSpy } = vi.hoisted(() => ({
+  checkoutStatusSpy: vi.fn((_root: { readonly dbRootId: string } | null) => ({
+    checkout: undefined,
+    settled: true,
+  })),
   loggerMock: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -40,7 +45,7 @@ vi.mock('../hooks/use-branch-switcher', () => ({
   useBranchSwitcher: () => ({ menu: undefined, settled: true }),
 }));
 vi.mock('../hooks/use-thread-checkout-status', () => ({
-  useThreadCheckoutStatus: () => ({ checkout: undefined, settled: true }),
+  useThreadCheckoutStatus: checkoutStatusSpy,
 }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
@@ -117,6 +122,7 @@ beforeEach(() => {
     configurable: true,
     value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
   });
+  checkoutStatusSpy.mockClear();
   toastSpy.mockClear();
   updateThreadMetadata.mockClear();
 });
@@ -139,6 +145,22 @@ describe('a thread folder the workspace no longer serves', () => {
       },
     });
     await waitFor(() => expect(result.current.primaryRoot?.removed).toBeUndefined());
+  });
+
+  it('as the primary, is not asked for its git status until it is open again', async () => {
+    const { rerender, result } = await setup(BRAVO_PRIMARY, ALPHA_AND_CHARLIE);
+    await waitFor(() => expect(result.current.primaryRoot?.removed).toBe(true));
+    expect(checkoutStatusSpy.mock.lastCall?.[0]).toBeNull();
+    ROWS['r-bravo'] = { displayName: 'bravo', path: '/ws/bravo', status: 'live' };
+    rerender({
+      rootDescriptors: {
+        ...ALPHA_AND_CHARLIE,
+        'adapter-bravo': { displayName: 'bravo', path: '/ws/bravo', rootId: 'adapter-bravo' },
+      },
+    });
+    await waitFor(() =>
+      expect(checkoutStatusSpy.mock.lastCall?.[0]).toMatchObject({ dbRootId: 'r-bravo' })
+    );
   });
 
   it('as the primary, leaves the thread in one write that promotes the live folder', async () => {

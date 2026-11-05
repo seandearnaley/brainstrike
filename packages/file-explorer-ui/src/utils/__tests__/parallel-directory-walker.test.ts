@@ -1,13 +1,13 @@
 // @vitest-environment node
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import {
+  DirectoryListingTruncatedError,
   type DirectoryReadCapability,
   walkDirectoryParallel,
 } from '@brainstrike/file-system/directory-tree';
 import type { IFileNode } from '@brainstrike/types';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DirectoryListingTruncatedError } from '../parallel-directory-walker';
 
 const rootHandle: DirectoryHandle = {
   _internal: undefined,
@@ -228,8 +228,8 @@ describe('walkDirectoryParallel', () => {
       return [];
     });
 
-    // No propagateDirectoryReadErrors: truncation must still fail loud for a
-    // non-root directory instead of riding the silent unreadable-subdir skip.
+    // Truncation fails loud for a non-root directory instead of riding the
+    // silent unreadable-subdir skip.
     await expect(
       walkDirectoryParallel(createFileSystemAdapter(readDirectory), rootHandle, {})
     ).rejects.toThrow(DirectoryListingTruncatedError);
@@ -460,7 +460,8 @@ describe('physical directory read retirement', () => {
       vi.useFakeTimers();
       const slow = Promise.withResolvers<IFileNode[]>();
       const other = Promise.withResolvers<IFileNode[]>();
-      const failure = new Error('Directory read failed');
+      // A truncated listing is the read error every walk rejects on, at any depth.
+      const failure = new DirectoryListingTruncatedError(`${rootHandle.path}/other`);
       const controller = new AbortController();
       const readDirectory = vi.fn(async (handle: DirectoryHandle): Promise<IFileNode[]> => {
         if (handle.path === rootHandle.path) {
@@ -475,7 +476,6 @@ describe('physical directory read retirement', () => {
       const outcome = walkDirectoryParallel(createFileSystemAdapter(readDirectory), rootHandle, {
         abortSignal: controller.signal,
         concurrency: 2,
-        propagateDirectoryReadErrors: true,
       }).then(
         () => {
           settled = true;

@@ -1,34 +1,20 @@
 # Linear triage vocabulary
 
-> **Consumer:** the external `triage` engineering skill. The skill is not
-> vendored by this repository; this file maps its canonical roles onto live
-> Brainstrike Linear concepts.
+Maps the external `triage` skill's roles (not vendored here) onto Brainstrike Linear labels and states.
 
-## Category roles
-
-| Canonical role | Linear representation |
-| --- | --- |
-| `bug` | `Bug` label |
-| `enhancement` | `Feature` for a new capability; `Improvement` for a change to existing behavior |
-
-## State roles
-
-| Canonical role | Linear representation | Current capability |
+| Role | Kind | Linear representation |
 | --- | --- | --- |
-| `needs-triage` | `needs-triage` label | Available |
-| `needs-info` | `needs-info` label | Available |
-| `ready-for-agent` | `agent-ready` label | Available |
-| `ready-for-human` | `needs-human` label | Available |
-| `wontfix` | `Canceled` issue state | Available; no state label is applied |
+| `bug` | Category | `Bug` label |
+| `enhancement` | Category | `Feature` (new capability) or `Improvement` (change to existing behavior) |
+| `needs-triage` | State | `needs-triage` label |
+| `needs-info` | State | `needs-info` label |
+| `ready-for-agent` | State | `agent-ready` label |
+| `ready-for-human` | State | `needs-human` label |
+| `wontfix` | State | `Canceled` issue state; no state label |
 
-Before applying a role, verify the label or state still exists in the live
-Brainstrike team. A missing representation is an unsupported capability: tell
-the maintainer which label is absent and wait for explicit authorization to
-create it. Do not substitute a similar label or state.
-
-Each triaged issue carries exactly one category representation and one state
-representation. Remove the prior state label when moving between label-backed
-states. Moving to `wontfix` removes any state-role label and transitions the
-issue to `Canceled` with the triage comment required by the external skill.
-When leaving `wontfix` for any label-backed role, first transition the issue
-from `Canceled` to `Backlog`, then apply the new state-role label.
+- Before applying a role, check the label or state still exists in the live team.
+  - If it's missing, tell the maintainer which one and wait for authorization to create it. Never substitute a similar label or state.
+- A triaged issue carries exactly one category and one state.
+  - Moving between label-backed states removes the previous state label.
+  - Moving to `wontfix` removes any state label and moves the issue to `Canceled`, with the triage comment the skill requires.
+  - Leaving `wontfix` for a label-backed state: move the issue from `Canceled` to `Backlog` first, then apply the label.

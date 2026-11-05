@@ -1,13 +1,9 @@
 import Module from 'node:module';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
-import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
-import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
-import { storageContract } from '../ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
-import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import {
@@ -40,10 +36,7 @@ const moduleWithLoader = Module as unknown as { _load: ModuleLoader };
 const originalLoad = moduleWithLoader._load;
 
 const CONTRACT_BRIDGES = {
-  assistantPersonas: userPersonasContract,
   clipboard: clipboardContract,
-  contextFiles: contextFilesContract,
-  indexSearch: indexSearchContract,
   threadGroups: threadGroupsContract,
   viewFilterPresets: viewFilterPresetsContract,
   windowFocus: windowFocusContract,
@@ -87,10 +80,8 @@ describe('preload contract-derived bridges', () => {
     expect(mockOn.mock.calls.map(([channel]) => channel)).toEqual([DESKTOP_IPC_PUSH_CHANNEL]);
     mockInvoke.mockResolvedValueOnce({ ok: true, value: undefined });
     await exposedApi('clipboard')['writeText']?.('copied');
-    mockInvoke.mockResolvedValueOnce(['alpha']);
-    await (
-      exposedApi('electronAPI') as unknown as { storage: { getAllKeys: () => unknown } }
-    ).storage.getAllKeys();
+    mockInvoke.mockResolvedValueOnce([]);
+    await exposedApi('threadGroups')['readRoots']?.();
     expect(mockInvoke.mock.calls.map(([channel]) => channel)).toEqual([
       DESKTOP_IPC_INVOKE_CHANNEL,
       DESKTOP_IPC_INVOKE_CHANNEL,
@@ -226,20 +217,6 @@ describe('preload contract-derived bridges', () => {
     );
   });
 
-  it('derives the nested production storage bridge', async () => {
-    const electronApi = exposedApi('electronAPI') as unknown as {
-      storage: Record<string, (...args: unknown[]) => Promise<unknown>>;
-    };
-    expect(Object.keys(electronApi.storage).sort()).toEqual(Object.keys(storageContract).sort());
-
-    mockInvoke.mockResolvedValueOnce(['alpha']);
-    await expect(electronApi.storage['getAllKeys']?.()).resolves.toEqual(['alpha']);
-    expect(mockInvoke).toHaveBeenLastCalledWith(
-      DESKTOP_IPC_INVOKE_CHANNEL,
-      DESKTOP_IPC_CHANNELS.storage.getAllKeys
-    );
-  });
-
   it.each([
     ['threadGroups', 'readRoots', DESKTOP_IPC_CHANNELS.threadGroups.readRoots, []],
   ] as const)(
@@ -272,17 +249,6 @@ describe('preload contract-derived bridges', () => {
     }
   );
 
-  it.each([
-    ['assistantPersonas', 'list', DESKTOP_IPC_CHANNELS.userPersonas.list],
-    ['contextFiles', 'scan', DESKTOP_IPC_CHANNELS.contextFiles.scan],
-  ])('%s.%s invokes %s and transports the envelope', async (name, method, channelName) => {
-    mockInvoke.mockResolvedValueOnce({ ok: true, value: { marker: name } });
-    await expect(exposedApi(name)[method]?.()).resolves.toEqual({
-      ok: true,
-      value: { marker: name },
-    });
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_INVOKE_CHANNEL, channelName);
-  });
   it('forwards retained diagnostic read filters without exposing SQL', async () => {
     const bridge = exposedApi('desktopDiagnostics');
     mockInvoke.mockResolvedValueOnce([]);

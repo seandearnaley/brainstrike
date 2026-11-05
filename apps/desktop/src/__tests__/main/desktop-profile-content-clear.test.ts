@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
 
 test('content clear fences replacement acquisition and retains the owner until physical retirement', async () => {
-  const joined = Promise.withResolvers<{ deletedFiles: number; deletedChunks: number | null }>();
+  const joined = Promise.withResolvers<void>();
   const first = {
     acquire: vi.fn(async () => 'first'),
     clearAndRetireContent: vi.fn(() => joined.promise),
@@ -21,8 +21,8 @@ test('content clear fences replacement acquisition and retains the owner until p
   await Promise.resolve();
   expect(profile.isRetiring()).toBe(true);
   expect(create).toHaveBeenCalledTimes(1);
-  joined.resolve({ deletedChunks: null, deletedFiles: 2 });
-  expect(await clearing).toEqual({ deletedChunks: null, deletedFiles: 2 });
+  joined.resolve();
+  await clearing;
   expect(await next).toBe('second');
   expect(first.close).not.toHaveBeenCalled();
   expect(profile.isRetiring()).toBe(false);

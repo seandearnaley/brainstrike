@@ -4,7 +4,7 @@ import { useAnsweredApprovals } from './answered-approvals-context';
 import { approvalSurfaceCallKey } from './answered-approvals-index-model';
 import { approvalCardToolCallIds } from './approval-history';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import { useAssistantRunEventDerivation } from './assistant-run-event-context';
 import {
   isAlwaysVisibleRunEvent,

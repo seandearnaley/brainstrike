@@ -247,7 +247,7 @@ vi.mock('@brainstrike/settings-ui/settings-page-content', () => ({
           {category.title}
         </span>
       ))}
-      {categories.find(({ id }) => id === 'embedding-models')?.content}
+      {categories.find(({ id }) => id === 'model-catalog')?.content}
     </div>
   ),
 }));
@@ -278,11 +278,6 @@ vi.mock('@brainstrike/settings-ui/settings-category-factories', () => ({
     content: <div data-testid="permissions-category" />,
     id: 'permissions',
     title: 'Permissions',
-  }),
-  createSearchIndexingSettingsCategory: () => ({
-    content: <div data-testid="search-indexing-category" />,
-    id: 'search-indexing',
-    title: 'Search & Indexing',
   }),
   createSubagentPersonasSettingsCategory: () => ({
     content: <div data-testid="subagents-category" />,
@@ -323,6 +318,10 @@ vi.mock('../../../../renderer/host-mcp-settings', () => ({
 
 vi.mock('../../../../renderer/host-browser-origins', () => ({
   resolveDesktopHostBrowserOrigins: () => null,
+}));
+
+vi.mock('../../../../renderer/host-workspace-settings', () => ({
+  resolveDesktopHostWorkspaceSettings: () => null,
 }));
 
 vi.mock('../../../../renderer/components/settings/logging-settings', () => ({

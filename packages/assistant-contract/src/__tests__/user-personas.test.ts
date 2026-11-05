@@ -219,38 +219,25 @@ describe('buildUserPersona', () => {
     }
   });
 
-  it.each(['askUser', 'submitPlan', 'brainstrike.askUser', 'brainstrike.submitPlan'])(
-    'accepts explicitly declared child interaction tool %s',
-    (tool) => {
+  it.each([
+    ['manageTaskList', /task-list state belongs to the parent/iu],
+    ['brainstrike.manageTaskList', /task-list state belongs to the parent/iu],
+    ['askUser', /questions go to the parent/iu],
+    ['brainstrike.askUser', /questions go to the parent/iu],
+    ['submitPlan', /plans go to the parent/iu],
+    ['brainstrike.submitPlan', /plans go to the parent/iu],
+  ])('rejects parent-only %s, in either mode', (tool, reason) => {
+    for (const mode of ['read-only', 'worker']) {
       const result = buildUserPersona({
-        content: validFile(`description: d\ntools: readWorkspaceFile, ${tool}`),
-        fileName: 'p.md',
-      });
-      expect(result).toMatchObject({
-        ok: true,
-        persona: {
-          allowedToolIds: [
-            'brainstrike.readWorkspaceFile',
-            tool.startsWith('brainstrike.') ? tool : `brainstrike.${tool}`,
-          ],
-        },
-      });
-    }
-  );
-
-  it.each(['manageTaskList', 'brainstrike.manageTaskList'])(
-    'still rejects parent-scoped %s',
-    (tool) => {
-      const result = buildUserPersona({
-        content: validFile(`description: d\ntools: readWorkspaceFile, ${tool}`),
+        content: validFile(`description: d\nmode: ${mode}\ntools: readWorkspaceFile, ${tool}`),
         fileName: 'p.md',
       });
       expect(result).toMatchObject({ ok: false });
       if (!result.ok) {
-        expect(result.error).toMatch(/task-list state belongs to the parent/iu);
+        expect(result.error).toMatch(reason);
       }
     }
-  );
+  });
 
   it('rejects a persona naming an unknown tool (unknown is not read)', () => {
     const result = buildUserPersona({

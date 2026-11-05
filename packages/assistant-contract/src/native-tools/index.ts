@@ -19,9 +19,7 @@ import { executeCommand } from './definitions/execute-command.ts';
 import { findWorkspaceSymbol } from './definitions/find-workspace-symbol.ts';
 import { globWorkspace } from './definitions/glob-workspace.ts';
 import { grepSearch } from './definitions/grep-search.ts';
-import { hybridSearch } from './definitions/hybrid-search.ts';
 import { inspectCommandSessions } from './definitions/inspect-command-sessions.ts';
-import { listEmbeddingSpaces } from './definitions/list-embedding-spaces.ts';
 import { listWorkspaceContext } from './definitions/list-workspace-context.ts';
 import { listWorktrees } from './definitions/list-worktrees.ts';
 import { lspInspect } from './definitions/lsp-inspect.ts';
@@ -30,7 +28,6 @@ import { manageCommandSession } from './definitions/manage-command-session.ts';
 import { manageTaskList } from './definitions/manage-task-list.ts';
 import { manageWorktree } from './definitions/manage-worktree.ts';
 import { queryDiagnostics } from './definitions/query-diagnostics.ts';
-import { queryEmbeddingSpace } from './definitions/query-embedding-space.ts';
 import { readToolOutputArtifact } from './definitions/read-tool-output-artifact.ts';
 import { readWorkspaceContext } from './definitions/read-workspace-context.ts';
 import { readWorkspaceDirectory } from './definitions/read-workspace-directory.ts';
@@ -65,9 +62,7 @@ export const NATIVE_TOOLS = [
   findWorkspaceSymbol,
   globWorkspace,
   grepSearch,
-  hybridSearch,
   inspectCommandSessions,
-  listEmbeddingSpaces,
   listWorkspaceContext,
   listWorktrees,
   lspInspect,
@@ -76,7 +71,6 @@ export const NATIVE_TOOLS = [
   manageTaskList,
   manageWorktree,
   queryDiagnostics,
-  queryEmbeddingSpace,
   readToolOutputArtifact,
   readWorkspaceContext,
   readWorkspaceDirectory,
@@ -123,10 +117,12 @@ export {
   describeAvailableDeferredCapabilityFamilies,
 } from './capability-families.ts';
 export {
+  type ActivityFileCountMode,
   type DeferredCapabilityFamilyPhrase,
   type DesktopNativeToolDefinition,
   defineNativeTool,
   InvalidNativeToolDefinitionError,
+  type NativeToolActivity,
   type NativeToolDefinition,
   type NativeToolDiscoveryNamespace,
   type NativeToolExecutionBudget,
@@ -134,6 +130,8 @@ export {
   type NativeToolNameResolver,
   type NativeToolSurface,
   type SkillNativeToolDefinition,
+  VERB_FAMILIES,
+  type VerbFamily,
 } from './define.ts';
 export {
   deriveNativeToolRegistries,

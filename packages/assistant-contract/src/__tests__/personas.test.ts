@@ -37,9 +37,6 @@ describe('effectiveChildStepBudget', () => {
     expect(effectiveChildStepBudget(over, settings)).toBe(40);
     expect(delegationDescriptionForPersona(within, settings)).toContain('Runs at most 4 steps');
     expect(delegationDescriptionForPersona(over, settings)).toContain('Runs at most 40 steps');
-    expect(delegationDescriptionForPersona(over, settings)).toContain(
-      `${settings.maxChildOutputTokens} output tokens per child`
-    );
   });
 
   it("states the turn's tree limits from the request settings, never a constant", () => {
@@ -48,11 +45,10 @@ describe('effectiveChildStepBudget', () => {
       maxConcurrentWork: 5,
       maxDepth: 7,
       maxInvocations: 11,
-      maxTreeOutputTokens: 98_765,
     };
     expect(delegationDescriptionForPersona({ description: 'd', maxSteps: 4 }, settings)).toContain(
-      'The root turn permits at most 7 descendant levels, 11 invocations, 5 active work ' +
-        'operations, 32768 output tokens per child and 98765 across descendants.'
+      'The root turn permits at most 7 descendant levels, 11 invocations and 5 active work ' +
+        'operations.'
     );
   });
 });
@@ -141,7 +137,6 @@ describe('BUILT_IN_PERSONAS', () => {
   it('explore names exactly its D2 tool list', () => {
     const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
     expect(explore?.allowedToolIds).toEqual([
-      'brainstrike.queryEmbeddingSpace',
       'brainstrike.grepSearch',
       'brainstrike.globWorkspace',
       'brainstrike.readToolOutputArtifact',

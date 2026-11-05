@@ -4,15 +4,12 @@ import { fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Globe, LayoutGrid } from 'lucide-react';
 import { type CSSProperties, useEffect } from 'react';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
 import { useWorkspaceTabs } from '../shell/use-workspace-tabs';
 import type { WorkspaceApp } from '../shell/workspace-app';
-import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
-import {
-  __resetWorkspaceTabSelectionStoreForTests,
-  useWorkspaceTabSelectionStore,
-} from '../stores/workspace-tab-selection-store';
+import { useTabManagerStore } from '../stores/tab-manager-store';
+import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import {
   CANVAS_APP,
   CHANGES_APP,
@@ -77,7 +74,6 @@ describe('workspace tabs — apps, launcher, selection', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    __resetWorkspaceTabSelectionStoreForTests();
 
     const uiModule = await import('@brainstrike/ui');
     vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
@@ -98,10 +94,6 @@ describe('workspace tabs — apps, launcher, selection', () => {
       updateTabContent: vi.fn(),
     };
     vi.spyOn(tabModule, 'useTabManager').mockReturnValue(empty);
-  });
-
-  afterEach(() => {
-    __resetWorkspaceTabSelectionStoreForTests();
   });
 
   it('useWorkspaceTabs outside the provider throws (no silent fallback)', () => {
@@ -259,7 +251,6 @@ describe('workspace tabs — apps, launcher, selection', () => {
     const user = userEvent.setup();
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
-    __resetTabManagerStoreForTests();
     useTabManagerStore.getState().openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
     useWorkspaceTabSelectionStore.getState().selectApp('context-explorer');
 
@@ -274,8 +265,6 @@ describe('workspace tabs — apps, launcher, selection', () => {
       });
     });
     expect(screen.queryByTestId('workspace-launcher')).not.toBeInTheDocument();
-
-    __resetTabManagerStoreForTests();
   });
 
   it('keeps an app mounted across tab switches, but CLOSING unmounts and reopening remounts', async () => {

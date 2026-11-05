@@ -39,22 +39,6 @@ const STATUS_BADGE_VARIANTS: Record<StatusVariant, 'default' | 'secondary' | 'de
   warning: 'secondary',
 };
 
-type DimensionIndexMaintenanceState = 'failed' | 'pending' | 'running' | 'succeeded';
-
-interface DimensionIndexMaintenanceRow {
-  readonly dimension: number;
-  readonly lastError: string | null;
-  readonly reason: string;
-  readonly state: DimensionIndexMaintenanceState;
-  readonly strategy: 'concurrent' | 'regular';
-}
-
-interface DimensionIndexSuspensionRow {
-  readonly dimension: number;
-  readonly reason: string;
-  readonly suspendedAt: string;
-}
-
 interface DesktopPlatformDiagnosticsSnapshot {
   readonly collectedAt: string;
   readonly crashRecovery?: {
@@ -63,13 +47,6 @@ interface DesktopPlatformDiagnosticsSnapshot {
     readonly rendererCrashCount: number;
     readonly rendererReloadAttemptCount: number;
     readonly suppressedRendererReloadCount: number;
-  };
-  readonly indexing?: {
-    readonly databaseWork: unknown;
-    readonly dimensionIndexMaintenance?: {
-      readonly maintenance: readonly DimensionIndexMaintenanceRow[];
-      readonly suspensions: readonly DimensionIndexSuspensionRow[];
-    };
   };
   readonly migration?: {
     readonly attemptCount: number | null;
@@ -170,7 +147,7 @@ function DatabaseStatusSection(): ReactElement {
 
   const getStatus = (): { variant: StatusVariant; label: string } => {
     if (loading) {
-      return { label: 'Connecting...', variant: 'loading' };
+      return { label: 'Connecting…', variant: 'loading' };
     }
     if (connected) {
       return { label: 'Connected', variant: 'success' };
@@ -184,7 +161,7 @@ function DatabaseStatusSection(): ReactElement {
 
   return (
     <DiagnosticCard
-      description="PGlite database connection"
+      description="Local SQLite database"
       icon={<Database className="text-primary h-4 w-4" />}
       status={variant}
       statusLabel={label}
@@ -389,41 +366,6 @@ function getCrashRecoveryLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): st
   return formatCount(crashRecovery.rendererReloadAttemptCount, 'reload', 'reloads');
 }
 
-function getDimensionMaintenanceLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): string {
-  const dimensionIndexMaintenance = snapshot.indexing?.dimensionIndexMaintenance;
-  if (!dimensionIndexMaintenance) {
-    return 'unavailable';
-  }
-  const pending = dimensionIndexMaintenance.maintenance.filter(
-    (row) => row.state === 'pending'
-  ).length;
-  const running = dimensionIndexMaintenance.maintenance.filter(
-    (row) => row.state === 'running'
-  ).length;
-  const failed = dimensionIndexMaintenance.maintenance.filter(
-    (row) => row.state === 'failed'
-  ).length;
-  const suspended = dimensionIndexMaintenance.suspensions.length;
-  const active = pending + running + failed + suspended;
-  if (active === 0) {
-    return 'idle';
-  }
-  const labels: string[] = [];
-  if (failed > 0) {
-    labels.push(formatCount(failed, 'failed', 'failed'));
-  }
-  if (running > 0) {
-    labels.push(formatCount(running, 'running', 'running'));
-  }
-  if (pending > 0) {
-    labels.push(formatCount(pending, 'pending', 'pending'));
-  }
-  if (suspended > 0) {
-    labels.push(formatCount(suspended, 'suspended', 'suspended'));
-  }
-  return labels.join(' / ');
-}
-
 const DESKTOP_PLATFORM_DESCRIPTION = 'Desktop process, migration and recovery state';
 
 function DesktopPlatformStatusSection({
@@ -440,10 +382,6 @@ function DesktopPlatformStatusSection({
       title="Desktop Platform"
     >
       <div className="space-y-2 text-xs">
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Dimension Maintenance</span>
-          <span className="font-medium">{getDimensionMaintenanceLabel(snapshot)}</span>
-        </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Migration</span>
           <span className="font-medium">{getMigrationLabel(snapshot)}</span>

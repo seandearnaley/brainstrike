@@ -11,19 +11,19 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { WorkspaceGitServicesProvider } from '@brainstrike/app-shell/workspace-git-services';
 import { WorkspaceTerminalServicesProvider } from '@brainstrike/app-shell/workspace-terminal-services';
-import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
+import { WorkspaceFileSearchContext } from '@brainstrike/workspace-search/core';
 import { Shapes } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useRef } from 'react';
-import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import { createDesktopStateHealth } from '../desktop-state-health';
+import { resolveDesktopFileSearch } from '../host-file-search';
 import { resolveDesktopWorkspaceGitServices } from '../host-git-workspace';
 import {
   resolveDesktopMcpContent,
@@ -33,11 +33,9 @@ import {
   resolveDesktopMcpToolsCapability,
 } from '../host-mcp-settings';
 import { resolveDesktopWorkspaceTerminalServices } from '../host-terminals';
-import { createIpcCapability } from '../ipc-capability';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 import { ChangesPageContent } from './changes-page-content';
 import { LogsPageContent } from './logs-page-content';
-import { NativeSearchProvider } from './native-search-provider';
 import SettingsPageContent from './settings/page-content';
 import TerminalPageContent from './terminal-page-content';
 import { ThreadContextPageContent } from './thread-context-page-content';
@@ -81,10 +79,9 @@ const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 export default function RootLayoutContent() {
   // The one writer of the window title, keyed on the route on screen.
   useDocumentTitle(DESKTOP_DOCUMENT_META);
-  const nativeSearch = window.indexSearch
-    ? createIpcCapability(window.indexSearch, indexSearchContract)
-    : null;
   const activeToolsTabRef = useRef('host-owned');
+  // The Explorer's Search tab runs on the agent host's live ripgrep (ADR-0035).
+  const fileSearch = resolveDesktopFileSearch();
 
   // The agent host owns the git cluster (ADR-0029): Changes, the branch chip
   // and worktrees. Resolved once; each surface below is offered only when its
@@ -120,22 +117,14 @@ export default function RootLayoutContent() {
     // shell protocol, both unconditionally present on desktop: no bridge gate.
     artifactsPageContent: <ArtifactsPage shellSrc={CANVAS_SHELL_SRC} />,
     canvasShellSrc: CANVAS_SHELL_SRC,
-    deleteRootData: (rootId) => {
-      const bridge = window.electronAPI;
-      if (!(bridge && 'fileSystem' in bridge)) {
-        throw new Error('Desktop root data deletion bridge is unavailable.');
-      }
-      return callBoundary(() => bridge.fileSystem.deleteRootData(rootId));
-    },
     // Every desktop window has its own log buffer and Electron main's (BST-1791).
     logsPageContent: <LogsPageContent />,
-    nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,
     stateHealth,
     // Every desktop thread is a committed host conversation, so the context map
-    // always has a fold; without the index bridge it draws files by line bands.
-    threadContextPageContent: <ThreadContextPageContent chunkBounds={nativeSearch} />,
+    // always has a fold.
+    threadContextPageContent: <ThreadContextPageContent />,
     ...(changesAvailable ? { changesPageContent: <ChangesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     ...(worktreesAvailable ? { worktreeMapPageContent: <WorktreeMapPageContent /> } : {}),
@@ -341,9 +330,5 @@ export default function RootLayoutContent() {
       </WorkspaceGitServicesProvider>
     </TokenCacheWrapper>
   );
-  return nativeSearch ? (
-    <NativeSearchProvider capability={nativeSearch}>{content}</NativeSearchProvider>
-  ) : (
-    content
-  );
+  return <WorkspaceFileSearchContext value={fileSearch}>{content}</WorkspaceFileSearchContext>;
 }

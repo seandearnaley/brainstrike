@@ -16,8 +16,7 @@
  * assistant-ui formatter.
  *
  * The mention `id` encodes the file's identity as `rootId::path`, where `rootId`
- * is the DB `roots.id` (the same id `file_records.root_id` references and the
- * desktop tools resolve against) and `path` is the workspace-relative path. We
+ * is the DB `roots.id` (the id the desktop tools resolve against) and `path` is the workspace-relative path. We
  * split on the FIRST `::` only, so a path that itself contains `:` or `::`
  * survives the round-trip. Paths that contain `{`/`}`/`%` are version-marked and
  * percent-encoded inside the id so a path containing `}` cannot truncate the

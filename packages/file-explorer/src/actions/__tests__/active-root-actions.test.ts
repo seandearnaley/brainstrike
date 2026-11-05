@@ -201,3 +201,68 @@ describe('setActiveRoots survives restart with a non-default Main root (restore-
     expect(getState().activeRootIds).toEqual([ROOT_C.rootId, ROOT_A.rootId, ROOT_B.rootId]);
   });
 });
+
+describe('a managed worktree (ADR-0034)', () => {
+  const WORKTREE: StoredRootDescriptor = {
+    displayName: 'ProjectA-bright-fox',
+    path: '/worktrees/ProjectA-bright-fox',
+    rootId: 'root-worktree',
+    worktree: true,
+  };
+
+  it('gets a descriptor from addActiveRoot but never joins the open folders', () => {
+    const { actions, getState } = makeHarness({});
+    actions.addActiveRoot(ROOT_A);
+    actions.addActiveRoot(WORKTREE);
+    expect(getState().activeRootIds).toEqual([ROOT_A.rootId]);
+    expect(getState().rootDescriptors[WORKTREE.rootId]).toEqual(WORKTREE);
+  });
+
+  it('gets a descriptor from setActiveRoots but never joins the open folders', () => {
+    const { actions, getState } = makeHarness({});
+    actions.setActiveRoots([ROOT_A, WORKTREE, ROOT_B]);
+    expect(getState().activeRootIds).toEqual([ROOT_A.rootId, ROOT_B.rootId]);
+    expect(Object.keys(getState().rootDescriptors)).toEqual([
+      ROOT_A.rootId,
+      WORKTREE.rootId,
+      ROOT_B.rootId,
+    ]);
+  });
+});
+
+describe('openActiveRoot (ADR-0034: the opened folder is the project)', () => {
+  const WORKTREE: StoredRootDescriptor = {
+    displayName: 'ProjectA-bright-fox',
+    path: '/worktrees/ProjectA-bright-fox',
+    rootId: 'root-worktree',
+    worktree: true,
+  };
+  const folderState = {} as FileExplorerState['folderStates'][string];
+
+  it('closes every other open folder and its saved state, keeping worktree descriptors', () => {
+    const { actions, getState } = makeHarness({
+      folderAccessOrder: [ROOT_A.rootId, ROOT_B.rootId],
+      folderStates: { [ROOT_A.rootId]: folderState, [ROOT_B.rootId]: folderState },
+    });
+    actions.setActiveRoots([ROOT_A, WORKTREE, ROOT_B]);
+
+    actions.openActiveRoot(ROOT_C);
+
+    expect(getState().activeRootIds).toEqual([ROOT_C.rootId]);
+    expect(getState().folderAccessOrder).toEqual([]);
+    expect(getState().folderStates).toEqual({});
+    expect(getState().rootDescriptors).toEqual({
+      [WORKTREE.rootId]: WORKTREE,
+      [ROOT_C.rootId]: ROOT_C,
+    });
+  });
+
+  it('converges on the last of two overlapping opens', () => {
+    const { actions, getState } = makeHarness({});
+    actions.setActiveRoots([ROOT_A]);
+    actions.openActiveRoot(ROOT_B);
+    actions.openActiveRoot(ROOT_C);
+    expect(getState().activeRootIds).toEqual([ROOT_C.rootId]);
+    expect(Object.keys(getState().rootDescriptors)).toEqual([ROOT_C.rootId]);
+  });
+});

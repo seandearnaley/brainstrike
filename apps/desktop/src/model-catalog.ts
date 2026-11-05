@@ -21,9 +21,7 @@ export function createDesktopModelCatalog(store: ModelChoicePort): ModelCatalogC
       const catalog = initial.models.filter((model) => model.providerId === providerId);
       const modelIds =
         policy.kind === 'all'
-          ? catalog
-              .filter((model) => model.capabilities.type === 'llm' && !model.isEnabled)
-              .map((model) => model.id)
+          ? catalog.filter((model) => !model.isEnabled).map((model) => model.id)
           : [...new Set(policy.modelIds)];
       if (policy.kind === 'seed' && modelIds.length === 0) {
         throw new Error('Recommended model defaults are empty.');

@@ -119,15 +119,9 @@ export interface OmRecordLifecycle {
 
 /**
  * The models memory uses (structural mirror of the host's `HostMemoryModels`):
- * the resolved observer's catalog id and the recall embedder. Absent: none.
+ * the resolved observer's catalog id. Absent: none.
  */
 export interface MemoryModelsDisplay {
-  readonly embedder?: {
-    readonly dimensions: number;
-    readonly distance: string;
-    readonly modelId: string;
-    readonly provider: string;
-  };
   readonly observer?: string;
 }
 
@@ -149,21 +143,6 @@ export interface MemoryCycleDisplay {
     readonly outputTokens?: number;
     readonly totalTokens?: number;
   };
-}
-
-/**
- * The last semantic recall this view saw live (structural mirror of the host's
- * recall telemetry, BST-2225): never committed, so a reload clears it.
- */
-export interface MemoryRecallDisplay {
-  /** When this view received it (epoch ms). */
-  readonly at: number;
-  readonly latencyMs: number;
-  /** The messages recall returned: each hit with its message range. */
-  readonly messages: number;
-  readonly scope: 'resource' | 'thread';
-  /** Absent when the configuration leaves it to Mastra's default. */
-  readonly topK?: number;
 }
 
 /** The thread's last committed cycle of each kind; absent before its first. */
@@ -203,8 +182,6 @@ export type OmMeterState = (
   readonly cycles?: MemoryCyclesDisplay;
   /** The models the read named, where the host reports them (Developer panel). */
   readonly models?: MemoryModelsDisplay;
-  /** The last semantic recall this view saw live (Developer panel). */
-  readonly recall?: MemoryRecallDisplay;
   /** When the host read this state (epoch ms): the record's flags hold as of then. */
   readonly readAt?: number;
 };
@@ -220,7 +197,7 @@ export interface ContextUsageMeterProps {
   conversationEstimate?: ConversationTokenEstimate | undefined;
   /**
    * Durable cumulative usage for this thread (running token total + cost),
-   * hydrated from the DB. Absent on web / before hydration → the cumulative line
+   * hydrated from the DB. Absent before hydration → the cumulative line
    * is not shown in the popover (the last-turn gauge still renders).
    */
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
@@ -233,9 +210,9 @@ export interface ContextUsageMeterProps {
   /**
    * Resolved OM state for the active thread, rendered as INFORMATIONAL stats
    * inside the popover (observed tokens + compaction saved) — NOT a budget
-   * segment. Absent → no OM line (desktop before the first resolve).
-   * Desktop-only: on web the resolver supplies `{ kind: 'chat-only' }` so the
-   * stats are hidden honestly. Prop name kept as `omSegment` for call-site
+   * segment. Absent → no OM line (before the first resolve). A host without
+   * memory supplies `{ kind: 'chat-only' }` so the stats are hidden honestly.
+   * Prop name kept as `omSegment` for call-site
    * stability across the panel layers.
    */
   omSegment?: OmMeterState | undefined;

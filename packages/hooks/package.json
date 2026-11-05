@@ -2,6 +2,7 @@
   "name": "@brainstrike/hooks",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/logging": "workspace:*",
@@ -38,9 +39,7 @@
     "access": "public"
   },
   "scripts": {
-    "lint": "pnpm -w lint",
     "test": "vitest run",
-    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,

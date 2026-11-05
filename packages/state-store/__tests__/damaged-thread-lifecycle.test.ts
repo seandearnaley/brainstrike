@@ -215,3 +215,30 @@ test('the hydration read reports a missing seq as damage', async () => {
     expect(seqs(a)).toEqual([1]);
   });
 });
+
+test('a typed hydration read returns only those marked rows, and still finds a missing seq', async () => {
+  const root = freshDir('hydration-typed');
+  await withStore(root, async (store) => {
+    await store.append([
+      ...['thread.started', 'model.step', 'thread.updated'].map((type) => ({
+        event: { type },
+        threadId: 'a',
+      })),
+      { event: { type: 'thread.updated' }, hydrate: false, threadId: 'a' },
+      ...['thread.started', 'note', 'thread.updated'].map((type) => ({
+        event: { type },
+        threadId: 'b',
+      })),
+    ]);
+  });
+  const db = new Database(join(root, STATE_DB));
+  db.prepare('DELETE FROM run_events WHERE thread_id = ? AND seq = 2').run('b');
+  db.close();
+  await withStore(root, async (store) => {
+    const [a, b] = await store.readHydration(['thread.started', 'thread.updated']);
+    expect(a?.damage).toBeUndefined();
+    expect(seqs(a)).toEqual([1, 3]);
+    expect(b?.damage?.atSeq).toBe(2);
+    expect(seqs(b)).toEqual([1]);
+  });
+});

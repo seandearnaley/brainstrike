@@ -1,8 +1,22 @@
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { updateIndexConfig } from './utils/index-config';
-import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { seedRoot } from './utils/seed-root';
+import { expectSearchResults, openWorkspaceSearchPanel } from './utils/workspace-search-helpers';
+
+const NO_FOLDER =
+  'No folder is open, so there is nothing to search. Open a folder, then search again.';
+
+/** Writes `relative` under `root`, making its folders. */
+function write(root: string, relative: string, content: string): void {
+  const absolute = path.join(root, relative);
+  mkdirSync(path.dirname(absolute), { recursive: true });
+  writeFileSync(absolute, content);
+}
 
 /** Every control in the Search panel, with whether it paints inside the panel and takes a click. */
 async function searchControlLayout(page: Page) {
@@ -27,66 +41,52 @@ async function searchControlLayout(page: Page) {
   });
 }
 
-/** The Files pane's width and its group's, as laid out now. */
-async function filesPaneWidths(page: Page): Promise<{ layoutWidth: number; paneWidth: number }> {
+/** The Files pane's width, as laid out now. */
+async function filesPaneWidth(page: Page): Promise<number> {
   return await page.getByTestId('explorer-search-panel-search').evaluate((panel) => {
     const pane = panel.closest('[data-panel]');
-    const group = pane?.parentElement;
-    if (!(pane && group)) {
+    if (!pane) {
       throw new Error('The Search panel is not inside a resizable pane');
     }
-    return {
-      layoutWidth: group.getBoundingClientRect().width,
-      paneWidth: pane.getBoundingClientRect().width,
-    };
+    return pane.getBoundingClientRect().width;
   });
 }
 
+/** The Files pane's floor: the workspace pane's `rightPanelMinSize` (agent-workspace-layout.tsx). */
+const FILES_PANE_MIN_WIDTH = 192;
+
 /**
- * Narrows the Files pane to its minimum width, 15% of the layout: the narrowest
- * the Search panel gets. Returns the layout's width.
+ * Narrows the Files pane to its minimum width: the narrowest the Search panel
+ * gets. Returns the pane's width there.
  *
- * Resizes with the separator's keyboard steps (5% each), as a keyboard user
- * would, and waits for each step to lay out. A coordinate drag computed before
- * the layout settled was sometimes dropped, which left the pane at its default
- * width (BST-2301). It stops at the minimum, since one more step from the
- * minimum collapses the pane.
+ * Resizes with the separator's keyboard steps, as a keyboard user would, and
+ * waits for each step to lay out. A coordinate drag computed before the layout
+ * settled was sometimes dropped, which left the pane at its default width
+ * (BST-2301). A step that would pass the minimum stops at it, and it stops
+ * there, since one more step from the minimum collapses the pane.
  */
 async function shrinkFilesPaneToMinimum(page: Page): Promise<number> {
   const separator = page
     .getByTestId('explorer-search-panel-search')
     .locator('xpath=ancestor::*[@data-panel][1]/preceding-sibling::*[@role="separator"][1]');
   await separator.focus();
-  let { layoutWidth, paneWidth } = await filesPaneWidths(page);
-  while (paneWidth > layoutWidth * 0.16) {
+  let paneWidth = await filesPaneWidth(page);
+  while (paneWidth > FILES_PANE_MIN_WIDTH + 0.5) {
     const before = paneWidth;
     await separator.press('ArrowRight');
     await expect
-      .poll(async () => (await filesPaneWidths(page)).paneWidth, {
+      .poll(() => filesPaneWidth(page), {
         message: 'The Files pane narrows by one keyboard step',
       })
       .toBeLessThan(before);
-    ({ layoutWidth, paneWidth } = await filesPaneWidths(page));
+    paneWidth = await filesPaneWidth(page);
   }
-  return layoutWidth;
+  return paneWidth;
 }
 
-/**
- * Workspace-search smoke (desktop).
- *
- * Scope decision: text search only returns rows against INDEXED content
- * (`file_chunks`), and the only path that produces those rows is a real
- * background-indexing round trip (see `native-index-semantic-results.desktop.test.ts`).
- * There is no fast fixture seed for `file_chunks`, so this smoke asserts the
- * feature is fully MOUNTED and WIRED —
- * the Explorer|Search tab strip toggles, the lazy search panel loads its
- * controls, and typing a query drives the store to an honest terminal state
- * (the error card saying no folder is open on a fresh app) without crashing.
- * The full results→selection round trip belongs in a nightly test with a
- * seeded, indexed fixture (see task-12 report Follow-Up).
- */
+/** Workspace search (desktop): the Explorer's Search tab reads the open folders live (ADR-0035). */
 test.describe('Desktop workspace search', () => {
-  test('Explorer|Search tab strip mounts, the search panel loads, and a query reaches an honest terminal state', async ({
+  test('Explorer|Search tab strip mounts, the search panel loads, and a query with no folder open says so', async ({
     window,
   }) => {
     test.setTimeout(60_000);
@@ -108,23 +108,14 @@ test.describe('Desktop workspace search', () => {
 
     const searchPanel = window.getByTestId('explorer-search-panel-search');
     await expect(searchPanel).toBeVisible({ timeout: 15_000 });
-
-    // The lazy panel's controls render (mode toggle + query input).
-    await expect(searchPanel.getByRole('button', { name: 'Text' })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(searchPanel.getByRole('button', { name: 'Semantic' })).toBeVisible();
     const queryInput = searchPanel.getByPlaceholder('Search workspace');
-    await expect(queryInput).toBeVisible();
+    await expect(queryInput).toBeVisible({ timeout: 15_000 });
 
-    // Text mode auto-searches ≥3 chars after a 250ms debounce. A fresh app has no
-    // folder open, so the search says to add one instead of finding nothing.
+    // A fresh app has no folder open, so the search says to open one instead of finding nothing.
     await queryInput.fill('export');
-
-    await expect(searchPanel.getByTestId('workspace-search-results-error')).toHaveText(
-      'No folder is open in the workspace. Add a folder in the left file tree first.',
-      { timeout: 20_000 }
-    );
+    await expect(searchPanel.getByTestId('workspace-search-results-error')).toHaveText(NO_FOLDER, {
+      timeout: 20_000,
+    });
 
     // The store wiring survives a switch back to Explorer, which re-selects and
     // reveals the file-explorer surface (its empty-state add-folder affordance).
@@ -136,16 +127,59 @@ test.describe('Desktop workspace search', () => {
     });
   });
 
+  test('a saved file is found at once; ignored and credential files never are; the match cap is shown', async ({
+    electron,
+    window,
+  }) => {
+    test.setTimeout(90_000);
+    const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-live-search-')));
+    electron.removeAfterClose(root);
+    write(root, 'src/app.ts', 'export const needle = "live";\n');
+    write(root, '.brainstrikeignore', 'private/\n');
+    write(root, 'private/plan.md', 'needle in a private plan\n');
+    write(root, 'node_modules/pkg/index.js', 'needle in a dependency\n');
+    write(root, '.env', 'API_KEY=needle-secret\n');
+    await seedRoot(window, root, { reloadReason: 'live-workspace-search', rootId: randomUUID() });
+    const panel = await openWorkspaceSearchPanel(window);
+
+    await expectSearchResults(panel, 'needle', (files) => {
+      expect(files).toHaveLength(1);
+      expect(files[0]).toContain('src/app.ts');
+    });
+    await expect(panel.getByText('API_KEY')).toHaveCount(0);
+
+    // Saved a moment ago, found now: there is no index to catch up.
+    write(root, 'src/fresh.ts', 'const needle = "just saved";\n');
+    await expectSearchResults(panel, 'needle', (files) => {
+      expect(files.map((file) => file.replace(/\d+ match(es)?$/u, ''))).toEqual(
+        expect.arrayContaining(['src/app.ts', 'src/fresh.ts'])
+      );
+      expect(files).toHaveLength(2);
+    });
+
+    // Past its match cap the search stops and says how much it shows.
+    write(root, 'big.txt', 'capword\n'.repeat(5100));
+    await expectSearchResults(panel, 'capword', (files) => expect(files).toHaveLength(1));
+    await expect(
+      panel.getByText('Showing the first 5,000 matches. Narrow the search to see the rest.')
+    ).toBeVisible();
+
+    // A match row opens the file at its line.
+    await expectSearchResults(panel, 'just saved', (files) => expect(files).toHaveLength(1));
+    await panel.getByRole('row').filter({ hasText: 'just saved' }).last().click();
+    await expect(window.getByRole('tab', { name: /fresh\.ts/u }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
   test('every search control fits inside the Search panel at the Files pane minimum width', async ({
     window,
   }) => {
     test.setTimeout(60_000);
     // BST-1981: the header once laid out at 311px in a 180px panel and pushed the
     // toggles past its edge. The Search panel fills the Files pane, so the pane
-    // is narrowed to its minimum first.
-    await ensureMockWorkspaceOpen(window);
-    // Search turned off answers a query with the results error card, whose Retry is measured too.
-    await updateIndexConfig(window, { mode: 'off' });
+    // is narrowed to its minimum first. With no folder open a query answers with
+    // the results error card, whose Retry is measured too.
     await ensureFileExplorerPanelVisible(window);
     const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
     await tabStrip.getByRole('tab', { name: 'Search' }).click();
@@ -157,14 +191,13 @@ test.describe('Desktop workspace search', () => {
     await expect(searchPanel.getByTestId('workspace-search-results-error')).toBeVisible({
       timeout: 20_000,
     });
-    const layoutWidth = await shrinkFilesPaneToMinimum(window);
+    const paneWidth = await shrinkFilesPaneToMinimum(window);
+    expect(paneWidth).toBeGreaterThan(0);
     const layout = await searchControlLayout(window);
-    expect(layout.panelWidth).toBeLessThanOrEqual(layoutWidth * 0.16);
+    expect(layout.panelWidth).toBeLessThanOrEqual(Math.ceil(paneWidth));
     expect(layout.scrollWidth).toBeLessThanOrEqual(Math.ceil(layout.panelWidth));
     expect(layout.controls.map(({ name }) => name)).toEqual(
       expect.arrayContaining([
-        'Text',
-        'Semantic',
         'Search workspace',
         'Match case',
         'Match whole word',
@@ -173,27 +206,5 @@ test.describe('Desktop workspace search', () => {
       ])
     );
     expect(layout.controls.filter(({ inside, reachable }) => !(inside && reachable))).toEqual([]);
-  });
-
-  test('Text search mode tells the user which setting turns semantic search on', async ({
-    window,
-  }) => {
-    test.setTimeout(60_000);
-    // A fresh profile searches by text.
-    await ensureMockWorkspaceOpen(window);
-    await ensureFileExplorerPanelVisible(window);
-    const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
-    await tabStrip.getByRole('tab', { name: 'Search' }).click();
-    const semantic = window
-      .getByTestId('explorer-search-panel-search')
-      .getByRole('button', { name: 'Semantic' });
-    await expect(semantic).toHaveAttribute('aria-disabled', 'true', { timeout: 15_000 });
-    await expect(async () => {
-      await semantic.hover();
-      await expect(window.getByRole('tooltip').first()).toHaveText(
-        'Semantic search is off. Choose Semantic in Settings, Search & Indexing.',
-        { timeout: 2000 }
-      );
-    }).toPass({ timeout: 30_000 });
   });
 });

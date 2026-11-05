@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildQuerySelectionFingerprint } from '@brainstrike/file-explorer';
 import {
@@ -8,9 +8,11 @@ import {
 } from '@brainstrike/file-explorer/testing';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
-import type { ElectronApplication, Locator, Page } from 'playwright';
+import type { Locator, Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
+import { reloadRenderer } from './utils/electron-helpers.mts';
+import { seedWorkspaceFolders } from './utils/seed-root';
 
 export { expect, test };
 // NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
@@ -21,9 +23,10 @@ export { expect, test };
 /**
  * Harness surface the seeding helpers need.
  *
- * The helpers write Main's storage into the harness's own userData directory
- * (the app's `userData` path, BRAINSTRIKE_E2E_USER_DATA_DIR) before the app
- * first launches, so a restore spec boots once instead of twice.
+ * The helpers save the Explorer snapshot in a running renderer's `localStorage`
+ * (renderer-only state that only a document can write) and the root in Main's
+ * ledgers, reload so the document restores both, then close the app so the
+ * spec's restart reads what that document kept.
  * `closeForStateSeeding` is mandatory when an app is running: the harness
  * registers every process it launches with `ElectronProcessExitGuard`, so
  * closing a harness-owned app any other way (e.g. `closeElectronApp` directly)
@@ -32,30 +35,8 @@ export { expect, test };
  */
 export interface SeedableElectronHarness {
   closeForStateSeeding: () => Promise<void>;
+  ensureWindow: () => Promise<Page>;
   getUserDataDir: () => string;
-}
-
-interface ElectronE2eFileSystemFixture {
-  directoriesByPath: Record<string, unknown[]>;
-  /**
-   * Opt-in per-read delay (ms) honored by the main-process `fs:readDirectory`
-   * handler (apps/desktop/src/ipc-domains/file-system-ipc.ts). Omit it — as
-   * every fixture below this one does — to keep reads instant.
-   */
-  directoryReadDelayMs?: number;
-  fileContentsByPath: Record<string, string>;
-  readDirectoryCalls: string[];
-  readFileByPathCalls: string[];
-  readFileCalls: string[];
-  requestDirectoryAccessCount: number;
-  rootHandle: {
-    id: string;
-    kind: 'directory';
-    name: string;
-    path: string;
-    platform: 'electron';
-    type: 'directory';
-  };
 }
 
 interface FileExplorerTestSnapshot {
@@ -427,28 +408,14 @@ export async function expectFileSelected(args: {
 }
 
 /**
- * An absolute path for a Main-served mock root, in the host's own grammar: a
- * desktop tree's paths are native (Main joins them with `path.join`), so on
- * Windows a mock root is `C:\mock\<name>` and its children are joined with
- * `\`, exactly as a real Windows folder's would be.
- */
-export function mockRootPath(name: string): string {
-  return path.resolve('/mock', name);
-}
-
-/**
  * Fixed RootId used by every seeded selection fixture (storage v5).
  *
  * The app now keys `currentFolderId` / `folderStates` by a durable RootId UUID,
- * not by the root path. The desktop main process resolves a path to its RootId
- * via the `rootsList` storage entry (see file-system-ipc.ts `restoreRoots`), so
- * the seed functions below write a matching `rootsList` entry — the restored
- * root then carries this exact id and the seeded folder state hydrates.
+ * not by the root path. The agent host's root registry owns each folder's id, so
+ * the seed functions below seed its open folder with this id — the restored root
+ * then carries this exact id and the seeded folder state hydrates.
  */
 const E2E_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000001';
-
-/** Fixed addedAt for the seeded rootsList entry — deterministic fixture data. */
-const E2E_ROOT_ADDED_AT = 1_700_000_000_000;
 
 function createBaseExplorerState(rootPath: string): FileExplorerState {
   return {
@@ -632,6 +599,35 @@ function createRestoredQuerySelectionSnapshot(args: {
   };
 }
 
+/**
+ * Seeds the host's open folder and the Explorer snapshot in the renderer's `localStorage`,
+ * reloads so the document restores both as a launch would, then closes the app for a restart.
+ *
+ * The running document owns the snapshot key: the reload flushes its in-memory state (ADR-0026
+ * R1), so a value written behind its back is overwritten. The snapshot is therefore written by
+ * an init script at the start of the replacement document, before its store hydrates.
+ */
+async function seedRestoredState(
+  electronHarness: SeedableElectronHarness,
+  rootPath: string,
+  persistedState: unknown
+): Promise<void> {
+  const page = await electronHarness.ensureWindow();
+  // Storage v5: the host restores rootPath as E2E_ROOT_ID, so the restored root carries the
+  // same RootId the snapshot is keyed by.
+  await seedWorkspaceFolders(page, { roots: [{ path: rootPath, rootId: E2E_ROOT_ID }] });
+  await page.addInitScript(
+    ({ key, value }) => {
+      if (window.top === window) {
+        localStorage.setItem(key, value);
+      }
+    },
+    { key: FILE_EXPLORER_STORAGE_KEY, value: JSON.stringify(persistedState) }
+  );
+  await reloadRenderer(page, 'file-explorer-selection: seed restored state');
+  await electronHarness.closeForStateSeeding();
+}
+
 export async function seedRestoredExplicitSelectionState(args: {
   electronHarness: SeedableElectronHarness;
   expandedDirectoryPaths: string[];
@@ -639,36 +635,11 @@ export async function seedRestoredExplicitSelectionState(args: {
   selectedFilePaths: string[];
 }): Promise<void> {
   const { electronHarness, expandedDirectoryPaths, rootPath, selectedFilePaths } = args;
-  const persistedState = createRestoredExplicitSelectionSnapshot({
-    expandedDirectoryPaths,
+  await seedRestoredState(
+    electronHarness,
     rootPath,
-    selectedFilePaths,
-  });
-  const userDataDir = electronHarness.getUserDataDir();
-
-  await electronHarness.closeForStateSeeding();
-
-  const storagePath = path.join(userDataDir, 'electron-storage.json');
-  let existingStorage: Record<string, string> = {};
-  try {
-    existingStorage = JSON.parse(await readFile(storagePath, 'utf8')) as Record<string, string>;
-  } catch {
-    existingStorage = {};
-  }
-
-  const nextStorage = {
-    ...existingStorage,
-    lastFolderPath: rootPath,
-    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
-    // entry, so the restored root carries the same RootId the snapshot is keyed by.
-    rootsList: JSON.stringify([
-      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
-    ]),
-    [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
-  };
-
-  await mkdir(userDataDir, { recursive: true });
-  await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
+    createRestoredExplicitSelectionSnapshot({ expandedDirectoryPaths, rootPath, selectedFilePaths })
+  );
 }
 
 export async function seedRestoredQuerySelectionState(args: {
@@ -685,33 +656,11 @@ export async function seedRestoredQuerySelectionState(args: {
   selectionRootPath: string;
 }): Promise<void> {
   const { electronHarness, ...snapshot } = args;
-  const { rootPath } = snapshot;
-  const persistedState = createRestoredQuerySelectionSnapshot(snapshot);
-  const userDataDir = electronHarness.getUserDataDir();
-
-  await electronHarness.closeForStateSeeding();
-
-  const storagePath = path.join(userDataDir, 'electron-storage.json');
-  let existingStorage: Record<string, string> = {};
-  try {
-    existingStorage = JSON.parse(await readFile(storagePath, 'utf8')) as Record<string, string>;
-  } catch {
-    existingStorage = {};
-  }
-
-  const nextStorage = {
-    ...existingStorage,
-    lastFolderPath: rootPath,
-    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
-    // entry, so the restored root carries the same RootId the snapshot is keyed by.
-    rootsList: JSON.stringify([
-      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
-    ]),
-    [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
-  };
-
-  await mkdir(userDataDir, { recursive: true });
-  await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
+  await seedRestoredState(
+    electronHarness,
+    snapshot.rootPath,
+    createRestoredQuerySelectionSnapshot(snapshot)
+  );
 }
 
 async function writeLive3dmolRestoreFixture(args: {
@@ -791,108 +740,16 @@ export async function seedLive3dmolRestoreState(args: {
   });
 }
 
-export async function installNestedFolderFixture(
-  electronApp: ElectronApplication,
-  rootPath: string
-): Promise<void> {
-  const fixture: ElectronE2eFileSystemFixture = {
-    directoriesByPath: {
-      [rootPath]: [
-        {
-          depth: 0,
-          handle: {
-            kind: 'file' as const,
-            name: 'mock-file1.ts',
-            path: path.join(rootPath, 'mock-file1.ts'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'mock-file1.ts',
-          path: path.join(rootPath, 'mock-file1.ts'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          size: 100,
-          type: 'file' as const,
-        },
-        {
-          children: [],
-          depth: 0,
-          handle: {
-            kind: 'directory' as const,
-            name: 'src',
-            path: path.join(rootPath, 'src'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'src',
-          path: path.join(rootPath, 'src'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          type: 'directory' as const,
-        },
-      ],
-      [path.join(rootPath, 'src')]: [
-        {
-          depth: 0,
-          handle: {
-            kind: 'file' as const,
-            name: 'index.ts',
-            path: path.join(rootPath, 'src/index.ts'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'index.ts',
-          path: path.join(rootPath, 'src/index.ts'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          size: 120,
-          type: 'file' as const,
-        },
-        {
-          depth: 0,
-          handle: {
-            kind: 'file' as const,
-            name: 'extra.ts',
-            path: path.join(rootPath, 'src/extra.ts'),
-            platform: 'electron' as const,
-          },
-          isVisible: true,
-          name: 'extra.ts',
-          path: path.join(rootPath, 'src/extra.ts'),
-          rootFolderId: rootPath,
-          selectionState: 'unchecked' as const,
-          size: 140,
-          type: 'file' as const,
-        },
-      ],
-    },
-    fileContentsByPath: {
-      [path.join(rootPath, 'mock-file1.ts')]: 'export const rootValue = 1;',
-      [path.join(rootPath, 'src/index.ts')]: 'export const value = 1;',
-      [path.join(rootPath, 'src/extra.ts')]: 'export const extra = 2;',
-    },
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
-    rootHandle: {
-      id: 'mock-directory-handle',
-      kind: 'directory',
-      name: 'mock-desktop-selection-root',
-      path: rootPath,
-      platform: 'electron',
-      type: 'directory',
-    },
-  };
-
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        // biome-ignore lint/style/useNamingConvention: Desktop E2E fixture global intentionally uses the app-owned key.
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+/**
+ * Writes the nested selection tree into a real folder: one root file and a
+ * `src` directory with two files. The Explorer reads it through the agent host,
+ * as it reads any folder.
+ */
+export async function writeNestedFolderFixture(rootPath: string): Promise<void> {
+  await mkdir(path.join(rootPath, 'src'), { recursive: true });
+  await writeFile(path.join(rootPath, 'mock-file1.ts'), 'export const rootValue = 1;');
+  await writeFile(path.join(rootPath, 'src', 'index.ts'), 'export const value = 1;');
+  await writeFile(path.join(rootPath, 'src', 'extra.ts'), 'export const extra = 2;');
 }
 
 /** Explorer tree-expansion actions, by their stable testids. */

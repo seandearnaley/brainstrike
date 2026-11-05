@@ -97,18 +97,16 @@ describe('producer-owned state schema projection', () => {
     ).rejects.toThrow('local file');
   });
 
-  it('requires state truth and its explicit producer schema together before acquisition', () => {
+  it('refuses options without both the state truth root and its explicit producer schema', () => {
     const options = {
       dbPath: path.join(os.tmpdir(), 'schema-options.sqlite'),
-      embedding: { indexMode: 'text-only' },
-      rootIds: [],
     };
     expect(() => validateIndexerOptions({ ...options, stateRoot: os.tmpdir() })).toThrow(
-      'must be acquired together'
+      'stateProjection'
     );
     expect(() =>
       validateIndexerOptions({ ...options, stateProjection: { mode: 'dev', module } })
-    ).toThrow('must be acquired together');
+    ).toThrow('stateRoot');
   });
 
   // BST-2234: the state root is the index's durable root identity. JS realpathSync keeps a component's case (and a
@@ -120,8 +118,6 @@ describe('producer-owned state schema projection', () => {
       try {
         const options = {
           dbPath: path.join(root, 'state-index.sqlite'),
-          embedding: { indexMode: 'text-only' },
-          rootIds: [root],
           stateProjection: { mode: 'dev', module },
         };
         expect(validateIndexerOptions({ ...options, stateRoot: root }).stateRoot).toBe(root);

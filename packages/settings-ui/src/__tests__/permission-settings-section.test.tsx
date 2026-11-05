@@ -1,10 +1,10 @@
 import {
-  __resetPermissionPolicyStoreForTests,
+  discardSavedPermissionPolicy,
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import { PERMISSION_POLICY_UNREADABLE_CODE } from '@brainstrike/assistant-contract/tool-metadata';
 import { act } from '@brainstrike/test-utils/react-act';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { PermissionSettingsSection } = await import(
@@ -12,8 +12,9 @@ const { PermissionSettingsSection } = await import(
 );
 
 describe('PermissionSettingsSection', () => {
-  beforeEach(() => {
-    __resetPermissionPolicyStoreForTests();
+  // The shipped default loads before each case, as after the person discards a saved policy.
+  beforeEach(async () => {
+    await discardSavedPermissionPolicy();
   });
 
   it('renders the enforce toggle, four category controls, and the access mode', () => {
@@ -222,10 +223,24 @@ describe('PermissionSettingsSection', () => {
       render(<PermissionSettingsSection />);
 
       fireEvent.click(screen.getByTestId('permission-session-grants-revoke-all'));
+      const confirm = screen.getByRole('dialog', { name: 'Revoke all session grants?' });
+      expect(usePermissionPolicyStore.getState().sessionGrants.size).toBeGreaterThan(0);
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Revoke all' }));
       await waitFor(() => {
         expect(usePermissionPolicyStore.getState().sessionGrants.size).toBe(0);
       });
       expect(screen.getByTestId('permission-session-grants-empty')).not.toBeNull();
+    });
+
+    it('keeps every session grant when "Revoke all" is cancelled', () => {
+      usePermissionPolicyStore.getState().grantAllSessionCategories();
+      render(<PermissionSettingsSection />);
+
+      fireEvent.click(screen.getByTestId('permission-session-grants-revoke-all'));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(usePermissionPolicyStore.getState().sessionGrants.size).toBeGreaterThan(0);
+      expect(screen.queryByTestId('permission-session-grants-empty')).toBeNull();
     });
 
     it('hides "Revoke all" when no session grants are active', () => {
@@ -324,6 +339,13 @@ describe('PermissionSettingsSection with a host-kept policy', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+    expect(saved).not.toBeNull();
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Reset permission settings?' })).getByRole(
+        'button',
+        { name: 'Reset to defaults' }
+      )
+    );
 
     await waitFor(() => expect(screen.getByTestId('permission-policy-edit')).not.toBeNull());
     expect(saved).toBeNull();
@@ -342,6 +364,9 @@ describe('PermissionSettingsSection with a host-kept policy', () => {
     });
     render(<section.PermissionSettingsSection />);
     fireEvent.click(await screen.findByRole('button', { name: 'Reset to defaults' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset to defaults' })
+    );
 
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toContain('The state store is read-only.')

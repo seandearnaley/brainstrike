@@ -24,7 +24,6 @@ export function capturedIntent(options: {
   readonly agentLoop?: { readonly inputTokenLimit?: number; readonly maxSteps?: number };
   readonly memorySettings?: {
     readonly observationalMemory?: Partial<MemorySettings['observationalMemory']>;
-    readonly semanticRecall?: Partial<MemorySettings['semanticRecall']>;
   };
   readonly model: string;
   readonly provider: string;
@@ -43,11 +42,6 @@ export function capturedIntent(options: {
         enabled: false,
         ...options.memorySettings?.observationalMemory,
       },
-      semanticRecall: {
-        ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-        enabled: false,
-        ...options.memorySettings?.semanticRecall,
-      },
     },
     modelConfiguration: { model: options.model, provider: options.provider },
     permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
@@ -58,17 +52,15 @@ export function capturedIntent(options: {
 
 /**
  * Main's reads for a scenario's profile (BST-1930 stage e): every catalog
- * model enabled, no observer candidates, no recall embedder, no workspace
- * index, no roots and no worktree service, unless the scenario says otherwise.
+ * model enabled, no observer candidates, no roots and no worktree service,
+ * unless the scenario says otherwise.
  */
 export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): DesktopAdmissionReads {
   return {
     acquireWorkspace: () => Promise.reject(new Error('This scenario binds no workspace')),
-    catalogModel: async ({ provider }) => ({ isEnabled: true, providerId: provider }),
+    catalogModel: async ({ provider }) => ({ isEnabled: true, providerId: provider, type: 'llm' }),
     enabledObservers: async () => [],
-    indexStatus: async () => ({ kind: 'unavailable', reason: 'This scenario has no index.' }),
     liveWorkspaceRoots: async () => [],
-    memoryVectors: async () => undefined,
     ...overrides,
   };
 }

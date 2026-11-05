@@ -8,28 +8,14 @@ import {
   type Handlers,
   ipcFailure,
   ipcOk,
-  parseNoArgs,
   pushEvent,
   rawChannel,
 } from '../../platform/ipc-contract';
 
-function assertString(value: unknown, message: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(message);
-  }
-  return value;
-}
-
 const contract = {
   changed: pushEvent<{ readonly watchId: string }>({ channel: 'fixture:changed' }),
-  list: rawChannel<[], { readonly ok: boolean }>({
-    channel: 'fixture:list',
-    parseArgs: parseNoArgs,
-  }),
-  writeText: channel<[text: string], void>({
-    channel: 'fixture:write-text',
-    parseArgs: ([text]) => [assertString(text, 'fixture writeText requires a string payload')],
-  }),
+  list: rawChannel<[], { readonly ok: boolean }>({ channel: 'fixture:list' }),
+  writeText: channel<[text: string], void>({ channel: 'fixture:write-text' }),
 } satisfies Contract;
 
 describe('IPC contract module', () => {
@@ -41,15 +27,6 @@ describe('IPC contract module', () => {
     });
     expect(contract.list).toMatchObject({ envelope: 'raw', kind: 'invoke' });
     expect(contract.changed).toEqual({ channel: 'fixture:changed', kind: 'push' });
-  });
-
-  it('runs parseArgs as a plain function that throws on malformed input', () => {
-    expect(contract.writeText.parseArgs(['hello'])).toEqual(['hello']);
-    expect(() => contract.writeText.parseArgs([42])).toThrow(
-      'fixture writeText requires a string payload'
-    );
-    expect(contract.list.parseArgs(['ignored'])).toEqual([]);
-    expect(parseNoArgs()).toEqual([]);
   });
 
   it('derives the renderer bridge and the main handler map from the same contract', () => {

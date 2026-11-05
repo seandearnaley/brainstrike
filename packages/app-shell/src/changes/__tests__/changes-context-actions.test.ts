@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   addWorktreeAsRootAction,
   changesActions,
+  copyChangedFileFullPathAction,
+  copyChangedFilePatchAction,
+  copyChangedFileRelativePathAction,
   openChangedFileAction,
   openWorktreeAction,
   revealChangedFileAction,
@@ -12,6 +15,7 @@ import {
 
 const changedFileTarget: ContextTarget = {
   kind: 'changed-file',
+  patch: 'diff --git a/src/index.ts b/src/index.ts\n',
   path: 'src/index.ts',
   repositoryRoot: '/repo',
   rootId: 'root-1',
@@ -57,6 +61,9 @@ describe('changesActions', () => {
     expect(changesActions.map((action) => action.id)).toEqual([
       'changes.open-file',
       'changes.reveal-file',
+      'changes.copy-relative-path',
+      'changes.copy-full-path',
+      'changes.copy-patch',
       'changes.open-worktree',
       'changes.add-worktree-as-root',
     ]);
@@ -69,6 +76,29 @@ describe('changesActions', () => {
         services: {},
       })
     ).not.toThrow();
+  });
+
+  it("copies a changed file's path, full path and patch", async () => {
+    const services = makeServices();
+    await copyChangedFileRelativePathAction.run(changedFileTarget, services);
+    await copyChangedFileFullPathAction.run(changedFileTarget, services);
+    await copyChangedFilePatchAction.run(changedFileTarget, services);
+    expect(services.clipboard.writeText.mock.calls).toEqual([
+      ['src/index.ts'],
+      ['/repo/src/index.ts'],
+      ['diff --git a/src/index.ts b/src/index.ts\n'],
+    ]);
+  });
+
+  it('offers no patch to copy for a file the view sent without one', () => {
+    const { registry } = createTestActionRegistry({
+      actions: [...changesActions],
+      capabilities: ['clipboard'],
+    });
+    const labels = (target: ContextTarget) =>
+      registry.actionsFor(target).flatMap((group) => group.actions.map((action) => action.label));
+    expect(labels(changedFileTarget)).toContain('Copy Patch');
+    expect(labels({ ...changedFileTarget, patch: null })).not.toContain('Copy Patch');
   });
 
   it('opens a changed file through the shared platformFs.openPath seam', async () => {

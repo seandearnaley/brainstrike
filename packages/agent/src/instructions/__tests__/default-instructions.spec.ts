@@ -153,7 +153,6 @@ describe('default assistant instructions', () => {
     // family list must not advertise them (see the capability-coverage suite).
     expect(withDiscovery).not.toContain('workspace context');
     expect(withDiscovery).not.toContain('open workspace roots and focused context');
-    expect(withDiscovery).not.toContain('web, skills, or embeddings');
     expect(withDiscovery).toContain(
       'before brainstrike_globWorkspace / brainstrike_executeCommand'
     );
@@ -166,8 +165,6 @@ describe('default assistant instructions', () => {
   it('exports a focused builder that protects Brainstrike context-tool guidance', () => {
     const toolNameMap = new Map<string, string>([
       ['brainstrike_listWorkspaceContext', 'brainstrike.listWorkspaceContext'],
-      ['brainstrike_listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
-      ['brainstrike_queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
       ['brainstrike_readWorkspaceContext', 'brainstrike.readWorkspaceContext'],
       ['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
     ]);
@@ -176,13 +173,20 @@ describe('default assistant instructions', () => {
 
     expect(instructions).toContain('Brainstrike IDE');
     expect(instructions).toContain('brainstrike_listWorkspaceContext');
-    expect(instructions).toContain('brainstrike_listEmbeddingSpaces');
-    expect(instructions).toContain('brainstrike_queryEmbeddingSpace');
+    expect(instructions).toContain('brainstrike_readWorkspaceContext');
     expect(instructions).toContain(
-      'without embeddingSetId for a conceptual question that exact-text search cannot find'
+      'Run state-changing tools only for work the user asked for or confirmed'
     );
-    expect(instructions).toContain('Only run state-changing tools after the user confirms.');
+    expect(instructions).toContain('A question about progress does not end that task');
     expect(instructions).not.toContain('brainstrike.listWorkspaceContext');
+  });
+
+  it('asks a run to finish the outcome the user asked for, but not in plan mode', () => {
+    const working = buildDefaultInstructions(new Map());
+    const planning = buildDefaultInstructions(new Map(), { planMode: true });
+
+    expect(working).toContain('keep working until it is done or blocked');
+    expect(planning).not.toContain('keep working until it is done or blocked');
   });
 
   it('leaves no blank instruction line when optional tools (e.g. askUser) are unregistered', () => {
@@ -231,10 +235,8 @@ describe('default assistant instructions', () => {
 
     expect(instructions).toContain('brainstrike_readWorkspaceFile');
     expect(instructions).not.toContain('Workspace-selection inspection is unavailable');
-    expect(instructions).not.toContain('Semantic workspace search is unavailable');
     expect(instructions).not.toContain('Reusable context curation is unavailable');
     expect(instructions).not.toContain('brainstrike_listWorkspaceContext');
-    expect(instructions).not.toContain('brainstrike_queryEmbeddingSpace');
   });
 });
 
@@ -243,8 +245,6 @@ const FULL_TOOL_MAP = new Map<string, string>([
   ['readWorkspaceContext', 'brainstrike.readWorkspaceContext'],
   ['readWorkspaceDirectory', 'brainstrike.readWorkspaceDirectory'],
   ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
-  ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
-  ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
   ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
   ['grepSearch', 'brainstrike.grepSearch'],
 ]);
@@ -283,8 +283,8 @@ describe('buildDefaultInstructions', () => {
 
   it('omits selection guidance when its tools are absent and does not leak raw tool IDs', () => {
     const noSelection = new Map<string, string>([
-      ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
-      ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+      ['grepSearch', 'brainstrike.grepSearch'],
+      ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
     ]);
     const prompt = buildDefaultInstructions(noSelection);
     expect(prompt).not.toMatch(/Precise context selection is unavailable/iu);
@@ -304,46 +304,18 @@ describe('grep-first search orientation', () => {
     ['listWorkspaceContext', 'brainstrike.listWorkspaceContext'],
     ['readWorkspaceContext', 'brainstrike.readWorkspaceContext'],
     ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
-    ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
-    ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
     ['findWorkspaceSymbol', 'brainstrike.findWorkspaceSymbol'],
     ['grepSearch', 'brainstrike.grepSearch'],
   ]);
 
-  it('mentions grep tool before semantic-search guidance and contains exact-string usage phrase', () => {
+  it('tells the model to grep for exact strings, identifiers, and errors', () => {
     const instructions = buildDefaultInstructions(WITH_GREP_MAP);
-
     expect(instructions).toContain('exact strings, identifiers, and errors');
-    // Compare substrings unique to the GUIDANCE sentences (not the tool-name
-    // listing line, where both names also appear and would order-match
-    // regardless of where the instruction sentences sit).
-    expect(instructions.indexOf('Use grepSearch for exact strings')).toBeLessThan(
-      instructions.indexOf('Use queryEmbeddingSpace without embeddingSetId')
-    );
-  });
-
-  it('positions semantic search as fallback when grep is registered', () => {
-    const instructions = buildDefaultInstructions(WITH_GREP_MAP);
-    expect(instructions).toContain('for a conceptual question that exact-text search cannot find');
-  });
-
-  it('routes only conceptual questions to hybrid search, after grep (ADR 0026)', () => {
-    const instructions = buildDefaultInstructions(
-      new Map([...WITH_GREP_MAP, ['hybridSearch', 'brainstrike.hybridSearch']])
-    );
-    expect(instructions).toContain(
-      'Use hybridSearch for a conceptual question that also carries distinctive exact terms.'
-    );
-    expect(instructions).not.toContain('mixes conceptual intent');
-    expect(instructions.indexOf('Use grepSearch for exact strings')).toBeLessThan(
-      instructions.indexOf('Use hybridSearch for a conceptual question')
-    );
   });
 
   it('omits exact-text grep guidance when grepSearch is not registered', () => {
     const noGrep = new Map<string, string>([
-      ['listEmbeddingSpaces', 'brainstrike.listEmbeddingSpaces'],
-      ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
+      ['readWorkspaceFile', 'brainstrike.readWorkspaceFile'],
     ]);
     const instructions = buildDefaultInstructions(noGrep);
     expect(instructions).not.toContain('Exact-text grep search is unavailable');
@@ -482,7 +454,7 @@ describe('multi-root guidance', () => {
     const instructions = buildDefaultInstructions(FULL_TOOL_MAP);
     expect(instructions).toMatch(/several roots/iu);
     expect(instructions).toContain('workspace-root manifest');
-    expect(instructions).toContain('refreshes the root inventory and index state');
+    expect(instructions).toContain('refreshes the root inventory');
     expect(instructions).toMatch(/pass "root"/iu);
     // Search handoffs teach the compact root-prefix convention (BST-1185):
     // results carry `rootName:path` file headers, and the root name is a valid
@@ -754,7 +726,6 @@ describe('tool-discovery capability coverage', () => {
       ).not.toContain(phrase);
     }
     // The families web DOES have stay advertised.
-    expect(discoveryLine).toContain('embedding search');
     expect(discoveryLine).toContain('workspace context');
   });
 
@@ -810,6 +781,7 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
     );
     const { composeNativeToolInstructions } = await import('../default-instructions');
     const probe = defineNativeTool({
+      activity: { active: 'Probing', done: 'Probed', family: 'search', request: 'Probe' },
       defaults: {
         category: 'retrieval',
         estimatedTokens: 1,

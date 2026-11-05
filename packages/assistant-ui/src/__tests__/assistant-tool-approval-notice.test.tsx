@@ -2,7 +2,6 @@ import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { APPROVAL_PREVIEW_CHAR_CAP } from '../approval-preview';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import { expandApprovalRow } from './approval-row-helpers';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
@@ -13,51 +12,6 @@ vi.mock('@assistant-ui/react', () => ({
   }),
   useAuiState: (selector: (state: { thread: { messages: readonly unknown[] } }) => unknown) =>
     selector({ thread: { messages: [] } }),
-}));
-
-// Lightweight stand-ins so the CodeMirror-backed surfaces do not run inside the
-// unit environment — the test only asserts that the right content reaches them.
-vi.mock('@brainstrike/ui', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
-  CodeSurface: ({
-    value,
-    path,
-    testId,
-    truncated,
-  }: {
-    value: string;
-    path?: string;
-    testId?: string;
-    truncated?: boolean;
-  }) => (
-    <div
-      data-path={path}
-      data-testid={testId ?? 'code-surface'}
-      data-truncated={truncated ? 'true' : 'false'}
-      data-value={value}
-    />
-  ),
-  DiffView: ({
-    original,
-    modified,
-    filename,
-    testId,
-    truncated,
-  }: {
-    original: string;
-    modified: string;
-    filename?: string;
-    testId?: string;
-    truncated?: boolean;
-  }) => (
-    <div
-      data-filename={filename}
-      data-modified={modified}
-      data-original={original}
-      data-testid={testId ?? 'diff-view'}
-      data-truncated={truncated ? 'true' : 'false'}
-    />
-  ),
 }));
 
 beforeAll(() => {
@@ -79,8 +33,10 @@ const baseRequest = {
   toolCallId: 'call-1',
 };
 
-describe('AssistantToolApprovalNotice diff preview', () => {
-  it('renders a real diff for stringReplaceWorkspaceFile approvals', () => {
+// The notice carries no waiting interaction, so its file cards read no file
+// (approval-file-change.test.tsx covers the diff a waiting card shows).
+describe('AssistantToolApprovalNotice file preview', () => {
+  it('names the action, the file and the folder of an edit', () => {
     renderNotice({
       ...baseRequest,
       args: {
@@ -92,20 +48,17 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
 
-    const diff = screen.getByTestId('approval-diff-view');
-    expect(diff.getAttribute('data-original')).toBe('const answer = 0;');
-    expect(diff.getAttribute('data-modified')).toBe('const answer = 42;');
-    expect(diff.getAttribute('data-filename')).toBe('src/answer.ts');
     expect(screen.getByTestId('approval-file-target-summary')).toHaveTextContent(
-      'Path: src/answer.ts · Workspace root: workspace'
+      'Edit src/answer.ts in workspace'
     );
+    expect(screen.queryByTestId('approval-diff-view')).toBeNull();
     // Raw-JSON expander remains available as a secondary view.
     expect(
       screen.getByRole('button', { name: /expand tool approval details/iu })
     ).toBeInTheDocument();
   });
 
-  it('renders a full-file preview for writeWorkspaceFile approvals', () => {
+  it('says Write for a write whose file it has not read', () => {
     renderNotice({
       ...baseRequest,
       args: {
@@ -116,31 +69,20 @@ describe('AssistantToolApprovalNotice diff preview', () => {
       toolName: 'brainstrike.writeWorkspaceFile',
     });
 
-    const preview = screen.getByTestId('approval-write-preview');
-    expect(preview.getAttribute('data-value')).toBe('export const x = 1;\n');
-    expect(preview.getAttribute('data-path')).toBe('src/new-file.ts');
-    expect(screen.getByText(/Creates or overwrites/iu)).toBeInTheDocument();
     expect(screen.getByTestId('approval-file-target-summary')).toHaveTextContent(
-      'Creates or overwrites · Path: src/new-file.ts · Workspace root: workspace'
+      'Write src/new-file.ts in workspace'
     );
   });
 
-  it('visually bounds a long workspace root without shortening its semantic text', () => {
+  it('keeps a long folder name whole for its tooltip', () => {
     const longRoot = `workspace-${'a'.repeat(480)}`;
     renderNotice({
       ...baseRequest,
-      args: {
-        newStr: 'const answer = 42;',
-        oldStr: 'const answer = 0;',
-        path: 'src/answer.ts',
-        root: longRoot,
-      },
-      toolName: 'brainstrike.stringReplaceWorkspaceFile',
+      args: { path: 'src/answer.ts', root: longRoot },
+      toolName: 'brainstrike.deleteWorkspaceFile',
     });
 
-    const rootLabel = screen.getByTestId('approval-workspace-root');
     const rootValue = screen.getByTestId('approval-workspace-root-value');
-    expect(rootLabel).toHaveTextContent(`Workspace root: ${longRoot}`);
     expect(rootValue).toHaveTextContent(longRoot);
     expect(rootValue).toHaveAttribute('title', longRoot);
   });
@@ -148,12 +90,12 @@ describe('AssistantToolApprovalNotice diff preview', () => {
   it('falls back to a visible note when file-tool args fail narrowing', () => {
     renderNotice({
       ...baseRequest,
-      // Missing `newStr` — cannot render a diff.
+      // Missing `newStr`: the tool would refuse this call.
       args: { oldStr: 'const answer = 0;', path: 'src/answer.ts' },
       toolName: 'brainstrike.stringReplaceWorkspaceFile',
     });
 
-    expect(screen.queryByTestId('approval-diff-view')).toBeNull();
+    expect(screen.queryByTestId('approval-file-target-summary')).toBeNull();
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
   });
 
@@ -161,76 +103,16 @@ describe('AssistantToolApprovalNotice diff preview', () => {
     renderNotice({
       ...baseRequest,
       args: { query: 'hello' },
-      toolName: 'brainstrike.queryEmbeddingSpace',
+      toolName: 'brainstrike.lspInspect',
     });
 
-    expect(screen.queryByTestId('approval-diff-view')).toBeNull();
-    expect(screen.queryByTestId('approval-write-preview')).toBeNull();
+    expect(screen.queryByTestId('approval-file-target-summary')).toBeNull();
     expect(screen.queryByTestId('approval-preview-parse-error')).toBeNull();
   });
 
-  it('does not show a truncation note for previews under the cap', () => {
-    renderNotice({
-      ...baseRequest,
-      args: {
-        newStr: 'const answer = 42;',
-        oldStr: 'const answer = 0;',
-        path: 'src/answer.ts',
-      },
-      toolName: 'brainstrike.stringReplaceWorkspaceFile',
-    });
-
-    expect(screen.getByTestId('approval-diff-view').getAttribute('data-truncated')).toBe('false');
-    expect(screen.queryByTestId('approval-preview-truncated-note')).toBeNull();
-  });
-
-  it('caps an oversized diff preview before it reaches DiffView', () => {
-    const bigOld = 'a'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 500);
-    const bigNew = 'b'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 10);
-    renderNotice({
-      ...baseRequest,
-      args: {
-        newStr: bigNew,
-        oldStr: bigOld,
-        path: 'src/big.ts',
-      },
-      toolName: 'brainstrike.stringReplaceWorkspaceFile',
-    });
-
-    const diff = screen.getByTestId('approval-diff-view');
-    expect(diff.getAttribute('data-original')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
-    expect(diff.getAttribute('data-modified')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
-    expect(diff.getAttribute('data-truncated')).toBe('true');
-
-    const note = screen.getByTestId('approval-preview-truncated-note');
-    // The larger of the two sides (oldStr, +500 over the cap) drives the note.
-    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP));
-    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP + 500));
-  });
-
-  it('caps an oversized write-file preview before it reaches CodeSurface', () => {
-    const bigContent = 'x'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 1234);
-    renderNotice({
-      ...baseRequest,
-      args: {
-        content: bigContent,
-        path: 'src/new-big.ts',
-      },
-      toolName: 'brainstrike.writeWorkspaceFile',
-    });
-
-    const preview = screen.getByTestId('approval-write-preview');
-    expect(preview.getAttribute('data-value')).toHaveLength(APPROVAL_PREVIEW_CHAR_CAP);
-    expect(preview.getAttribute('data-truncated')).toBe('true');
-
-    const note = screen.getByTestId('approval-preview-truncated-note');
-    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP));
-    expect(note.textContent).toContain(String(APPROVAL_PREVIEW_CHAR_CAP + 1234));
-  });
-
-  it('exposes the untruncated args in the raw JSON expander even when the preview is capped', async () => {
+  it("shows a write's whole content in the raw arguments", async () => {
     const user = userEvent.setup();
-    const bigContent = 'x'.repeat(APPROVAL_PREVIEW_CHAR_CAP + 1234);
+    const bigContent = 'x'.repeat(200_000);
     const view = renderNotice({
       ...baseRequest,
       args: {
@@ -467,7 +349,7 @@ describe('durable delegated approval recovery', () => {
       expect(
         screen.queryByRole('button', { name: 'Decline brainstrike.executeCommand' })
       ).not.toBeInTheDocument();
-      expect(screen.getByText('Tool decision')).toBeInTheDocument();
+      expect(screen.getByText('Run pnpm build?')).toBeInTheDocument();
       expect(screen.getByTestId('delegated-decision-recovery-status')).toBeInTheDocument();
       expect(screen.queryByText(/re-running it may be safer/iu)).not.toBeInTheDocument();
     }

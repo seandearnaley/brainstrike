@@ -1,21 +1,26 @@
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostThreadTree } from './utils/agent-host-log';
+import { readHostRootRecords, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
-import { clearDatabaseRecords, ensureAssistantShellVisible } from './utils/layout-helpers';
-import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
+import {
+  clearDatabaseRecords,
+  ensureAssistantShellVisible,
+  ensureMockWorkspaceOpen,
+} from './utils/layout-helpers';
 
 // Incident #1978: an empty toast is not proof that real durable content cleared.
 // Current host approval events replace the retired Mastra workflow SQL fixture.
-test('Clear Database removes native files and a waiting host run while retaining configuration @destructive @desktop-db-storage', async ({
+test('Clear Database removes folders and a waiting host run while retaining configuration @destructive @desktop-db-storage', async ({
   electron,
   modelProvider,
 }) => {
   modelProvider.setScript(() => ({
     finalText: 'Read complete',
     toolCall: {
-      arguments: { path: 'reset-indexed-probe.txt' },
+      arguments: { path: 'reset-probe.txt' },
       name: 'brainstrike_readWorkspaceFile',
     },
   }));
@@ -26,7 +31,10 @@ test('Clear Database removes native files and a waiting host run while retaining
       () => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] ?? ''
     );
     const userData = await app.app.evaluate(({ app }) => app.getPath('userData'));
-    const probe = await seedNativeResetProbe(page, workspace);
+    expect(workspace).not.toBe('');
+    await writeFile(join(workspace, 'reset-probe.txt'), 'Reset probe.\n', 'utf8');
+    await ensureMockWorkspaceOpen(page);
+    await expect.poll(async () => (await readHostRootRecords(userData)).length).toBe(1);
     await configureAssistantProvider(page, {
       compositeModelKey: 'openrouter::anthropic/claude-sonnet-4.6',
       provider: 'openrouter',
@@ -37,9 +45,7 @@ test('Clear Database removes native files and a waiting host run while retaining
     await page.getByRole('combobox', { exact: true, name: 'Read permission' }).selectOption('ask');
     await ensureAssistantShellVisible(page);
     const assistant = page.getByRole('region', { exact: true, name: 'Assistant' });
-    await assistant
-      .getByRole('textbox', { name: 'Message input' })
-      .fill('Read reset-indexed-probe.txt.');
+    await assistant.getByRole('textbox', { name: 'Message input' }).fill('Read reset-probe.txt.');
     await assistant.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(
       assistant.getByRole('button', { name: 'Review 1 pending approval' })
@@ -93,7 +99,6 @@ test('Clear Database removes native files and a waiting host run while retaining
     });
     await clearDatabaseRecords(page);
     const assertCleared = async (current: typeof page) => {
-      expect(await readNativeResetProbe(current, probe)).toEqual({ folders: 0 });
       await expect
         .poll(() =>
           readHostThreadTree(userData).then(
@@ -102,6 +107,7 @@ test('Clear Database removes native files and a waiting host run while retaining
           )
         )
         .toBe('answering');
+      expect(await readHostRootRecords(userData)).toEqual([]);
       const tree = await readHostThreadTree(userData);
       expect(tree.some((thread) => before.some((old) => old.threadId === thread.threadId))).toBe(
         false

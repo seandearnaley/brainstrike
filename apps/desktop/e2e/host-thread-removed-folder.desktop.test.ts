@@ -18,7 +18,7 @@ import type { ModelProviderRequest } from './utils/model-provider-shim';
 const API_KEY = 'test-key-host-removed-folder';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL = 'anthropic/claude-sonnet-4.6';
-const REMOVED = 'Removed from the workspace';
+const REMOVED = 'Closed';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -167,10 +167,9 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     await removeFromWorkspace(page, bravoName);
     await send(2);
     const refusal = page.getByRole('alert', { name: 'Agent command error' });
-    await expect(refusal).toContainText(
-      `The folder "${bravoName}" was removed from the workspace.`,
-      { timeout: 30_000 }
-    );
+    await expect(refusal).toContainText(`The folder "${bravoName}" is closed.`, {
+      timeout: 30_000,
+    });
     // Nothing was admitted, so the composer has the message back to resend (D4).
     await expect(region.getByRole('textbox', { name: 'Message input' })).toHaveValue(
       'REMOVED_FOLDER_TURN_2: hello'
@@ -245,10 +244,9 @@ test('a thread left with no live folder offers another workspace folder', async 
     await removeFromWorkspace(page, alphaName);
     await send(2);
     const refusal = page.getByRole('alert', { name: 'Agent command error' });
-    await expect(refusal).toContainText(
-      `The folder "${alphaName}" was removed from the workspace.`,
-      { timeout: 30_000 }
-    );
+    await expect(refusal).toContainText(`The folder "${alphaName}" is closed.`, {
+      timeout: 30_000,
+    });
     await refusal.getByRole('button', { name: 'Dismiss' }).click();
 
     // With no live folder left, the chip offers the workspace's other folders.

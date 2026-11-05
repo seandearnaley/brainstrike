@@ -8,14 +8,14 @@ const logger = createLogger('RootIdentity');
 const warnedUnmappedDbRoots = new Set<string>();
 
 /**
- * Maps the DB `roots.id` stored in `file_records.root_id` back to the file
+ * Maps the DB `roots.id` back to the file
  * explorer's adapter rootId (`handle.rootId`, what `activeRootIds`,
  * `rootDescriptors`, `encodeFileSelection`, and `openFileInTab` all use).
  *
  * The two identities COINCIDE for roots registered through reconcileRoots but
  * DIVERGE for legacy/path-matched roots (documented in
  * migrations/047-run-usage-root-id.ts). Any consumer that has a DB root_id and
- * needs the adapter id (e.g. workspace search, to build the open compositeKey and
+ * needs the adapter id (e.g. the context map, to build the open compositeKey and
  * to gate by currently-mounted roots) MUST translate through this context — it
  * is the only authoritative correlation, derived from the reconciliation map.
  */
@@ -32,13 +32,6 @@ export interface RootIdentity {
    * file as the host does (an `@file` mention's identity).
    */
   resolveDbRootId: (adapterRootId: string) => string | null;
-  /**
-   * DB `roots.id` values for the currently-mounted, reconciled workspace roots
-   * (the VALUES of the reconciliation map). This is the authoritative query
-   * scope for workspace search — the single source of truth alongside
-   * `resolveAdapterRootId`, so both derive from the same provider.
-   */
-  workspaceDbRootIds: readonly string[];
 }
 
 const RootIdentityContext = createContext<RootIdentity | null>(null);
@@ -77,7 +70,6 @@ export function RootIdentityProvider({
       },
       resolveDbRootId: (adapterRootId: string): string | null =>
         dbRootIdByAdapterRootId.get(adapterRootId) ?? null,
-      workspaceDbRootIds: [...dbRootIdByAdapterRootId.values()],
     };
   }, [dbRootIdByAdapterRootId]);
 

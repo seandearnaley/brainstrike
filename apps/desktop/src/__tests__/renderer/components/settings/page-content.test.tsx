@@ -1,18 +1,11 @@
 // @vitest-environment jsdom
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/agent/client';
-import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { ThemeProvider, type ThemeStorageAdapter, TooltipProvider } from '@brainstrike/ui';
+import { ThemeProvider, TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
-
-const themeStorageAdapter: ThemeStorageAdapter = {
-  getItem: async () => null,
-  setItem: async () => {},
-};
 
 // Mock file-explorer-ui - needed for useFileExplorerStoreContext
 // jsdom has no agent host: the window owns no host MCP settings.
@@ -23,6 +16,10 @@ vi.mock('../../../../renderer/host-mcp-settings', () => ({
 
 vi.mock('../../../../renderer/host-browser-origins', () => ({
   resolveDesktopHostBrowserOrigins: () => null,
+}));
+
+vi.mock('../../../../renderer/host-workspace-settings', () => ({
+  resolveDesktopHostWorkspaceSettings: () => null,
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -169,9 +166,6 @@ beforeEach(() => {
   const extendedWindow = getWindowWithExtensions();
   extendedWindow.secrets = secrets;
   extendedWindow.mcp = mcp;
-
-  __resetAssistantPreferencesStoreForTests();
-  __resetNativeToolPreferencesStoreForTests();
 });
 
 afterEach(() => {
@@ -183,7 +177,7 @@ afterEach(() => {
 describe('Desktop SettingsPageContent', () => {
   it('navigates to AI Tools and displays unified tools management', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -208,7 +202,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('renders Assistant Memory and the subagent budgets in their own categories', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -227,7 +221,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('filters categories using the search box', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -245,7 +239,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('shows Factory Reset category when searching for factory', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -261,7 +255,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('registers Workspace with the live worktree capability status', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -272,13 +266,13 @@ describe('Desktop SettingsPageContent', () => {
     fireEvent.click(await within(nav).findByRole('button', { name: /^Workspace$/iu }));
 
     expect(await screen.findByTestId('worktree-settings-unavailable')).toHaveTextContent(
-      'Worktrees are a desktop feature'
+      'Worktrees are unavailable in this window'
     );
   });
 
   it('offers no self-improvement signal or experiment enrollment controls', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -299,7 +293,7 @@ describe('Desktop SettingsPageContent', () => {
 
   it('renders the Provider Hub, not a separate API Keys category', async () => {
     render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
+      <ThemeProvider>
         <TooltipProvider>
           <SettingsPageContent />
         </TooltipProvider>
@@ -327,11 +321,6 @@ vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOri
     await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
   return {
     ...actual,
-    createSearchIndexingSettingsCategory: vi.fn(() => ({
-      content: <div data-testid="search-indexing-settings-mock" />,
-      id: 'search-indexing',
-      title: 'Search & Indexing',
-    })),
     createTokenCountingSettingsCategoryWithRuntimeSupport: vi.fn(() => ({
       content: <div data-testid="token-counting-settings-mock" />,
       id: 'token-counting',

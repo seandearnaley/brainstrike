@@ -2,16 +2,15 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { HmrContext } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const {
-  createCspQualifiedEvalWarningFilter,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
-  getTreeSitterGrammarCopyTargets,
   getWorkspaceSourceOptimizeDepsInclude,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
@@ -22,78 +21,25 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
+/**
+ * Resolves `dependency` from the package that owns it. A package that exports
+ * an entry under `import` only (ESM-only, like @pierre/diffs) has no `require`
+ * entry, so that entry resolves the way Vite reads it, through `import`.
+ */
+function resolveFrom(ownerPackageJson: string, dependency: string): string {
+  try {
+    return createRequire(ownerPackageJson).resolve(dependency);
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+      throw error;
+    }
+    return import.meta.resolve(dependency, pathToFileURL(ownerPackageJson));
+  }
+}
+
 function toVitePath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
 }
-
-describe('createCspQualifiedEvalWarningFilter', () => {
-  it.each([
-    '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/web-tree-sitter.js',
-  ])('suppresses the CSP-qualified EVAL warning from %s', (id) => {
-    const defaultHandler = vi.fn();
-
-    createCspQualifiedEvalWarningFilter()(
-      'warn',
-      {
-        code: 'EVAL',
-        id,
-        message: 'Use of direct eval',
-      },
-      defaultHandler
-    );
-
-    expect(defaultHandler).not.toHaveBeenCalled();
-  });
-
-  it('accepts Rolldown location metadata when no module id is present', () => {
-    const defaultHandler = vi.fn();
-
-    createCspQualifiedEvalWarningFilter()(
-      'warn',
-      {
-        code: 'EVAL',
-        loc: {
-          column: 33,
-          file: String.raw`C:\repo\node_modules\.pnpm\web-tree-sitter@0.27.1\node_modules\web-tree-sitter\web-tree-sitter.js`,
-          line: 2978,
-        },
-        message: 'Use of direct eval',
-      },
-      defaultHandler
-    );
-
-    expect(defaultHandler).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    {
-      code: 'CIRCULAR_DEPENDENCY',
-      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/web-tree-sitter.js',
-      message: 'A different warning from an allowlisted module',
-    },
-    {
-      code: 'EVAL',
-      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.2/node_modules/web-tree-sitter/web-tree-sitter.js',
-      message: 'An unqualified future tree-sitter version',
-    },
-    {
-      code: 'EVAL',
-      id: '../../node_modules/.pnpm/web-tree-sitter@0.27.1/node_modules/web-tree-sitter/unreviewed.js',
-      message: 'An unqualified module in the current version',
-    },
-    {
-      code: 'EVAL',
-      id: '../../node_modules/.pnpm/other-runtime@1.0.0/node_modules/other-runtime/index.js',
-      message: 'An unexpected direct eval',
-    },
-  ])('forwards non-qualified warnings unchanged', (log) => {
-    const defaultHandler = vi.fn();
-
-    createCspQualifiedEvalWarningFilter()('warn', log, defaultHandler);
-
-    expect(defaultHandler).toHaveBeenCalledExactlyOnceWith('warn', log);
-  });
-});
 
 describe('assistant vite helpers', () => {
   test('prebundles resolvable dependencies of excluded workspace sources before a lazy surface opens', () => {
@@ -113,10 +59,12 @@ describe('assistant vite helpers', () => {
       const owner = parts.length === 2 ? parts[0]?.replace('@brainstrike/', '') : 'build-utils';
       const dependency = parts.at(-1);
       expect(dependency).toBeTruthy();
-      const require = createRequire(
-        path.resolve(import.meta.dirname, '../../../', owner ?? '', 'package.json')
-      );
-      expect(require.resolve(dependency ?? '')).toBeTruthy();
+      expect(
+        resolveFrom(
+          path.resolve(import.meta.dirname, '../../../', owner ?? '', 'package.json'),
+          dependency ?? ''
+        )
+      ).toBeTruthy();
     }
   });
 
@@ -311,43 +259,5 @@ describe('fullReloadOnCompilerHotspots', () => {
       expect(send).not.toHaveBeenCalled();
       expect(result).toBeUndefined();
     }
-  });
-});
-
-describe('getTreeSitterGrammarCopyTargets', () => {
-  // The helper centralizes the static-copy target list so apps/web and
-  // apps/desktop don't drift. When tree-sitter Phase 1 ships only Python,
-  // there's exactly one target; future phases add Rust/Go/Markdown by
-  // editing this helper, not every vite config.
-
-  it('returns one target per shipped grammar with dest under assets/grammars', () => {
-    const targets = getTreeSitterGrammarCopyTargets('/tmp/brainstrike-app');
-
-    // Phase 1 ships Python only.
-    expect(targets).toHaveLength(1);
-    expect(targets[0]?.dest).toBe('assets/grammars');
-  });
-
-  it('resolves the Python grammar src to the chunking-worker vendored copy', () => {
-    const targets = getTreeSitterGrammarCopyTargets('/tmp/brainstrike-app');
-
-    const pythonTarget = targets.find((t) => t.src.endsWith('python.wasm'));
-    expect(pythonTarget).toBeDefined();
-    // Expected resolution: <baseDir>/../../packages/chunking-worker/grammars/python.wasm
-    expect(pythonTarget?.src).toBe(
-      toVitePath(
-        path.resolve('/tmp/brainstrike-app', '../../packages/chunking-worker/grammars/python.wasm')
-      )
-    );
-  });
-
-  it('sets rename.stripBase so the wasm lands flat at dest/<lang>.wasm', () => {
-    // Without rename.stripBase=true, vite-plugin-static-copy preserves
-    // the absolute source path beyond the workspace root, producing
-    // `dist/assets/grammars/packages/chunking-worker/grammars/python.wasm`
-    // instead of `dist/assets/grammars/python.wasm`. Confirmed via a real
-    // `pnpm -F @brainstrike/web build` run before this assertion landed.
-    const targets = getTreeSitterGrammarCopyTargets('/tmp/brainstrike-app');
-    expect(targets[0]?.rename).toEqual({ stripBase: true });
   });
 });

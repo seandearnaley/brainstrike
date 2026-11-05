@@ -3,33 +3,18 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { Schema } from 'effect';
 import {
-  commitResultSchema,
   decoder,
   fault,
   IndexerError,
-  type IndexerInfo,
   infoSchema,
   optionsSchema,
-  removedCountSchema,
   requestSchema,
-  scopedPlanSchema,
-  scopedRemoveBatchSchema,
-  scopedRemoveSchema,
   stateCountsSchema,
   stateHealthSchema,
-  stateMessageHitSchema,
-  stateMessagePlanSchema,
-  stateMessageUpsertResultSchema,
-  stateObservationHitSchema,
-  stateObservationPlanSchema,
   stateSearchHitSchema,
   stateStatsSchema,
 } from './contracts.ts';
-import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.ts';
-import { openDesktopIndexReader } from './desktop-index-connection.ts';
-import { readScopedIdentity } from './index-metadata.ts';
 import { RpcClient } from './rpc-client.ts';
-import { IndexReader } from './store.ts';
 
 export interface IndexerProcessEndpoint {
   finish(): void;
@@ -42,7 +27,7 @@ export async function runIndexerProcess(
   endpoint: IndexerProcessEndpoint
 ): Promise<void> {
   const send = (value: object): void => endpoint.send(value);
-  let reader: IndexReader | undefined;
+  let ready = false;
   let worker: Worker | undefined;
   let closing = false;
   let closePromise: Promise<boolean> | undefined;
@@ -72,16 +57,11 @@ export async function runIndexerProcess(
         closing = true;
         const failures: unknown[] = [];
         try {
-          reader?.db.close();
-        } catch (error) {
-          failures.push(error);
-        }
-        try {
-          if (reader) {
+          if (ready) {
             await client.call('close', null, decoder(Schema.Boolean));
           } else {
             // Startup owns only this writer. Join its teardown before reporting
-            // an early Close; there is no ready reader or admitted request yet.
+            // an early Close; there is no admitted request yet.
             await writer.terminate();
           }
         } catch (error) {
@@ -144,12 +124,7 @@ export async function runIndexerProcess(
       await close();
       return;
     }
-    reader = new IndexReader(options, openDesktopIndexReader(options));
-    const connection = reader;
-    const nativeInfo: IndexerInfo = {
-      ...info,
-      readerQueryOnly: decoder(Schema.Int)(connection.db.pragma('query_only', { simple: true })),
-    };
+    ready = true;
     receive = (message: unknown) => {
       let id: number | undefined;
       try {
@@ -163,55 +138,6 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
-          case 'state-observation-prepare':
-            work = client.call(request.op, request.payload, decoder(stateObservationPlanSchema));
-            break;
-          case 'state-observation-upsert':
-            work = client.call(request.op, request.payload, decoder(Schema.Array(Schema.String)));
-            break;
-          case 'state-observation-query':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(Schema.Array(stateObservationHitSchema))
-            );
-            break;
-          case 'state-observation-purge':
-            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
-            break;
-          case 'coverage-authority':
-            decoder(Schema.Null)(request.payload);
-            work = connection.db.transaction(() =>
-              decoder(coverageAuthoritySchema)({
-                ...readScopedIdentity(connection.db, connection.scoped.authority.revision),
-                dbPath: options.dbPath,
-                fileBindings: [...connection.scoped.authority.files.values()],
-                rootIds: options.rootIds,
-                scopes: options.scopes ?? [],
-              })
-            )();
-            assertCoverageAuthorityBound(work);
-            break;
-          case 'state-message-prepare':
-            work = client.call(request.op, request.payload, decoder(stateMessagePlanSchema));
-            break;
-          case 'state-message-upsert':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(stateMessageUpsertResultSchema)
-            );
-            break;
-          case 'state-message-query':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(Schema.Array(stateMessageHitSchema))
-            );
-            break;
-          case 'state-message-purge':
-            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
-            break;
           case 'state-health':
             work = client.call(request.op, request.payload, decoder(stateHealthSchema));
             break;
@@ -243,79 +169,9 @@ export async function runIndexerProcess(
           case 'state-drop-thread':
             work = client.call(request.op, request.payload, decoder(Schema.Array(Schema.String)));
             break;
-          case 'replace-file-bindings':
-            connection.scoped.replaceBindings(request.payload);
-            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
-            break;
-          case 'prepare-scoped-file':
-            work = connection.scoped.prepare(request.payload);
-            break;
-          case 'read-scoped-file-page':
-            work = connection.scoped.readFilePage(request.payload);
-            break;
-          case 'read-scoped-file-chunk-bounds':
-            work = connection.scoped.readFileChunkBounds(request.payload);
-            break;
-          case 'search-scopes':
-            work = connection.scoped.search(request.payload);
-            break;
-          case 'coverage-scope':
-            work = connection.scoped.coverage(request.payload);
-            break;
-          case 'coverage-batch':
-            work = connection.scoped.coverageBatch(request.payload);
-            break;
-          case 'verify-scoped-manifest':
-            work = connection.scoped.verifyManifest(request.payload);
-            break;
-          case 'remove-scoped-file': {
-            const removal = decoder(scopedRemoveSchema)(request.payload);
-            connection.scoped.authority.authorize([removal.scope]);
-            connection.scoped.authority.file(removal.fileId, removal.scope);
-            connection.scoped.authority.revision += 1;
-            work = client.call(request.op, removal, decoder(Schema.Boolean));
-            break;
-          }
-          case 'remove-scoped-files': {
-            const removal = decoder(scopedRemoveBatchSchema)(request.payload);
-            connection.scoped.authority.authorize([removal.scope]);
-            for (const fileId of removal.fileIds) {
-              connection.scoped.authority.file(fileId, removal.scope);
-            }
-            connection.scoped.authority.revision += 1;
-            work = client.call(request.op, removal, decoder(removedCountSchema));
-            break;
-          }
           case 'info':
             decoder(Schema.Null)(request.payload);
-            work = { ...nativeInfo, ...connection.identity };
-            break;
-          case 'prepare-file':
-            work = connection.prepare(request.payload);
-            break;
-          case 'verify-manifest':
-            work = connection.verifyManifest(request.payload);
-            break;
-          case 'coverage':
-            work = connection.coverage(request.payload);
-            break;
-          case 'search':
-            work = connection.search(request.payload);
-            break;
-          case 'commit-scoped-file':
-          case 'commit-text-file':
-            work = client.call(request.op, request.payload, decoder(commitResultSchema));
-            break;
-          case 'commit-scoped-text-files':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(Schema.Array(scopedPlanSchema))
-            );
-            break;
-          case 'purge-file':
-          case 'remove-file':
-            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
+            work = info;
             break;
           case 'close':
             decoder(Schema.Null)(request.payload);
@@ -347,7 +203,7 @@ export async function runIndexerProcess(
         }
       }
     };
-    send({ kind: 'ready', value: nativeInfo });
+    send({ kind: 'ready', value: info });
   } catch (error) {
     if (closing && closePromise !== undefined) {
       // The early Close response owns the outcome; do not emit a contradictory
@@ -356,11 +212,6 @@ export async function runIndexerProcess(
       return;
     }
     const failures: unknown[] = [error];
-    try {
-      reader?.db.close();
-    } catch (failure) {
-      failures.push(failure);
-    }
     try {
       await worker?.terminate();
     } catch (failure) {

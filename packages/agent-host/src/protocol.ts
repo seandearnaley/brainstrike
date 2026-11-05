@@ -1,4 +1,5 @@
 import {
+  type ApprovalFileChange,
   isProviderCredential,
   McpAppOriginSchema,
   type OpenRouterModelMetadataSnapshot,
@@ -24,10 +25,13 @@ import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
+import { HostChildDeliverySchema } from './protocol-delivery.ts';
+import { FILE_SEARCH_METHOD_SCHEMAS, FILE_SEARCH_RESULT_SCHEMAS } from './protocol-file-search.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
   GIT_WORKSPACE_RESULT_SCHEMAS,
 } from './protocol-git-workspace.ts';
+import { HOOK_TRUST_METHOD_SCHEMAS, HOOK_TRUST_RESULT_SCHEMAS } from './protocol-hook-trust.ts';
 import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.ts';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -39,8 +43,6 @@ import {
 } from './protocol-mcp-settings.ts';
 import {
   HostMemoryCycleEventSchema,
-  HostMemoryEmbedderProbeParamsSchema,
-  HostMemoryEmbedderProbeResultSchema,
   HostMemoryModelsSchema,
   HostObservationalMemoryStateSchema,
 } from './protocol-memory.ts';
@@ -71,6 +73,14 @@ import {
   WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
 } from './protocol-workspace-discovery.ts';
 import {
+  WORKSPACE_FILES_METHOD_SCHEMAS,
+  WORKSPACE_FILES_RESULT_SCHEMAS,
+} from './protocol-workspace-files.ts';
+import {
+  WORKSPACE_ROOTS_METHOD_SCHEMAS,
+  WORKSPACE_ROOTS_RESULT_SCHEMAS,
+} from './protocol-workspace-roots.ts';
+import {
   RunVerdictDetailSchema,
   RunVerdictSchema,
   RunVerdictSourceSchema,
@@ -88,7 +98,9 @@ import {
 
 export * from './mcp-authority-wire.ts';
 export * from './protocol-canvas.ts';
+export * from './protocol-file-search.ts';
 export * from './protocol-git-workspace.ts';
+export * from './protocol-hook-trust.ts';
 export * from './protocol-mcp-content.ts';
 export * from './protocol-mcp-presentation.ts';
 export * from './protocol-mcp-settings.ts';
@@ -100,65 +112,13 @@ export * from './protocol-selection.ts';
 export * from './protocol-state-health.ts';
 export * from './protocol-terminals.ts';
 export * from './protocol-thread-workspace.ts';
+export * from './protocol-version.ts';
 export * from './protocol-workspace-discovery.ts';
+export * from './protocol-workspace-files.ts';
+export * from './protocol-workspace-roots.ts';
 export * from './run-wire.ts';
 export * from './workspace-wire.ts';
-// 11: committed branch history (`run/start` parentMessageId, `run/regenerate`, and the explicit
-// branch links they commit on `run.started`), thread presentation (`thread/update`,
-// `thread.updated`: title, colour and icon, also in `thread/list`), withheld observational memory,
-// tool catalog IDs on committed tool events, image attachments on a user message (`run/start` and
-// `run.started`), committed workspace edit attribution, `checkpoint/revert`, per-thread tool state,
-// the prompt breakdown on `provider.request.prepared`, `run/steer` (end the active run at its next
-// step boundary), run attempt records, `mcp.tools.unavailable`, committed with `run.started` for
-// each configured MCP server whose tools the run proceeds without, permission grants answered with
-// an approval (`interaction/respond` grant, `permission.granted`, the request's risk), plan mode
-// (`run/start`, `run/regenerate` and `run.started` planMode), child threads (BST-1932):
-// `thread.started` with a delegation `origin`, the child results a `run.started` delivers, an
-// approval the root's policy answered, and `thread/children` (a thread's direct children),
-// lifecycle hook context (`hook.context`), host-owned project hook trust (`hooks/trust`,
-// `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory readiness for the next run),
-// run_python's network consent (an `interaction.requested` of kind `network`, answered by
-// `interaction/resume` with `{ action }` and, when the policy also asked, an approval grant), a
-// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`), restore to before a
-// message (`thread/rewind/preview`, `thread/rewind`, `thread/rewind/redo`; `thread.rewind.started`,
-// `thread.rewound`, `thread.rewind.redo.started`, `thread.rewind.redone`,
-// `thread.rewind.interrupted`), the hook files a run did not load (`hooks.skipped`), `ledger/read`
-// (every thread's runs and costed provider calls, as Core folds them), the threads `thread/delete`
-// deleted (`threadIds`), and the desktop's MCP settings (`mcp/config/*`, `mcp/extensions/*`,
-// `mcp/tools/*`, `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
-// control (`mcp/status/read`, `mcp/server/control`, the event's `status` variant), and its MCP
-// presentations (`mcp/tasks/list`, `mcp/tasks/act`, `mcp/elicitation/settle`,
-// `mcp/presentation/subscribe` and its `mcp/presentation/event`), content browsing
-// (`mcp/content/complete`, `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
-// (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning thread's policy, and
-// `worktree.created` (a worktree a call's shell command made, which the desktop adopted), and a
-// provider request's tool calls (the breakdown's `toolCallsTokens` and `toolCallsByTool`, and the
-// request's `toolCallWindow`), `state/health/read` (BST-1880), and `thread/memory/read`'s
-// observation lifecycle, reflection threshold and memory models (BST-2201). These additions are
-// optional fields, new variants and new methods, so a v11 reader that uses none of them sees
-// nothing new.
-// v12 (2026-10-18): `mcp/config/read` returns the config text's `revision` (a SHA-256 of its
-// content). `mcp/config/write` requires `baseRevision` and refuses a stale base with
-// `conflict: true` instead of overwriting. Write and catalog-install successes return the new
-// `revision`. The required parameter is why this is a version bump and not a v11 addition.
-// Config status carries `watchError` while the config file watcher cannot run. Additions since:
-// `memory/embedder/probe` (BST-2227), a new method, so a v12 client that never calls it sees
-// nothing new; `memory.recall.failed` (a turn's failed semantic recall, which the turn answers
-// without), a new variant.
-// v13 (2026-10-22): ChatGPT subscription sign-in is removed: `auth/connect`, `auth/cancel`,
-// `auth/disconnect`, `auth/status`, `auth/verify` and the host-to-client `client/open-external`
-// are gone, and a login credential is an API key or an AWS credential. Additions since:
-// `workspace/skills` and `workspace/commands` (ADR-0029 stage 2), new methods.
-// v14 (2026-10-26): `forge/*` and the git history, staging, pull and diff methods are gone.
-// Additions since: `canvas/list` and `canvas/read` (the Artifacts gallery), and workspace trust
-// (`workspace/trust`, `workspace/trust/read`, `workspace/trust/list`; ADR-0032), new methods.
-// v15 (2026-10-31): `terminal/*` and `command-sessions/*` results are the one boundary
-// envelope: a failure is a `BoundaryFailure` instead of a string or a `{ code, message }` pair,
-// and a call with nothing to return answers `value: null`. The required field is why this is a
-// version bump.
-// v16 (2026-10-31): `auth/clear` is gone. A factory reset deletes the profile's credential
-// store with the rest of its data (ADR-0015), so no client asks the host to empty it.
-export const AGENT_HOST_PROTOCOL_VERSION = 16;
+
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
@@ -295,6 +255,15 @@ export const HOST_DRAINED_EVENT = 'host/drained';
 export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
 export const HostChildrenChangedSchema = Schema.Struct(Thread);
 /**
+ * The host's notice that a thread's summary changed (`thread/tree`), naming that
+ * thread and each thread above it. A client re-reads the tree it shows only
+ * when the tree's thread is named.
+ */
+export const HOST_TREE_CHANGED = 'thread/tree/changed';
+export const HostTreeChangedSchema = Schema.Struct({
+  threadIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
+});
+/**
  * A run's live telemetry, sent to the thread's log subscribers and never
  * committed (ADR-0011 amendment): a tool's shell-output slice or MCP progress,
  * which names its `toolCallId`, or the model's text and reasoning stream,
@@ -315,45 +284,14 @@ export const HostRunTelemetrySchema = Schema.Struct({
   toolCallId: Schema.optional(Id),
 });
 export type HostRunTelemetry = (typeof HostRunTelemetrySchema)['Type'];
-/** One settled background invocation delivered to its parent (BST-1932). */
-export const HostChildDeliveryEntrySchema = Schema.Struct({
-  childRunId: Id,
-  childThreadId: Id,
-  followUp: Schema.optional(Schema.Literal(true)),
-  outcome: Schema.String,
-  parentRunId: Id,
-  state: Schema.Literals(['returned', 'failed', 'cancelled']),
-  toolCallId: Id,
-});
-export type HostChildDeliveryEntry = (typeof HostChildDeliveryEntrySchema)['Type'];
-/**
- * The durable delivery watermark: these entries reached the parent's model
- * input on the run that records them, as an automated message that the user
- * did not write. A wake run's prompt is that message; a user turn carries it
- * ahead of its own message.
- */
-export const HostChildDeliverySchema = Schema.Union(
-  [
-    Schema.Struct({
-      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
-        Schema.isMinLength(1)
-      ),
-      messageId: Id,
-      turnId: Id,
-      via: Schema.Literal('wake'),
-    }),
-    Schema.Struct({
-      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
-        Schema.isMinLength(1)
-      ),
-      ledger: Id,
-      messageId: Id,
-      via: Schema.Literal('next-turn'),
-    }),
-  ],
-  { mode: 'oneOf' }
-);
-export type HostChildDelivery = (typeof HostChildDeliverySchema)['Type'];
+export {
+  type HostChildDelivery,
+  type HostChildDeliveryEntry,
+  HostChildDeliveryEntrySchema,
+  HostChildDeliverySchema,
+  type HostCommandSessionDelivery,
+  HostCommandSessionDeliverySchema,
+} from './protocol-delivery.ts';
 /** Credentials and executable capabilities remain process-local. */
 export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
   return Schema.Struct({
@@ -368,20 +306,10 @@ export const HostRunSnapshotSchema = hostRunSnapshotSchema(() => Schema.MutableJ
 export type HostRunSnapshot = (typeof HostRunSnapshotSchema)['Type'];
 const LoginCredential = Schema.declare<ProviderCredential>(isProviderCredential);
 const Provider = { provider: Id };
-/** A workspace root by its durable ID: the desktop's DB `roots.id`. */
-const HookRoot = { rootId: Id };
-/**
- * A root's trusted project hooks: its absolute path and the SHA-256 of
- * `<path>/.brainstrike/hooks.json`'s raw bytes. The host is the only writer.
- */
-export const HostHookTrustSchema = Schema.Struct({
-  path: Schema.String.check(Schema.isMinCodePoints(1)),
-  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
-});
-export type HostHookTrust = (typeof HostHookTrustSchema)['Type'];
 export const HOST_METHOD_SCHEMAS = {
   ...CANVAS_METHOD_SCHEMAS,
   ...GIT_WORKSPACE_METHOD_SCHEMAS,
+  ...HOOK_TRUST_METHOD_SCHEMAS,
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
@@ -403,14 +331,6 @@ export const HOST_METHOD_SCHEMAS = {
     entryId: Schema.optional(Id),
     force: Schema.optional(Schema.Boolean),
   }),
-  /**
-   * Trust a root's project hooks at the hash its reviewer saw. The host
-   * re-hashes the file and refuses a mismatch; a later edit needs a new trust.
-   */
-  'hooks/trust': Schema.Struct({ ...HookRoot, ...HostHookTrustSchema.fields }),
-  'hooks/trust/read': Schema.Struct(HookRoot),
-  /** Revoke a root's trust; removing the root revokes it too. */
-  'hooks/untrust': Schema.Struct(HookRoot),
   /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
   'host/status': Schema.Record(Schema.String, Schema.Never),
   'host/stop': Schema.Record(Schema.String, Schema.Never),
@@ -421,6 +341,11 @@ export const HOST_METHOD_SCHEMAS = {
     // transport its launcher handed over is authorized by holding it.
     token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u))),
   }),
+  /**
+   * ADR-0036: the file text a waiting approval's call would change, for the
+   * desktop's private client. A read: nothing is written or committed.
+   */
+  'interaction/preview': Schema.Struct({ ...Run, interactionId: Id }),
   'interaction/respond': Schema.Struct({
     ...Command,
     ...Run,
@@ -438,7 +363,8 @@ export const HOST_METHOD_SCHEMAS = {
   /** Every thread's runs and costed provider calls, as Core folds its committed log. */
   'ledger/read': Schema.Record(Schema.String, Schema.Never),
   'log/subscribe': Schema.Struct({ ...Thread, fromSeq: Seq }),
-  'log/unsubscribe': Schema.Struct(Thread),
+  /** Names the subscription its `log/subscribe` answered. */
+  'log/unsubscribe': Schema.Struct({ subscriptionId: Id }),
   /** Core's decision on an app's call under the thread's live policy; nothing runs. */
   'mcp/app/admit': Schema.Struct(McpAppCall),
   /** Decided afresh, an asked call runs only `approved`, on the app's own server. */
@@ -451,12 +377,6 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': Schema.Struct({ ...McpInput, content: Schema.optional(McpContent) }),
-  /**
-   * BST-2227: embeds one fixed probe text with the embedder these memory
-   * settings select, resolved and credentialed as a run's admission resolves
-   * it. Nothing is committed; a failure is the embedder's typed failure.
-   */
-  'memory/embedder/probe': HostMemoryEmbedderProbeParamsSchema,
   /** Model metadata through the host's OpenRouter key; the client sends only the model id. */
   'providers/openrouter-model': Schema.Struct({ model: Id }),
   /** The cheapest authenticated probe of one provider's stored or env credential. */
@@ -535,8 +455,17 @@ export const HOST_METHOD_SCHEMAS = {
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
   ...WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
+  ...WORKSPACE_FILES_METHOD_SCHEMAS,
+  ...WORKSPACE_ROOTS_METHOD_SCHEMAS,
+  ...FILE_SEARCH_METHOD_SCHEMAS,
   ...SELECTION_METHOD_SCHEMAS,
   'thread/start': Schema.Struct(Command),
+  /**
+   * BST-1932: a thread's summary and every thread delegated beneath it: each
+   * one's latest run, the interactions waiting on a person and its answered
+   * approvals, as Core folds them. A client re-reads it when told.
+   */
+  'thread/tree': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ ...Command, ...Thread, ...ThreadPresentation }).check(
     Schema.makeFilter((params) =>
       Object.keys(params).length > 2
@@ -641,6 +570,23 @@ export const HostPromptToolCallWindowSchema = Schema.Struct({
  * shape. Two shapes that share a `type` are one member: the pipe's input
  * carries the `type` the union routes on, and its output union picks the shape.
  */
+/** How a run ended. */
+const HOST_RUN_OUTCOMES = ['completed', 'failed', 'stopped', 'interrupted'] as const;
+/** A run's request for a person: an approval, a question, a plan or network consent. */
+function interactionRequestedSchema(json: JsonSchemaFactory) {
+  return Schema.Struct({
+    type: Schema.Literal('interaction.requested'),
+    ...action(json),
+    executionContext: Schema.optional(json()),
+    interactionId: Id,
+    kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
+    origin: Schema.optional(HostBrowserOriginSchema),
+    /** Auto access mode's note on why this call still needs the user. */
+    reason: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
+    risk: Schema.optional(RiskCategory),
+    ...HOST_APPROVAL_FACT_FIELDS,
+  });
+}
 export function hostEventSchema(json: JsonSchemaFactory) {
   return Schema.Union(
     [
@@ -710,8 +656,18 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         parentMessageId: Schema.optional(Schema.NullOr(Id)),
         parentRunId: Schema.optional(Id),
         ...PlanMode,
+        /**
+         * The host wrote this run's prompt, not the person: the run it starts
+         * to carry a task on in the worktree the previous run entered.
+         */
+        hostPrompt: Schema.optional(Schema.Literal(true)),
         prompt: Prompt,
         snapshot: Schema.optional(hostRunSnapshotSchema(json)),
+        /**
+         * On a run the host started to carry a run's task on in the worktree
+         * that run entered (ADR-0028 step 3): the turn it continues (`hostRootRunTurnId`).
+         */
+        turnId: Schema.optional(Id),
         userMessageId: Schema.optional(Id),
       }),
       Schema.Struct({ type: Schema.Literal('stream.chunk'), ...RunFields, chunk: json() }),
@@ -731,8 +687,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('memory.usage'),
         ...RunFields,
-        // BST-2226: `embedding` is a hosted memory embedder's provider-reported tokens.
-        kind: Schema.Literals(['observation', 'reflection', 'embedding']),
+        kind: Schema.Literals(['observation', 'reflection']),
         modelId: Id,
         usage: json(),
       }),
@@ -747,12 +702,6 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         ...RunFields,
         detail: Schema.String.check(Schema.isMinCodePoints(1)),
       }),
-      // A turn's failed semantic recall, which the turn answers without.
-      Schema.Struct({
-        type: Schema.Literal('memory.recall.failed'),
-        ...RunFields,
-        detail: Schema.String.check(Schema.isMinCodePoints(1)),
-      }),
       Schema.Struct({
         type: Schema.Literal('provider.request.prepared'),
         ...RunFields,
@@ -762,18 +711,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         provider: Id,
         toolCallWindow: Schema.optional(HostPromptToolCallWindowSchema),
       }),
-      Schema.Struct({
-        type: Schema.Literal('interaction.requested'),
-        ...action(json),
-        executionContext: Schema.optional(json()),
-        interactionId: Id,
-        kind: Schema.Literals(['approval', 'question', 'plan', 'network']),
-        origin: Schema.optional(HostBrowserOriginSchema),
-        /** Auto access mode's note on why this call still needs the user. */
-        reason: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
-        risk: Schema.optional(RiskCategory),
-        ...HOST_APPROVAL_FACT_FIELDS,
-      }),
+      interactionRequestedSchema(json),
       Schema.StructWithRest(Schema.Struct({ type: Schema.Literal('interaction.responded') }), [
         Schema.Record(Schema.String, Schema.Unknown),
       ]).pipe(
@@ -808,7 +746,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         type: Schema.Literal('run.finished'),
         ...RunFields,
         detail: Schema.optional(Schema.String),
-        outcome: Schema.Literals(['completed', 'failed', 'stopped', 'interrupted']),
+        outcome: Schema.Literals(HOST_RUN_OUTCOMES),
       }),
       Schema.Struct({
         type: Schema.Literal('run.attempt'),
@@ -959,6 +897,39 @@ export function hostEventSchema(json: JsonSchemaFactory) {
 }
 export const HostEventSchema = hostEventSchema(() => Schema.MutableJson);
 export type HostEvent = (typeof HostEventSchema)['Type'];
+export const HostInteractionRequestedSchema = interactionRequestedSchema(() => Schema.MutableJson);
+export type HostInteractionRequested = (typeof HostInteractionRequestedSchema)['Type'];
+/** An approval asked in a thread, and how it was answered. */
+export const HostAnsweredApprovalSchema = Schema.Struct({
+  approval: HostInteractionRequestedSchema,
+  /** The root's live policy, not a person, answered it. */
+  byPolicy: Schema.Boolean,
+  decision: Schema.Literals(['approve', 'deny']),
+});
+export type HostAnsweredApproval = (typeof HostAnsweredApprovalSchema)['Type'];
+/**
+ * A thread's latest run, as its delegation card reads it: working, waiting on a
+ * person, or how it ended (a completed run without an answer is `no-answer`).
+ */
+export const HostSummaryRunSchema = Schema.Struct({
+  /** Whether the run is the thread's first: a child's delegated invocation, not a follow-up. */
+  delegatedInvocation: Schema.Boolean,
+  status: Schema.Literals(['running', 'needs-input', 'no-answer', ...HOST_RUN_OUTCOMES]),
+  /** The tool calls the thread's runs made, counted by the ledger's rule. */
+  toolCalls: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** The turn the run belongs to, which its root's Stop ends (`hostRootRunTurnId`). */
+  turnId: Id,
+});
+export type HostSummaryRun = (typeof HostSummaryRunSchema)['Type'];
+const ThreadSummaryFields = {
+  answered: Schema.mutable(Schema.Array(HostAnsweredApprovalSchema)),
+  /** Present when the thread's history cannot be read; its summary is then empty. */
+  damage: Schema.optional(Schema.String),
+  /** Interactions waiting on a person, in the order they were asked. */
+  pending: Schema.mutable(Schema.Array(HostInteractionRequestedSchema)),
+  run: Schema.NullOr(HostSummaryRunSchema),
+  threadId: Id,
+};
 export const HostLogRowSchema = Schema.Struct({
   event: HostEventSchema,
   seq: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -969,6 +940,7 @@ export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
   ...CANVAS_RESULT_SCHEMAS,
   ...GIT_WORKSPACE_RESULT_SCHEMAS,
+  ...HOOK_TRUST_RESULT_SCHEMAS,
   ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
@@ -980,10 +952,6 @@ export const HOST_RESULT_SCHEMAS = {
   'checkpoint/revert': Schema.Struct({
     outcomes: Schema.mutable(Schema.Array(HostEditRevertOutcomeSchema)),
   }),
-  'hooks/trust': Schema.Struct({ trusted: Schema.Literal(true) }),
-  'hooks/trust/read': Schema.Struct({ trust: Schema.NullOr(HostHookTrustSchema) }),
-  /** Whether a trust was revoked; false when the root had none. */
-  'hooks/untrust': Schema.Struct({ untrusted: Schema.Boolean }),
   // The renderer validates the availability payload strictly (use-assistant-availability).
   'host/status': Schema.Record(Schema.String, Schema.MutableJson),
   'host/stop': Schema.Struct({
@@ -996,11 +964,17 @@ export const HOST_RESULT_SCHEMAS = {
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
     start: Id,
   }),
+  'interaction/preview': Schema.Struct({
+    after: Schema.NullOr(Schema.String),
+    before: Schema.NullOr(Schema.String),
+    path: Id,
+  }) satisfies Schema.ConstraintDecoder<ApprovalFileChange>,
   'interaction/respond': Schema.Struct({ accepted: Schema.Literal(true) }),
   'interaction/resume': Schema.Struct({ accepted: Schema.Literal(true) }),
   'ledger/read': Schema.Struct({ threads: Schema.mutable(Schema.Array(HostLedgerThreadSchema)) }),
   'log/subscribe': Schema.Struct({
     rows: Schema.mutable(Schema.Array(HostLogRowSchema)),
+    subscriptionId: Id,
     telemetry: Schema.mutable(Schema.Array(HostRunTelemetrySchema)),
   }),
   'log/unsubscribe': Schema.Struct({ unsubscribed: Schema.Literal(true) }),
@@ -1019,7 +993,6 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': Schema.Struct({ staged: Schema.Literal(true) }),
-  'memory/embedder/probe': HostMemoryEmbedderProbeResultSchema,
   'providers/openrouter-model': opaqueWireSchema(
     (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
   ),
@@ -1080,9 +1053,27 @@ export const HOST_RESULT_SCHEMAS = {
     }),
   ]),
   'thread/read': Schema.Struct({ rows: Schema.mutable(Schema.Array(HostLogRowSchema)) }),
+  'thread/tree': Schema.Struct({
+    /** Every thread delegated beneath it, each parent before its children. */
+    descendants: Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          ...ThreadSummaryFields,
+          callSign: Schema.String.check(Schema.isMinCodePoints(1)),
+          /** Its family colour, as `thread/children` lists it. */
+          color: Schema.String.check(Schema.isMinCodePoints(1)),
+          origin: HostChildOriginSchema,
+        })
+      )
+    ),
+    thread: Schema.Struct(ThreadSummaryFields),
+  }),
   ...REWIND_RESULT_SCHEMAS,
   ...SEARCH_RESULT_SCHEMAS,
   ...WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
+  ...WORKSPACE_FILES_RESULT_SCHEMAS,
+  ...WORKSPACE_ROOTS_RESULT_SCHEMAS,
+  ...FILE_SEARCH_RESULT_SCHEMAS,
   ...SELECTION_RESULT_SCHEMAS,
   'thread/start': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ accepted: Schema.Literal(true) }),

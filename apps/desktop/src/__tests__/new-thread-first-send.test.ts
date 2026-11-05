@@ -67,6 +67,7 @@ function scripted(answer: (method: HostMethod) => unknown = () => ({ runId: 'run
     resourceId: 'workspace',
     runSettings: () => ({ configuration: { provider: 'openai' }, modelId: 'openai::gpt' }),
     selection: { configuration: { provider: 'openai' }, modelId: 'openai::gpt' },
+    sentBeforeOpening: vi.fn(),
   };
   return { send, steps };
 }
@@ -93,7 +94,7 @@ describe('the new thread’s first send', () => {
   it('removes the thread and gives the composer its message back when the run is refused', async () => {
     const { send, steps } = scripted((method) => {
       if (method === 'run/start') {
-        throw Object.assign(new Error('Choose an embedding model in Settings.'), {
+        throw Object.assign(new Error('Choose a model in Settings.'), {
           code: HOST_RUN_NOT_ADMITTED_CODE,
         });
       }

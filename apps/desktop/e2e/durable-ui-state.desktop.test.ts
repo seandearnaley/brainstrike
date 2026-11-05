@@ -15,9 +15,9 @@ import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 /**
- * ADR-0026 R1: every unload of a visible document flushes its three durable writers first, so
- * the last write survives quit, window-X and reload (`docs/agents/platform-contracts.md`, "Every
- * document unload flushes the three durable writers").
+ * ADR-0026 R1: every unload of a visible document flushes its durable writers first, so the last
+ * write survives quit, window-X and reload (`docs/agents/platform-contracts.md`, "Document unload
+ * flushes the two durable writers"). Explorer state is saved synchronously in `localStorage`.
  */
 test.describe('durable UI state across document unload', () => {
   test('an Explorer expansion 200 ms before window-X is stored and in the thread snapshot after relaunch', async ({
@@ -33,15 +33,15 @@ test.describe('durable UI state across document unload', () => {
     if (closed.quit) {
       expect(closed.exitCode).toBe(0);
     } else {
-      // macOS keeps the app and its host running windowless: no new document can rewrite them.
+      // The Dock or tray keeps the app and its host running windowless: no new document can
+      // rewrite them.
       expect
         .soft(await readCommittedThreadExpansion(userDataDir, fixture.threadId))
         .toContain(fixture.expandedPath);
-      expect.soft(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
       await electron.dispose();
     }
-    expect(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
     const relaunched = await electron.ensureWindow({ preserveState: true });
+    expect(await readStoredExplorerExpansion(relaunched)).toContain(fixture.expandedPath);
     await ensureAssistantShellVisible(relaunched);
     await waitForAppHost(relaunched);
     expect(await readCommittedThreadExpansion(userDataDir, fixture.threadId)).toContain(
@@ -101,7 +101,7 @@ function parse(output: string): LogRecord[] {
 
 /**
  * The slow-machine matrix (lifecycle redesign §6.1): the renderer's flush ACK reaches Main 12 s
- * late, longer than any deadline Main used to race. A change in each of the three writers, made
+ * late, longer than any deadline Main used to race. A change in each durable writer, made
  * the instant before the unload, still survives it; the app exits 0 with no error-level record.
  */
 test.describe('durable UI state under a 12 s renderer flush', () => {
@@ -168,7 +168,7 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
           reopened = await electron.ensureWindow({ preserveState: true });
         }
         // Each writer reports on its own, so one run names every write that was lost.
-        expect.soft(await readStoredExplorerExpansion(userDataDir)).toContain(fixture.expandedPath);
+        expect.soft(await readStoredExplorerExpansion(reopened)).toContain(fixture.expandedPath);
         const panelAfter = await readPanelLayout(reopened);
         expect.soft(panelAfter).not.toBeNull();
         expect.soft(panelAfter).not.toBe(panelBefore);

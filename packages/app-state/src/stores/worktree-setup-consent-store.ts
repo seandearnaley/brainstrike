@@ -14,9 +14,8 @@
  * factory reset, which clears every decision.
  */
 
-import { createBrowserJsonStorage } from '@brainstrike/storage';
+import { persistDurable } from '@brainstrike/storage';
 import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
@@ -45,7 +44,7 @@ interface WorktreeSetupConsentActions {
 
 export type WorktreeSetupConsentStore = WorktreeSetupConsentData & WorktreeSetupConsentActions;
 
-const STORE_NAME = 'worktree-setup-consent.v1' as const;
+const STORE_NAME = 'brainstrike:worktree-setup-consent.v1' as const;
 // No version bump for the decision-shape change (bare string → { decision,
 // scriptSha256, decidedAt }): `sanitizeDecisions` below already rejects any
 // entry that doesn't match the current shape regardless of the stored
@@ -54,36 +53,6 @@ const STORE_NAME = 'worktree-setup-consent.v1' as const;
 // repository re-prompts on its next create. Simpler than a version bump
 // because the ONLY consumer of persisted data is this sanitizer.
 const STORE_VERSION = 1 as const;
-
-interface ElectronStorageBridge {
-  readonly getItem: (key: string) => Promise<string | null>;
-  readonly removeItem: (key: string) => Promise<void>;
-  readonly setItem: (key: string, value: string) => Promise<void>;
-}
-
-function createConsentStorage(): StateStorage {
-  if (typeof window !== 'undefined') {
-    const bridge = (window as Window & { electronAPI?: { storage?: ElectronStorageBridge } })
-      .electronAPI?.storage;
-    if (bridge) {
-      return bridge;
-    }
-  }
-  return createBrowserJsonStorage();
-}
-
-function createDeferredConsentStorage(): StateStorage {
-  let resolved: StateStorage | undefined;
-  const getStorage = (): StateStorage => {
-    resolved ??= createConsentStorage();
-    return resolved;
-  };
-  return {
-    getItem: (key) => getStorage().getItem(key),
-    removeItem: (key) => getStorage().removeItem(key),
-    setItem: (key, value) => getStorage().setItem(key, value),
-  };
-}
 
 function defaultData(): WorktreeSetupConsentData {
   return { decisionsByRepositoryId: {} };
@@ -128,10 +97,9 @@ function sanitizePersistedData(persistedState: unknown): WorktreeSetupConsentDat
   };
 }
 
-const storage = createJSONStorage(createDeferredConsentStorage);
-
 export const useWorktreeSetupConsentStore = create<WorktreeSetupConsentStore>()(
-  persist(
+  persistDurable(
+    STORE_NAME,
     (set) => ({
       ...defaultData(),
       decide: (repositoryId, decision, scriptSha256) => {
@@ -163,11 +131,9 @@ export const useWorktreeSetupConsentStore = create<WorktreeSetupConsentStore>()(
         sanitizePersistedData
       ),
       migrate: (persistedState) => sanitizePersistedData(persistedState),
-      name: STORE_NAME,
       partialize: (state) => ({
         decisionsByRepositoryId: state.decisionsByRepositoryId,
       }),
-      storage,
       version: STORE_VERSION,
     }
   )
@@ -186,13 +152,4 @@ export async function ensureWorktreeSetupConsentHydrated(): Promise<void> {
   if (!persistApi.hasHydrated()) {
     throw new Error('Worktree setup consent store failed to hydrate.');
   }
-}
-
-export function __resetWorktreeSetupConsentStoreForTests(): void {
-  try {
-    void useWorktreeSetupConsentStore.persist.clearStorage();
-  } catch {
-    // Storage may be unavailable under jsdom; the in-memory reset still stands.
-  }
-  useWorktreeSetupConsentStore.setState(defaultData());
 }

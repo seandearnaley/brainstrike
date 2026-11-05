@@ -34,9 +34,7 @@ function expectedSeconds(project: string, file: Suite): number {
  * still take single tests (fullyParallel).
  *
  * Refresh the durations from several green merge-queue runs when shards drift
- * apart:
- *   gh run view <run-id> --log > run-<run-id>.log   (for each run)
- *   node scripts/update-e2e-file-durations.mjs run-*.log
+ * apart; no script does it.
  */
 export default class FileShards implements Reporter {
   preprocess({

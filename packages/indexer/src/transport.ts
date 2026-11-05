@@ -4,74 +4,23 @@ import { runWithTimeout } from '@brainstrike/effect-kit';
 import { CHILD_SIGNAL_GRACE_MS, canonicalRoot } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import {
-  commitResultSchema,
-  coverageRequestSchema,
-  coverageSchema,
   decoder,
-  fileBindingsSchema,
   IndexerError,
-  identitySchema,
   infoSchema,
-  manifestRequestSchema,
-  manifestResultSchema,
   type optionsSchema,
-  planSchema,
-  removedCountSchema,
   STATE_CATCH_UP_STEP_EVENTS,
-  scopedCommitSchema,
-  scopedCoverageBatchRequestSchema,
-  scopedCoverageRequestSchema,
-  scopedCoverageSchema,
-  scopedFileChunkBoundsRequestSchema,
-  scopedFileChunkBoundsSchema,
-  scopedFilePageRequestSchema,
-  scopedFilePageSchema,
-  scopedManifestRequestSchema,
-  scopedManifestResultSchema,
-  scopedPlanSchema,
-  scopedPrepareSchema,
-  scopedRemoveBatchSchema,
-  scopedRemoveSchema,
-  scopedSearchResultSchema,
-  scopedSearchSchema,
-  scopedTextBatchSchema,
-  searchResultSchema,
-  searchSchema,
-  snapshotSchema,
   stateCatchUpStepSchema,
   stateCountsSchema,
   stateEventIdentitySchema,
   stateGcSchema,
   stateHealthSchema,
   stateMatchSchema,
-  stateMessageHitSchema,
-  stateMessagePlanSchema,
-  stateMessagePrepareSchema,
-  stateMessagePurgeSchema,
-  stateMessageQuerySchema,
-  stateMessageUpsertResultSchema,
-  stateMessageUpsertSchema,
-  stateObservationHitSchema,
-  stateObservationPlanSchema,
-  stateObservationPrepareSchema,
-  stateObservationPurgeSchema,
-  stateObservationQuerySchema,
-  stateObservationUpsertSchema,
   stateSearchHitSchema,
   stateSearchSchema,
   stateStatsSchema,
   stateThreadsSchema,
-  textCommitSchema,
 } from './contracts.ts';
-import { type CoverageAuthorityPort, coverageAuthoritySchema } from './coverage-authority.ts';
-import type {
-  IndexerPort,
-  PurgeIndexerPort,
-  ScopedIndexerPort,
-  StateIndexerPort,
-  StateMessageVectorPort,
-  StateObservationVectorPort,
-} from './index.ts';
+import type { StateIndexPort } from './index.ts';
 import { decodeIndexerOptions } from './options.ts';
 import { RpcClient } from './rpc-client.ts';
 import { validateStateModule } from './state-projection.ts';
@@ -120,21 +69,17 @@ export function validateIndexerOptions(input: unknown): typeof optionsSchema.Typ
   if (!path.isAbsolute(options.dbPath) || options.dbPath === ':memory:') {
     throw new TypeError('Indexer requires an absolute persistent database file path.');
   }
-  if (options.stateProjection) {
-    validateStateModule(options.stateProjection.module);
+  validateStateModule(options.stateProjection.module);
+  if (
+    !path.isAbsolute(options.stateRoot) ||
+    canonicalRoot(options.stateRoot) !== options.stateRoot
+  ) {
+    throw new TypeError(
+      'State index acquisition requires its trusted canonical absolute truth root.'
+    );
   }
-  if (options.stateRoot !== undefined) {
-    if (
-      !path.isAbsolute(options.stateRoot) ||
-      canonicalRoot(options.stateRoot) !== options.stateRoot
-    ) {
-      throw new TypeError(
-        'State index acquisition requires its trusted canonical absolute truth root.'
-      );
-    }
-    if (path.resolve(options.dbPath) === path.join(options.stateRoot, 'state.db')) {
-      throw new TypeError('Derived index cannot use the authoritative state database path.');
-    }
+  if (path.resolve(options.dbPath) === path.join(options.stateRoot, 'state.db')) {
+    throw new TypeError('Derived index cannot use the authoritative state database path.');
   }
   return options;
 }
@@ -145,15 +90,7 @@ export interface IndexerConnection {
   close(): Promise<void>;
   destroy(): Promise<void>;
   readonly exited: boolean;
-  readonly ready: Promise<
-    IndexerPort &
-      PurgeIndexerPort &
-      ScopedIndexerPort &
-      StateIndexerPort &
-      StateMessageVectorPort &
-      StateObservationVectorPort &
-      CoverageAuthorityPort
-  >;
+  readonly ready: Promise<StateIndexPort>;
 }
 export function createIndexerConnection(
   input: unknown,
@@ -337,13 +274,7 @@ export function createIndexerConnection(
       }
     }
   };
-  const port: IndexerPort &
-    PurgeIndexerPort &
-    ScopedIndexerPort &
-    StateIndexerPort &
-    StateMessageVectorPort &
-    StateObservationVectorPort &
-    CoverageAuthorityPort = {
+  const port: StateIndexPort = {
     catchUpState: (threads) => catchUp(decoder(stateThreadsSchema)(threads)),
     catchUpStateStep: (threads, maxEvents) =>
       call(
@@ -352,31 +283,6 @@ export function createIndexerConnection(
         decoder(Schema.Boolean)
       ),
     close,
-    commitScopedFile: async (request) =>
-      call('commit-scoped-file', decoder(scopedCommitSchema)(request), decoder(commitResultSchema)),
-    commitScopedTextFiles: async (request) =>
-      call(
-        'commit-scoped-text-files',
-        decoder(scopedTextBatchSchema)(request),
-        decoder(Schema.Array(scopedPlanSchema))
-      ),
-    commitTextFile: async (commit) =>
-      call('commit-text-file', decoder(textCommitSchema)(commit), decoder(commitResultSchema)),
-    coverage: async (request) =>
-      call('coverage', decoder(coverageRequestSchema)(request), decoder(coverageSchema)),
-    coverageAuthority: () => call('coverage-authority', null, decoder(coverageAuthoritySchema)),
-    coverageBatch: async (requests) =>
-      call(
-        'coverage-batch',
-        decoder(scopedCoverageBatchRequestSchema)(requests),
-        decoder(Schema.Array(scopedCoverageSchema))
-      ),
-    coverageScope: async (request) =>
-      call(
-        'coverage-scope',
-        decoder(scopedCoverageRequestSchema)(request),
-        decoder(scopedCoverageSchema)
-      ),
     destroy: async () => {
       await close();
       for (const file of [options.dbPath, `${options.dbPath}-wal`, `${options.dbPath}-shm`]) {
@@ -396,60 +302,6 @@ export function createIndexerConnection(
         decoder(stateMatchSchema)({ query, threadId }),
         decoder(Schema.Array(Schema.Int.check(Schema.isGreaterThan(0))))
       ),
-    prepareFile: async (snapshot) =>
-      call('prepare-file', decoder(snapshotSchema)(snapshot), decoder(planSchema)),
-    prepareScopedFile: async (request) =>
-      call('prepare-scoped-file', decoder(scopedPrepareSchema)(request), decoder(scopedPlanSchema)),
-    prepareStateMessageVectors: async (request) =>
-      call(
-        'state-message-prepare',
-        decoder(stateMessagePrepareSchema)(request),
-        decoder(stateMessagePlanSchema)
-      ),
-    prepareStateObservationVectors: async (request) =>
-      call(
-        'state-observation-prepare',
-        decoder(stateObservationPrepareSchema)(request),
-        decoder(stateObservationPlanSchema)
-      ),
-    purgeFile: async (identity) =>
-      call('purge-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
-    purgeStateMessageVectors: async (request) =>
-      call(
-        'state-message-purge',
-        decoder(stateMessagePurgeSchema)(request),
-        decoder(Schema.Boolean)
-      ),
-    purgeStateObservationVectors: async (request) =>
-      call(
-        'state-observation-purge',
-        decoder(stateObservationPurgeSchema)(request),
-        decoder(Schema.Boolean)
-      ),
-    queryStateMessageVectors: async (request) =>
-      call(
-        'state-message-query',
-        decoder(stateMessageQuerySchema)(request),
-        decoder(Schema.Array(stateMessageHitSchema))
-      ),
-    queryStateObservationVectors: async (request) =>
-      call(
-        'state-observation-query',
-        decoder(stateObservationQuerySchema)(request),
-        decoder(Schema.Array(stateObservationHitSchema))
-      ),
-    readScopedFileChunkBounds: async (request) =>
-      call(
-        'read-scoped-file-chunk-bounds',
-        decoder(scopedFileChunkBoundsRequestSchema)(request),
-        decoder(scopedFileChunkBoundsSchema)
-      ),
-    readScopedFilePage: async (request) =>
-      call(
-        'read-scoped-file-page',
-        decoder(scopedFilePageRequestSchema)(request),
-        decoder(scopedFilePageSchema)
-      ),
     rebuildState: async (threadId) => {
       await call(
         'state-rebuild',
@@ -465,31 +317,6 @@ export function createIndexerConnection(
         decoder(Schema.Boolean)
       );
     },
-    removeFile: async (identity) =>
-      call('remove-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
-    removeScopedFile: async (request) =>
-      call('remove-scoped-file', decoder(scopedRemoveSchema)(request), decoder(Schema.Boolean)),
-    removeScopedFiles: async (request) =>
-      call(
-        'remove-scoped-files',
-        decoder(scopedRemoveBatchSchema)(request),
-        decoder(removedCountSchema)
-      ),
-    replaceFileBindings: async (bindings) => {
-      await call(
-        'replace-file-bindings',
-        decoder(fileBindingsSchema)(bindings),
-        decoder(Schema.Boolean)
-      );
-    },
-    search: async (request) =>
-      call('search', decoder(searchSchema)(request), decoder(searchResultSchema)),
-    searchScopes: async (request) =>
-      call(
-        'search-scopes',
-        decoder(scopedSearchSchema)(request),
-        decoder(scopedSearchResultSchema)
-      ),
     searchState: async (input) => {
       const request = decoder(stateSearchSchema)(input);
       return read(request.threadIds, () =>
@@ -505,30 +332,6 @@ export function createIndexerConnection(
     stateHealth: () => call('state-health', null, decoder(stateHealthSchema)),
     stateStats: (threadId) =>
       call('state-stats', decoder(Schema.NonEmptyString)(threadId), decoder(stateStatsSchema)),
-    upsertStateMessageVectors: async (request) =>
-      call(
-        'state-message-upsert',
-        decoder(stateMessageUpsertSchema)(request),
-        decoder(stateMessageUpsertResultSchema)
-      ),
-    upsertStateObservationVectors: async (request) =>
-      call(
-        'state-observation-upsert',
-        decoder(stateObservationUpsertSchema)(request),
-        decoder(Schema.Array(Schema.String))
-      ),
-    verifyManifest: async (request) =>
-      call(
-        'verify-manifest',
-        decoder(manifestRequestSchema)(request),
-        decoder(manifestResultSchema)
-      ),
-    verifyScopedManifest: async (request) =>
-      call(
-        'verify-scoped-manifest',
-        decoder(scopedManifestRequestSchema)(request),
-        decoder(scopedManifestResultSchema)
-      ),
   };
   const ready = (async () => {
     const stall =

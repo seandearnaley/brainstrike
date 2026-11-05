@@ -3,6 +3,7 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { ReadWorkspaceDirectoryInputSchema } from '../schemas/schemas-workspace.ts';
 
 export const readWorkspaceDirectory = defineNativeTool({
+  activity: { active: 'Listing', done: 'Listed', family: 'read', request: 'List' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 120,

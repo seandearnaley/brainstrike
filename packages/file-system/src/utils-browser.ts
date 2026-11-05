@@ -1,4 +1,4 @@
-import type { DirectoryReadOptions } from './types.ts';
+import type { DirectoryReadOptions } from '@brainstrike/types';
 
 /**
  * Concurrency limiter shared across adapters.

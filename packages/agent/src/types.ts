@@ -4,6 +4,7 @@ import type {
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
+import type { RuntimeAssistantMemorySettings } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
@@ -15,7 +16,6 @@ import type {
 import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { McpConfig } from './mcp/config.ts';
-import type { RuntimeAssistantMemorySettings } from './memory-settings.ts';
 import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request.ts';
 import type { AgentHookRunner } from './tools/hook-runner.ts';
 
@@ -320,7 +320,7 @@ export interface ToolCallTelemetrySample {
   /** BST-1247: candidate-set cap hit in the search substrate (not output clipping). */
   readonly candidatesTruncated: boolean;
   /** Live-pass engine for search tools; absent for non-search tools. */
-  readonly engine?: 'js-files' | 'js-walk' | 'ripgrep' | 'skipped';
+  readonly engine?: 'js-files' | 'ripgrep' | 'skipped';
   readonly isPaginationFollowup: boolean;
   readonly modelFacingChars: number;
   readonly occurredAt: number;

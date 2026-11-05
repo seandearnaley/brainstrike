@@ -3,6 +3,7 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { BrowserNavigateInputSchema } from '../schemas/schemas-browser.ts';
 
 export const browserNavigate = defineNativeTool({
+  activity: { active: 'Opening', done: 'Opened', family: 'web', request: 'Open' },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 130,

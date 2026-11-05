@@ -13,18 +13,6 @@ describe('PROVIDER_MODEL_DEFAULT_POLICIES', () => {
     expect(Object.keys(PROVIDER_MODEL_DEFAULT_POLICIES).sort()).toEqual(catalogIds);
   });
 
-  it('is null exactly for providers that cannot have catalog defaults', () => {
-    // Derived, not listed: a provider has catalog defaults only when it serves
-    // LLMs; embedding-only providers have no LLM rows to enable.
-    for (const provider of listProviders()) {
-      const expectsNull = !provider.capabilities.llm;
-      expect({
-        id: provider.id,
-        isNull: PROVIDER_MODEL_DEFAULT_POLICIES[provider.id] === null,
-      }).toEqual({ id: provider.id, isNull: expectsNull });
-    }
-  });
-
   it('gives the three first-party keyed providers an availability policy', () => {
     for (const id of ['anthropic', 'google', 'openai'] as const) {
       expect(getProviderModelDefaultPolicy(id)).toEqual({ kind: 'all' });

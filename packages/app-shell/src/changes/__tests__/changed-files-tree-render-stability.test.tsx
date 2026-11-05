@@ -4,10 +4,9 @@
  * Modeled on `packages/ui/src/__tests__/tree-table-render-stability.test.tsx`:
  * `TreeTableRow` is `React.memo`'d, so it only bails out when every prop TWO
  * renders receive is reference/value-stable. This pins that `ChangedFilesTree`
- * own memoization glue (the `useMemo`'d `nodes`, the `useCallback`'d
- * `getCheckboxState`/`onCheckboxChange`) does not silently defeat that memo —
- * an unstable identity here would turn every store update into a full
- * visible-row re-render of the whole tree.
+ * own glue (the identity-stable `nodes`, the row handlers) does not silently
+ * defeat that memo — an unstable identity here would turn every re-render
+ * into a full visible-row re-render of the whole tree.
  *
  * Since this component's columns are a fixed internal concern (not injected
  * via props, unlike the generic `TreeTable` test), row-cell renders are
@@ -17,18 +16,17 @@
  * immediately without touching how `ChangedFilesTree` references it.
  */
 import { createTestActionRegistry } from '@brainstrike/context-actions';
-import { act } from '@brainstrike/test-utils/react-act';
 import type { ChangedFileEntry } from '@brainstrike/types';
 import {
   ActionRegistryProvider,
   type TreeTableCellProps,
   type TreeTableColumn,
 } from '@brainstrike/ui';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { changedFileKey, useChangesStore } from '../changes-store';
+import { useChangesStore } from '../changes-store';
 import { ChangedFilesTree } from '../ui/changed-files-tree';
 import { CHANGED_FILES_TREE_COLUMNS } from '../ui/changed-files-tree-columns';
 import type { ChangedFilesTreeNodeData } from '../ui/changed-files-tree-model';
@@ -71,11 +69,13 @@ function withRegistry(node: ReactElement): ReactElement {
 
 function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   return {
+    actions: [],
     additions: 1,
     deletions: 0,
+    patch: null,
     path: 'src/a.ts',
     repositoryRoot: '/repo',
-    revertible: true,
+    revision: 'r1',
     rootId: 'root-1',
     status: 'modified',
     worktreePath: '/repo',
@@ -88,8 +88,7 @@ describe('ChangedFilesTree row render stability', () => {
   let originalCell: TreeTableColumn<ChangedFilesTreeNodeData>['cell'] | undefined;
 
   beforeEach(() => {
-    useChangesStore.getState().clearSelection();
-    useChangesStore.getState().setExpandedIds(new Set());
+    useChangesStore.getState().reset();
 
     cellRenders = vi.fn<(id: string) => void>();
     const nameColumn = CHANGED_FILES_TREE_COLUMNS[0];
@@ -134,40 +133,5 @@ describe('ChangedFilesTree row render stability', () => {
     );
 
     expect(cellRenders.mock.calls.length).toBe(rendersAfterMount);
-  });
-
-  it('does not re-render an unaffected row when toggling one row checkbox', () => {
-    render(
-      withRegistry(
-        <ChangedFilesTree changesetKey="test-changeset" files={files} inventory={null} />
-      )
-    );
-
-    const targetEntry = files[0];
-    const untouchedEntry = files[2];
-    if (!(targetEntry && untouchedEntry)) {
-      throw new Error('Expected at least three fixture files');
-    }
-    const targetKey = changedFileKey(targetEntry);
-    const untouchedKey = changedFileKey(untouchedEntry);
-
-    const untouchedRendersBeforeToggle = cellRenders.mock.calls.filter(
-      ([id]) => id === untouchedKey
-    ).length;
-    expect(untouchedRendersBeforeToggle).toBeGreaterThan(0);
-
-    // Check exactly one file's box — the same store write
-    // `ChangedFilesTree`'s own `onCheckboxChange` handler performs for a
-    // single-file toggle.
-    act(() => {
-      useChangesStore.getState().setSelectedFileKeys(new Set([targetKey]));
-    });
-
-    const untouchedRendersAfterToggle = cellRenders.mock.calls.filter(
-      ([id]) => id === untouchedKey
-    ).length;
-
-    expect(untouchedRendersAfterToggle).toBe(untouchedRendersBeforeToggle);
-    expect(screen.getByRole('checkbox', { name: `Select ${targetEntry.path}` })).toBeChecked();
   });
 });

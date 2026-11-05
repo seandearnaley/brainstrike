@@ -67,9 +67,6 @@ function pricingLines(pricing: CatalogPricing | null): string[] {
 }
 
 function ReasoningFact({ row }: { readonly row: CatalogRow }) {
-  if (row.type === 'embedding') {
-    return null;
-  }
   if (row.reasoning === null) {
     return <Fact label="Reasoning effort">Not published</Fact>;
   }
@@ -108,13 +105,7 @@ export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
             <CopyTextButton ariaLabel={`Copy model ID ${row.id}`} text={row.id} />
           </span>
         </Fact>
-        {row.type === 'chat' ? (
-          <WindowFact row={row} />
-        ) : (
-          <Fact label="Dimensions">
-            {row.dimension === null ? 'Not published' : fullNumber.format(row.dimension)}
-          </Fact>
-        )}
+        <WindowFact row={row} />
         <Fact label="Pricing">
           {pricingLines(row.pricing).map((line) => (
             <span className="block" key={line}>

@@ -1,4 +1,3 @@
-import type { IndexChunkBoundsCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { lazy, type ReactElement, Suspense } from 'react';
 
 // Code-split the thread context map (ADR-0021) so it loads only when the
@@ -7,11 +6,7 @@ const ThreadContextPage = lazy(() =>
   import('@brainstrike/app-shell/context-map').then((m) => ({ default: m.ThreadContextPage }))
 );
 
-export function ThreadContextPageContent({
-  chunkBounds,
-}: {
-  readonly chunkBounds: IndexChunkBoundsCapability | null;
-}): ReactElement {
+export function ThreadContextPageContent(): ReactElement {
   return (
     <Suspense
       fallback={
@@ -20,7 +15,7 @@ export function ThreadContextPageContent({
         </div>
       }
     >
-      <ThreadContextPage chunkBounds={chunkBounds} />
+      <ThreadContextPage />
     </Suspense>
   );
 }

@@ -1,6 +1,10 @@
+import {
+  listProviders,
+  providerAuthType,
+  providerEnvKeys,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderAuthInput } from '../providers/provider-auth-input';
-import { listProviders, providerAuthType, providerEnvKeys } from '../providers/types';
 import { resolveRuntimeConfiguration } from '../runtime-configuration';
 
 describe('runtime configuration provider keys (BST-1349)', () => {

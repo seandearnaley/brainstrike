@@ -12,20 +12,6 @@ async function openTokenCountingSettings(
 }
 
 test.describe('Token Counting settings (desktop)', () => {
-  test('renders unavailable status when runtime support is missing', async ({
-    window,
-    homePage,
-  }) => {
-    await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: false });
-
-    const settingsPage = new SettingsPage(window);
-    await openTokenCountingSettings(homePage, settingsPage);
-
-    await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
-      'Accurate tokenizer unavailable'
-    );
-  });
-
   test('persists explicit heuristic mode across renderer reload', async ({ window, homePage }) => {
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
 
@@ -36,7 +22,7 @@ test.describe('Token Counting settings (desktop)', () => {
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await toggle.click();
     await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
-      'Heuristic mode (explicit)'
+      'Estimated counts'
     );
 
     const { reloadRenderer, waitForAppReady } = await loadElectronHelpers();
@@ -49,7 +35,7 @@ test.describe('Token Counting settings (desktop)', () => {
       'false'
     );
     await expect(window.getByTestId('token-counting-runtime-status')).toContainText(
-      'Heuristic mode (explicit)'
+      'Estimated counts'
     );
   });
 });

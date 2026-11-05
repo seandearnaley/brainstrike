@@ -10,7 +10,7 @@ const API_KEY = 'test-key-host-memory-settlement';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
-const MEMORY_SETTINGS_KEY = 'assistant-memory-preferences.v1';
+const MEMORY_SETTINGS_KEY = 'brainstrike:assistant-memory-preferences.v1';
 const MEMORY_SETTINGS_VERSION = 2;
 const ANSWER = 'SETTLEMENT_ANSWER_COMPLETE';
 // Mastra's observer system prompt, as the external provider receives it.
@@ -78,12 +78,8 @@ test('Stop clears when the answer finishes while its memory observation is still
       },
     };
     await page.evaluate(
-      async ({ key, value }) => {
-        const storage = window.electronAPI?.storage;
-        if (!storage) {
-          throw new Error('The app storage bridge is unavailable');
-        }
-        await storage.setItem(key, value);
+      ({ key, value }) => {
+        window.localStorage.setItem(key, value);
       },
       {
         key: MEMORY_SETTINGS_KEY,

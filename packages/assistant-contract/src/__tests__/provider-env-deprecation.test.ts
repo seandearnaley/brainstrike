@@ -17,20 +17,16 @@ import { getProviderDeprecatedEnvKeys, listProviders } from '../provider-registr
 
 const VENDOR_STANDARD_NAMES = {
   anthropic: 'ANTHROPIC_API_KEY',
-  cohere: 'COHERE_API_KEY',
   google: 'GOOGLE_GENERATIVE_AI_API_KEY',
   openai: 'OPENAI_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
-  voyage: 'VOYAGE_API_KEY',
 } as const;
 
 const EXPECTED_DEPRECATED_KEYS = {
   anthropic: ['AI_ANTHROPIC_API_KEY'],
-  cohere: ['AI_COHERE_API_KEY'],
   google: ['GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
   openai: ['BS_OPENAI_API_KEY', 'AI_OPENAI_API_KEY', 'OPENAI_API_KEY_V1', 'OPENAI_API_KEY_V2'],
   openrouter: ['AI_OPENROUTER_API_KEY'],
-  voyage: ['AI_VOYAGE_API_KEY'],
 } as const;
 
 // Registry-derived iteration (never a hand list); the maps above stay as
@@ -120,8 +116,8 @@ describe('detectDeprecatedProviderEnvVars', () => {
     expect(
       detectDeprecatedProviderEnvVars({
         AI_ANTHROPIC_API_KEY: '   ',
-        AI_COHERE_API_KEY: '',
-        AI_VOYAGE_API_KEY: undefined,
+        AI_GOOGLE_API_KEY: '',
+        AI_OPENROUTER_API_KEY: undefined,
       })
     ).toEqual([]);
   });

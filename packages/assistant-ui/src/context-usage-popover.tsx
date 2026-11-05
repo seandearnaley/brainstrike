@@ -18,7 +18,7 @@ import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-
 import { createLogger } from '@brainstrike/logging';
 import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { cn } from '@brainstrike/ui';
-import { useAssistantDetailLevel } from './assistant-detail-level-context';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import type { ConversationTokenEstimate } from './context-estimate';
 import { MemoryDeveloperPanel } from './context-usage-memory-panel';
 import type {
@@ -50,7 +50,6 @@ function subtotalCostLabel(costUsd: number | null): string {
 const SOURCE_LABELS: Record<AssistantRunUsageKind, string> = {
   chat: 'Chat',
   'compaction-summary': 'Compaction summaries',
-  'memory-embedding': 'Memory embeddings',
   'om-observation': 'Memory observer (est.)',
   'om-reflection': 'Memory reflection (est.)',
   subagent: 'Subagents',
@@ -202,7 +201,7 @@ function awaitingObserverNote(reason: OmAwaitingObserverReason): string {
     case 'no-chat-provider':
       return 'Observations on (Auto) — needs a chat provider with a saved key';
     case 'no-backend':
-      return 'Observations on (Auto) — requires the desktop assistant backend';
+      return 'Observations on (Auto) — the assistant isn’t connected';
     case 'keys-unknown':
       return 'Observations on (Auto) — waiting for provider credentials to load';
     default: {
@@ -220,9 +219,9 @@ function awaitingObserverNote(reason: OmAwaitingObserverReason): string {
 function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } | null {
   switch (state.kind) {
     case 'chat-only':
-      return { text: 'Observations available on desktop', tone: 'muted' };
+      return { text: 'Observations aren’t available here', tone: 'muted' };
     case 'inactive':
-      return { text: 'OM inactive', tone: 'muted' };
+      return { text: 'Observations off', tone: 'muted' };
     case 'awaiting-observer':
       return { text: awaitingObserverNote(state.reason), tone: 'muted' };
     case 'empty':
@@ -728,7 +727,7 @@ const WorkspaceFilesRow = ({
       Workspace files in the window
       {onOpenContextMap && (
         <button
-          className="text-foreground focus-visible:ring-ring text-[11px] underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:outline-none"
+          className="text-foreground focus-visible:ring-ring text-[11px] underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:outline-hidden"
           data-testid="context-usage-open-context-map"
           onClick={onOpenContextMap}
           type="button"
@@ -851,9 +850,9 @@ export const ContextUsagePopoverContent = ({
 
       {/* OM informational stats (observed tokens + compaction saved), or an
           honest note for the other states. NOT a budget segment — the
-          observation does not consume this turn's input budget. Desktop-only:
-          web supplies { kind: 'chat-only' } so the stats are hidden, never
-          zeros. */}
+          observation does not consume this turn's input budget. A host
+          without memory supplies { kind: 'chat-only' } so the stats are
+          hidden, never zeros. */}
       {omSegment && <OmMeterSection state={omSegment} />}
       {omSegment && detailLevel === 'developer' && <MemoryDeveloperPanel state={omSegment} />}
     </div>

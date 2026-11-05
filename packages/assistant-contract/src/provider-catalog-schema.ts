@@ -144,30 +144,11 @@ const LlmModelSchema = Schema.Struct({
   type: Schema.Literal('llm'),
   vision: ModelVisionSupportSchema,
 });
-const EmbeddingModelSchema = Schema.Struct({
-  _note: Schema.optional(NoteSchema),
-  availableDimensions: Schema.optional(Schema.mutable(Schema.Array(Schema.Finite))),
-  catalog: Schema.optional(ModelCatalogPresentationSchema),
-  default: Schema.optional(Schema.Boolean),
-  defaultDimension: Schema.Finite,
-  dimensionParameter: Schema.optional(
-    Schema.Literals(['dimensions', 'output_dimensionality', 'output_dimension'])
-  ),
-  id: Schema.String,
-  label: Schema.optional(Schema.String),
-  /** A hosted embedder's list price per million input tokens (BST-2226). */
-  pricing: Schema.optional(Schema.Struct({ inputPerMTok: Schema.Finite })),
-  supportsCustomDimensions: Schema.optional(Schema.Boolean),
-  supportsStandardDimension: Schema.Boolean,
-  type: Schema.Literal('embedding'),
-});
-const ProviderModelSchema = Schema.Union([LlmModelSchema, EmbeddingModelSchema], { mode: 'oneOf' });
+const ProviderModelSchema = LlmModelSchema;
 const ProviderSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
   authType: Schema.Literals(['api_key', 'aws']),
   capabilities: Schema.Struct({
-    embeddings: Schema.Boolean,
-    llm: Schema.Boolean,
     streaming: Schema.Boolean,
   }),
   catalog: Schema.optional(ProviderCatalogPresentationSchema),
@@ -175,15 +156,7 @@ const ProviderSchema = Schema.Struct({
   displayName: Schema.String,
   docsUrl: Schema.optional(Schema.String),
   envKeys: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  id: Schema.Literals([
-    'openai',
-    'anthropic',
-    'google',
-    'openrouter',
-    'cohere',
-    'voyage',
-    'bedrock',
-  ]),
+  id: Schema.Literals(['openai', 'anthropic', 'google', 'openrouter', 'bedrock']),
   keyFormatHint: Schema.optional(Schema.String),
   keyNotes: Schema.optional(Schema.String),
   models: Schema.mutable(Schema.Array(ProviderModelSchema)),

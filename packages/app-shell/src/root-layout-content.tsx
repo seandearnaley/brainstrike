@@ -6,7 +6,8 @@ import {
   type PanelTab,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
-import type { IndexConfigCapability } from '@brainstrike/assistant-contract/index-config';
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import {
   type ChangesReviewContextValue,
   ChangesReviewProvider,
@@ -18,7 +19,6 @@ import {
 } from '@brainstrike/assistant-ui';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
-  RootDataDeletionProvider,
   useFileSystem,
   type WorkspaceApp,
   WorkspaceBody,
@@ -30,11 +30,6 @@ import {
   THREAD_CONTEXT_APP_ID,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import type {
-  IndexLifecycleCapability,
-  IndexRootRegistrationCapability,
-  IndexSearchCapability,
-} from '@brainstrike/indexing-contract/indexer-client';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
 import {
   ActionRegistryProvider,
@@ -57,8 +52,6 @@ import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel, AssistantProviderStatusProvider } from './assistant-chat-panel';
-import { IndexingActivityCoordinator } from './background-indexing/indexing-activity-coordinator';
-import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { resolveBrowserBridge } from './browser-pane/browser-bridge';
 import { useBrowserPageSync } from './browser-pane/use-browser-page-sync';
 import { buildWorkspaceApps } from './build-workspace-apps';
@@ -77,6 +70,7 @@ import {
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { useAppMenuSettings } from './hooks/use-app-menu-settings';
 import { McpPromptComposerHost } from './mcp-prompts/mcp-prompt-host';
+import { WorkspaceRootIdentity } from './roots/workspace-root-identity';
 import type { StateHealthCapability } from './state-health/state-health-capability';
 import { TabChordHost } from './tab-chords/tab-chord-host';
 import { WorkspaceTabChords } from './tab-chords/workspace-tab-chords';
@@ -86,6 +80,7 @@ import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
 import { useToolApprovalGrantHandlers } from './use-tool-approval-grant-handlers';
 import { WorkspaceConnectHost } from './workspace-connect/workspace-connect-host';
+import { useChangesBridge } from './workspace-git-services';
 
 interface DebouncedPanelLayoutState {
   readonly showConsole: boolean;
@@ -94,18 +89,7 @@ interface DebouncedPanelLayoutState {
   readonly sizes: [number, number, number];
 }
 
-function FileTreeWrapper({
-  children,
-  nativeIndexSearch,
-}: {
-  children: ReactNode;
-  nativeIndexSearch:
-    | (IndexSearchCapability &
-        IndexConfigCapability &
-        IndexLifecycleCapability &
-        IndexRootRegistrationCapability)
-    | null;
-}): ReactElement {
+function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
   // Storage v5: pass the durable RootId so the FileTreeProvider keys its index
   // and stamps IFileNode.rootFolderId with the UUID instead of the handle path.
@@ -119,9 +103,7 @@ function FileTreeWrapper({
       rootDirectoryHandle={rootDirectoryHandle}
       {...(rootId !== undefined && { rootId })}
     >
-      <WorkspaceCollectionSyncProvider nativeIndexSearch={nativeIndexSearch}>
-        {children}
-      </WorkspaceCollectionSyncProvider>
+      <WorkspaceRootIdentity>{children}</WorkspaceRootIdentity>
     </FileTreeProvider>
   );
 }
@@ -145,11 +127,10 @@ export interface RootLayoutContentProps {
    * (capability gating, not an isElectron check). Registered as a closable
    * singleton workspace app tab (BST-1258 unified workspace tab panel), not
    * as its own nav-rail page. When absent, no Changes tab or launcher card
-   * renders at all, and the "→ Review" assistant-turn footer link stays
-   * hidden (its provider binds to this same presence check).
+   * renders at all, and assistant turns show no changes (their provider
+   * binds to this same presence check).
    */
   readonly changesPageContent?: ReactNode;
-  readonly deleteRootData: (rootId: string) => Promise<void>;
   /**
    * Active flags from an authoritative app-owned feature-flag registry.
    * Omit when the app has no such registry; diagnostics surfaces that absence.
@@ -161,12 +142,6 @@ export interface RootLayoutContentProps {
    * no Logs tab renders.
    */
   readonly logsPageContent?: ReactNode;
-  readonly nativeIndexSearch?:
-    | (IndexSearchCapability &
-        IndexConfigCapability &
-        IndexLifecycleCapability &
-        IndexRootRegistrationCapability)
-    | null;
   readonly navigationItems: NavigationItem[];
   readonly settingsPageContent: ReactNode;
   /** The canonical state store's health and recovery (BST-1880); desktop supplies it. */
@@ -268,25 +243,8 @@ function KeepMountedRoute({
 }
 
 /**
- * The "→ Review" footer link's binding, or `null` when there is no Changes
- * surface to navigate to. A dedicated hook (rather than inlined in
- * `RootLayoutContent`) purely to keep that already-large component's
- * cognitive complexity under the lint budget — the logic itself is a
- * straight capability-presence gate, same shape as `terminalPageContent`/etc.
- *
- * The Changes surface lives as a closable singleton workspace app tab
- * (BST-1258 unified workspace tab panel), not its own top-level route, so
- * opening it from here is two steps: bring the shell back to the `explorer`
- * route (in case the user is on Settings/Artifacts — the workspace panel only
- * exists on that route), and hand the changeset to `openChangeset`, which
- * opens/activates the Changes app tab through
- * `useWorkspaceTabSelectionStore.openApp` (see that store action's doc
- * comment for why `openChangeset`, not `requestChangeset`, is the one
- * external callers use).
- */
-/**
  * Binds the composer popover's "Open context map" link (ADR-0021) to the
- * Context workspace tab. Gated like the Review link: no page content, no link.
+ * Context workspace tab. Gated like a turn's changes: no page content, no link.
  */
 function useContextMapLinkValue(
   threadContextPageContent: ReactNode,
@@ -305,13 +263,35 @@ function useContextMapLinkValue(
   }, [threadContextPageContent, setActiveTab]);
 }
 
+async function unwrapBoundary<T>(pending: Promise<BoundaryResult<T>>): Promise<T> {
+  const result = await pending;
+  if (!result.ok) {
+    throw new Error(describeBoundaryFailure(result.error));
+  }
+  return result.value;
+}
+
+/**
+ * A turn's changes in the chat (ADR-0036), or `null` when there is no Changes
+ * surface: the card reads the run's changeset through the Changes bridge, and
+ * Review opens it there. A dedicated hook keeps `RootLayoutContent` under the
+ * lint's complexity budget.
+ *
+ * The Changes surface is a closable singleton workspace app tab (BST-1258),
+ * so Review brings the shell back to the `explorer` route (the workspace panel
+ * exists only there) and hands the changeset to `openChangeset`, which opens
+ * the Changes tab through `useWorkspaceTabSelectionStore.openApp`.
+ */
 function useChangesReviewValue(
   changesPageContent: ReactNode,
   setActiveTab: (tab: PanelTab) => void
 ): ChangesReviewContextValue | null {
   const openChangeset = useChangesNavigationStore((state) => state.openChangeset);
+  const bridge = useChangesBridge();
+  // The page is a fresh element each render; a new binding would reload every turn's changes.
+  const hasChanges = Boolean(changesPageContent);
   return useMemo(() => {
-    if (!changesPageContent) {
+    if (!(hasChanges && bridge)) {
       return null;
     }
     return {
@@ -319,8 +299,14 @@ function useChangesReviewValue(
         openChangeset({ kind: 'agent-run', runId, threadId });
         setActiveTab('explorer');
       },
+      readRunChanges: ({ rootId, runId, threadId }) =>
+        unwrapBoundary(bridge.resolveView(rootId, { kind: 'agent-run', runId, threadId })),
+      readRunFile: ({ rootId, runId, threadId }, file) =>
+        unwrapBoundary(
+          bridge.fileDiff(file.rootId ?? rootId, { kind: 'agent-run', runId, threadId }, file.path)
+        ),
     };
-  }, [changesPageContent, openChangeset, setActiveTab]);
+  }, [bridge, hasChanges, openChangeset, setActiveTab]);
 }
 
 /**
@@ -455,7 +441,6 @@ function ExplorerAppSurface({
   terminalPageContent,
   threadContextPageContent,
   worktreeMapPageContent,
-  nativeIndexSearch,
 }: {
   readonly canvasShellSrc?: string | undefined;
   readonly changesPageContent?: ReactNode;
@@ -463,12 +448,6 @@ function ExplorerAppSurface({
   readonly terminalPageContent?: ReactNode;
   readonly threadContextPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
-  readonly nativeIndexSearch:
-    | (IndexSearchCapability &
-        IndexConfigCapability &
-        IndexLifecycleCapability &
-        IndexRootRegistrationCapability)
-    | null;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
   // resolution). Detected by the `window.platform` bridge (capability presence,
@@ -501,7 +480,7 @@ function ExplorerAppSurface({
           the Files app) because the tab strip lives in the panel HEADER and file
           bodies render at the workspace level — both need the file-explorer
           context from a common ancestor. */}
-      <FileTreeWrapper nativeIndexSearch={nativeIndexSearch}>
+      <FileTreeWrapper>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
           {/* One read of the host's provider status for the root panel and the
               child conversations its workspace tabs render. */}
@@ -556,9 +535,7 @@ function ExplorerAppSurface({
 }
 
 export function RootLayoutContent({
-  nativeIndexSearch,
   stateHealth,
-  deleteRootData,
   artifactsPageContent,
   canvasShellSrc,
   changesPageContent,
@@ -582,8 +559,8 @@ export function RootLayoutContent({
   const actionRegistry = createAppActionRegistry();
   // Capability gate mirrors terminalPageContent:
   // the desktop wrapper only passes changesPageContent when the Changes bridge
-  // exists, so its presence IS the capability check here — the "→ Review"
-  // footer link (packages/ui, gated on this same context) renders null without it.
+  // exists, so its presence IS the capability check here — a turn's changes
+  // (packages/assistant-ui, gated on this same context) render nothing without it.
   const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
   const contextMapLinkValue = useContextMapLinkValue(threadContextPageContent, setActiveTab);
   const rewindValue = useRewindValue(changesPageContent);
@@ -632,102 +609,92 @@ export function RootLayoutContent({
     setState,
   });
 
-  // The deletion context must enclose AppLayout's sole FileSystemProvider:
-  // a provider inside the file tree cannot supply that ancestor's instance.
   return (
-    <RootDataDeletionProvider deleteRootData={deleteRootData}>
-      <AppLayout
-        config={appConfig}
-        currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
-        nativeIndexSearch={nativeIndexSearch ?? null}
-        onNavigationClick={handleNavigationClick}
-        onOpenSettings={openSettings}
-        stateHealth={stateHealth ?? null}
-      >
-        {/* These providers now intentionally stay app-wide so background chunking and embedding
-          work can continue across route switches. They remain inert on non-explorer routes
-          unless a feature explicitly opts into them. */}
-        {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
+    <AppLayout
+      config={appConfig}
+      currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
+      onNavigationClick={handleNavigationClick}
+      onOpenSettings={openSettings}
+      stateHealth={stateHealth ?? null}
+    >
+      {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
           gating as the Artifacts nav item. */}
-        <ChangesReviewProvider value={changesReviewValue}>
-          <ContextMapLinkContext value={contextMapLinkValue}>
-            {/* Binds the assistant panel's "Restore to before this message"
+      <ChangesReviewProvider value={changesReviewValue}>
+        <ContextMapLinkContext value={contextMapLinkValue}>
+          {/* Binds the assistant panel's "Restore to before this message"
             affordance (BST-1115). The modal it raises is mounted below, as a
             lexical SIBLING of every shell route rather than inside any
             surface, because both entry points (assistant panel, Changes
             header) must land in the same one. */}
-            <RewindProvider value={rewindValue}>
-              <ActionRegistryProvider registry={actionRegistry}>
-                {/* The ⌘K command palette mounts once at the visible-UI root. */}
-                <CommandPaletteHost />
-                {/* Tab chords (BST-1842): mounted once beside the palette. */}
-                <TabChordHost />
-                <WorkspaceConnectHost />
-                <IndexingActivityCoordinator />
-                <div
-                  aria-hidden={shellTab !== 'explorer'}
-                  className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-                  data-testid="explorer-route"
+          <RewindProvider value={rewindValue}>
+            <ActionRegistryProvider registry={actionRegistry}>
+              {/* The ⌘K command palette mounts once at the visible-UI root. */}
+              <CommandPaletteHost />
+              {/* Tab chords (BST-1842): mounted once beside the palette. */}
+              <TabChordHost />
+              <WorkspaceConnectHost />
+              <div
+                aria-hidden={shellTab !== 'explorer'}
+                className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                data-testid="explorer-route"
+              >
+                <PanelLayoutProvider
+                  controlledState={panelState}
+                  onChange={handlePanelLayoutChange}
                 >
-                  <PanelLayoutProvider
-                    controlledState={panelState}
-                    onChange={handlePanelLayoutChange}
-                  >
-                    <ExplorerAppSurface
-                      canvasShellSrc={canvasShellSrc}
-                      changesPageContent={changesPageContent}
-                      logsPageContent={logsPageContent}
-                      nativeIndexSearch={nativeIndexSearch ?? null}
-                      terminalPageContent={terminalPageContent}
-                      threadContextPageContent={threadContextPageContent}
-                      worktreeMapPageContent={worktreeMapPageContent}
-                    />
-                  </PanelLayoutProvider>
-                </div>
-                {/* MCP elicitation consent is app-wide (BST-1584): desktop main
+                  <ExplorerAppSurface
+                    canvasShellSrc={canvasShellSrc}
+                    changesPageContent={changesPageContent}
+                    logsPageContent={logsPageContent}
+                    terminalPageContent={terminalPageContent}
+                    threadContextPageContent={threadContextPageContent}
+                    worktreeMapPageContent={worktreeMapPageContent}
+                  />
+                </PanelLayoutProvider>
+              </div>
+              {/* MCP elicitation consent is app-wide (BST-1584): desktop main
                     pushes server input requests here regardless of route, and the
                     host renders nothing when the preload bridge is absent. */}
-                <McpElicitationHost />
-                {/* Composer MCP prompt selection is app-wide (BST-1592): the
+              <McpElicitationHost />
+              {/* Composer MCP prompt selection is app-wide (BST-1592): the
                     "/" menu's execute hands the selection here from wherever the
                     composer is mounted, and the host renders nothing when the
                     preload bridge is absent. */}
-                <McpPromptComposerHost />
-                {/* Each keeps its content mounted-but-hidden once first opened — see
+              <McpPromptComposerHost />
+              {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
-                {/* The Artifacts gallery: every thread's canvases. */}
-                <KeepMountedRoute
-                  content={artifactsPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="artifacts"
-                />
-                {/* Settings is a full shell tab (BST-1668): same keep-mounted
+              {/* The Artifacts gallery: every thread's canvases. */}
+              <KeepMountedRoute
+                content={artifactsPageContent}
+                mountedTabs={mountedTabs}
+                shellTab={shellTab}
+                tab="artifacts"
+              />
+              {/* Settings is a full shell tab (BST-1668): same keep-mounted
                     contract as the routes above, so in-progress edits survive
                     a trip to another tab. */}
-                <KeepMountedRoute
-                  content={settingsPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="settings"
-                />
-                {/* Conversation Rewind confirm modal. Mounted only when the
+              <KeepMountedRoute
+                content={settingsPageContent}
+                mountedTabs={mountedTabs}
+                shellTab={shellTab}
+                tab="settings"
+              />
+              {/* Conversation Rewind confirm modal. Mounted only when the
                 changes capability is present (`rewindValue`), so web never
                 loads its chunk, and lazily so the Changes tree/diff panes stay
                 out of the shell's entry chunk. Renders nothing visible until
                 an entry point writes a request to `useRewindStore`. */}
-                {rewindValue ? (
-                  <Suspense fallback={null}>
-                    <RewindConfirmDialogLazy />
-                  </Suspense>
-                ) : null}
-              </ActionRegistryProvider>
-            </RewindProvider>
-          </ContextMapLinkContext>
-        </ChangesReviewProvider>
-      </AppLayout>
-    </RootDataDeletionProvider>
+              {rewindValue ? (
+                <Suspense fallback={null}>
+                  <RewindConfirmDialogLazy />
+                </Suspense>
+              ) : null}
+            </ActionRegistryProvider>
+          </RewindProvider>
+        </ContextMapLinkContext>
+      </ChangesReviewProvider>
+    </AppLayout>
   );
 }

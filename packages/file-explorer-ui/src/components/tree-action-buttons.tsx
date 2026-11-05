@@ -111,7 +111,7 @@ const InlineScanningIndicator = React.memo(
         )}
         {isCancelling ? (
           <span className="text-muted-foreground hidden text-xs @[236px]/explorer-toolbar:inline">
-            Stopping...
+            Stopping…
           </span>
         ) : (
           countText && (
@@ -139,7 +139,7 @@ const InlineScanningIndicator = React.memo(
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{isCancelling ? 'Cancelling...' : 'Cancel operation'}</p>
+              <p>{isCancelling ? 'Cancelling…' : 'Cancel operation'}</p>
             </TooltipContent>
           </Tooltip>
         )}
@@ -195,10 +195,10 @@ export const TreeActionButtons = React.memo(
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}
-              size="icon"
+              size="icon-xs"
               variant="ghost"
             >
-              <RefreshCw className={cn('h-4 w-4', { 'animate-spin': isRefreshing })} />
+              <RefreshCw className={cn('size-4', { 'animate-spin': isRefreshing })} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>

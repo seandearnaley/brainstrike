@@ -3,6 +3,12 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { ReadWorkspaceContextInputSchema } from '../schemas/schemas-workspace.ts';
 
 export const readWorkspaceContext = defineNativeTool({
+  activity: {
+    active: 'Reading context',
+    done: 'Read context',
+    family: 'read',
+    request: 'Read context',
+  },
   defaults: {
     category: 'retrieval',
     estimatedTokens: 180,

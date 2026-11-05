@@ -1,10 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
-import {
-  __resetDiagnosticsRetentionStoreForTests,
-  useDiagnosticsRetentionStore,
-} from '@brainstrike/app-state/stores/diagnostics-retention-store';
+import { useDiagnosticsRetentionStore } from '@brainstrike/app-state/stores/diagnostics-retention-store';
 import { createDefaultLoggingPreferences } from '@brainstrike/logging';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection } from './logging-settings-section';
@@ -28,7 +25,6 @@ const baseProps = {
 
 beforeEach(() => {
   toastMock.mockReset();
-  __resetDiagnosticsRetentionStoreForTests();
 });
 
 beforeAll(() => {
@@ -68,7 +64,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
     const user = userEvent.setup();
     render(<LoggingSettingsSection {...baseProps} runtime="browser" />);
 
-    expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
+    expect(screen.getByText('Diagnostics retention')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /keep events for/iu })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: /maximum events/iu })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /purge now/iu })).not.toBeInTheDocument();
@@ -89,7 +85,7 @@ describe('LoggingSettingsSection diagnostics retention card', () => {
       <LoggingSettingsSection {...baseProps} onPurgeNow={vi.fn(async () => 0)} runtime="browser" />
     );
 
-    expect(screen.getByText('Diagnostics Retention')).toBeInTheDocument();
+    expect(screen.getByText('Diagnostics retention')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /purge now/iu })).toBeInTheDocument();
   });
 
@@ -286,7 +282,7 @@ describe('LoggingSettingsSection sink-health banner', () => {
     );
 
     const banner = screen.getByTestId('diagnostic-sink-health-banner');
-    const generalCard = screen.getByText('General Logging');
+    const generalCard = screen.getByText('General logging');
     // Node.compareDocumentPosition: DOCUMENT_POSITION_FOLLOWING (4) means
     // the argument comes AFTER `banner` in document order.
     expect(banner.compareDocumentPosition(generalCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(

@@ -25,6 +25,8 @@ import { getThreadGroupsCapability } from '../thread-groups-capability';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
+import { useFollowPrimaryRecord } from './use-follow-primary-record';
+import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import { useThreadFolderScope } from './use-thread-folder-scope';
@@ -52,6 +54,7 @@ import {
 } from './use-workspace-bar-write-derive';
 import { NO_TOUCHED_FIELDS, useWriteTailQueue } from './use-workspace-bar-write-tail-queue';
 import { copyWorkspaceBarPath } from './workspace-bar-clipboard';
+import { withFolderRequest } from './workspace-bar-folder-requests.ts';
 
 // Re-exported (not just imported) so existing test imports of
 // `deriveMakePrimary` from this module keep working unchanged — the pure
@@ -153,6 +156,14 @@ function checkoutStateOf(
 interface MainRootRow {
   readonly path: string;
   readonly rootId: string | null;
+}
+
+/**
+ * The primary's id while the host has it open. Git reads only an open folder, so a removed
+ * primary shows its Removed state instead of a git status refused on every refresh.
+ */
+function openPrimaryRootId(primaryRoot: WorkspaceBarRoot | undefined): string | undefined {
+  return primaryRoot?.removed ? undefined : primaryRoot?.rootId;
 }
 
 /**
@@ -351,6 +362,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
   // The new thread's composer reads its draft binding as an unsent thread's.
   const selectedThread = useResourceThread(memoryResourceId, selectedMemoryThreadId);
+  const frontThreadId = useAssistantThreadStore(
+    (state) => state.activeThreadIdByResourceId[memoryResourceId]
+  );
   const checkoutMode = selectedThread?.metadata?.checkoutMode ?? 'local';
   const checkoutLocalRootId = checkoutLocalRootIdFor(checkoutMode, selectedThread?.metadata);
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
@@ -839,6 +853,33 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const folderDropEntry = useFolderDrop({ onRootConnected: recordAddedAsSecondary });
 
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
+  const checkoutWorktreeId = selectedThread?.metadata?.checkoutWorktreeId;
+  const checkoutWorktreePath = selectedThread?.metadata?.checkoutWorktreePath;
+  const threadWorktree = useMemo(
+    () =>
+      checkoutMode === 'worktree' && checkoutWorktreeId && checkoutWorktreePath
+        ? { id: checkoutWorktreeId, localRootId: checkoutLocalRootId, path: checkoutWorktreePath }
+        : undefined,
+    [checkoutLocalRootId, checkoutMode, checkoutWorktreeId, checkoutWorktreePath]
+  );
+  const followPrimaryRecord = useFollowPrimaryRecord({
+    checkoutLocalRootId,
+    enqueueThreadFoldersWrite,
+    resolveRootIdForPath,
+    selectedMemoryThreadId,
+    worktree: threadWorktree,
+  });
+  useReconnectThreadFolders({
+    addRootByPath: addRootDirectoryByPath,
+    describeFailure,
+    followPrimaryRecord,
+    primaryRoot,
+    ready: !foldersPending && threadRoots.resolved,
+    secondaryRoots: loadedSecondaryRoots,
+    // Each open tab keeps its bar mounted: only the tab in front opens its thread's folders.
+    threadId: frontThreadId === selectedMemoryThreadId ? selectedMemoryThreadId : undefined,
+    worktree: threadWorktree,
+  });
   // Always defined; the CAPABILITY decides whether the prop is supplied (see
   // the return). Gating the spread on `addRootDirectoryByPath` rather than on
   // this callback keeps the render-time condition free of the ref-derived
@@ -1009,15 +1050,16 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
 
   const primaryRootPath = primaryRoot?.path;
   const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
+  const gitRootId = openPrimaryRootId(primaryRoot);
   const {
     checkout,
     failure: checkoutFailure,
     settled: checkoutSettled,
   } = useThreadCheckoutStatus(
-    primaryRootId && primaryRootPath
+    gitRootId && primaryRootPath
       ? {
           adapterRootId: primaryAdapterRootId,
-          dbRootId: primaryRootId,
+          dbRootId: gitRootId,
           path: primaryRootPath,
         }
       : null
@@ -1039,13 +1081,18 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     foldersPending,
     onHandOffToLocal,
     onSelectWorktree,
-    primaryRootId,
+    primaryRootId: gitRootId,
     primaryRootPath,
     selectedMemoryThreadId,
     selectedThread,
     worktreeCheckout,
   });
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
+  const folderRequests = fileSystem.folderRequests;
+  const shownSecondaryRoots = useMemo(
+    () => secondaryRoots.map((root) => withFolderRequest(root, folderRequests)),
+    [folderRequests, secondaryRoots]
+  );
 
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
@@ -1065,10 +1112,10 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onRemovePrimary: onRemoveFromThread,
     onRemoveSecondary: onRemoveFromThread,
     onUseFolder,
-    ...(primaryRoot ? { primaryRoot } : {}),
+    ...(primaryRoot ? { primaryRoot: withFolderRequest(primaryRoot, folderRequests) } : {}),
     recentRoots,
     ...(reveal ? { reveal } : {}),
-    secondaryRoots,
+    secondaryRoots: shownSecondaryRoots,
     workspaceFolders,
   };
 }

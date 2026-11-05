@@ -25,6 +25,12 @@ export const DESKTOP_IPC_CHANNELS = {
     prepareClose: 'agent:prepare-close',
     showDataFolder: 'agent:show-data-folder',
   },
+  // Settings › Startup (ADR-0033): keep running in the tray, open at login.
+  appLifetime: {
+    getSettings: 'app-lifetime:get-settings',
+    setKeepRunningInTray: 'app-lifetime:set-keep-running-in-tray',
+    setOpenAtLogin: 'app-lifetime:set-open-at-login',
+  },
   appMenu: {
     // One-way main→renderer push: the app menu's Settings… item (⌘, / Ctrl+,)
     // triggers this on the FOCUSED window so the renderer opens Settings.
@@ -64,9 +70,6 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
-  contextFiles: {
-    scan: 'context-files:scan',
-  },
   db: {
     clearAll: 'db:clearAll',
     getUserDataPath: 'db:getUserDataPath',
@@ -84,48 +87,10 @@ export const DESKTOP_IPC_CHANNELS = {
   fileExports: {
     saveToDownloads: 'file-exports:save-to-downloads',
   },
-  files: {
-    addRoot: 'fs:addRoot',
-    addRootByPath: 'fs:addRootByPath',
-    deleteRootData: 'fs:deleteRootData',
-    exists: 'fs:exists',
-    listRecentRoots: 'fs:listRecentRoots',
-    readDirectory: 'fs:readDirectory',
-    readFile: 'fs:readFile',
-    readFileByAbsolutePath: 'fs:readFileByAbsolutePath',
-    readFileByPath: 'fs:readFileByPath',
-    removeRoot: 'fs:removeRoot',
-    requestDirectoryAccess: 'fs:requestDirectoryAccess',
-    restoreLastFolder: 'fs:restoreLastFolder',
-    restoreRoots: 'fs:restoreRoots',
-    saveLastFolder: 'fs:saveLastFolder',
-    unwatch: 'fs:unwatch',
-    watch: 'fs:watch',
-    watchEvent: 'fs:watch-event',
-    watchHealth: 'fs:watch-health',
-    watchRetry: 'fs:watch-retry',
-    watchTelemetry: 'fs:watch-telemetry',
-  },
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
     trustProjectHooks: 'hooks:trust-project-hooks',
     untrustProjectHooks: 'hooks:untrust-project-hooks',
-  },
-  indexSearch: {
-    configChanged: 'index-search:config-changed',
-    coverage: 'index-search:coverage',
-    coverageBatch: 'index-search:coverage-batch',
-    embedQuery: 'index-search:embed-query',
-    fileChunks: 'index-search:file-chunks',
-    grep: 'index-search:grep',
-    lifecycleChanged: 'index-search:lifecycle-changed',
-    readConfig: 'index-search:read-config',
-    rebuild: 'index-search:rebuild',
-    resetConfig: 'index-search:reset-config',
-    rootsRegistered: 'index-search:roots-registered',
-    search: 'index-search:search',
-    status: 'index-search:status',
-    updateConfig: 'index-search:update-config',
   },
   // Logging settings/ingest surface; `platform/logging-api-contract.ts`
   // re-exports this group as LOGGING_API_CHANNELS (its validators need
@@ -175,18 +140,7 @@ export const DESKTOP_IPC_CHANNELS = {
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
   },
-  storage: {
-    clearAllForE2e: 'storage:clearAllForE2e',
-    getAllKeys: 'storage:getAllKeys',
-    getItem: 'storage:getItem',
-    removeItem: 'storage:removeItem',
-    seedMainOwnedForE2e: 'storage:seedMainOwnedForE2e',
-    setItem: 'storage:setItem',
-  },
   threadGroups: { readRoots: 'thread-groups:read-roots', request: 'thread-groups:request' },
-  userPersonas: {
-    list: 'user-personas:list',
-  },
   viewFilterPresets: { request: 'view-filter-presets:request' },
   // Native focus of the host BrowserWindow (BST-1864). `isFocused` is the ONLY
   // invoke: the value for the asking window, served on request so a renderer

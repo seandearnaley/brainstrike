@@ -2,12 +2,7 @@ import { realpathSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import {
-  createStateStoreIndexer,
-  type StateIndexerPort,
-  type StateMessageVectorPort,
-  type StateObservationVectorPort,
-} from '@brainstrike/indexer';
+import { createStateStoreIndexer, type StateIndexerPort } from '@brainstrike/indexer';
 import {
   createIndexerConnection,
   type IndexerConnection,
@@ -39,12 +34,8 @@ export interface HostStateIndex {
   close(): Promise<void>;
   /** Factory reset destroys the index files through this port's `reset`. */
   readonly indexer: StateStoreIndexerPort;
-  /** Memory vectors are acquired under the state root itself as their Root ID. */
-  readonly rootId: string;
   /** Gap 10: committed conversation rows of the requested threads matching every query word. */
   readonly search: StateIndexerPort['searchState'];
-  /** Recall and observation vectors, in this same derived store and writer. */
-  readonly vectors: StateMessageVectorPort & StateObservationVectorPort;
 }
 
 // The worker and producer entry points sit beside this module with its own
@@ -63,11 +54,9 @@ function canonicalEntryModule(name: string): string {
  * Open the host's derived state index over its own state root, projected by
  * the host's producer module. The engine runs in a worker thread, so the same
  * composition works in a plain Node host and in an Electron utility process.
- * Memory vectors live here too, acquired for the platform's memory resources.
  */
 export async function openHostStateIndex(
   root: string,
-  memoryResourceIds: readonly string[] = [],
   startup?: Pick<HostStartupContext, 'register' | 'signal'>
 ): Promise<HostStateIndex> {
   // The root lock's identity for this root (BST-2234): the index's root id is durable.
@@ -75,10 +64,7 @@ export async function openHostStateIndex(
   const dbPath = join(stateRoot, HOST_STATE_INDEX_FILE);
   const options = {
     dbPath,
-    embedding: { indexMode: 'text-only' },
-    rootIds: [stateRoot],
     stateProjection: { mode: 'prod', module: canonicalEntryModule('state-projection') },
-    stateResources: memoryResourceIds.map((resourceId) => ({ resourceId, rootId: stateRoot })),
     stateRoot,
   } as const;
   const owner = createStateIndexOwner({ dbPath, start: () => startStateIndexWorker(options) });
@@ -87,29 +73,19 @@ export async function openHostStateIndex(
   // Register the owner's physical join before starting its worker.
   await startup?.register(owner.close);
   startup?.signal.throwIfAborted();
-  const cancel = (): void => {
-    // The startup owner observes the same retained rejection during rollback.
-    void owner.close().catch(() => undefined);
-  };
-  startup?.signal.addEventListener('abort', cancel, { once: true });
-  try {
-    if (startup?.signal.aborted) {
-      cancel();
-    }
-    await owner.open();
-    startup?.signal.throwIfAborted();
-  } catch (cause) {
-    await owner.close();
-    throw startup?.signal.aborted ? startup.signal.reason : cause;
-  } finally {
-    startup?.signal.removeEventListener('abort', cancel);
-  }
+  // The index is derived and rebuildable, and its port waits for the worker, so the host does not
+  // wait for it to start: a window reaches its folders while the worker opens. A first start that
+  // fails is retired like any other, and the next request replaces it.
+  owner.open().catch((cause: unknown) => {
+    logger.error('The host state index did not start; the next request starts it again', {
+      code: 'host_state_index_start_failed',
+      error: cause,
+    });
+  });
   return {
     close: owner.close,
     indexer: createStateStoreIndexer(owner.port),
-    rootId: stateRoot,
     search: (request) => owner.port.searchState(request),
-    vectors: owner.port,
   };
 }
 

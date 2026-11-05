@@ -1,5 +1,5 @@
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -8,16 +8,15 @@ import type { ElectronHarness } from '../fixtures/electron-harness';
 import { readHostThreadWorkspace, waitForAppHost } from './agent-host-log';
 import { configureAssistantProvider } from './assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './context-explorer-locators';
-import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
+import { seedWorkspaceFolders } from './seed-root';
 import { seedHostThreads } from './seed-threads';
 
 /**
- * The three renderer writers with a write-behind tail (ADR-0026 R1), driven through the real UI
- * and read back from each one's owner: the thread workspace snapshot from the agent host,
- * Explorer persistence from Main's `electron-storage.json`, the panel layout from the profile's
- * localStorage. No transport is patched and no write is held: the contract is "the last write is
+ * The renderer's durable UI writers (ADR-0026 R1), driven through the real UI and read back from
+ * each one's owner: the thread workspace snapshot from the agent host, Explorer persistence and
+ * the panel layout from the profile's localStorage. No transport is patched and no write is held: the contract is "the last write is
  * committed before the document unloads", read where it is committed.
  */
 export interface DurableUiFixture {
@@ -29,7 +28,7 @@ export interface DurableUiFixture {
 
 const ROOT_ID = 'durable-ui-root-0000-4000-8000-000000000001';
 const FOLDER = 'src';
-const PANEL_LAYOUT_KEY = 'panel-layout-store.v1';
+const PANEL_LAYOUT_KEY = 'brainstrike:panel-layout-store.v1';
 
 /**
  * A seeded root with one folder, and one thread whose workspace the host has stored. The root is
@@ -51,25 +50,7 @@ export async function openDurableUiFixture(
   );
   await mkdir(path.join(rootPath, FOLDER));
   await writeFile(path.join(rootPath, FOLDER, 'index.ts'), 'export const durable = true;\n');
-  await seedPage.evaluate(
-    async ({ root, rootId }) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', root);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId }])
-      );
-    },
-    { root: rootPath, rootId: ROOT_ID }
-  );
-  await updateIndexConfig(seedPage, { paused: true });
+  await seedWorkspaceFolders(seedPage, { roots: [{ path: rootPath, rootId: ROOT_ID }] });
   // New creates nothing until a first send, so the thread is created through
   // the host, without a run.
   await seedHostThreads(electron.getUserDataDir(), [{ folder: null, title: DURABLE_THREAD_TITLE }]);
@@ -147,13 +128,10 @@ export async function readPanelLayout(page: Page): Promise<string | null> {
   return await page.evaluate((key) => localStorage.getItem(key), PANEL_LAYOUT_KEY);
 }
 
-/** The expanded folders in Main's own storage file, as the next launch reads them. */
-export async function readStoredExplorerExpansion(userDataDir: string): Promise<string[]> {
-  const storage = JSON.parse(
-    await readFile(path.join(userDataDir, 'electron-storage.json'), 'utf8')
-  ) as Record<string, string | undefined>;
-  const stored = storage[FILE_EXPLORER_STORAGE_KEY];
-  if (stored === undefined) {
+/** The expanded folders the renderer saved in its `localStorage`, as the next document reads them. */
+export async function readStoredExplorerExpansion(page: Page): Promise<string[]> {
+  const stored = await page.evaluate((key) => localStorage.getItem(key), FILE_EXPLORER_STORAGE_KEY);
+  if (stored === null) {
     return [];
   }
   const envelope = JSON.parse(stored) as { state?: { expandedDirectoryPaths?: string[] } };
@@ -184,9 +162,21 @@ export async function reloadFromMenu(app: ElectronApplication, page: Page): Prom
   }, id);
 }
 
+/** What Main says closing the last window does now (ADR-0033): stay in the Dock or tray, or quit. */
+export async function readLastWindowClose(page: Page): Promise<'keeps-running' | 'quits'> {
+  const answer = await page.evaluate(async () => {
+    const result = await window.appLifetime?.getSettings();
+    return result?.ok ? result.value.lastWindowClose : null;
+  });
+  if (answer === null) {
+    throw new Error('Main did not say what closing the last window does');
+  }
+  return answer;
+}
+
 /**
- * The user's window-X on the app's only visible window. macOS keeps the app running without a
- * window; Windows and Linux quit, and this joins that exit and returns its status.
+ * The user's window-X on the app's only visible window. Where the Dock or the tray keeps the app
+ * running it stays; otherwise it quits, and this joins that exit and returns its status.
  */
 export async function closeLastWindowLikeTheUser(
   electron: ElectronHarness,
@@ -194,7 +184,7 @@ export async function closeLastWindowLikeTheUser(
 ): Promise<{ readonly quit: false } | { readonly quit: true; readonly exitCode: number | null }> {
   const { app } = await electron.ensureContext();
   const window = await app.browserWindow(page);
-  if (process.platform === 'darwin') {
+  if ((await readLastWindowClose(page)) === 'keeps-running') {
     const closed = page.waitForEvent('close');
     await window.evaluate((win) => {
       win.close();
