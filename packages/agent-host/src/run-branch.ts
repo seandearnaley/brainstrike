@@ -18,6 +18,7 @@ import {
 import type { ModelMessage, UserModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { withHostDeliveryLedger } from './child-delivery.ts';
+import { hostRootRunTurnId } from './committed-identities.ts';
 import {
   createHostRunState,
   foldHostInteraction,
@@ -265,8 +266,10 @@ export function startedHostRun(
   if (started.planMode) {
     run.planMode = true;
   }
-  if (started.turnId !== undefined) {
-    run.turnId = started.turnId;
+  // The one committed turn: a wake's or a carried-on run's; any other run starts its own.
+  const turnId = hostRootRunTurnId(started);
+  if (turnId !== started.runId) {
+    run.turnId = turnId;
   }
   if (admission.input) {
     run.input = admission.input;
