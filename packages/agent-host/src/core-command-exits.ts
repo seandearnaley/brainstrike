@@ -12,6 +12,7 @@
  * nothing to report. The delivery a run commits records which exits it took.
  */
 import { hostChildCallSign } from './child-presentation.ts';
+import { hostRunTurnId, hostTurnStopped } from './committed-identities.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
 import type { HostRunState } from './core-state.ts';
 import type { HostCommandSessionExit, HostPlatform } from './ports.ts';
@@ -99,7 +100,8 @@ export class HostCommandSessionExits {
 
   /** A stopped turn wakes for nothing: its thread's exits wait for the person's next turn. */
   private stopped(threadId: string): boolean {
-    return this.own(threadId).at(-1)?.stopped === true;
+    const tip = this.own(threadId).at(-1);
+    return tip !== undefined && hostTurnStopped(this.ports.runs(), hostRunTurnId(tip));
   }
 
   /** The thread that hears an exit: the starter while it runs, else its nearest busy or root ancestor. */

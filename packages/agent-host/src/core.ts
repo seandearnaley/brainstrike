@@ -632,7 +632,7 @@ export class HostCore {
           method,
           runId,
         },
-        this.ends.deliveryPosition(method, params, selected, admission.delegation),
+        this.ends.deliveryPosition(method, params, selected, admission.delegation, runId),
         this.children.grants(root),
         admission.snapshot,
         controller
@@ -733,6 +733,7 @@ export class HostCore {
       loop: (child, model) => this.loop(child, model),
       policy: async (threadId) => await this.platform.readPermissionPolicy(threadId),
       retainRun: this.retainRun,
+      runs: this.runs,
       stop: (child, reason) => {
         if (!this.closing) {
           retainHostRunWork(run, this.stopRun(child, reason));
@@ -933,8 +934,7 @@ export class HostCore {
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
     const join = (): Promise<void> => {
       const run = this.runs.requireForThread(params.threadId, params.runId);
-      // BST-1932: a root Stop ends its turn's children, foreground and background.
-      const stopped = [run, ...this.children.turnChildren(run, this.runs)];
+      const stopped = [run, ...this.children.turnRuns(run, this.runs)];
       return stopHostRunTree(stopped, (owned, reason) => this.stopRun(owned, reason));
     };
     return this.command(
