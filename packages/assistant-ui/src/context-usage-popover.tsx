@@ -73,14 +73,14 @@ const SourceRow = ({ source }: { readonly source: CumulativeSource }) => {
         <span className="min-w-0 truncate">
           {SOURCE_LABELS[source.kind]}
           {onlyModel ? (
-            <span className="text-muted-foreground/70">
+            <span className="text-muted-foreground">
               {' '}
               · {resolveModelLabel(onlyModel.provider, onlyModel.model)}
             </span>
           ) : null}
         </span>
         <span className="flex shrink-0 gap-3 tabular-nums">
-          <span className="text-muted-foreground/80">
+          <span className="text-muted-foreground">
             {formatCompact(source.inputTokens)} in · {formatCompact(source.outputTokens)} out
           </span>
           <span className="text-foreground w-14 text-right">
@@ -92,7 +92,7 @@ const SourceRow = ({ source }: { readonly source: CumulativeSource }) => {
         <ul className="border-border/60 ml-1 flex flex-col gap-px border-l pl-2">
           {source.models.map((model) => (
             <li
-              className="text-muted-foreground/70 flex items-center justify-between gap-2 text-[11px]"
+              className="text-muted-foreground flex items-center justify-between gap-2 text-[11px]"
               data-testid="context-usage-source-model"
               key={`${model.provider}::${model.model}`}
             >
@@ -153,7 +153,7 @@ export const CumulativeUsageSection = ({
         </span>
       </p>
       <p
-        className="text-muted-foreground/80 text-[11px] tabular-nums"
+        className="text-muted-foreground text-[11px] tabular-nums"
         data-testid="context-usage-thread-total-split"
       >
         {formatCompact(inputTokens)} in · {formatCompact(outputTokens)} out
@@ -254,7 +254,7 @@ const OmMeterSection = ({ state }: OmMeterSectionProps) => {
   if (state.kind === 'stats') {
     return (
       <div
-        className="text-muted-foreground/70 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]"
+        className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]"
         data-testid="context-usage-om-stats"
       >
         {state.observationTokens > 0 && (
@@ -288,7 +288,7 @@ const OmMeterSection = ({ state }: OmMeterSectionProps) => {
     <p
       className={cn(
         'mt-1.5 text-[11px]',
-        note.tone === 'error' ? 'text-destructive/80' : 'text-muted-foreground/70'
+        note.tone === 'error' ? 'text-destructive' : 'text-muted-foreground'
       )}
       data-testid="context-usage-om-note"
     >
@@ -789,10 +789,7 @@ export const ContextUsagePopoverContent = ({
         Context {Math.round(percentage)}% full · {formatCompact(usedTokens)}
         {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(effectiveInputBudget)}
       </p>
-      <p
-        className="text-muted-foreground/80 text-[11px]"
-        data-testid="context-usage-popover-window"
-      >
+      <p className="text-muted-foreground text-[11px]" data-testid="context-usage-popover-window">
         model window {formatTokenCount(contextWindow)}
       </p>
 
@@ -829,7 +826,7 @@ export const ContextUsagePopoverContent = ({
                 <ul className="border-border/60 ml-3.5 flex max-h-48 flex-col gap-px overflow-y-auto border-l pl-2">
                   {subRowsByTestId[row.testId]?.map((subRow) => (
                     <li
-                      className="text-muted-foreground/70 flex items-center justify-between gap-2 text-[11px]"
+                      className="text-muted-foreground flex items-center justify-between gap-2 text-[11px]"
                       data-testid={subRow.testId}
                       key={subRow.testId}
                     >

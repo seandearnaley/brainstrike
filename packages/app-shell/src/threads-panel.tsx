@@ -668,7 +668,7 @@ function ThreadPanelEmptyCell({
   const hint = row.groupId ? 'Drop threads here' : 'Drop threads here to ungroup them';
   const content = (
     <div
-      className="border-border/45 text-muted-foreground/80 my-0.5 flex min-h-9 items-center rounded-md border border-dashed px-2 text-[11px]"
+      className="border-border/45 text-muted-foreground my-0.5 flex min-h-9 items-center rounded-md border border-dashed px-2 text-[11px]"
       data-testid="thread-panel-drop-zone"
     >
       {hint}

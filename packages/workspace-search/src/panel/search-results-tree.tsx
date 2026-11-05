@@ -155,7 +155,7 @@ function MatchRow({
 
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <span className="text-muted-foreground/70 w-9 shrink-0 text-right font-mono text-xs tabular-nums">
+      <span className="text-muted-foreground w-9 shrink-0 text-right font-mono text-xs tabular-nums">
         {match.line}
       </span>
       {/* A narrow panel truncates the line; its title keeps the whole line readable. */}

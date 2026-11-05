@@ -200,7 +200,7 @@ export function AssistantRunTimeline({
             {durationLabel}
           </span>
         ) : null}
-        <span className="text-muted-foreground/70 shrink-0 text-[11px] tabular-nums">
+        <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
           {formatTimestamp(event.timestamp)}
         </span>
         <Button

@@ -465,7 +465,7 @@ export const ContextUsageMeter = ({
             {draftText && <DraftHint projectedState={projectedState} text={draftText} />}
             {trigger.costText && (
               <span
-                className="text-muted-foreground/70 tabular-nums"
+                className="text-muted-foreground tabular-nums"
                 data-testid="context-usage-trigger-cost"
               >
                 {trigger.costText}
