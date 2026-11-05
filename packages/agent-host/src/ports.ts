@@ -360,6 +360,12 @@ export interface HostToolDiscovery {
   readonly toolIds: ReadonlySet<string>;
 }
 
+/** What a prompt's mentioned files and activated skills add, and the mentions that could not be read. */
+export interface HostPromptContext {
+  readonly context?: string;
+  readonly referencedFileFailures: readonly ReferencedFileFailure[];
+}
+
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
   /**
@@ -420,6 +426,12 @@ export interface HostRunAdmission {
    * committed record when it is on. Absent means off.
    */
   readObservation?(threadId: string): Promise<HostObservationalMemoryState>;
+  /**
+   * ADR-0028 step 3b: the context a person's message read mid-run calls for
+   * (the files it mentions, the skills it activates), read as this admission
+   * read its own prompt's. Absent where the run's prompt reads none.
+   */
+  readonly readPromptContext?: ((prompt: string) => Promise<HostPromptContext>) | undefined;
   readonly referencedFileFailures?: readonly ReferencedFileFailure[];
   /**
    * The tool-result budget this run's model was selected with, as the

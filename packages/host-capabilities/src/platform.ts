@@ -81,7 +81,10 @@ import {
 } from './native-tools/index.ts';
 import { closeStandaloneOwners } from './standalone-close.ts';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.ts';
-import { readHostWorkspaceContext } from './workspace-context/host-system-context.ts';
+import {
+  readHostPromptContext,
+  readHostWorkspaceContext,
+} from './workspace-context/host-system-context.ts';
 import { prepareAdmittedSkills } from './workspace-context/request-skills.ts';
 import { createSecureSkillsFs } from './workspace-context/skills-fs.ts';
 
@@ -583,13 +586,14 @@ export async function createHostPlatform(
       // ADR-0032: a launch root's instructions, skills and personas load once the
       // person trusts it (`workspace trust`); the home tiers always load.
       const configurationRoots = await trustedHostWorkspaceRoots(startup.store, workspaceRoots);
+      const contextRuntime = {
+        ...configuration,
+        workspaceInstructionsPreference: STANDALONE_WORKSPACE_INSTRUCTIONS,
+        workspaceRoots,
+      };
       const workspaceContext = await standaloneWorkspaceContext(request, {
         configurationRoots,
-        runtime: {
-          ...configuration,
-          workspaceInstructionsPreference: STANDALONE_WORKSPACE_INSTRUCTIONS,
-          workspaceRoots,
-        },
+        runtime: contextRuntime,
         system,
       });
       const bindings = createStandaloneHumanTools(resolvedToolResultBudget);
@@ -657,6 +661,13 @@ export async function createHostPlatform(
           provider: catalog.provider,
           runtimeData: configuration,
         },
+        // A person's message read mid-run reads its mentions as this prompt's were.
+        readPromptContext: (prompt: string) =>
+          readHostPromptContext({
+            prompt,
+            runtime: contextRuntime,
+            workspaceSkills: workspaceContext.workspaceSkills,
+          }),
         referencedFileFailures: [...workspaceContext.referencedFileFailures],
         resolvedToolResultBudget,
         ...auth,

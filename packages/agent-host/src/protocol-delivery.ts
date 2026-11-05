@@ -65,6 +65,16 @@ export type HostNotice = (typeof HostNoticeSchema)['Type'];
 const CommandSessions = Schema.optional(
   Schema.mutable(Schema.Array(HostCommandSessionDeliverySchema)).check(Schema.isMinLength(1))
 );
+/** ADR-0028 step 3b: the person's inputs a run took, by their run/input command IDs. */
+const Inputs = Schema.optional(Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)));
+const delivers = (delivery: {
+  readonly commandSessions?: unknown;
+  readonly entries: readonly unknown[];
+  readonly inputs?: unknown;
+}): boolean =>
+  delivery.entries.length > 0 ||
+  delivery.commandSessions !== undefined ||
+  delivery.inputs !== undefined;
 export const HostChildDeliverySchema = Schema.Union(
   [
     Schema.Struct({
@@ -74,15 +84,17 @@ export const HostChildDeliverySchema = Schema.Union(
       turnId: Id,
       via: Schema.Literal('wake'),
     }),
+    /** A run started by a person's input names it in `inputs`; `ledger` is the report it carries. */
     Schema.Struct({
       commandSessions: CommandSessions,
       entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
-      ledger: Id,
+      inputs: Inputs,
+      ledger: Schema.optional(Id),
       messageId: Id,
       via: Schema.Literal('next-turn'),
     }).check(
       Schema.makeFilter((delivery) =>
-        delivery.entries.length > 0 || delivery.commandSessions
+        delivers(delivery)
           ? undefined
           : { issue: 'A next-turn delivery delivers nothing', path: [] }
       )
@@ -98,11 +110,10 @@ export type HostChildDelivery = (typeof HostChildDeliverySchema)['Type'];
 export const HostStepDeliverySchema = Schema.Struct({
   commandSessions: CommandSessions,
   entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
+  inputs: Inputs,
 }).check(
   Schema.makeFilter((delivery) =>
-    delivery.entries.length > 0 || delivery.commandSessions
-      ? undefined
-      : { issue: 'A step delivery delivers nothing', path: [] }
+    delivers(delivery) ? undefined : { issue: 'A step delivery delivers nothing', path: [] }
   )
 );
 export type HostStepDelivery = (typeof HostStepDeliverySchema)['Type'];

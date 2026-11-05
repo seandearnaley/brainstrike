@@ -1,24 +1,28 @@
 /**
- * BST-1932: a person's input into a running child. The committed run/input is
- * the input's one record: an input whose commit lands after the child's run
- * ended starts the child's next run itself, and one a restart finds untaken is
- * committed as a refused run. It is never acknowledged and then dropped.
+ * ADR-0028 step 3b: a person's message to a working thread is a notice. The
+ * running run reads it at its next step and its own answer answers both; an
+ * idle thread, or one whose run ended before it could read it, starts the
+ * person's turn with it. It is never acknowledged and then dropped.
  */
 import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
-import type { HostLogRow } from '../src/protocol.js';
+import type { HostRunAdmission, HostUserPromptVerdict } from '../src/ports.ts';
+import type { HostLogRow } from '../src/protocol.ts';
 import {
   blocked,
+  type CallOptions,
   childThreads,
+  recordingAdmission,
   setupChildRunHost,
   stream,
   text,
   toolCall,
   toolNames,
+  toolResults,
   userTexts,
   worker,
-} from './fixtures/child-run-host.js';
+} from './fixtures/child-run-host.ts';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -29,43 +33,118 @@ afterEach(async () => {
 
 const TASK = 'CHILD_TASK: write the notes.';
 const FOLLOW = 'FOLLOW_UP_INPUT: also add a title.';
+const FOLLOWED = 'Notes written, with a title.';
 
-/** The parent delegates TASK once; the child answers TASK, fails, or blocks until stopped. */
-function delegating(child: 'answer' | 'block' | 'fail'): MockLanguageModelV4 {
+type Child = 'answer' | 'block' | 'fail' | 'read';
+type Harness = Awaited<ReturnType<typeof setupChildRunHost>>;
+
+/**
+ * The parent delegates TASK once. The child answers, fails, blocks until
+ * stopped, or reads the notes first; any child step that sees FOLLOW answers it.
+ */
+function delegating(child: Child, foreground = false): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async (call) => {
       const texts = userTexts(call);
-      if (texts.some((value) => value.includes(FOLLOW))) {
-        return stream(text('Follow-up done.'));
-      }
       // The child's thread opens with its task; a parent's wake only quotes it.
       if (texts[0]?.includes(TASK)) {
+        if (texts.some((value) => value.includes(FOLLOW))) {
+          return stream(text(FOLLOWED));
+        }
         if (child === 'fail') {
           throw new Error('CHILD_MODEL_FAILED');
         }
-        return child === 'answer' ? stream(text('Child done.')) : blocked(call);
+        if (child === 'read' && toolResults(call).length === 0) {
+          return stream(toolCall('read_file', { path: 'notes.md' }, 'read-1'));
+        }
+        return child === 'block' ? blocked(call) : stream(text('Child done.'));
       }
       const answered = call.prompt.some((message) => message.role === 'tool');
       if (!toolNames(call).includes('agent-worker') || answered) {
         return stream(text('Parent continues.'));
       }
-      return stream(toolCall('agent-worker', { prompt: TASK }, 'delegate-1'));
+      const background = foreground
+        ? { _background: { disposition: 'awaited', enabled: true } }
+        : {};
+      return stream(toolCall('agent-worker', { ...background, prompt: TASK }, 'delegate-1'));
     },
   });
 }
 
-async function childRun(
-  core: { read: (threadId: string, fromSeq: number) => Promise<{ event: { type: string } }[]> },
-  childThreadId: string
-): Promise<string> {
-  const started = (await core.read(childThreadId, 0)).find(
+async function childRun(harness: Harness, childThreadId: string): Promise<string> {
+  const started = (await harness.core().read(childThreadId, 0)).find(
     (row) => row.event.type === 'run.started'
   )?.event;
-  if (started?.type !== 'run.started' || !('runId' in started)) {
+  if (started?.type !== 'run.started') {
     throw new Error('No child run');
   }
-  return started.runId as string;
+  return started.runId;
 }
+
+const send = (harness: Harness, threadId: string, runId: string) =>
+  harness.core().input({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: FOLLOW,
+    runId,
+    threadId,
+  });
+
+/** The child runs a parent's log was told about, in post order, with their outcomes. */
+const reported = (rows: readonly HostLogRow[]): [string, string][] =>
+  rows.flatMap(({ event }) =>
+    event.type === 'notice.posted' && event.notice.kind === 'child'
+      ? [[event.notice.entry.childRunId, event.notice.entry.outcome]]
+      : []
+  );
+
+const finished = async (harness: Harness, threadId: string) =>
+  (await harness.core().read(threadId, 0)).flatMap(({ event }) =>
+    event.type === 'run.finished' ? [[event.runId, event.outcome]] : []
+  );
+
+/** A child that reads its notes once the person's input is committed, so the read's step ends after it. */
+async function readingChild(foreground: boolean) {
+  const sent = Promise.withResolvers<void>();
+  const reading = Promise.withResolvers<void>();
+  const model = delegating('read', foreground);
+  const harness = await setupChildRunHost(model, cleanup, {
+    personas: [worker],
+    readFile: async () => {
+      reading.resolve();
+      await sent.promise;
+      return { content: 'notes' };
+    },
+  });
+  const started = harness.start('Delegate.');
+  await reading.promise;
+  const [child = ''] = await childThreads(harness);
+  await expect(send(harness, child, await childRun(harness, child))).resolves.toEqual({
+    accepted: true,
+  });
+  sent.resolve();
+  await started;
+  await harness.core().idle(harness.threadId);
+  return { child, harness, model };
+}
+
+test('a working child reads the input at its next step, and its one run reports the answer', async () => {
+  const { child, harness } = await readingChild(false);
+  const runs = await finished(harness, child);
+  expect(runs.map(([, outcome]) => outcome)).toEqual(['completed']);
+  const told = reported(await harness.core().read(harness.threadId, 0));
+  expect(told.map(([id]) => id)).toEqual(runs.map(([id]) => id));
+  expect(told[0]?.[1]).toContain(FOLLOWED);
+});
+
+test("an awaited child's answer to the input is its parent's tool result", async () => {
+  const { child, harness, model } = await readingChild(true);
+  expect(await finished(harness, child)).toHaveLength(1);
+  const parentSaw = model.doStreamCalls.find(
+    (call) => !userTexts(call)[0]?.includes(TASK) && toolResults(call).length > 0
+  );
+  expect(JSON.stringify(parentSaw && toolResults(parentSaw))).toContain(FOLLOWED);
+});
 
 /** The child's run.finished held until `release`, so an input commits after it. */
 async function heldChildEnd(model: MockLanguageModelV4) {
@@ -97,67 +176,72 @@ async function heldChildEnd(model: MockLanguageModelV4) {
   rootThread = harness.threadId;
   await harness.start('Delegate.');
   const childThreadId = await held.promise;
-  const accepted = harness.core().input({
-    commandId: randomUUID(),
-    modelId: 'scripted',
-    prompt: FOLLOW,
-    runId: await childRun(harness.core(), childThreadId),
-    threadId: childThreadId,
-  });
+  const accepted = send(harness, childThreadId, await childRun(harness, childThreadId));
   release();
   await expect(accepted).resolves.toEqual({ accepted: true });
+  await harness.core().idle(harness.threadId);
   return { childThreadId, harness };
 }
-
-/** The parent's runs that deliver the child's result. */
-async function parentDeliveries(
-  harness: Awaited<ReturnType<typeof setupChildRunHost>>,
-  childThreadId: string
-): Promise<string[]> {
-  return (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
-    event.type === 'run.started' &&
-    (event.delivery?.entries ?? []).some((entry) => entry.childThreadId === childThreadId)
-      ? [event.runId]
-      : []
-  );
-}
-
-test('an input committed after a failed child run is refused, and the parent still hears the child', async () => {
-  const { childThreadId, harness } = await heldChildEnd(delegating('fail'));
-  await harness.core().idle(harness.threadId);
-  expect(await parentDeliveries(harness, childThreadId)).toHaveLength(1);
-  const refused = (await harness.core().read(childThreadId, 0)).flatMap(({ event }) =>
-    event.type === 'run.finished' ? [event] : []
-  );
-  expect(refused.at(-1)).toMatchObject({ outcome: 'failed' });
-  expect(refused.at(-1)?.detail).toContain('before it read this input');
-});
 
 test('an input committed after the child run ended starts its next run, and each run reports once', async () => {
   const model = delegating('answer');
   const { childThreadId, harness } = await heldChildEnd(model);
-  expect(await childThreads(harness)).toEqual([childThreadId]);
-  const finishedRuns = async (threadId: string) =>
-    (await harness.core().read(threadId, 0)).flatMap(({ event }) =>
-      event.type === 'run.finished' ? [event.runId] : []
-    );
-  await harness.core().idle(harness.threadId);
-  const [answered, followed] = await finishedRuns(childThreadId);
+  const runs = await finished(harness, childThreadId);
+  expect(runs.map(([, outcome]) => outcome)).toEqual(['completed', 'completed']);
   // In commit order: the child's answer ended before the input, so it reports, then the input's run does.
-  const reported = (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
-    event.type === 'run.started'
-      ? (event.delivery?.entries ?? []).flatMap((entry) =>
-          entry.childThreadId === childThreadId ? [entry.childRunId] : []
-        )
-      : []
-  );
-  expect(reported).toEqual([answered, followed]);
+  const told = reported(await harness.core().read(harness.threadId, 0));
+  expect(told.map(([id]) => id)).toEqual(runs.map(([id]) => id));
+  expect(told[1]?.[1]).toContain(FOLLOWED);
   expect(
     model.doStreamCalls.filter((call) => userTexts(call).some((value) => value.includes(FOLLOW)))
   ).toHaveLength(1);
 });
 
-test('an input a restart finds untaken is committed as a refused run, waking no one', async () => {
+test('an input committed after a failed child run still starts its next run', async () => {
+  const { childThreadId, harness } = await heldChildEnd(delegating('fail'));
+  const runs = await finished(harness, childThreadId);
+  expect(runs.map(([, outcome]) => outcome)).toEqual(['failed', 'completed']);
+  expect(reported(await harness.core().read(harness.threadId, 0)).map(([id]) => id)).toEqual(
+    runs.map(([id]) => id)
+  );
+});
+
+/** The child's next run, started by the person, and whether its model read the earlier input. */
+async function nextChildRun(harness: Harness, child: string, model: MockLanguageModelV4) {
+  const before = model.doStreamCalls.length;
+  const runs = await finished(harness, child);
+  await harness.core().startRun({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    parentMessageId: runs.at(-1)?.[0] ?? null,
+    prompt: 'Carry on.',
+    threadId: child,
+  });
+  await harness.core().idle(harness.threadId);
+  return model.doStreamCalls
+    .slice(before)
+    .some((call) => userTexts(call).some((value) => value.includes(FOLLOW)));
+}
+
+test('an input a stopped child never read waits for the next run, which reads it', async () => {
+  const model = delegating('block');
+  const harness = await setupChildRunHost(model, cleanup, { personas: [worker] });
+  await harness.start('Delegate.');
+  await expect.poll(async () => (await childThreads(harness)).length).toBe(1);
+  const [child = ''] = await childThreads(harness);
+  const runId = await childRun(harness, child);
+  await send(harness, child, runId);
+  await harness.core().stop({ commandId: randomUUID(), runId, threadId: child });
+  await harness.core().idle(harness.threadId);
+  // A stopped child starts nothing after it; the parent hears the stopped run.
+  expect(await finished(harness, child)).toEqual([[runId, 'stopped']]);
+  expect(reported(await harness.core().read(harness.threadId, 0)).map(([id]) => id)).toEqual([
+    runId,
+  ]);
+  expect(await nextChildRun(harness, child, model)).toBe(true);
+});
+
+test('an input a restart finds untaken survives, and the next run reads it', async () => {
   const model = delegating('block');
   const harness = await setupChildRunHost(model, cleanup, { personas: [worker] });
   await harness.start('Delegate.');
@@ -167,62 +251,165 @@ test('an input a restart finds untaken is committed as a refused run, waking no 
     commandId: randomUUID(),
     modelId: 'scripted',
     prompt: FOLLOW,
-    runId: await childRun(harness.core(), child),
+    runId: await childRun(harness, child),
     threadId: child,
   };
   await harness.core().input(input);
   // The process dies while the child's step is still in flight.
   await harness.crash();
-  const rows = await harness.core().read(child, 0);
-  const inputRun = rows.find(
-    (row) => row.event.type === 'run.started' && row.event.prompt?.includes(FOLLOW)
-  )?.event;
-  expect(inputRun?.type === 'run.started' && inputRun.runId).toBeTruthy();
-  const runId = inputRun?.type === 'run.started' ? inputRun.runId : '';
-  expect(
-    rows.find((row) => row.event.type === 'run.finished' && row.event.runId === runId)?.event
-  ).toMatchObject({
-    detail: 'The host restarted before the child read this input.',
-    outcome: 'failed',
-  });
   // The client's unconfirmed retry is told the committed answer, and nothing woke the parent (Q-2).
   await expect(harness.core().input(input)).resolves.toEqual({ accepted: true });
   const parent = await harness.core().read(harness.threadId, 0);
   expect(
     parent.filter((row) => row.event.type === 'run.started' && row.event.delivery?.via === 'wake')
   ).toHaveLength(0);
-  // Both runs still report, for the parent's next turn to take.
-  expect(reported(parent)).toEqual([input.runId, runId]);
+  expect(await nextChildRun(harness, child, model)).toBe(true);
 });
 
-/** The child runs a parent's log was told about, in post order. */
-const reported = (rows: readonly { readonly event: HostLogRow['event'] }[]): string[] =>
-  rows.flatMap(({ event }) =>
-    event.type === 'notice.posted' && event.notice.kind === 'child'
-      ? [event.notice.entry.childRunId]
-      : []
-  );
-
-test('an input a stopped child never read is refused, and the parent hears both runs', async () => {
-  const harness = await setupChildRunHost(delegating('block'), cleanup, { personas: [worker] });
-  await harness.start('Delegate.');
-  await expect.poll(async () => (await childThreads(harness)).length).toBe(1);
-  const [child = ''] = await childThreads(harness);
-  const runId = await childRun(harness.core(), child);
-  await harness.core().input({
-    commandId: randomUUID(),
-    modelId: 'scripted',
-    prompt: FOLLOW,
-    runId,
-    threadId: child,
+/**
+ * A root that reads its notes, and the person's input lands while it does.
+ * `read` replaces what the root's admission adds to a prompt (hooks, mentions).
+ */
+async function readingRoot(read: Pick<HostRunAdmission, 'hooks' | 'readPromptContext'> = {}) {
+  const sent = Promise.withResolvers<void>();
+  const reading = Promise.withResolvers<void>();
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (userTexts(call).some((value) => value.includes(FOLLOW))) {
+        return stream(text(FOLLOWED));
+      }
+      return toolResults(call).length === 0
+        ? stream(toolCall('read_file', { path: 'notes.md' }, 'read-1'))
+        : stream(text('Read it.'));
+    },
   });
-  await harness.core().stop({ commandId: randomUUID(), runId, threadId: child });
+  const harness = await setupChildRunHost(
+    model,
+    cleanup,
+    {
+      readFile: async () => {
+        reading.resolve();
+        await sent.promise;
+        return { content: 'notes' };
+      },
+    },
+    (platform) => {
+      const base = recordingAdmission([])(platform);
+      return base && (async (request) => ({ ...(await base(request)), ...read }));
+    }
+  );
+  const runId = await harness.start('Read the notes.');
+  await reading.promise;
+  await send(harness, harness.threadId, runId);
+  sent.resolve();
   await harness.core().idle(harness.threadId);
-  const refused = (await harness.core().read(child, 0)).flatMap(({ event }) =>
-    event.type === 'run.finished' ? [[event.runId, event.outcome]] : []
+  return { harness, model, runId };
+}
+
+/** Hooks that answer the person's input with `verdict` and pass everything else. */
+const promptHooks = (verdict: HostUserPromptVerdict): HostRunAdmission['hooks'] => ({
+  matchesPreToolUse: () => false,
+  postToolUse: async () => ({}),
+  preToolUse: async () => ({ blocked: false }),
+  stop: async () => ({}),
+  userPromptSubmit: async (prompt) => (prompt === FOLLOW ? verdict : { blocked: false }),
+});
+
+const sawText = (call: CallOptions, value: string) => JSON.stringify(call.prompt).includes(value);
+
+test('a working root reads the input at its next step, in the same run', async () => {
+  const { harness, runId } = await readingRoot();
+  expect(await finished(harness, harness.threadId)).toEqual([[runId, 'completed']]);
+  const taken = (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
+    event.type === 'model.messages' && event.delivery?.inputs ? event.delivery.inputs : []
   );
-  expect(refused.map(([, outcome]) => outcome)).toEqual(['stopped', 'failed']);
-  expect(reported(await harness.core().read(harness.threadId, 0))).toEqual(
-    refused.map(([id]) => id)
+  expect(taken).toHaveLength(1);
+});
+
+test("the input's hooks and mentioned files reach the model with it, as a prompt's do at a run's start", async () => {
+  const failure = {
+    failure: {
+      category: 'availability',
+      code: 'file.unavailable',
+      kind: 'refusal',
+      message: 'Gone.',
+    },
+    path: 'gone.md',
+    rootId: 'root-a',
+  } as const;
+  const { harness, model, runId } = await readingRoot({
+    hooks: promptHooks({ additionalContext: 'HOOK_CONTEXT', blocked: false }),
+    readPromptContext: async (prompt) =>
+      prompt === FOLLOW
+        ? { context: 'FILE_CONTEXT', referencedFileFailures: [failure] }
+        : { referencedFileFailures: [] },
+  });
+  expect(await finished(harness, harness.threadId)).toEqual([[runId, 'completed']]);
+  const read = model.doStreamCalls.find((call) => sawText(call, FOLLOW));
+  expect(read && sawText(read, 'FILE_CONTEXT') && sawText(read, 'HOOK_CONTEXT')).toBe(true);
+  const rows = await harness.core().read(harness.threadId, 0);
+  expect(
+    rows.flatMap(({ event }) => (event.type === 'references.unavailable' ? event.files : []))
+  ).toEqual([failure]);
+});
+
+test('a hook that blocks the input ends the run with its reason, and the input is not read again', async () => {
+  const { harness, model, runId } = await readingRoot({
+    hooks: promptHooks({ blocked: true, reason: 'NO_TITLES' }),
+  });
+  const rows = await harness.core().read(harness.threadId, 0);
+  const ended = rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event] : []));
+  expect(ended.map(({ outcome, runId: id }) => [id, outcome])).toEqual([[runId, 'failed']]);
+  expect(ended[0]?.detail).toContain('NO_TITLES');
+  expect(model.doStreamCalls.some((call) => sawText(call, FOLLOW))).toBe(false);
+  const taken = rows.flatMap(({ event }) =>
+    event.type === 'model.messages' && event.delivery?.inputs ? event.delivery.inputs : []
   );
+  expect(taken).toHaveLength(1);
+});
+
+test('an input whose start is refused takes only itself, and the next input still starts', async () => {
+  const answering = Promise.withResolvers<void>();
+  const sent = Promise.withResolvers<void>();
+  const LATER = 'LATER_INPUT: and a summary.';
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (userTexts(call).some((value) => value.includes(LATER))) {
+        return stream(text('Summary added.'));
+      }
+      // The run's last step: both inputs land while it answers, too late to read.
+      answering.resolve();
+      await sent.promise;
+      return stream(text('Answered.'));
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {}, (platform) => {
+    const base = recordingAdmission([])(platform);
+    return (
+      base &&
+      (async (request) => {
+        if (request.modelId === 'unavailable') {
+          throw new Error('MODEL_UNAVAILABLE');
+        }
+        return base(request);
+      })
+    );
+  });
+  const runId = await harness.start('Answer.');
+  await answering.promise;
+  const input = (prompt: string, modelId: string) =>
+    harness
+      .core()
+      .input({ commandId: randomUUID(), modelId, prompt, runId, threadId: harness.threadId });
+  await input(FOLLOW, 'unavailable');
+  await input(LATER, 'scripted');
+  sent.resolve();
+  await expect
+    .poll(async () => (await finished(harness, harness.threadId)).map(([, outcome]) => outcome), {
+      timeout: 5000,
+    })
+    .toEqual(['completed', 'failed', 'completed']);
+  expect(
+    model.doStreamCalls.some((call) => userTexts(call).some((value) => value.includes(LATER)))
+  ).toBe(true);
 });
