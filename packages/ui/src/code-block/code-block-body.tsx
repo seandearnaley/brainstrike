@@ -1,6 +1,7 @@
 import type * as React from 'react';
-import { type RefObject, useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import ShikiHighlighter from 'react-shiki/core';
+import { useNearViewport } from '../hooks/use-near-viewport';
 import { cn } from '../lib/utils';
 import { normalizeShikiLanguage, useShikiHighlighter } from '../shiki/highlighter-core';
 import { useCodeTheme } from '../theme-provider';
@@ -48,38 +49,6 @@ export interface CodeBlockBodyProps {
  * `addDefaultStyles` later would therefore silently override our padding and
  * rounding rather than lose to them.
  */
-/**
- * Room around the visible area in which a block is highlighted ahead of being
- * scrolled to. A thread keeps every turn mounted, and highlighting all of its
- * blocks at once blocked opening a long thread (BST-2314).
- */
-const HIGHLIGHT_AHEAD_MARGIN = '1200px 0px';
-
-/** Whether the element has come within the highlight margin; it never turns back. */
-function useNearViewport(ref: RefObject<HTMLElement | null>): boolean {
-  const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined');
-  useEffect(() => {
-    const element = ref.current;
-    if (near || !element) {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setNear(true);
-          observer.disconnect();
-        }
-      },
-      // `scrollMargin` extends the margin into the thread's own scroller, which
-      // clips intersections before `rootMargin` applies.
-      { rootMargin: HIGHLIGHT_AHEAD_MARGIN, scrollMargin: HIGHLIGHT_AHEAD_MARGIN }
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [near, ref]);
-  return near;
-}
-
 export function CodeBlockBody({
   className,
   code,

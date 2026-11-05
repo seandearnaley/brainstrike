@@ -140,6 +140,9 @@ catalog:
   better-sqlite3: 13.0.3
   bindings: 1.5.0
   concurrently: ^10.0.6
+  # LOCKSTEP with @pierre/diffs 1.6.4's own jsdiff, so one copy bundles. An
+  # approval diff bounds its work with jsdiff's maxEditLength (ADR-0036).
+  diff: 9.0.0
   # ADR-0004: Effect v4 is an LTS line, with fixes committed through September
   # 2029. The pin stays EXACT: `^4.0.0` constraints elsewhere in the ecosystem
   # reject rc builds, so a range here would have silently re-resolved the whole
