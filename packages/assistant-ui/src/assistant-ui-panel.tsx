@@ -42,7 +42,6 @@ import {
 } from './assistant-thread-messages';
 import { BranchPicker } from './branch-picker';
 import { BudgetGuardrailControl } from './budget-guardrail-control';
-import { ChangesReviewLink } from './changes-review-link';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
 import { CompactionSummaryCard } from './compaction-summary-card';
 import {
@@ -76,6 +75,7 @@ import {
 } from './slash-commands';
 import { ThreadDebugPackButton } from './thread-debug-pack-button';
 import { ThreadScrollFollowProvider } from './thread-scroll-follow';
+import { TurnChangesCard } from './turn-changes-card';
 import { UserMessage } from './user-message';
 
 export type { AccessModeComposerControls } from './composer-access-mode-control';
@@ -195,8 +195,8 @@ const CapabilityNotice = ({ text }: { text: string | undefined }) =>
  * down as a React prop from `assistant-ui-panel-wrapper.tsx`); this context
  * re-publishes that same value for descendants rendered by assistant-ui
  * itself (e.g. `AssistantMessage`, which the library instantiates with no
- * props of its own) — currently only `ChangesReviewLink`'s
- * `openChangesForRun(runId, threadId)` call needs it.
+ * props of its own) — currently only `TurnChangesCard`, whose reads and
+ * Review name the turn's thread.
  */
 
 /** Shared UI component for the chat thread. */
@@ -546,13 +546,13 @@ const AssistantMessage = () => {
             THIS failed run to the clipboard. Null without a provider binding
             or a failure signal (run.failed event / assistant-ui error state). */}
         <CopyDebugBundleButton />
+        {/* The turn's changed files with their diffs and Review — null without
+            a ChangesReviewProvider binding, a finished run, a known thread id,
+            or any edited files. */}
+        <TurnChangesCard threadId={threadKey} />
         {/* Turn-level "Revert all edits" footer — renders only on desktop turns
             that made ≥1 still-revertible file edit; null everywhere else. */}
         <CheckpointTurnRevert />
-        {/* "Edited N files → Review" entry point into the Changes surface —
-            null without a ChangesReviewProvider binding, a finished run, a
-            known thread id, or any edited files. */}
-        <ChangesReviewLink threadId={threadKey} />
       </div>
 
       {/* One footer line: the per-run 👍/👎 verdict (Task Ledger; once per
