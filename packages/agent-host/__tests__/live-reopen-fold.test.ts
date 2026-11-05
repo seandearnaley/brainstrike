@@ -12,18 +12,18 @@
  */
 import fc from 'fast-check';
 import { afterEach, expect, test } from 'vitest';
-import { HostRunMap } from '../src/core-state.js';
-import { foldHostEditCheckpoints } from '../src/edit-checkpoint-view.js';
-import type { HostLogRow } from '../src/protocol.js';
+import { HostRunMap } from '../src/core-state.ts';
+import { foldHostEditCheckpoints } from '../src/edit-checkpoint-view.ts';
+import type { HostLogRow } from '../src/protocol.ts';
 import {
   foldHostRunAdmission,
   foldHostRunEvent,
   foldHostStartedRun,
   type HostRunAdmissionCommand,
   hostRunContext,
-} from '../src/run-branch.js';
-import { CommittedThreadView, foldHostRuns } from '../src/thread-view.js';
-import { hostScenario, runHostScenario } from './fixtures/host-conversation-scenario.js';
+} from '../src/run-branch.ts';
+import { CommittedThreadView, foldHostRuns } from '../src/thread-view.ts';
+import { hostScenario, runHostScenario } from './fixtures/host-conversation-scenario.ts';
 
 const cleanup: (() => Promise<void>)[] = [];
 async function closeAll(): Promise<void> {
