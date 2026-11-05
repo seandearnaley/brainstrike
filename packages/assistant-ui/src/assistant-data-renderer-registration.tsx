@@ -16,11 +16,13 @@ import { assistantDiscoveryErrorDataUI } from './assistant-discovery-error-data-
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import { AssistantToolApprovalDataPart } from './assistant-tool-approval-data-part';
 import { AssistantToolSuspendNotice } from './assistant-tool-suspend-notice';
+import { PERSON_INPUT_DATA_NAME } from './committed-person-input';
 import { CompactionSummaryCard } from './compaction-summary-card';
 import {
   HOST_CONTEXT_COMPACTED_DATA_NAME,
   readHostContextCompaction,
 } from './compaction-summary-message';
+import { PersonInputDataPart } from './person-input-data-part';
 
 const assistantRunTimelineDataUI = {
   name: ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -92,6 +94,11 @@ const hostContextCompactedDataUI = {
   render: HostContextCompactedDataPart,
 } satisfies AssistantDataUIProps;
 
+const personInputDataUI = {
+  name: PERSON_INPUT_DATA_NAME,
+  render: PersonInputDataPart,
+} satisfies AssistantDataUIProps;
+
 export const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantDiscoveryErrorDataUI);
@@ -102,6 +109,7 @@ export const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantContextBreakdownDataUI);
   useAssistantDataUI(assistantChildRunUsageDataUI);
   useAssistantDataUI(hostContextCompactedDataUI);
+  useAssistantDataUI(personInputDataUI);
 
   return null;
 };

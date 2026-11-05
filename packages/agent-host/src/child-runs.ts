@@ -234,6 +234,8 @@ export function deriveHostChildAdmission(
     // thread; a read-only persona's run never reads or writes working memory.
     ...(parent.openRun ? { openRun: parent.openRun } : {}),
     ...(personaMode(persona) === 'worker' ? {} : { workingMemory: false as const }),
+    // A person's message to the child reads its mentioned files as the parent's would.
+    ...(parent.readPromptContext ? { readPromptContext: parent.readPromptContext } : {}),
     ...(parent.reviewModel ? { reviewModel: parent.reviewModel } : {}),
     provider: {
       prepare: async (request) => {

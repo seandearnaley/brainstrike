@@ -3,6 +3,7 @@ import { type RuntimeData, resolveAssistantResilienceConfig } from '@brainstrike
 import { DEFAULT_AGENT_MAX_STEPS } from '@brainstrike/agent/tool-runtime';
 import type {
   HostDelegation,
+  HostPromptContext,
   HostRunAdmissionRequest,
   HostRunIntentRequest,
 } from '@brainstrike/agent-host';
@@ -32,6 +33,7 @@ import {
   type PreparedAdmittedSkills,
   placeMentionedFiles,
   prepareAdmittedSkills,
+  readHostPromptContext,
   readHostSystemContext,
 } from '@brainstrike/host-capabilities/workspace-context';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
@@ -97,6 +99,8 @@ export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation
   readonly delegation?: HostDelegation | undefined;
   /** The admitted roots revalidated against their live owners, for the host's shared tools. */
   freshWorkspaceRoots(): Promise<RuntimeWorkspaceRoots>;
+  /** ADR-0028 step 3b: a person's message read mid-run reads its mentions as this prompt's were. */
+  readPromptContext(prompt: string): Promise<HostPromptContext>;
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
 }
 export interface DesktopRunAdmission {
@@ -209,6 +213,8 @@ async function readDesktopNativeAdmission(
   readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
   /** BST-2018: live folders outside the thread whose mentioned files this run's prompt attaches. */
   readonly attachedMentions?: AttachedMentionFolders;
+  /** The same, for a later message's prompt. */
+  readonly attachedMentionsOf: (prompt: string) => AttachedMentionFolders | undefined;
   /** ADR-0032: the run's roots the person trusted, the only ones whose agent configuration loads. */
   readonly configurationRoots: RuntimeWorkspaceRoots;
   /** The admission's tools, described from the catalog; the host executes every one. */
@@ -259,9 +265,9 @@ async function readDesktopNativeAdmission(
   // BST-2018: a mention in a live folder outside the thread is attached for
   // this run only; the reader reads exactly the mentioned files, while live.
   // A CLI selection is the run's whole inventory: its prompt cannot widen it.
-  const mentioned = placeMentionedFiles(request.prompt ?? '', roots, selection ? roots : liveRoots);
-  const attachedMentions: AttachedMentionFolders | undefined =
-    mentioned.attachedRoots.length > 0
+  const attachedMentionsOf = (prompt: string): AttachedMentionFolders | undefined => {
+    const mentioned = placeMentionedFiles(prompt, roots, selection ? roots : liveRoots);
+    return mentioned.attachedRoots.length > 0
       ? {
           read: attachedMentionReader(
             mentioned,
@@ -271,6 +277,8 @@ async function readDesktopNativeAdmission(
           roots: mentioned.attachedRoots,
         }
       : undefined;
+  };
+  const attachedMentions = attachedMentionsOf(request.prompt ?? '');
   if (
     intent.selectionFolderId &&
     !liveRoots.some((root) => root.rootId === intent.selectionFolderId)
@@ -311,6 +319,7 @@ async function readDesktopNativeAdmission(
   return {
     admittedSkills,
     ...(attachedMentions ? { attachedMentions } : {}),
+    attachedMentionsOf,
     configurationRoots,
     descriptors,
     freshRoots,
@@ -501,15 +510,14 @@ export function createDesktopRunAdmission(
       );
       // The host never offers what the saved policy denies; the instructions never name it.
       const policy = await readHostPermissionPolicy(request.threadId);
+      // A CLI selection or a binding admits context reads to the thread's own roots.
+      const restricted = intent.cliWorkspace !== undefined || workspace !== undefined;
       const { childSystem, system, referencedFileFailures } = await readHostSystemContext({
         ...(native.attachedMentions ? { attachedMentions: native.attachedMentions } : {}),
         configurationRoots: native.configurationRoots,
         inputTokenLimit,
         ...desktopPersonaFields(delegation),
-        ...desktopContextReaderFields(
-          intent.cliWorkspace !== undefined || workspace !== undefined,
-          native.readWorkspaceFile
-        ),
+        ...desktopContextReaderFields(restricted, native.readWorkspaceFile),
         planMode: request.planMode === true,
         request,
         runtime: native.runtime,
@@ -521,6 +529,16 @@ export function createDesktopRunAdmission(
         ...(native.workspaceSkills ? { workspaceSkills: native.workspaceSkills } : {}),
       });
       await native.revalidateWorkspace();
+      const readPromptContext = (prompt: string): Promise<HostPromptContext> => {
+        const attached = native.attachedMentionsOf(prompt);
+        return readHostPromptContext({
+          ...(attached ? { attachedMentions: attached } : {}),
+          prompt,
+          ...desktopContextReaderFields(restricted, native.readWorkspaceFile),
+          runtime: native.runtime,
+          ...(native.workspaceSkills ? { workspaceSkills: native.workspaceSkills } : {}),
+        });
+      };
       return {
         close,
         configuration,
@@ -539,6 +557,7 @@ export function createDesktopRunAdmission(
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory,
         nativeRuntime: desktopNativeRuntime(native.runtime, native.admittedSkills),
+        readPromptContext,
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,

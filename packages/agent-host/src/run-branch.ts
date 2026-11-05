@@ -41,6 +41,7 @@ import {
   type HostParams,
   type HostRunSnapshot,
 } from './protocol.ts';
+import { isHostEarlierInput } from './turn-input.ts';
 
 /** The configuration a committed run command carried; its other fields have their own readers. */
 const CommittedRunInputSchema = Schema.StructWithRest(
@@ -159,7 +160,7 @@ function hostUserMessage(branch: HostRunBranch): UserModelMessage {
   };
 }
 /** The shared attachment contract, checked before a user message is admitted. */
-function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
+export function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
   let total = 0;
   for (const attachment of attachments) {
     total += validateImageAttachmentPart(attachment);
@@ -181,9 +182,11 @@ export function hostRunContext(
   run: HostRunState
 ): ModelMessage[] {
   // BST-1932: a delivering turn's own message carries the outcomes it delivers.
+  // A message an earlier run left unread was written before the turn's own.
   return [...hostRunAncestors(runs, run), run].flatMap((turn) => [
+    ...turn.messages.filter(isHostEarlierInput),
     withHostDeliveryLedger(hostUserMessage(turn.branch), turn.branch.delivery),
-    ...turn.messages,
+    ...turn.messages.filter((message) => !isHostEarlierInput(message)),
   ]);
 }
 /** `run`'s ancestor runs on its committed branch, root first. */

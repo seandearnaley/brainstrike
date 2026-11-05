@@ -389,9 +389,10 @@ export const HOST_METHOD_SCHEMAS = {
   /** The cheapest authenticated probe of one provider's stored or env credential. */
   'providers/verify': Schema.Struct(Provider),
   /**
-   * BST-1932: human input for a running child. The active run ends after its
-   * step in flight, and the input starts the child's next run under these run
-   * settings; only that run's end reports to the parent.
+   * ADR-0028 step 3b: a person's message to a thread whose run `runId` they
+   * saw. The committed command is its notice: a working run reads it at its
+   * next step; an idle thread starts the person's turn with it, under these
+   * run settings. A stopped run leaves it for the thread's next run.
    */
   'run/input': Schema.Struct({
     ...Command,
