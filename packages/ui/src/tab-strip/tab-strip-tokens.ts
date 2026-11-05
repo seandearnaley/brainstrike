@@ -16,9 +16,16 @@ export const TAB_STRIP_EMBEDDED_CLASS_NAME = 'h-full flex-1';
 export const TAB_STRIP_SCROLLER_CLASS_NAME =
   'flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden scroll-px-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 export const TAB_STRIP_GROUP_SEPARATOR_CLASS_NAME = 'mx-0.5 h-4 w-px shrink-0 bg-border';
-/** Strip chrome buttons (New, All tabs); pair with `Button size="icon-xs"` (28px). */
+/** Icon-only strip chrome buttons (All tabs, Add tab); pair with `Button size="icon-xs"` (28px). */
 export const TAB_STRIP_ICON_BUTTON_CLASS_NAME =
   'shrink-0 text-muted-foreground hover:text-foreground';
+/**
+ * Icon + label strip chrome button (New thread); pair with `Button size="xs"` (28px tall) and a
+ * `size-3.5` icon. The label may collapse in a narrow strip; `min-w-7` keeps the icon-only state
+ * the same 28px square as an `icon-xs` button.
+ */
+export const TAB_STRIP_LABELED_BUTTON_CLASS_NAME =
+  'min-w-7 shrink-0 text-muted-foreground hover:text-foreground';
 
 /** Tab shell: 28px pill, 6px radius; the inset focus ring follows the tab button. */
 export const TAB_SHELL_CLASS_NAME =

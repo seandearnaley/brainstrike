@@ -174,7 +174,7 @@ describe('ThreadRow', () => {
     const { rerender } = renderRow(props);
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Rename' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename' }));
     const input = screen.getByRole('textbox', { name: 'Thread title' });
     expect(input).toHaveFocus();
     await user.clear(input);
@@ -189,6 +189,61 @@ describe('ThreadRow', () => {
     });
   });
 
+  it('offers the thread actions as a menu that arrow keys and type-ahead move through', async () => {
+    const user = userEvent.setup();
+    const onRenameThread = vi.fn().mockResolvedValue(undefined);
+    renderRow(
+      createProps({ onRenameThread, onSetThreadPinned: vi.fn().mockResolvedValue(undefined) })
+    );
+
+    screen.getByRole('button', { name: 'Thread actions Review architecture' }).focus();
+    await user.keyboard('{Enter}');
+    const menu = await screen.findByRole('menu');
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Customize', 'Pin', 'Rename', 'Delete…']);
+    expect(within(menu).getByRole('menuitem', { name: 'Customize' })).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(within(menu).getByRole('menuitem', { name: 'Pin' })).toHaveFocus();
+    await user.keyboard('r');
+    expect(within(menu).getByRole('menuitem', { name: 'Rename' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Thread title' })).toHaveFocus();
+  });
+
+  it('opens Customize as a panel that Escape closes back to the actions button', async () => {
+    const user = userEvent.setup();
+    renderRow(createProps());
+    const actions = screen.getByRole('button', { name: 'Thread actions Review architecture' });
+
+    await user.click(actions);
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(within(screen.getByRole('dialog')).getByText('Thread appearance')).toBeVisible();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    await waitFor(() => {
+      expect(actions).toHaveFocus();
+    });
+
+    // Pressing "…" again while the panel is open closes it rather than opening the menu.
+    await user.click(actions);
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
+    expect(screen.getByRole('dialog')).toBeVisible();
+    await user.click(actions);
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   // BST-2116: a pick shows at once; a save that fails and is put back says so,
   // in the row and in a toast (the panel may already be closed).
   it('says a failed customization was changed back, in the row and a toast', async () => {
@@ -201,7 +256,7 @@ describe('ThreadRow', () => {
     renderRow(createProps({ onUpdateThreadAppearance }));
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
     const customizer = screen.getByRole('dialog');
     await user.click(within(customizer).getByRole('button', { name: 'Use Bug icon' }));
 
@@ -228,7 +283,7 @@ describe('ThreadRow', () => {
     renderRow(createProps({ onUpdateThreadAppearance }));
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
     const customizer = screen.getByRole('dialog');
     await user.click(within(customizer).getByRole('button', { name: 'Use Bug icon' }));
     const cyan = within(customizer).getByRole('button', { name: 'Use Cyan color' });
@@ -249,7 +304,7 @@ describe('ThreadRow', () => {
     renderRow(createProps({ onUpdateThreadAppearance }));
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Customize' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Customize' }));
     const customizer = screen.getByRole('dialog');
     expect(within(customizer).getByTestId('thread-color-palette-studio')).toBeVisible();
     expect(within(customizer).getByTestId('thread-color-palette-voltage')).toBeVisible();
@@ -266,7 +321,7 @@ describe('ThreadRow', () => {
     renderRow(createProps({ onDeleteThread }));
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Delete…' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete…' }));
     await user.click(
       screen.getByRole('button', { name: 'Confirm delete thread Review architecture' })
     );
@@ -292,7 +347,7 @@ describe('ThreadRow', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Delete…' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete…' }));
     expect(
       screen.getByRole('button', { name: 'Confirm delete thread Review architecture' })
     ).toBeVisible();

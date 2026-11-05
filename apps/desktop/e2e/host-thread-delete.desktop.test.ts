@@ -29,7 +29,7 @@ test('deletes a committed host thread from the Threads panel and it stays delete
   await expect(rows).toHaveCount(2, { timeout: 30_000 });
   const target = rows.nth(1);
   await target.getByRole('button', { name: /^Thread actions /u }).click();
-  await page.getByRole('button', { exact: true, name: 'Delete…' }).click();
+  await page.getByRole('menuitem', { exact: true, name: 'Delete…' }).click();
   await page.getByRole('button', { name: /^Confirm delete thread /u }).click();
 
   await expect(rows).toHaveCount(1, { timeout: 30_000 });

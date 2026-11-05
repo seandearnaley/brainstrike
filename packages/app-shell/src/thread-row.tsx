@@ -14,9 +14,14 @@ import {
 import {
   ActionContextMenu,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Popover,
+  PopoverAnchor,
   PopoverContent,
-  PopoverTrigger,
   toast,
   useContextMenuTarget,
 } from '@brainstrike/ui';
@@ -37,7 +42,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
@@ -627,7 +632,7 @@ function ThreadRenameForm({
         type="submit"
         variant="ghost"
       >
-        <Check className="size-3" />
+        <Check className="size-3.5" />
       </Button>
       <Button
         aria-label="Cancel rename"
@@ -637,7 +642,7 @@ function ThreadRenameForm({
         type="button"
         variant="ghost"
       >
-        <X className="size-3" />
+        <X className="size-3.5" />
       </Button>
     </form>
   );
@@ -691,11 +696,7 @@ function ThreadRowDisplay({
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
-  const [actionsOpen, setActionsOpen] = useState(false);
-
-  const closeActions = (): void => {
-    setActionsOpen(false);
-  };
+  const actionsButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <>
@@ -747,108 +748,111 @@ function ThreadRowDisplay({
             type="button"
             variant="ghost"
           >
-            {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+            {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
           </Button>
+          {/* The "…" button opens a menu; its Customize item opens the
+              appearance panel, which anchors to the same button. */}
           <Popover
             onOpenChange={(open) => {
-              setActionsOpen(open);
-              if (open || !customizing) {
-                return;
+              if (!open && customizing) {
+                onCustomizeThreadToggle();
               }
-              onCustomizeThreadToggle();
             }}
-            open={actionsOpen || customizing}
+            open={customizing}
           >
-            <PopoverTrigger asChild>
-              <Button
-                aria-label={`Thread actions ${thread.title}`}
-                className={THREAD_CONTROL_ACTION_CLASS_NAME}
+            <DropdownMenu>
+              <PopoverAnchor asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    aria-label={`Thread actions ${thread.title}`}
+                    className={THREAD_CONTROL_ACTION_CLASS_NAME}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (customizing) {
+                        onCustomizeThreadToggle();
+                      }
+                    }}
+                    onPointerDown={(event) => {
+                      // While the panel is open, "…" closes it (onClick) and
+                      // does not also open the menu.
+                      if (customizing) {
+                        event.preventDefault();
+                      }
+                    }}
+                    ref={actionsButtonRef}
+                    size="icon-xs"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </PopoverAnchor>
+              <DropdownMenuContent
+                align="end"
+                className="w-48"
+                collisionPadding={8}
                 onClick={(event) => event.stopPropagation()}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
               >
-                <MoreHorizontal className="size-3" />
-              </Button>
-            </PopoverTrigger>
+                <DropdownMenuItem onSelect={onCustomizeThreadToggle}>
+                  <SwatchBook />
+                  Customize
+                </DropdownMenuItem>
+                {onSetThreadPinned ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      onSetThreadPinned(thread.id, !pinned).catch((error: unknown) => {
+                        toast({
+                          description: error instanceof Error ? error.message : String(error),
+                          title: pinned ? 'Couldn’t unpin the thread' : 'Couldn’t pin the thread',
+                          variant: 'destructive',
+                        });
+                      });
+                    }}
+                  >
+                    {pinned ? <PinOff /> : <Pin />}
+                    {pinned ? 'Unpin' : 'Pin'}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onSelect={onRenameThreadStart}>
+                  <Pencil />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onDeleteThreadStart} variant="destructive">
+                  <Trash2 />
+                  Delete…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <PopoverContent
               align="end"
-              className={
-                customizing
-                  ? 'max-h-[calc(var(--radix-popover-content-available-height)-1rem)] w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] overflow-y-auto p-3'
-                  : 'w-48 p-1.5'
-              }
+              className="max-h-[calc(var(--radix-popover-content-available-height)-1rem)] w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] overflow-y-auto p-3"
               collisionPadding={8}
               onClick={(event) => event.stopPropagation()}
+              onCloseAutoFocus={(event) => {
+                // An anchored panel has no trigger for Radix to refocus, so a
+                // close that dropped focus (Escape) puts it back on "…".
+                const focused = document.activeElement;
+                if (focused === null || focused === document.body || !focused.isConnected) {
+                  event.preventDefault();
+                  actionsButtonRef.current?.focus();
+                }
+              }}
+              onInteractOutside={(event) => {
+                // "…" toggles the panel itself, as a Radix trigger would.
+                const target = event.target;
+                if (target instanceof Node && actionsButtonRef.current?.contains(target)) {
+                  event.preventDefault();
+                }
+              }}
             >
-              {customizing ? (
-                <ThreadCustomizationPanel
-                  metadataError={metadataError}
-                  onMetadataError={onMetadataError}
-                  onUpdateThreadAppearance={onUpdateThreadAppearance}
-                  thread={thread}
-                />
-              ) : (
-                <div className="grid gap-0.5">
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={onCustomizeThreadToggle}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <SwatchBook className="size-3.5" />
-                    Customize
-                  </Button>
-                  {onSetThreadPinned ? (
-                    <Button
-                      className="h-8 justify-start gap-2 px-2 text-xs"
-                      onClick={() => {
-                        closeActions();
-                        onSetThreadPinned(thread.id, !pinned).catch((error: unknown) => {
-                          toast({
-                            description: error instanceof Error ? error.message : String(error),
-                            title: pinned ? 'Couldn’t unpin the thread' : 'Couldn’t pin the thread',
-                            variant: 'destructive',
-                          });
-                        });
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-                      {pinned ? 'Unpin' : 'Pin'}
-                    </Button>
-                  ) : null}
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={() => {
-                      closeActions();
-                      onRenameThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Pencil className="size-3.5" />
-                    Rename
-                  </Button>
-                  <Button
-                    className="text-destructive hover:text-destructive h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={() => {
-                      closeActions();
-                      onDeleteThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete…
-                  </Button>
-                </div>
-              )}
+              <ThreadCustomizationPanel
+                metadataError={metadataError}
+                onMetadataError={onMetadataError}
+                onUpdateThreadAppearance={onUpdateThreadAppearance}
+                thread={thread}
+              />
             </PopoverContent>
           </Popover>
         </div>
