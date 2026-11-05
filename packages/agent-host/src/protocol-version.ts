@@ -88,5 +88,7 @@
 // and a settled turn's view reverts whole files; `changes/commits` (a worktree's latest
 // commits, for the Changes commit picker), a new method; `notice.posted` (a child run's report
 // or a command session's exit, posted on the thread that hears it; ADR-0028 step 3b), a new
-// variant; `model.messages` carries the notices a running run took at a step (`delivery`).
+// variant; `model.messages` carries the notices a running run took at a step (`delivery`);
+// `run/input` is a notice on any thread, read at the run's next step or starting the person's
+// turn on an idle thread, and a delivery names the inputs it took (`inputs`, `ledger` optional).
 export const AGENT_HOST_PROTOCOL_VERSION = 21;

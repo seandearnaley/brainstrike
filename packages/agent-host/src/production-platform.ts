@@ -75,6 +75,7 @@ export interface ProductionHostRunConfiguration {
     readonly observerAwaiting?: HostObserverAwaitingReason;
   };
   readonly providerRequestContext: ProviderRequestContext;
+  readonly readPromptContext?: HostRunAdmission['readPromptContext'];
   readonly referencedFileFailures?: HostRunAdmission['referencedFileFailures'];
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
   /** Captured admission auth closure; never part of durable configuration. */
@@ -172,6 +173,17 @@ function rootModel(
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(selected.provider, selected.authInput, selected.runtime.model);
   return materializeHostProviderModel(model);
+}
+/** What the admission read for its own prompt, and how it reads a later message's. */
+function admittedPromptFields(
+  selected: ProductionHostRunConfiguration
+): Pick<HostRunAdmission, 'readPromptContext' | 'referencedFileFailures'> {
+  return {
+    ...(selected.readPromptContext ? { readPromptContext: selected.readPromptContext } : {}),
+    ...(selected.referencedFileFailures
+      ? { referencedFileFailures: selected.referencedFileFailures }
+      : {}),
+  };
 }
 /** The provider's own web search, built with the chat model's auth; Core decides its use. */
 function admittedNativeWebSearch(
@@ -612,9 +624,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           memoryModels: admittedMemoryModels(observation, memory.observerModelId),
           model,
-          ...(selected.referencedFileFailures
-            ? { referencedFileFailures: selected.referencedFileFailures }
-            : {}),
+          ...admittedPromptFields(selected),
           resolvedToolResultBudget: selected.resolvedToolResultBudget,
           reviewModel: admittedReviewModel(options, selected, provider),
           ...admittedNativeWebSearch(provider, auth),

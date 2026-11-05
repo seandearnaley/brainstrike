@@ -365,14 +365,11 @@ test('sends human input to the active child and reloads its rich conversation', 
     if (history.includes('HUMAN_FOLLOWUP_1723')) {
       receivedInput = true;
       receivedImage = history.includes(imageMarker);
-      receivedFileContext = messages.some(
-        (message) =>
-          message &&
-          typeof message === 'object' &&
-          'role' in message &&
-          message.role === 'system' &&
-          JSON.stringify(message).includes('CHILD_MENTION_CONTEXT_1724')
-      );
+      // The mentioned file's content rides in the person's own message, read where the child read it.
+      receivedFileContext = messages.some((message) => {
+        const text = JSON.stringify(message);
+        return text.includes('HUMAN_FOLLOWUP_1723') && text.includes('CHILD_MENTION_CONTEXT_1724');
+      });
       return { finalText: 'CHILD_FOLLOWUP_RECEIVED' };
     }
     return {
@@ -457,14 +454,18 @@ test('sends human input to the active child and reloads its rich conversation', 
     expect(receivedFileContext).toBe(true);
     await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(1);
     expect(childCalls).toBe(2);
-    // The host ended the active child run after its step and committed the input
-    // as the child's next run; only that run's answer reached the parent.
+    // The active child read the input at its next step, in the same run; that
+    // one run's answer is what reached the parent.
     const tree = await readHostThreadTree(electron.getUserDataDir());
-    const childPrompts = (tree.find(({ parentThreadId }) => parentThreadId)?.rows ?? []).flatMap(
-      ({ event }) => (event.type === 'run.started' ? [event.prompt] : [])
-    );
-    expect(childPrompts).toHaveLength(2);
-    expect(childPrompts[1]).toContain('HUMAN_FOLLOWUP_1723');
+    const childRows = tree.find(({ parentThreadId }) => parentThreadId)?.rows ?? [];
+    expect(childRows.filter(({ event }) => event.type === 'run.started')).toHaveLength(1);
+    expect(
+      childRows.flatMap(({ event }) =>
+        event.type === 'model.messages' && event.delivery && 'inputs' in event.delivery
+          ? (event.delivery.inputs ?? [])
+          : []
+      )
+    ).toHaveLength(1);
     const completedRequests = modelCalls();
     const httpBeforeReload = provider.requestCount();
     const metadataBeforeReload = provider.servedMetadata().length;

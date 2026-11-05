@@ -39,6 +39,20 @@ export const UserMessageText = memo(function UserMessageText(): ReactElement {
   if (!segments.some(({ segment }) => segment.kind === 'file')) {
     return <MessagePartPrimitive.Text className={PLAIN_TEXT_CLASS} component="p" smooth={false} />;
   }
+  return <MentionedText segments={segments} />;
+});
+
+/** A person's text outside a message part (an input a running agent read), as `UserMessageText` shows it. */
+export function PersonText({ text }: { readonly text: string }): ReactElement {
+  const segments = useMemo(() => keyedSegments(splitFileMentionSegments(text)), [text]);
+  return <MentionedText segments={segments} />;
+}
+
+function MentionedText({
+  segments,
+}: {
+  readonly segments: ReturnType<typeof keyedSegments>;
+}): ReactElement {
   return (
     <p className={PLAIN_TEXT_CLASS}>
       {segments.map(({ segment, start }) =>
@@ -50,7 +64,7 @@ export const UserMessageText = memo(function UserMessageText(): ReactElement {
       )}
     </p>
   );
-});
+}
 
 /** A mentioned file as the user picked it: its name, with the workspace path on hover. */
 function FileMentionChip({

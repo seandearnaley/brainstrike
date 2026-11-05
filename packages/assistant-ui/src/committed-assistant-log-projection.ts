@@ -45,6 +45,7 @@ import {
   requiredString,
   requiredText,
 } from './committed-host-event-readers';
+import { committedPersonInput, PERSON_INPUT_DATA_NAME } from './committed-person-input';
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import {
   committedStepParts,
@@ -905,6 +906,23 @@ export class CommittedAssistantLogProjection {
     this.view = { ...this.view, repository: { ...this.view.repository, headId } };
   }
 
+  /**
+   * Committed SDK messages outside a step: a Stop's partial reply inside an
+   * open step, or a person's input the run read at a step boundary.
+   */
+  private messages(run: ProjectedRun, row: CommittedAssistantLogRow): void {
+    const input = run.stepOpen ? undefined : committedPersonInput(row.event);
+    if (input) {
+      this.data(run, row, input, PERSON_INPUT_DATA_NAME);
+      return;
+    }
+    if (run.stepOpen) {
+      // Only a Stop's partial reply commits assistant text inside an open step.
+      this.commitStepText(run, row.event['messages']);
+    }
+    this.other(run, row);
+  }
+
   private apply(row: CommittedAssistantLogRow): void {
     const event = row.event;
     if (event['type'] === 'run.started') {
@@ -944,10 +962,8 @@ export class CommittedAssistantLogProjection {
       }
       this.commitStepText(run, event['messages']);
       this.data(run, row, event, HOST_EVENT_DATA_NAME);
-    } else if (event['type'] === 'model.messages' && run.stepOpen) {
-      // Only a Stop's partial reply commits assistant text inside an open step.
-      this.commitStepText(run, event['messages']);
-      this.other(run, row);
+    } else if (event['type'] === 'model.messages') {
+      this.messages(run, row);
     } else if (event['type'] === 'interaction.requested') {
       this.request(run, row, event, event['runId']);
     } else if (event['type'] === 'interaction.responded') {
