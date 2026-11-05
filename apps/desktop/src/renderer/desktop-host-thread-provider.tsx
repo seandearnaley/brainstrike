@@ -17,6 +17,7 @@ import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstr
 import {
   ApprovalChangeProvider,
   BudgetGuardrailProvider,
+  ChangesReviewProvider,
   CommittedAssistantConversation,
   DebugBundleProvider,
   EditCheckpointProvider,
@@ -219,6 +220,21 @@ function workspaceSlots(
       };
 }
 
+/**
+ * Core brackets only a top-level thread's runs with turn snapshots, so a
+ * delegated child's turn has no changes of its own to review: its view offers
+ * no Changes review, as it offers no rewind.
+ */
+function ChildChangesGate({
+  child,
+  children,
+}: {
+  readonly child: boolean;
+  readonly children: ReactNode;
+}): ReactNode {
+  return child ? <ChangesReviewProvider value={null}>{children}</ChangesReviewProvider> : children;
+}
+
 function HostThread({
   agentColor,
   canvases,
@@ -358,28 +374,30 @@ function HostThread({
                     <SubagentChildRunContext value={conversation.approvals}>
                       <ApprovalChangeProvider value={readApprovalChange}>
                         <HostChildConversations revision={effects} threadId={threadId}>
-                          <CommittedAssistantConversation
-                            {...withFoldersGate(withMemoryGate(presentation, memory), reopening)}
-                            {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
-                            agentColor={conversationColor}
-                            approvalStrip={
-                              <HostApprovalStrip
-                                client={client}
-                                self={child ? label : undefined}
-                                tree={conversation.approvals}
-                              />
-                            }
-                            commands={conversation.commands}
-                            {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                            label={label}
-                            onRunningChange={onRunningChange}
-                            onSendActiveInput={child ? conversation.sendInput : undefined}
-                            onSteer={conversation.steer}
-                            {...(reconnect === undefined ? {} : { reconnect })}
-                            rewind={child ? null : rewind}
-                            store={conversation.store}
-                            {...workspaceSlots(child, threadId)}
-                          />
+                          <ChildChangesGate child={child}>
+                            <CommittedAssistantConversation
+                              {...withFoldersGate(withMemoryGate(presentation, memory), reopening)}
+                              {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
+                              agentColor={conversationColor}
+                              approvalStrip={
+                                <HostApprovalStrip
+                                  client={client}
+                                  self={child ? label : undefined}
+                                  tree={conversation.approvals}
+                                />
+                              }
+                              commands={conversation.commands}
+                              {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                              label={label}
+                              onRunningChange={onRunningChange}
+                              onSendActiveInput={child ? conversation.sendInput : undefined}
+                              onSteer={conversation.steer}
+                              {...(reconnect === undefined ? {} : { reconnect })}
+                              rewind={child ? null : rewind}
+                              store={conversation.store}
+                              {...workspaceSlots(child, threadId)}
+                            />
+                          </ChildChangesGate>
                         </HostChildConversations>
                       </ApprovalChangeProvider>
                     </SubagentChildRunContext>
