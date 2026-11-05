@@ -23,8 +23,10 @@
  * Narrowing and formatters live in `run-python-result-model.ts` so this file
  * exports only components (react-refresh `only-export-components`).
  */
+import { cn } from '@brainstrike/ui';
 import { AlertCircle, CheckCircle, CircleSlash, Globe, Timer } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { DETAIL_LABEL_CLASS } from './detail-label';
 import {
   formatOmittedBytes,
   formatRunDuration,
@@ -166,9 +168,7 @@ function RunPythonStreamPane({
   }
   return (
     <div className="px-2 pb-1.5">
-      <p className="text-muted-foreground mb-1 text-[11px] font-medium tracking-wide uppercase">
-        {label}
-      </p>
+      <p className={cn(DETAIL_LABEL_CLASS, 'mb-1')}>{label}</p>
       {text.length > 0 ? (
         <section
           aria-label={label}

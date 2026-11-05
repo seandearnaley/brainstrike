@@ -22,6 +22,7 @@ import { ApprovalPreview } from './approval-preview';
 import { resolveApprovalPreviewPolicy } from './approval-preview-policy';
 import { resolveToolDisplayPolicy } from './assistant-detail-level.ts';
 import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
+import { DETAIL_LABEL_CLASS } from './detail-label';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 import { extractPrimaryArg } from './tool-summaries';
@@ -402,7 +403,7 @@ export function ApprovalCard({
           <dl className="grid grid-cols-[max-content_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 text-xs">
             {detailEntries.map(([label, text]) => (
               <div className="contents" key={label}>
-                <dt className="text-muted-foreground pt-1 font-medium">{label}</dt>
+                <dt className={cn(DETAIL_LABEL_CLASS, 'pt-1')}>{label}</dt>
                 <dd className="text-foreground/90 min-w-0 pt-1 break-words">
                   <pre className="font-mono text-[11px] leading-4 whitespace-pre-wrap">{text}</pre>
                 </dd>

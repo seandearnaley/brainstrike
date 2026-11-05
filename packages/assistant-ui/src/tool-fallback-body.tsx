@@ -1,8 +1,9 @@
-import { CopyTextButton } from '@brainstrike/ui';
+import { CopyTextButton, cn } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import type { ActivityStepState } from './activity-trace-model';
 import { CanvasLinkChip } from './canvas-link-chip';
 import { readCanvasMutationResult } from './canvas-result-model';
+import { DETAIL_LABEL_CLASS } from './detail-label';
 import { LiveShellOutputPane } from './live-shell-output-pane';
 import { RunPythonResultSurface } from './run-python-result';
 import type { RunPythonDisplayResult } from './run-python-result-model';
@@ -144,11 +145,7 @@ function LiveShellOutputRegion({
 }
 
 function ToolDetailLabel({ children }: { children: ReactNode }) {
-  return (
-    <p className="text-muted-foreground mb-1 text-[11px] font-medium tracking-wide uppercase">
-      {children}
-    </p>
-  );
+  return <p className={cn(DETAIL_LABEL_CLASS, 'mb-1')}>{children}</p>;
 }
 
 /** A pane label with a Copy button for the pane's text, on one line. */
@@ -163,9 +160,7 @@ function ToolDetailHeader({
 }) {
   return (
     <div className="mb-1 flex items-center justify-between gap-2">
-      <p className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
-        {children}
-      </p>
+      <p className={DETAIL_LABEL_CLASS}>{children}</p>
       <CopyTextButton ariaLabel={copyLabel} className="h-6 px-1.5" text={text} />
     </div>
   );
@@ -202,7 +197,7 @@ function ToolDetailsPane({
     <div className="flex flex-col gap-1.5 border-t pt-1.5" id={detailsId}>
       {showRawIo ? (
         <div className="px-2 py-1">
-          <ToolDetailLabel>Metadata:</ToolDetailLabel>
+          <ToolDetailLabel>Metadata</ToolDetailLabel>
           <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11px]">
             <dt className="text-muted-foreground">toolCallId</dt>
             <dd className="text-foreground/90 min-w-0 break-words">{toolCallId}</dd>
@@ -214,7 +209,7 @@ function ToolDetailsPane({
       {formattedArgs === undefined ? null : (
         <div className="px-2 py-1">
           <ToolDetailHeader copyLabel="Copy arguments" text={formattedArgs}>
-            Arguments:
+            Arguments
           </ToolDetailHeader>
           <pre className="bg-muted/40 max-h-48 overflow-auto rounded p-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
             {formattedArgs}
@@ -224,7 +219,7 @@ function ToolDetailsPane({
       {formattedResult === undefined || isError ? null : (
         <div className="px-2 pb-2">
           <ToolDetailHeader copyLabel="Copy result" text={formattedResult}>
-            Result:
+            Result
           </ToolDetailHeader>
           <pre className="bg-muted/40 max-h-64 overflow-auto rounded p-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
             {formattedResult}
