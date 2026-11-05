@@ -61,7 +61,7 @@ describe('AgentWorkspaceLayout', () => {
       leftPanelMinSize: '180px',
       mainContentMinSize: '360px',
       rightPanelMaxSize: '75%',
-      rightPanelMinSize: '256px',
+      rightPanelMinSize: '192px',
     });
   });
 

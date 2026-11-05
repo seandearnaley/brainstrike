@@ -53,7 +53,7 @@ async function filesPaneWidth(page: Page): Promise<number> {
 }
 
 /** The Files pane's floor: the workspace pane's `rightPanelMinSize` (agent-workspace-layout.tsx). */
-const FILES_PANE_MIN_WIDTH = 256;
+const FILES_PANE_MIN_WIDTH = 192;
 
 /**
  * Narrows the Files pane to its minimum width: the narrowest the Search panel

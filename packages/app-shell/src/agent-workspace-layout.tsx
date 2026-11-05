@@ -36,17 +36,18 @@ const AGENT_RIGHT_PANEL_CHROME = {
 
 /**
  * Pixel floors, not percentages: the chat pane needs room for the composer's
- * narrowest layout (about 352px) at any window width, and the workspace pane
- * for its tab strip. A percentage floor shrank with the window (15% of the
- * 800px minimum window is ~120px). The three floors fit the 800px minimum
- * window side by side.
+ * narrowest layout (about 352px) at any window width. A percentage floor
+ * shrank with the window (15% of the 800px minimum window is ~120px). The
+ * three floors (180 + 360 + 192 = 732px) fit side by side in the 734px left
+ * at the 800px minimum window, after the 64px navigation rail and the two
+ * 1px separators.
  */
 const AGENT_PANEL_CONSTRAINTS = {
   leftPanelMaxSize: '70%',
   leftPanelMinSize: '180px',
   mainContentMinSize: '360px',
   rightPanelMaxSize: '75%',
-  rightPanelMinSize: '256px',
+  rightPanelMinSize: '192px',
 } as const;
 
 export function AgentWorkspaceLayout({
