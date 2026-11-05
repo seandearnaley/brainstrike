@@ -444,13 +444,19 @@ function latestTurn(call: CallOptions): { readonly answered: number; readonly te
 
 /**
  * One request, as the debug pack of 4 Nov 2026 made it: the root dispatches a
- * background worker, then enters a worktree; the run the host continues there
+ * worker, then asks to enter a worktree; the run the host continues there
  * dispatches another. A worker's context is its task alone.
  */
 function fanOutAcrossWorktree(script: {
+  /** Whether the root waits for its first worker's result before the switch. */
+  readonly awaited?: boolean;
   readonly continued: (call: CallOptions) => Scripted;
   readonly worker: (task: string, call: CallOptions) => Promise<Scripted> | Scripted;
 }): MockLanguageModelV4 {
+  const before = {
+    ...(script.awaited ? { _background: { disposition: 'awaited', enabled: true } } : {}),
+    prompt: BEFORE,
+  };
   return new MockLanguageModelV4({
     doStream: async (call) => {
       const task = [BEFORE, AFTER].find((candidate) => userTexts(call)[0]?.includes(candidate));
@@ -467,9 +473,10 @@ function fanOutAcrossWorktree(script: {
           : script.continued(call);
       }
       return stream(
-        turn.answered === 0
-          ? toolCall('agent-worker', { prompt: BEFORE }, 'call-before')
-          : toolCall('create_worktree', {}, 'wt-call')
+        [
+          toolCall('agent-worker', before, 'call-before'),
+          toolCall('create_worktree', {}, 'wt-call'),
+        ][turn.answered] ?? text('Waiting for the worker.')
       );
     },
   });
@@ -478,50 +485,51 @@ function fanOutAcrossWorktree(script: {
 const wakeLedgers = (rows: readonly HostLogRow[]): string[] =>
   started(rows).flatMap((run) => (run.delivery?.via === 'wake' ? [run.prompt] : []));
 
-test('the run continued in a worktree is the same turn: one ledger reports workers from before and after the switch', {
+test('a root is offered no worktree while a worker it dispatched still works, so the turn keeps one checkout', {
   timeout: 20_000,
 }, async () => {
   const release = Promise.withResolvers<void>();
+  const offered: string[] = [];
   const model = fanOutAcrossWorktree({
     continued: () => stream(text('Continuing in the worktree.')),
     worker: async (task) => {
-      if (task === BEFORE) {
-        await release.promise;
-      }
+      await release.promise;
       return stream(text(`${task.slice(0, 6)} report.`));
     },
   });
-  const { core, threadId } = await host(model, []);
-  await core.startRun({
-    commandId: randomUUID(),
-    modelId: 'scripted',
-    prompt: 'Fan out.',
-    threadId,
-  });
+  const { core, threadId } = await host(model, offered);
+  const turn = (
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Fan out.',
+      threadId,
+    })
+  ).runId;
+  await rowsWhere(core, threadId, (all) => all.some(finished(turn)));
+  expect(offered).toEqual(['absent']);
 
-  // The worker dispatched in the worktree reports while the earlier one still works.
-  const first = await rowsWhere(core, threadId, (all) => wakeLedgers(all).length === 1);
-  expect(wakeLedgers(first)[0]).toContain(
-    `${LEDGER} — 2 total: 1 returned, 0 failed, 0 cancelled, 1 still running.`
-  );
-  expect(wakeLedgers(first)[0]).not.toContain('earlier turns');
-
+  // The worker reports to the turn in the checkout both started in.
   release.resolve();
-  const second = await rowsWhere(core, threadId, (all) => wakeLedgers(all).length === 2);
-  const ledger = wakeLedgers(second)[1];
-  expect(ledger).toContain(
-    `${LEDGER} — 2 total: 2 returned, 0 failed, 0 cancelled, 0 still running.`
+  const rows = await rowsWhere(core, threadId, (all) => wakeLedgers(all).length === 1);
+  expect(wakeLedgers(rows)[0]).toContain(
+    `${LEDGER} — 1 total: 1 returned, 0 failed, 0 cancelled, 0 still running.`
   );
-  expect(ledger).toContain(`returned. Prompt: "${BEFORE}"`);
-  expect(ledger).toContain(`returned. Prompt: "${AFTER}"`);
+  expect(
+    rows.some(
+      ({ event }) =>
+        event.type === 'workspace.binding.updated' && event.binding.checkoutMode === 'worktree'
+    )
+  ).toBe(false);
 });
 
-test('a Stop of the run continued in a worktree stops the workers dispatched before the switch too', {
+test('a Stop of the run continued in a worktree stops its workers, in the turn the person started', {
   timeout: 20_000,
 }, async () => {
   const model = fanOutAcrossWorktree({
+    awaited: true,
     continued: (call) => blocked(call),
-    worker: (_task, call) => blocked(call),
+    worker: (task, call) => (task === BEFORE ? stream(text('BEFORE report.')) : blocked(call)),
   });
   const { core, crash, store, threadId } = await host(model, []);
   const turn = (
@@ -532,8 +540,8 @@ test('a Stop of the run continued in a worktree stops the workers dispatched bef
       threadId,
     })
   ).runId;
-  // Both workers and the continuation's next step are in flight: the root's
-  // two steps, the continuation's two and one call from each worker.
+  // The root's two steps and its awaited worker's one, then the continuation's
+  // two, its worker's call and the continuation's next step in flight.
   await expect.poll(() => model.doStreamCalls.length, { timeout: 15_000 }).toBe(6);
   const continued = started(await core.read(threadId, 0)).find((run) => run.runId !== turn);
   if (!continued) {
@@ -549,7 +557,7 @@ test('a Stop of the run continued in a worktree stops the workers dispatched bef
       )
     )
   );
-  expect(outcomes).toEqual([['stopped'], ['stopped']]);
+  expect(outcomes.toSorted()).toEqual([['completed'], ['stopped']]);
   // The composer and the running-workers strip name one turn: the one the
   // person's message started, which the committed log keeps across a restart.
   const tree = core.trees.read(threadId);
