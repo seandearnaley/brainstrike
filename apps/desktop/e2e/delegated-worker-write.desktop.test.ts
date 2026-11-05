@@ -495,6 +495,12 @@ async function assertWorkerWrite(
           await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
         }
+        if (decision === 'Approve') {
+          // Core brackets only a top-level thread's runs with turn snapshots, so the
+          // child's finished turn offers its edit's revert but no changes of its own.
+          await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
+          await expect(child.getByTestId('turn-changes')).toHaveCount(0);
+        }
         const completedRequests = modelCalls();
         let writtenMtime: number | undefined;
         if (decision === 'Approve') {
