@@ -21,8 +21,8 @@ import { randomUUID } from 'node:crypto';
 import { MockLanguageModelV4 } from 'ai/test';
 import fc from 'fast-check';
 import { expect } from 'vitest';
-import type { HostCore } from '../../src/core.js';
-import type { HostLogRow } from '../../src/protocol.js';
+import type { HostCore } from '../../src/core.ts';
+import type { HostLogRow } from '../../src/protocol.ts';
 import {
   type CallOptions,
   type ChildRunHarness,
@@ -31,7 +31,7 @@ import {
   stream,
   text,
   toolCall,
-} from './child-run-host.js';
+} from './child-run-host.ts';
 
 /** One tool turn of a run: what the model calls, and how the person answers. */
 export type ScenarioToolTurn = 'read' | 'approve' | 'deny' | 'answer';

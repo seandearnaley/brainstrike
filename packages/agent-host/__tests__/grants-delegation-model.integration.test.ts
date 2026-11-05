@@ -26,7 +26,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { MockLanguageModelV4 } from 'ai/test';
 import fc from 'fast-check';
 import { afterEach, expect, test } from 'vitest';
-import type { HostEvent, HostLogRow, HostPermissionGrant } from '../src/protocol.js';
+import type { HostEvent, HostLogRow, HostPermissionGrant } from '../src/protocol.ts';
 import {
   type CallOptions,
   type ChildRunHarness,
@@ -37,7 +37,7 @@ import {
   toolNames,
   userTexts,
   worker,
-} from './fixtures/child-run-host.js';
+} from './fixtures/child-run-host.ts';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {

@@ -9,9 +9,9 @@ import Database from 'better-sqlite3';
 import fc from 'fast-check';
 import { afterEach, expect, test } from 'vitest';
 import { storedBlobRefs } from '../src/run-log-format.mjs';
-import { BLOBS_DIR, largeText, STATE_DB, StateStore, sha256Hex } from '../src/state-store.js';
-import { cleanupDirs, freshDir } from './helpers/fs.js';
-import { TruthIndexer } from './helpers/truth-indexer.js';
+import { BLOBS_DIR, largeText, STATE_DB, StateStore, sha256Hex } from '../src/state-store.ts';
+import { cleanupDirs, freshDir } from './helpers/fs.ts';
+import { TruthIndexer } from './helpers/truth-indexer.ts';
 
 afterEach(() => cleanupDirs());
 

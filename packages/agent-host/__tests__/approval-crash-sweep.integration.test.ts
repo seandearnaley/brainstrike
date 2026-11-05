@@ -11,9 +11,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
-import { HostCore } from '../src/core.js';
-import type { HostEvent, HostLogRow } from '../src/protocol.js';
-import { approvalCrashPlatform, KILL_INSIDE_EFFECT } from './fixtures/approval-crash-platform.js';
+import { HostCore } from '../src/core.ts';
+import type { HostEvent, HostLogRow } from '../src/protocol.ts';
+import { approvalCrashPlatform, KILL_INSIDE_EFFECT } from './fixtures/approval-crash-platform.ts';
 
 const HOST = fileURLToPath(new URL('./fixtures/approval-crash-host.ts', import.meta.url));
 const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -40,7 +40,10 @@ function runHost(root: string, effectFile: string, killAt: number): Promise<Host
   return new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', (code, signal) => {
-      if (code !== 0 && signal === null) {
+      // Windows has no signals: a process that kills itself ends by TerminateProcess with code 1.
+      const killed =
+        signal === 'SIGKILL' || (process.platform === 'win32' && code === 1 && stderr === '');
+      if (code !== 0 && !killed) {
         reject(new Error(`crash host exited ${code}: ${stderr}`));
         return;
       }

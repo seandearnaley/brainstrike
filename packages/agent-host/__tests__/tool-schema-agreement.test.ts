@@ -4,13 +4,13 @@ import { toStandardSchema } from '@mastra/core/schema';
 import { asSchema, type JSONSchema7 } from 'ai';
 import fc from 'fast-check';
 import { describe, expect, test } from 'vitest';
-import { executableInputSchema } from '../src/executable-input-schema.js';
-import type { HostTool } from '../src/ports.js';
+import { executableInputSchema } from '../src/executable-input-schema.ts';
+import type { HostTool } from '../src/ports.ts';
 import {
   type HostProviderModelIdentity,
   prepareHostProviderTools,
-} from '../src/provider-schema-selection.js';
-import { type AbsentOptional, jsonSchemaArbitrary } from './fixtures/json-schema-arbitrary.js';
+} from '../src/provider-schema-selection.ts';
+import { type AbsentOptional, jsonSchemaArbitrary } from './fixtures/json-schema-arbitrary.ts';
 
 // ADR-0009 rule 5: what the model is told it may send, the tool accepts. Each
 // input below is generated from the JSON Schema a model is shown. The
