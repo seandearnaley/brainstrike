@@ -336,7 +336,19 @@ export function ComposerModelPicker({
                 No models match “{query.trim()}”.
               </Command.Empty>
             ) : (
-              <NoEnabledModels canEnable={Boolean(onEnableModel)} onManageModels={onManageModels} />
+              <NoEnabledModels
+                canEnable={Boolean(onEnableModel)}
+                onManageModels={
+                  onManageModels
+                    ? () => {
+                        // Settings opens beside the chat, not over it: close
+                        // the picker first, as every other exit does.
+                        handleOpenChange(false);
+                        onManageModels();
+                      }
+                    : undefined
+                }
+              />
             )}
             {isSearching ? null : (
               <>

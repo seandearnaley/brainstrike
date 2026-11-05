@@ -938,4 +938,18 @@ describe('TerminalPanel appearance', () => {
 
     expect(lastTerminal().options.cursorBlink).toBe(false);
   });
+
+  it('stops the cursor blinking when Reduced motion is turned on while it is open', async () => {
+    installBridge();
+    render(<TerminalPanel />);
+    await waitFor(() => expect(lastTerminal().open).toHaveBeenCalled());
+    expect(lastTerminal().options.cursorBlink).toBe(true);
+
+    document.documentElement.dataset['motion'] = 'reduce';
+    try {
+      await waitFor(() => expect(lastTerminal().options.cursorBlink).toBe(false));
+    } finally {
+      delete document.documentElement.dataset['motion'];
+    }
+  });
 });

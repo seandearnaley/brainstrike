@@ -229,10 +229,15 @@ export function useTerminalSession(
       scrollback: 5000,
       theme: appliedTheme,
     });
-    // ThemeProvider writes the light/dark class and palette on <html>; repaint
-    // the terminal whenever either changes. The observer fires after the
-    // attribute lands, so the computed tokens are current.
+    // ThemeProvider writes the light/dark class, palette and motion setting on
+    // <html>; repaint the terminal and follow Reduced motion whenever they
+    // change. The observer fires after the attribute lands, so the computed
+    // tokens are current.
     const appearanceObserver = new MutationObserver(() => {
+      const cursorBlink = !prefersReducedMotion();
+      if (term.options.cursorBlink !== cursorBlink) {
+        term.options.cursorBlink = cursorBlink;
+      }
       const next = readTerminalTheme(container);
       // Palettes differ in foreground; a palette switch keeps the mode but
       // repaints `--background`.
@@ -245,7 +250,7 @@ export function useTerminalSession(
       }
     });
     appearanceObserver.observe(container.ownerDocument.documentElement, {
-      attributeFilter: ['class', 'data-theme', 'style'],
+      attributeFilter: ['class', 'data-motion', 'data-theme', 'style'],
       attributes: true,
     });
     const fitAddon = new FitAddon();

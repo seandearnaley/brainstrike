@@ -665,6 +665,8 @@ describe('ComposerModelPicker', () => {
     expect(picker).toHaveTextContent('No models are enabled');
     await user.click(within(picker).getByRole('button', { name: 'Manage models' }));
     expect(onManageModels).toHaveBeenCalledTimes(1);
+    // Settings opens beside the chat, so the picker must not stay open over it.
+    await waitFor(() => expect(picker).not.toBeInTheDocument());
   });
 
   it('offers no settings link in the empty state without one', async () => {
