@@ -60,7 +60,8 @@ export type ContextTarget =
    */
   | { readonly kind: 'tab-strip'; readonly stripId: string }
   /**
-   * A row in the Changes surface's changed-files tree (BST-1114). Field
+   * A file in the Changes surface: a changed-files tree row (BST-1114) or a
+   * diff file header. Field
    * shapes are inlined from `@brainstrike/types`'s `ChangedFileEntry` rather
    * than imported — this package stays dependency-light (React-free,
    * Electron-free, and today free of `@brainstrike/types` too), and the
@@ -71,6 +72,8 @@ export type ContextTarget =
    */
   | {
       readonly kind: 'changed-file';
+      /** Git's diff of the file as the view drew it, or null when the view sent none. */
+      readonly patch: string | null;
       readonly path: string;
       readonly repositoryRoot: string | null;
       readonly rootId: string | null;

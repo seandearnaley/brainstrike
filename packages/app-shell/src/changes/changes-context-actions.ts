@@ -8,10 +8,31 @@ import {
   isAbsolutePath,
   type TargetOf,
 } from '@brainstrike/context-actions';
-import { ExternalLink, FolderOpen, FolderPlus } from 'lucide-react';
+import type { ChangedFileEntry } from '@brainstrike/types';
+import { Copy, ExternalLink, FolderOpen, FolderPlus } from 'lucide-react';
 
 type ChangedFileTarget = TargetOf<'changed-file'>;
 type WorktreeTarget = TargetOf<'worktree'>;
+
+/**
+ * The target a right-click on a changed file claims, from its tree row or its
+ * diff header alike. `rootPathById` resolves the file's root for an entry no
+ * worktree resolved.
+ */
+export function changedFileTarget(
+  entry: ChangedFileEntry,
+  rootPathById: ReadonlyMap<string, string>
+): ChangedFileTarget {
+  return {
+    kind: 'changed-file',
+    patch: entry.patch,
+    path: entry.path,
+    repositoryRoot: entry.repositoryRoot,
+    rootId: entry.rootId,
+    rootPath: entry.rootId === null ? null : (rootPathById.get(entry.rootId) ?? null),
+    worktreePath: entry.worktreePath,
+  };
+}
 
 /**
  * Joins a worktree-relative `path` onto its absolute `worktreePath`, matching
@@ -40,6 +61,61 @@ function resolveAbsolutePath(worktreePath: string | null, path: string): string 
 function resolveChangedFileAbsolutePath(target: ChangedFileTarget): string | null {
   return resolveAbsolutePath(target.worktreePath ?? target.rootPath, target.path);
 }
+
+async function copyText(
+  services: ActionServices,
+  text: string,
+  copied: string
+): Promise<ActionOutcome> {
+  if (!services.clipboard) {
+    return { error: 'Clipboard service unavailable', ok: false };
+  }
+  const outcome = await services.clipboard.writeText(text);
+  return outcome.ok ? { message: copied, ok: true } : outcome;
+}
+
+const copyChangedFileRelativePath: ContextAction<'changed-file'> = {
+  appliesTo: ['changed-file'],
+  group: 'copy',
+  icon: Copy,
+  id: 'changes.copy-relative-path',
+  label: 'Copy Relative Path',
+  requiredCapabilities: ['clipboard'],
+  run: (target, services) => copyText(services, target.path, 'Relative path copied'),
+};
+
+const copyChangedFileFullPath: ContextAction<'changed-file'> = {
+  appliesTo: ['changed-file'],
+  group: 'copy',
+  icon: Copy,
+  id: 'changes.copy-full-path',
+  isVisible: (target) => resolveChangedFileAbsolutePath(target) !== null,
+  label: 'Copy Full Path',
+  requiredCapabilities: ['clipboard'],
+  run: (target, services) => {
+    const absolutePath = resolveChangedFileAbsolutePath(target);
+    if (absolutePath === null) {
+      return Promise.resolve({ error: 'No absolute path available for this file', ok: false });
+    }
+    return copyText(services, absolutePath, 'Full path copied');
+  },
+};
+
+const copyChangedFilePatch: ContextAction<'changed-file'> = {
+  appliesTo: ['changed-file'],
+  group: 'copy',
+  icon: Copy,
+  id: 'changes.copy-patch',
+  isVisible: (target) => target.patch !== null,
+  label: 'Copy Patch',
+  requiredCapabilities: ['clipboard'],
+  run: (target, services) => {
+    if (target.patch === null) {
+      return Promise.resolve({ error: 'This view holds no patch for this file', ok: false });
+    }
+    return copyText(services, target.patch, 'Patch copied');
+  },
+};
 
 const openChangedFile: ContextAction<'changed-file'> = {
   appliesTo: ['changed-file'],
@@ -133,10 +209,16 @@ export const openChangedFileAction = defineContextAction(openChangedFile);
 export const revealChangedFileAction = defineContextAction(revealChangedFile);
 export const openWorktreeAction = defineContextAction(openWorktree);
 export const addWorktreeAsRootAction = defineContextAction(addWorktreeAsRoot);
+export const copyChangedFileRelativePathAction = defineContextAction(copyChangedFileRelativePath);
+export const copyChangedFileFullPathAction = defineContextAction(copyChangedFileFullPath);
+export const copyChangedFilePatchAction = defineContextAction(copyChangedFilePatch);
 
 export const changesActions: readonly AnyContextAction[] = [
   openChangedFileAction,
   revealChangedFileAction,
+  copyChangedFileRelativePathAction,
+  copyChangedFileFullPathAction,
+  copyChangedFilePatchAction,
   openWorktreeAction,
   addWorktreeAsRootAction,
 ];

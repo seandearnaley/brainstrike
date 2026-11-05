@@ -1,7 +1,7 @@
 import './diff-review.browser.css';
 import type { ChangesAction, StructuredFileDiff } from '@brainstrike/types';
 import { cleanup, render } from '@testing-library/react';
-import { useState } from 'react';
+import { type ReactElement, useState } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { type DiffComment, DiffReview, type DiffReviewFile } from '../diff-view';
@@ -93,6 +93,8 @@ function Review({
   loadFile = loadById,
   onAction,
   onComment = () => {},
+  fileMenu,
+  onOpenLine,
 }: {
   readonly actionsDisabled?: boolean;
   readonly diffStyle?: 'split' | 'unified';
@@ -100,6 +102,8 @@ function Review({
   readonly loadFile?: (id: string) => Promise<StructuredFileDiff>;
   readonly onAction?: OnAction;
   readonly onComment?: (comment: DiffComment) => void;
+  readonly fileMenu?: (file: DiffReviewFile, header: ReactElement) => ReactElement;
+  readonly onOpenLine?: (file: DiffReviewFile, line: number) => void;
 }) {
   const [comments, setComments] = useState<DiffComment[]>([]);
   return (
@@ -110,6 +114,7 @@ function Review({
             actionsDisabled={actionsDisabled}
             comments={comments}
             diffStyle={diffStyle}
+            fileMenu={fileMenu}
             files={files}
             loadFile={loadFile}
             onAction={onAction}
@@ -118,6 +123,7 @@ function Review({
               setComments((current) => [...current.filter((c) => c.id !== comment.id), comment]);
             }}
             onDeleteComment={(id) => setComments((current) => current.filter((c) => c.id !== id))}
+            onOpenLine={onOpenLine}
           />
         </div>
         <Toaster />
@@ -136,6 +142,53 @@ function commentButton(): HTMLElement {
   }
   throw new Error('No comment button is showing.');
 }
+
+/** The number beside a line of one side, as the split diff draws it. */
+function lineNumber(side: 'additions' | 'deletions', line: number): HTMLElement {
+  for (const host of document.querySelectorAll('diffs-container')) {
+    const cell = host.shadowRoot?.querySelector<HTMLElement>(
+      `[data-${side}] [data-column-number="${line}"]`
+    );
+    if (cell) {
+      return cell;
+    }
+  }
+  throw new Error(`No ${side} line ${line} is showing.`);
+}
+
+test('a line number of the new version opens the file at that line', async () => {
+  const onOpenLine = vi.fn();
+  render(<Review diffStyle="split" onOpenLine={onOpenLine} />);
+  await expect.element(page.getByText('return x + y;').first()).toBeVisible();
+
+  await userEvent.click(lineNumber('additions', 3));
+  expect(onOpenLine).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'sum' }), 3);
+  await userEvent.click(lineNumber('additions', 4));
+  expect(onOpenLine).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'sum' }), 4);
+
+  // The old version is not the file any more, so its numbers open nothing.
+  onOpenLine.mockClear();
+  await userEvent.click(lineNumber('deletions', 3));
+  await userEvent.click(lineNumber('deletions', 4));
+  expect(onOpenLine).not.toHaveBeenCalled();
+});
+
+test('a file menu takes right-clicks on its header, never on its lines', async () => {
+  const menuOf = vi.fn();
+  render(
+    <Review
+      fileMenu={(file, header) => (
+        <div className="contents" onContextMenuCapture={() => menuOf(file.id)}>
+          {header}
+        </div>
+      )}
+    />
+  );
+  await userEvent.click(page.getByText('return x + y;'), { button: 'right' });
+  expect(menuOf).not.toHaveBeenCalled();
+  await userEvent.click(page.getByText('src/sum.ts'), { button: 'right' });
+  expect(menuOf).toHaveBeenCalledWith('sum');
+});
 
 test('every file shows in one scroll with its counts', async () => {
   render(<Review />);
@@ -508,6 +561,75 @@ function offering(file: DiffReviewFile, actions: readonly ChangesAction[]): Diff
 function hunkButtons(name: string) {
   return page.getByRole('button', { exact: true, name });
 }
+
+test('a file marked viewed folds, and opens again once it changes', async () => {
+  const marks: [string, boolean][] = [];
+  function Viewed({ files }: { readonly files: readonly DiffReviewFile[] }) {
+    const [viewed, setViewed] = useState<ReadonlyMap<string, string>>(new Map());
+    return (
+      <ThemeProvider defaultMode="light">
+        <TooltipProvider>
+          <div style={{ height: 560, width: 900 }}>
+            <DiffReview
+              diffStyle="unified"
+              files={files}
+              loadFile={loadById}
+              onViewed={(file, marked) => {
+                marks.push([file.id, marked]);
+                setViewed((current) => {
+                  const next = new Map(current);
+                  if (marked) {
+                    next.set(file.id, file.revision);
+                  } else {
+                    next.delete(file.id);
+                  }
+                  return next;
+                });
+              }}
+              viewed={viewed}
+            />
+          </div>
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+  }
+  const [sum] = FILES;
+  if (!sum) {
+    throw new Error('The fixture has no files.');
+  }
+  const view = render(<Viewed files={[sum]} />);
+  const header = page.getByRole('button', { name: 'src/sum.ts' });
+  const mark = page.getByRole('checkbox', { name: 'Viewed src/sum.ts' });
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+
+  await mark.click();
+  await expect.element(mark).toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  // A viewed file still opens to read it again.
+  await header.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+  await mark.click();
+  await expect.element(mark).not.toBeChecked();
+  expect(marks).toEqual([
+    ['sum', true],
+    ['sum', false],
+  ]);
+
+  await mark.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  view.rerender(<Viewed files={[{ ...sum, revision: 'sum-2' }]} />);
+  await expect.element(mark).not.toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+
+  // A viewed file opened to read again stays open once it changes.
+  await mark.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  await header.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+  view.rerender(<Viewed files={[{ ...sum, revision: 'sum-3' }]} />);
+  await expect.element(mark).not.toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+});
 
 test('each hunk of a modified file offers its actions and hands back its own hunk', async () => {
   const onAction = vi.fn<OnAction>();
