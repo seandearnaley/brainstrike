@@ -9,6 +9,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { deliveredEntries } from './utils/conversation-invariants';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
@@ -284,6 +285,7 @@ async function assertWorkerWrite(
         .selectOption('allow');
       await ensureAssistantShellVisible(window);
       let root = window.getByRole('region', { exact: true, name: 'Assistant' });
+      await chooseThreadFolder(root, path.basename(workspace));
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill(
