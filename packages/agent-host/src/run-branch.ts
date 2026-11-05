@@ -98,7 +98,7 @@ function foldHostRunBranch(
       throw new Error('A delegated child run must start its child thread');
     }
     return {
-      delegated: true,
+      author: 'agent',
       parentMessageId: null,
       prompt: event.prompt,
       userMessageId: admission.commandId,
@@ -114,6 +114,7 @@ function foldHostRunBranch(
   }
   return {
     ...(event.attachments ? { attachments: event.attachments } : {}),
+    author: event.hostPrompt ? 'host' : 'person',
     ...delivery,
     parentMessageId,
     prompt: event.prompt,
@@ -133,6 +134,7 @@ function wakeHostRunBranch(
     throw new Error('Committed branch parent is not an earlier run of this thread');
   }
   return {
+    author: 'host',
     delivery: event.delivery,
     parentMessageId: event.parentMessageId,
     prompt: event.prompt,
@@ -322,20 +324,24 @@ export function foldHostRunEvent(
       break;
   }
 }
+/** What a run the host starts to carry a run's task on records: the turn, and whether it wrote the prompt. */
+export interface HostRunCarry {
+  readonly hostPrompt?: true;
+  readonly turnId?: string;
+}
 /** Where a new run's user message goes, and the turn it continues when the host carries one on. */
-export type HostRunPosition = {
+export type HostRunPosition = HostRunCarry & {
   readonly attachments?: HostImageAttachment[];
   readonly delivery?: HostChildDelivery;
   readonly prompt: string;
-  readonly turnId?: string;
 } & (
-  | {
-      readonly parentMessageId: string | null;
-    }
-  | {
-      readonly userMessageId: string;
-    }
-);
+    | {
+        readonly parentMessageId: string | null;
+      }
+    | {
+        readonly userMessageId: string;
+      }
+  );
 /**
  * A start follows its requested parent (omitted: the current tip; null: the
  * root). A run the host starts to carry a run's task on continues that run's
@@ -344,13 +350,14 @@ export type HostRunPosition = {
 export function hostStartPosition(
   runs: Iterable<HostRunState>,
   params: HostParams<'run/start'>,
-  turnId?: string
+  { hostPrompt, turnId }: HostRunCarry = {}
 ): HostRunPosition {
   if (params.attachments) {
     assertHostAttachments(params.attachments);
   }
   return {
     ...(params.attachments ? { attachments: params.attachments } : {}),
+    ...(hostPrompt ? { hostPrompt } : {}),
     parentMessageId: resolveHostBranchParent(runs, params.threadId, params.parentMessageId),
     prompt: params.prompt,
     ...(turnId === undefined ? {} : { turnId }),

@@ -15,6 +15,7 @@ import { borrowHostAdmission } from './admission-lease.ts';
 import {
   describeHostChildContinuation,
   describeHostChildLedger,
+  describeHostDelivery,
   type HostChildLedgerState,
 } from './child-delivery.ts';
 import {
@@ -146,7 +147,7 @@ export function hostDeliveryPosition(
         turnId,
         via: 'wake',
       },
-      prompt: [pending?.ledger, report].filter(Boolean).join('\n\n'),
+      prompt: describeHostDelivery([pending?.ledger, report]),
     };
   }
   if (!pending) {
@@ -156,7 +157,7 @@ export function hostDeliveryPosition(
     ...position,
     delivery: {
       entries: pending.entries,
-      ledger: pending.ledger,
+      ledger: describeHostDelivery([pending.ledger]),
       messageId: randomUUID(),
       via: 'next-turn',
     },

@@ -129,6 +129,8 @@ export class HostRunEnds {
       if (!next && open && outcome === 'completed' && run.enteredWorktree) {
         next = await ports.startNextRun(
           {
+            // The host wrote this prompt: it is model input, never the person's words.
+            hostPrompt: true,
             params: enteredWorktreeRunParams(run, run.enteredWorktree),
             turnId: hostRunTurnId(run),
           },
