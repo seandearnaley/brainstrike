@@ -18,8 +18,6 @@ import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AssistantOperatingRootCandidate } from '../assistant-operating-root';
-import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { getThreadGroupsCapability } from '../thread-groups-capability';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
@@ -66,7 +64,6 @@ const logger = createLogger('WorkspaceBar');
 
 export interface UseWorkspaceBarArgs {
   readonly assistantThreadRepository: AssistantThreadCatalogRepository | null;
-  readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
   readonly memoryResourceId: string;
   readonly rootDescriptors: Readonly<Record<string, WorkspaceBarRootDescriptor>> | undefined;
   readonly selectedMemoryThreadId: string | undefined;
@@ -152,40 +149,12 @@ function checkoutStateOf(
  * backstop (e.g. a call this component didn't render the disabled state for
  * in time) — this only prevents the common, avoidable case.
  */
-/** A path-tagged MAIN-root row lookup; `rootId: null` settled unresolved. */
-interface MainRootRow {
-  readonly path: string;
-  readonly rootId: string | null;
-}
-
 /**
  * The primary's id while the host has it open. Git reads only an open folder, so a removed
  * primary shows its Removed state instead of a git status refused on every refresh.
  */
 function openPrimaryRootId(primaryRoot: WorkspaceBarRoot | undefined): string | undefined {
   return primaryRoot?.removed ? undefined : primaryRoot?.rootId;
-}
-
-/**
- * The primary's durable id, and whether the thread's folder set is still
- * resolving: its binding metadata, or (unbound) the MAIN-root row lookup for
- * the current MAIN path. Pure, so the hook stays under the complexity cap.
- */
-function primaryRootState(args: {
-  readonly bindingRootId: string | undefined;
-  readonly canResolveMainRoot: boolean;
-  readonly mainRootPath: string | undefined;
-  readonly mainRootRow: MainRootRow | null;
-  readonly metadataPending: boolean;
-}): { readonly foldersPending: boolean; readonly primaryRootId: string | undefined } {
-  if (args.bindingRootId) {
-    return { foldersPending: args.metadataPending, primaryRootId: args.bindingRootId };
-  }
-  const settled = args.mainRootRow !== null && args.mainRootRow.path === args.mainRootPath;
-  return {
-    foldersPending: args.metadataPending || (args.canResolveMainRoot && !settled),
-    primaryRootId: settled ? (args.mainRootRow?.rootId ?? undefined) : undefined,
-  };
 }
 
 function addFolderDisabledReasonFor(selectedThreadMetadataPending: boolean): string | null {
@@ -350,13 +319,8 @@ function usePrimaryAdapterRootId(
  * surfaced as toasts.
  */
 export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
-  const {
-    assistantThreadRepository,
-    currentMainRoot,
-    memoryResourceId,
-    rootDescriptors,
-    selectedMemoryThreadId,
-  } = args;
+  const { assistantThreadRepository, memoryResourceId, rootDescriptors, selectedMemoryThreadId } =
+    args;
   const fileSystem = useFileSystem();
   const rootCatalog = getThreadGroupsCapability();
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
@@ -383,7 +347,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const { operatingRoot, selectedThreadMetadataPending, threadRootBinding } =
     useAssistantThreadRootBinding({
       assistantThreadRepository,
-      ...(currentMainRoot ? { currentMainRoot } : {}),
       memoryResourceId,
       selectedMemoryThreadId,
     });
@@ -408,67 +371,9 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     activeThreadIdRef.current = selectedMemoryThreadId;
   }, [selectedMemoryThreadId]);
 
-  // The primary's DURABLE id. With a persisted binding it is already a
-  // `roots.id`; without one the MAIN root's row is resolved by PATH — the only
-  // thing the adapter and DB id spaces share. State is keyed by the path so a
-  // resolved id is never rendered under a different root, and an unresolvable
-  // path leaves `primaryRoot`/`checkout` undefined rather than inventing an id.
-  const bindingRootId = threadRootBinding?.rootId;
-  const mainRootPath = currentMainRoot?.path;
-  const mainRootDisplayName = currentMainRoot?.displayName;
-  const [mainRootRow, setMainRootRow] = useState<MainRootRow | null>(null);
-  const warnedMainRootPathsRef = useRef(new Set<string>());
-  // Exhausting the retry budget must not be terminal for the session: the same
-  // reconciliation signal the checkout chip refetches on re-triggers the
-  // resolve, so a row written after the budget ran out is still picked up.
-  // Read-only here — the refcounted subscription that FEEDS this nonce is
-  // acquired by `useThreadCheckoutStatus` below, which this hook always calls.
-  const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
-  useEffect(() => {
-    // No clearing branch: the state is PATH-tagged and the read below ignores a
-    // row resolved for any other path, so a bail-out needs no synchronous
-    // setState (react-hooks/set-state-in-effect).
-    if (bindingRootId || !(rootCatalog && mainRootPath && mainRootDisplayName)) {
-      return;
-    }
-    let cancelled = false;
-    // Never rejects — every failure is carried in the returned outcome.
-    void resolveRootIdAfterReconciliation(
-      { displayName: mainRootDisplayName, path: mainRootPath },
-      () => cancelled
-    ).then((lookup) => {
-      if (lookup.kind === 'cancelled') {
-        return;
-      }
-      if (lookup.kind === 'unresolved') {
-        setMainRootRow({ path: mainRootPath, rootId: null });
-        const warnedPaths = warnedMainRootPathsRef.current;
-        if (!warnedPaths.has(mainRootPath)) {
-          warnedPaths.add(mainRootPath);
-          logger.warn(
-            'the MAIN root has no unique live roots row; the workspace bar shows no primary',
-            { error: lookup.error, path: mainRootPath }
-          );
-        }
-        return;
-      }
-      setMainRootRow((previous) =>
-        previous?.path === mainRootPath && previous.rootId === lookup.rootId
-          ? previous
-          : { path: mainRootPath, rootId: lookup.rootId }
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [bindingRootId, rootCatalog, invalidationNonce, mainRootDisplayName, mainRootPath]);
-  const { foldersPending, primaryRootId } = primaryRootState({
-    bindingRootId,
-    canResolveMainRoot: Boolean(rootCatalog && mainRootPath && mainRootDisplayName),
-    mainRootPath,
-    mainRootRow,
-    metadataPending: selectedThreadMetadataPending,
-  });
+  // The primary is the thread's own binding; an unbound thread has no folder.
+  const primaryRootId = threadRootBinding?.rootId;
+  const foldersPending = selectedThreadMetadataPending;
   // BST-1990: one read of the thread's folders' rows. A folder whose row is
   // gone or no longer live is marked `removed`; the host refuses a run while the
   // binding names one, so the bar shows it and offers the repair.
@@ -810,6 +715,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
         ) {
           return null;
         }
+        // A thread with no folder takes the added one as its folder.
+        if (!current.primaryRootId) {
+          return deriveUseFolder(current, {
+            displayName: handle.name,
+            path: handle.path,
+            rootId: lookup.rootId,
+          });
+        }
         return {
           checkoutLocalRootId: current.checkoutLocalRootId,
           ids: [...current.secondaryRootIds, lookup.rootId],
@@ -825,7 +738,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     [rootCatalog, enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
   useThreadFolderScope({
-    bindingRootId,
+    bindingRootId: primaryRootId,
     foldersPending,
     recordAddedAsSecondary,
     secondaryRootIds,

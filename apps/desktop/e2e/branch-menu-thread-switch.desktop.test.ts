@@ -4,8 +4,10 @@
  * the same click: the menu must close and never paint away from its chip, not
  * even for the frames of its exit animation.
  */
+import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { createTempDirTracker, freshRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot } from './utils/seed-root';
@@ -35,10 +37,12 @@ test('selecting another thread closes the open branch menu', async ({
   await ensureAssistantShellVisible(page);
   const region = page.getByRole('region', { exact: true, name: 'Assistant' });
   const input = region.getByRole('textbox', { name: 'Message input' });
+  await chooseThreadFolder(region, path.basename(repo));
   await input.fill('The first thread.');
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText('First reply.')).toBeVisible({ timeout: 60_000 });
   await page.getByRole('button', { name: 'New thread' }).click();
+  await chooseThreadFolder(region, path.basename(repo));
   await input.fill('The second thread.');
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText('Second reply.')).toBeVisible({ timeout: 60_000 });

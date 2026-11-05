@@ -173,7 +173,17 @@ const realUpdateThreadMetadata = useAssistantThreadStore.getState().updateThread
 const assistantThreadRepository = {
   updateThreadMetadata,
 } as unknown as AssistantThreadRepository;
-const currentMainRoot = { displayName: 'brainstrike', path: '/ws/brainstrike' };
+// A thread's folder is its own persisted binding. Tests that do not name one are
+// bound to this folder; `{ operatingRootId: undefined }` seeds an unbound thread.
+const MAIN_BINDING = {
+  operatingRootDisplayName: 'brainstrike',
+  operatingRootId: 'r-main-db',
+  operatingRootPath: '/ws/brainstrike',
+};
+
+function withMainBinding(metadata: Record<string, unknown>): Record<string, unknown> {
+  return 'operatingRootId' in metadata ? metadata : { ...MAIN_BINDING, ...metadata };
+}
 // Keyed by the file-explorer ADAPTER rootId (the production store builds it as
 // `Object.fromEntries(roots.map((r) => [r.rootId, r]))`). It is deliberately
 // UNRELATED to the DB `roots.id` above: the durable id must never be borrowed
@@ -265,12 +275,11 @@ async function setup(
   metadata: Record<string, unknown> = {},
   rootDescriptorsOverride: typeof rootDescriptors = rootDescriptors
 ) {
-  seedThread(metadata);
+  seedThread(withMainBinding(metadata));
   const rendered = renderHook(
     (props: BarProps) =>
       useWorkspaceBar({
         assistantThreadRepository,
-        currentMainRoot,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors: props.rootDescriptors ?? rootDescriptorsOverride,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
@@ -484,13 +493,6 @@ describe('useWorkspaceBar', () => {
     expect(result.current.onAddRecent).toBeDefined();
   });
 
-  it('resolves the unbound primary by PATH in the durable roots table, never the adapter id', async () => {
-    const { result } = await setup();
-    await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
-    // The bar itself is DB-space: the rendered chip carries the roots row id.
-    expect(result.current.primaryRoot?.rootId).toBe('r-main-db');
-  });
-
   it('asks for the checkout with BOTH ids: the DB row for git, the adapter id for refresh mapping', async () => {
     const { result } = await setup();
     await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
@@ -513,7 +515,7 @@ describe('useWorkspaceBar', () => {
     // one-shot override would be consumed by an earlier render than the one
     // this test inspects.
     checkoutSpy.mockReturnValue({ checkout: undefined, settled: false });
-    const { result } = await setup();
+    const { rerender, result } = await setup();
     await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
     expect(result.current.checkoutState).toBe('pending');
 
@@ -521,13 +523,7 @@ describe('useWorkspaceBar', () => {
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
       settled: true,
     });
-    await act(async () => {
-      useChangesLiveRefreshStore.getState().ingestInvalidation({
-        generation: 1,
-        gitCommonDir: '/ws/brainstrike/.git',
-        repositoryRoot: '/ws/brainstrike',
-      });
-    });
+    rerender({ selectedMemoryThreadId: THREAD_ID });
     await waitFor(() => expect(result.current.checkoutState).toBe('resolved'));
   });
 
@@ -537,20 +533,14 @@ describe('useWorkspaceBar', () => {
     // image for that read and then become the switcher: a click in between
     // landed on the image and opened nothing.
     branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: false });
-    const { result } = await setup();
+    const { rerender, result } = await setup();
     await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
     expect(result.current.checkout).toBeUndefined();
     expect(result.current.branchMenu).toBeUndefined();
     expect(result.current.checkoutState).toBe('pending');
 
     branchSwitcherSpy.mockReturnValue({ menu: branchMenu, settled: true });
-    await act(async () => {
-      useChangesLiveRefreshStore.getState().ingestInvalidation({
-        generation: 1,
-        gitCommonDir: '/ws/brainstrike/.git',
-        repositoryRoot: '/ws/brainstrike',
-      });
-    });
+    rerender({ selectedMemoryThreadId: THREAD_ID });
     await waitFor(() => expect(result.current.branchMenu).toBe(branchMenu));
     expect(result.current.checkout).toEqual({ ahead: 0, behind: 0, branch: 'main', dirty: false });
     expect(result.current.checkoutState).toBe('resolved');
@@ -628,49 +618,6 @@ describe('useWorkspaceBar', () => {
     expect(loggerMock.warn.mock.calls.length).toBe(warnCallsAfterMount);
   });
 
-  it('warns and shows no primary when the MAIN root has no live roots row', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/brainstrike', Number.POSITIVE_INFINITY);
-    const { result } = await setup();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
-    expect(result.current.primaryRoot).toBeUndefined();
-    expect(loggerMock.warn).toHaveBeenCalledWith(
-      expect.stringContaining('no unique live roots row'),
-      expect.objectContaining({ path: '/ws/brainstrike' })
-    );
-    // Never an invented id — the adapter id must not stand in for the DB row.
-    expect(checkoutSpy).not.toHaveBeenCalledWith(
-      expect.objectContaining({ dbRootId: 'adapter-main' })
-    );
-    expect(checkoutSpy).toHaveBeenCalledWith(null);
-  });
-
-  it('re-resolves the MAIN root after a changes invalidation instead of staying blank forever', async () => {
-    vi.useFakeTimers();
-    liveRootMisses.set('/ws/brainstrike', Number.POSITIVE_INFINITY);
-    const { result } = await setup();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
-    expect(result.current.primaryRoot).toBeUndefined();
-    expect(loggerMock.warn).toHaveBeenCalledTimes(1);
-    // Reconciliation has since written the row and announced it.
-    liveRootMisses.set('/ws/brainstrike', 0);
-    await act(async () => {
-      useChangesLiveRefreshStore.getState().ingestInvalidation({
-        generation: 1,
-        gitCommonDir: '/ws/brainstrike/.git',
-        repositoryRoot: '/ws/brainstrike',
-      });
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-    expect(result.current.primaryRoot?.rootId).toBe('r-main-db');
-  });
-
   it('resolves secondaryRootIds to display rows from the roots table', async () => {
     const { result } = await setup({ secondaryRootIds: ['r-docs'] });
     await waitFor(() =>
@@ -701,7 +648,7 @@ describe('useWorkspaceBar', () => {
     const before = readRoots.mock.calls.length;
     // A fresh thread object carrying an EQUAL id list — identity churn only.
     await act(async () => {
-      seedThread({ secondaryRootIds: ['r-docs'] });
+      seedThread(withMainBinding({ secondaryRootIds: ['r-docs'] }));
     });
     await act(async () => {});
     expect(readRoots.mock.calls.length).toBe(before);
@@ -730,20 +677,13 @@ describe('useWorkspaceBar', () => {
     expect(updateThreadMetadata).toHaveBeenCalledTimes(1);
   });
 
-  it('withholds the checkout while the primary root is absent', async () => {
-    vi.useFakeTimers();
-    // The primary never resolves, so `primaryRoot` stays undefined — but the
-    // checkout hook is mocked to always answer. The branch chip must not
-    // render a branch with no folder beside it.
-    liveRootMisses.set('/ws/brainstrike', Number.POSITIVE_INFINITY);
-    const { result } = await setup();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-    });
+  it('shows no primary, checkout or branch menu for a thread with no folder', async () => {
+    const { result } = await setup({ operatingRootId: undefined });
 
     expect(result.current.primaryRoot).toBeUndefined();
     expect(result.current.checkout).toBeUndefined();
     expect(result.current.branchMenu).toBeUndefined();
+    expect(checkoutSpy).toHaveBeenCalledWith(null);
   });
 
   it('supplies the reveal action with the platform label, never a hardcoded OS name', async () => {

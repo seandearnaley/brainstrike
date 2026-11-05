@@ -16,6 +16,12 @@ import { create } from 'zustand';
 
 interface WorktreeCheckoutIntent {
   readonly branch: string | null;
+  /** The repository's open folder, the Local root of a thread with no folder. */
+  readonly localRoot?: {
+    readonly displayName: string;
+    readonly path: string;
+    readonly rootId: string;
+  };
   readonly path: string;
   readonly threadId: string;
   readonly worktreeId: string | null;

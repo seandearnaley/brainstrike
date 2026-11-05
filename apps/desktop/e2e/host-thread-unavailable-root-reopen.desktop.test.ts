@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-root-restore';
@@ -52,6 +53,7 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     // A fresh profile opens on the new thread's composer; its first send creates the thread.
     await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
     await enableAssistantCatalogModel(page, MODEL);
+    await chooseThreadFolder(page, path.basename(rootPath));
     await send(page, 'BOUND_BEFORE_REOPEN', 'BOUND_SEND_SUCCEEDED');
     const userDataDir = electron.getUserDataDir();
     const boundThread = (await readHostThreadTree(userDataDir)).find(({ rows }) =>
