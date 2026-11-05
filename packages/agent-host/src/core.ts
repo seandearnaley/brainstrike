@@ -195,6 +195,7 @@ export class HostCore {
     runs: () => this.runs,
     selections: this.selections,
     startNextRun: (next, origin) => this.startNextRun(next, origin),
+    tip: (threadId) => this.rewinds.tip(threadId),
   });
   /** The Artifacts gallery's canvas reads, across every thread Core holds. */
   readonly canvases = hostCanvases(this.records, this.children, this.threads);

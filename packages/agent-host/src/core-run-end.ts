@@ -43,6 +43,8 @@ export interface HostRunEndPorts {
     next: HostNextRun,
     origin: HostClientOrigin | undefined
   ) => Promise<boolean>;
+  /** The run a rewind left as the thread's tip, its one owner (`HostThreadRewinds.tip`). */
+  readonly tip: (threadId: string) => string | null | undefined;
 }
 
 type HostWake = NonNullable<ReturnType<HostChildRuns['wakeParams']>>;
@@ -76,7 +78,9 @@ export class HostRunEnds {
   ): HostRunPosition {
     const { threadId } = params;
     const runs = this.ports.runs();
-    const tip = [...runs.values()].filter((run) => run.threadId === threadId).at(-1);
+    // A wake continues the turn of the run it follows.
+    const tip =
+      'parentMessageId' in position ? runs.get(position.parentMessageId ?? '') : undefined;
     const exits = this.exits.pending(threadId);
     return hostDeliveryPosition(
       method,
@@ -190,11 +194,11 @@ export class HostRunEnds {
       if (this.ports.closing() || this.ports.deletions.has(threadId)) {
         return;
       }
-      const { admitWake, children, runs, selections } = this.ports;
+      const { admitWake, children, runs, selections, tip } = this.ports;
       await this.ports.admit(threadId, async () => {
         // Read in the queue: a wake admitted ahead of this one may have delivered it all.
         const exited = this.exits.pending(threadId).length > 0;
-        const wake = children.wakeParams(threadId, runs(), selections, exited);
+        const wake = children.wakeParams(threadId, runs(), selections, exited, tip(threadId));
         if (wake) {
           await admitWake(wake);
         }

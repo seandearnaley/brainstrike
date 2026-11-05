@@ -485,10 +485,17 @@ export class HostChildRuns {
       forWake(threadId: string): HostRunSelection;
     },
     /** Whether command sessions that ended by themselves wait for this thread. */
-    exited: boolean
+    exited: boolean,
+    /**
+     * The run a rewind left as the thread's tip (`HostThreadRewinds.tip`):
+     * null for the thread's start, which a wake cannot follow, so results
+     * wait for the next user turn; undefined: the latest run.
+     */
+    rewound: string | null | undefined
   ) {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
-    const tip = own.at(-1);
+    const tip =
+      rewound === undefined ? own.at(-1) : rewound === null ? undefined : runs.get(rewound);
     const pending = this.pending(threadId, runs, undefined, false);
     if (!(tip && (pending || exited)) || own.some((run) => !run.terminal)) {
       return;
