@@ -1,3 +1,4 @@
+import { jsonRpcLogger } from '@brainstrike/agent-host/boundary-wire';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
 import {
@@ -92,5 +93,9 @@ class MainPortWriter extends AbstractMessageWriter {
 }
 /** Private platform capabilities never share the visible client's authority channel. */
 export function mainPlatformConnection(port: PlatformMessagePort): MessageConnection {
-  return createMessageConnection(new MainPortReader(port), new MainPortWriter(port));
+  return createMessageConnection(
+    new MainPortReader(port),
+    new MainPortWriter(port),
+    jsonRpcLogger('AgentHostPlatform')
+  );
 }
