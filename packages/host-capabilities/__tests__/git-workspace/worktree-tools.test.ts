@@ -282,7 +282,7 @@ describe('runManageWorktree', () => {
     });
   });
 
-  it('refuses create for a delegated subagent before any worktree exists', async () => {
+  it('refuses create when Core offers no entry (a delegated task, or workers still working) before any worktree exists', async () => {
     const caps = capability({ create: vi.fn() });
 
     await expect(
