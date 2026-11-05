@@ -728,8 +728,8 @@ export class HostCore {
   private childRunPort(run: Run, action: Action): HostChildRunPort {
     return {
       commit: async ({ child, items, threadId }) => {
-        await this.appendAcross(items, 'full');
-        this.threads.add(threadId);
+        // BST-2463: the child is readable before any listener hears of its rows.
+        await this.appendAcross(items, 'full', () => this.threads.add(threadId));
         this.runs.set(child.id, child);
         recordHostConversationId(this.conversationIds, threadId);
         recordHostConversationId(this.conversationIds, child.id);
