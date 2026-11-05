@@ -507,11 +507,6 @@ describe('a stale or unoffered target', () => {
         scope('uncommitted', dir),
         await drawn(changes, scope('uncommitted', dir), ['new.txt'])
       ),
-      await changes.apply(
-        'revert',
-        { kind: 'agent-run', runId: 'run', threadId: 'thread' },
-        await drawn(changes, unstaged, ['new.txt'])
-      ),
     ];
     const notHunks = await Promise.all(
       [

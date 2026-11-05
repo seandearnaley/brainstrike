@@ -7,8 +7,9 @@
  * drafts until the toolbar adds them all to the active thread's message.
  *
  * With `applyAction`, each file's actions apply to a hunk, the file, or every
- * file that offers them (ADR-0036), naming each file as the view drew it.
- * Reverting a file asks first; one action runs at a time.
+ * file that offers them (ADR-0036), naming each file as the view drew it, and
+ * once for each root a turn's files lie in. Reverting a file asks first; one
+ * action runs at a time.
  */
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
@@ -40,9 +41,16 @@ import { type ReactElement, type Ref, useMemo, useState } from 'react';
 import { changedFileKey, type DraftComment, useChangesStore } from '../changes-store';
 
 export interface ChangesetDiffPaneProps {
-  /** Applies an action, resolving once the view shows its result. Without it nothing applies. */
+  /**
+   * Applies an action to files of one root, resolving once the view shows its
+   * result. Without it nothing applies.
+   */
   readonly applyAction?:
-    | ((action: ChangesAction, target: ChangesActionTarget) => Promise<BoundaryResult<unknown>>)
+    | ((
+        action: ChangesAction,
+        target: ChangesActionTarget,
+        rootId: string | null
+      ) => Promise<BoundaryResult<unknown>>)
     | undefined;
   /** Identity of the changeset; the diff's folds and drafts belong to it. */
   readonly changesetKey: string;
@@ -73,6 +81,20 @@ function revisionOf({ path, revision }: ChangedFileEntry): ChangesFileRevision {
   return { path, revision };
 }
 
+/** One request per root the files lie in. */
+interface RootRequest {
+  readonly rootId: string | null;
+  readonly target: ChangesActionTarget;
+}
+
+function filesByRoot(entries: readonly ChangedFileEntry[]): RootRequest[] {
+  const byRoot = new Map<string | null, ChangesFileRevision[]>();
+  for (const entry of entries) {
+    byRoot.set(entry.rootId, [...(byRoot.get(entry.rootId) ?? []), revisionOf(entry)]);
+  }
+  return [...byRoot].map(([rootId, files]) => ({ rootId, target: { files, kind: 'files' } }));
+}
+
 function toReviewFile(entry: ChangedFileEntry): DiffReviewFile {
   return {
     actions: entry.actions,
@@ -84,6 +106,7 @@ function toReviewFile(entry: ChangedFileEntry): DiffReviewFile {
     path: entry.path,
     revision: entry.revision,
     status: entry.status,
+    wholeFile: entry.wholeFile,
   };
 }
 
@@ -98,7 +121,7 @@ export function ChangesetDiffPane({
   const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split');
   const [applying, setApplying] = useState(false);
   /** The files a revert waits to be confirmed for. */
-  const [reverting, setReverting] = useState<readonly ChangesFileRevision[] | null>(null);
+  const [reverting, setReverting] = useState<readonly ChangedFileEntry[] | null>(null);
   const drafts = useChangesStore(
     (state) => state.commentsByChangeset.get(changesetKey) ?? NO_DRAFTS
   );
@@ -143,30 +166,32 @@ export function ChangesetDiffPane({
     }
   };
 
-  const apply = async (action: ChangesAction, target: ChangesActionTarget): Promise<void> => {
+  const apply = async (action: ChangesAction, requests: readonly RootRequest[]): Promise<void> => {
     if (!applyAction) {
       return;
     }
     setApplying(true);
     try {
-      const result = await applyAction(action, target);
-      if (!result.ok) {
-        toast({
-          description: describeBoundaryFailure(result.error),
-          title: `Couldn't ${CHANGES_ACTION_LABEL[action].toLowerCase()} ${describeTarget(target)}`,
-          variant: 'destructive',
-        });
+      for (const { rootId, target } of requests) {
+        const result = await applyAction(action, target, rootId);
+        if (!result.ok) {
+          toast({
+            description: describeBoundaryFailure(result.error),
+            title: `Couldn't ${CHANGES_ACTION_LABEL[action].toLowerCase()} ${describeTarget(target)}`,
+            variant: 'destructive',
+          });
+        }
       }
     } finally {
       setApplying(false);
     }
   };
 
-  const applyToFiles = (action: ChangesAction, targets: readonly ChangesFileRevision[]) => {
+  const applyToFiles = (action: ChangesAction, entries: readonly ChangedFileEntry[]) => {
     if (action === 'revert') {
-      setReverting(targets);
+      setReverting(entries);
     } else {
-      void apply(action, { files: targets, kind: 'files' });
+      void apply(action, filesByRoot(entries));
     }
   };
 
@@ -180,16 +205,18 @@ export function ChangesetDiffPane({
       return;
     }
     if (hunks) {
-      void apply(action, { hunks, kind: 'hunks', path: entry.path });
+      void apply(action, [
+        { rootId: entry.rootId, target: { hunks, kind: 'hunks', path: entry.path } },
+      ]);
     } else {
-      applyToFiles(action, [revisionOf(entry)]);
+      applyToFiles(action, [entry]);
     }
   };
 
   const confirmRevert = () => {
     if (reverting) {
       setReverting(null);
-      void apply('revert', { files: reverting, kind: 'files' });
+      void apply('revert', filesByRoot(reverting));
     }
   };
 
@@ -197,18 +224,18 @@ export function ChangesetDiffPane({
   const toolbar = applyAction
     ? CHANGES_ACTIONS.flatMap((action) => {
         const offering = files.filter((entry) => entry.actions.includes(action));
-        return offering.length > 0 ? [{ action, targets: offering.map(revisionOf) }] : [];
+        return offering.length > 0 ? [{ action, offering }] : [];
       })
     : [];
   const unified = diffStyle === 'unified';
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="changeset-diff-pane">
       <div className="border-border flex h-9 shrink-0 items-center gap-1.5 border-b px-2">
-        {toolbar.map(({ action, targets }) => (
+        {toolbar.map(({ action, offering }) => (
           <Button
             disabled={applying}
             key={action}
-            onClick={() => applyToFiles(action, targets)}
+            onClick={() => applyToFiles(action, offering)}
             size="xs"
             type="button"
             variant="ghost"

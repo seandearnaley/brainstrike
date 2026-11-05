@@ -12,10 +12,10 @@
  * gutter, opens one box at a time under the last line, and the saved comment
  * stays on the diff until the caller removes it.
  *
- * Each file's own actions show on its header, and on each hunk of a modified
- * file whose whole patch the diff holds, under the hunk's last change
- * (@pierre/diffs' accept/reject pattern). A hunk action hands back the hunk
- * exactly as git's patch has it.
+ * Each file's own actions show on its header, and, unless they take only the
+ * whole file, on each hunk of a modified file whose whole patch the diff
+ * holds, under the hunk's last change (@pierre/diffs' accept/reject pattern).
+ * A hunk action hands back the hunk exactly as git's patch has it.
  */
 import {
   actionHunks,
@@ -36,6 +36,7 @@ import {
   type CodeViewAnnotationArgs,
   type CodeViewHandle,
   type CodeViewReactOptions,
+  useStableCallback,
 } from '@pierre/diffs/react';
 import { ChevronRight, Loader2, type LucideIcon, Minus, Plus, Undo2 } from 'lucide-react';
 import {
@@ -85,6 +86,8 @@ export interface DiffReviewFile {
   /** Identity of what the caller drew; a diff loaded at another revision is not shown. */
   readonly revision: string;
   readonly status: ChangedFileStatus;
+  /** Set when its actions take only the whole file: no hunk offers them. */
+  readonly wholeFile?: true | undefined;
 }
 
 export interface DiffReviewHandle {
@@ -507,7 +510,7 @@ export function DiffReview({
             });
           }
           const actions = actionable ? offeredActions(file) : NO_ACTIONS;
-          if (actions.length > 0 && file.status === 'modified' && hunks) {
+          if (actions.length > 0 && file.status === 'modified' && !file.wholeFile && hunks) {
             fileDiff.hunks.forEach((hunk, index) => {
               const end = lastChangedLine(hunk, diffStyle);
               if (end && hunks[index] !== undefined) {
@@ -596,48 +599,54 @@ export function DiffReview({
     }
   }, [files]);
 
-  const loadDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
-    const id = cache.idOf(fileDiff);
-    const path = (id && fileById.get(id)?.path) ?? fileDiff.name;
-    try {
-      if (id === undefined) {
-        throw new Error('The file is no longer in this view.');
+  // CodeView redraws every line when an option changes, and functions match
+  // only by identity, so its callbacks stay one function across renders.
+  const loadDiffFiles = useStableCallback(
+    async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
+      const id = cache.idOf(fileDiff);
+      const path = (id && fileById.get(id)?.path) ?? fileDiff.name;
+      try {
+        if (id === undefined) {
+          throw new Error('The file is no longer in this view.');
+        }
+        const sides = sidesOf(await loadFile(id));
+        if (!sides) {
+          throw new Error('The file is too large to show in full.');
+        }
+        return sides;
+      } catch (error) {
+        toast({
+          description: messageOf(error),
+          title: `Couldn't expand ${path}`,
+          variant: 'destructive',
+        });
+        throw error;
       }
-      const sides = sidesOf(await loadFile(id));
-      if (!sides) {
-        throw new Error('The file is too large to show in full.');
-      }
-      return sides;
-    } catch (error) {
-      toast({
-        description: messageOf(error),
-        title: `Couldn't expand ${path}`,
-        variant: 'destructive',
-      });
-      throw error;
     }
-  };
+  );
 
-  const openComment = (range: SelectedLineRange, item: CodeViewItem<Note>): void => {
-    if (item.type !== 'diff') {
-      return;
+  const openComment = useStableCallback(
+    (range: SelectedLineRange, { item }: { readonly item: CodeViewItem<Note> }): void => {
+      if (item.type !== 'diff') {
+        return;
+      }
+      const side: DiffSide = range.endSide ?? range.side ?? 'additions';
+      const oneSide = (range.side ?? side) === side;
+      const startLine = oneSide ? Math.min(range.start, range.end) : range.end;
+      const endLine = oneSide ? Math.max(range.start, range.end) : range.end;
+      setDraft({
+        commentId: null,
+        target: {
+          endLine,
+          fileId: item.id,
+          lines: sideLines(item.fileDiff, side, startLine, endLine),
+          side,
+          startLine,
+        },
+        text: '',
+      });
     }
-    const side: DiffSide = range.endSide ?? range.side ?? 'additions';
-    const oneSide = (range.side ?? side) === side;
-    const startLine = oneSide ? Math.min(range.start, range.end) : range.end;
-    const endLine = oneSide ? Math.max(range.start, range.end) : range.end;
-    setDraft({
-      commentId: null,
-      target: {
-        endLine,
-        fileId: item.id,
-        lines: sideLines(item.fileDiff, side, startLine, endLine),
-        side,
-        startLine,
-      },
-      text: '',
-    });
-  };
+  );
 
   const saveDraft = (): void => {
     const text = draft?.text.trim();
@@ -653,10 +662,7 @@ export function DiffReview({
     diffStyle,
     enableGutterUtility: onComment !== undefined,
     loadDiffFiles,
-    onGutterUtilityClick: (
-      range: SelectedLineRange,
-      context: { readonly item: CodeViewItem<Note> }
-    ) => openComment(range, context.item),
+    onGutterUtilityClick: openComment,
     stickyHeaders: true,
   };
 
