@@ -411,7 +411,9 @@ test('an input whose start is refused takes only itself, and the next input stil
   });
   const runId = await harness.start('Answer.');
   await answering.promise;
-  const attachments = [{ data: PIXEL, mediaType: 'image/png', name: 'pixel.png', type: 'image' }];
+  const attachments = [
+    { data: PIXEL, mediaType: 'image/png' as const, name: 'pixel.png', type: 'image' as const },
+  ];
   const input = (prompt: string, modelId: string) =>
     harness.core().input({
       attachments,
