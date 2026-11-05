@@ -7,7 +7,9 @@ import {
   buildHelpMenuTemplate,
   buildMacAppMenuTemplate,
   buildMacWindowMenuTemplate,
+  PRIVACY_POLICY_URL,
   releaseNotesUrl,
+  TERMS_OF_SERVICE_URL,
 } from '../application-menu';
 
 function submenuOf(template: Electron.MenuItemConstructorOptions) {
@@ -38,6 +40,7 @@ describe('platform menus', () => {
     onCheckForUpdates: vi.fn(),
     onOpenReleaseNotes: vi.fn(),
     onOpenSourceLicenses: vi.fn(),
+    onOpenWebPage: vi.fn(),
     onShowCrashReports: vi.fn(),
     onShowLogs: vi.fn(),
   };
@@ -159,6 +162,7 @@ describe('buildHelpMenuTemplate', () => {
   it('opens the release notes, the logs, the crash reports and the licenses', () => {
     const onOpenReleaseNotes = vi.fn();
     const onOpenSourceLicenses = vi.fn();
+    const onOpenWebPage = vi.fn();
     const onShowCrashReports = vi.fn();
     const onShowLogs = vi.fn();
     const template = buildHelpMenuTemplate({
@@ -166,16 +170,20 @@ describe('buildHelpMenuTemplate', () => {
       onCheckForUpdates: vi.fn(),
       onOpenReleaseNotes,
       onOpenSourceLicenses,
+      onOpenWebPage,
       onShowCrashReports,
       onShowLogs,
     });
     expect(template.role).toBe('help');
     const items = submenuOf(template);
-    expect(items.map((item) => item.label)).toEqual([
+    expect(items.map((item) => item.label ?? item.type)).toEqual([
       'Release Notes',
       'Show Logs',
       'Show Crash Reports',
       'Open-Source Licenses',
+      'separator',
+      'Privacy Policy',
+      'Terms of Service',
     ]);
     click(items.find((item) => item.id === APP_MENU_IDS.releaseNotes));
     expect(onOpenReleaseNotes).toHaveBeenCalledOnce();
@@ -188,6 +196,13 @@ describe('buildHelpMenuTemplate', () => {
     expect(onOpenSourceLicenses).not.toHaveBeenCalled();
     click(items.find((item) => item.id === APP_MENU_IDS.openSourceLicenses));
     expect(onOpenSourceLicenses).toHaveBeenCalledOnce();
+    expect(onOpenWebPage).not.toHaveBeenCalled();
+    click(items.find((item) => item.id === APP_MENU_IDS.privacyPolicy));
+    expect(onOpenWebPage).toHaveBeenLastCalledWith(PRIVACY_POLICY_URL);
+    click(items.find((item) => item.id === APP_MENU_IDS.termsOfService));
+    expect(onOpenWebPage).toHaveBeenLastCalledWith(TERMS_OF_SERVICE_URL);
+    expect(PRIVACY_POLICY_URL).toBe('https://brainstrike.ai/privacy');
+    expect(TERMS_OF_SERVICE_URL).toBe('https://brainstrike.ai/terms');
   });
 
   it('ends with Check for Updates… and About where there is no app menu', () => {
@@ -198,6 +213,7 @@ describe('buildHelpMenuTemplate', () => {
         onCheckForUpdates,
         onOpenReleaseNotes: vi.fn(),
         onOpenSourceLicenses: vi.fn(),
+        onOpenWebPage: vi.fn(),
         onShowCrashReports: vi.fn(),
         onShowLogs: vi.fn(),
       })

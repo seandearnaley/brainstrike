@@ -1271,6 +1271,11 @@ if (singleInstanceLockAcquired) {
             resolveThirdPartyNoticesPath(app.isPackaged, process.resourcesPath)
           );
         },
+        onOpenWebPage: (url) => {
+          shell.openExternal(url).catch((error: unknown) => {
+            logger.warn('Failed to open a page of the site', { error, url });
+          });
+        },
         onShowCrashReports: () => {
           openPathFromMenu('crash reports folder', app.getPath('crashDumps'));
         },
