@@ -58,7 +58,7 @@ export function CommandPaletteHost(): ReactElement | null {
   // mounts), so building them once is correct and keeps a single source of truth.
   const parts = buildAppActionRegistryParts();
   // Bindings, like the parts, are stable for the window's lifetime.
-  const shortcuts = useMemo(resolveCommandShortcuts, []);
+  const shortcuts = useMemo(() => resolveCommandShortcuts(), []);
 
   // Rebuild the registry + context with the captured open target. While closed,
   // openTarget is null, so this collapses to the targetless command set.
