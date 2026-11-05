@@ -63,6 +63,9 @@ function git(cwd: string, args: readonly string[], input?: string): string {
 async function repoWith(committed: Readonly<Record<string, string>>): Promise<string> {
   const dir = await tempDir();
   git(dir, ['init', '-q']);
+  // Files keep the line endings they were written with: Git for Windows turns
+  // core.autocrlf on for the whole machine.
+  git(dir, ['config', 'core.autocrlf', 'false']);
   for (const [name, text] of Object.entries(committed)) {
     await writeFile(path.join(dir, name), text);
   }
@@ -120,7 +123,7 @@ async function applied(
   for (const [name, text] of Object.entries(files)) {
     await writeFile(path.join(dir, name), text);
   }
-  git(dir, ['apply', '--whitespace=nowarn', '-'], patch);
+  git(dir, ['-c', 'core.autocrlf=false', 'apply', '--whitespace=nowarn', '-'], patch);
   return await readFile(path.join(dir, file), 'utf8');
 }
 
