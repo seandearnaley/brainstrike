@@ -40,9 +40,12 @@ async function quiet(harness: ChildRunHarness, threadId = harness.threadId): Pro
 }
 const outcomes = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []));
+/** The thread's wakes: each run's ID and the delivery it answers. */
 const wakes = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) =>
-    event.type === 'run.started' && event.delivery?.via === 'wake' ? [event] : []
+    event.type === 'run.started' && event.delivery?.via === 'wake'
+      ? [{ delivery: event.delivery, runId: event.runId }]
+      : []
   );
 
 test('a turn Stop ends the wake that carries the turn on', async () => {
@@ -90,7 +93,7 @@ test('a worker committed as its turn stops ends stopped, never left running', as
   const isOrigin = (item: AppendItem) =>
     item.event.type === 'thread.started' && 'origin' in item.event;
   const isStop = (item: AppendItem) =>
-    item.event.type === 'command.accepted' && item.event.method === 'run/stop';
+    item.event.type === 'command.accepted' && item.event['method'] === 'run/stop';
   const harness = await setupChildRunHost(model, cleanup, {
     holdAppend: async (items) => {
       if (items.some(isStop)) {
@@ -139,7 +142,7 @@ async function followUpHost() {
       threadId: child,
     });
     const [, second] = wakes(await quiet(harness));
-    expect(second?.delivery?.entries.map((entry) => entry.childRunId)).toEqual([runId]);
+    expect(second?.delivery.entries.map((entry) => entry.childRunId)).toEqual([runId]);
     return second;
   };
   return { first, followUp, harness, turn };
@@ -148,12 +151,12 @@ async function followUpHost() {
 test("a worker's follow-up wakes its parent in the parent's turn, not the worker's", async () => {
   const { first, followUp } = await followUpHost();
   const second = await followUp();
-  expect(second?.delivery?.turnId).toBe(first?.delivery?.turnId);
+  expect(second?.delivery.turnId).toBe(first?.delivery.turnId);
 });
 
 test("a follow-up after the parent's turn stopped wakes it in a turn of its own", async () => {
   const { followUp, harness, turn } = await followUpHost();
   await harness.core().stop({ commandId: randomUUID(), runId: turn, threadId: harness.threadId });
   const second = await followUp();
-  expect(second?.delivery?.turnId).toBe(second?.runId);
+  expect(second?.delivery.turnId).toBe(second?.runId);
 });
