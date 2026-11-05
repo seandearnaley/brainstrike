@@ -312,12 +312,15 @@ function CodeThemeDiffPreview({
       </PreviewRow>
       <PreviewRow kind="removed" line={2}>
         {'  '}
-        <span style={keyword}>return</span> <span style={string}>&quot;Hello, &quot;</span> + name;
+        <span style={keyword}>return</span> <span style={string}>{'"Hello, "'}</span>
+        {' + name;'}
       </PreviewRow>
       <PreviewRow kind="added" line={2}>
         {'  '}
-        <span style={keyword}>return</span> <span style={string}>`Hello, ${'{'}</span>name
-        <span style={string}>{'}'}!`</span>;
+        <span style={keyword}>return</span> <span style={string}>{'`Hello, ${'}</span>
+        {'name'}
+        <span style={string}>{'}!`'}</span>
+        {';'}
       </PreviewRow>
       <PreviewRow line={3}>{'}'}</PreviewRow>
     </div>
