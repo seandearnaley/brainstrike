@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   BoundaryFailureError,
   fault,
@@ -159,21 +159,21 @@ export function bindHostConnection(
       return disposed;
     },
   };
-  // Each view of a thread holds its own subscription: the connection sends a
-  // thread's rows until the last of its views unsubscribes (BST-1932).
-  const subscriptions = new Map<string, { readonly fromSeq: number; readonly views: number }>();
-  const unsubscribe = (threadId: string): void => {
-    const current = subscriptions.get(threadId);
-    if (current && current.views > 1) {
-      subscriptions.set(threadId, { ...current, views: current.views - 1 });
-      return;
+  // Each view of a thread holds its own subscription, named by the id its
+  // `log/subscribe` answered; the connection sends a thread's rows while any
+  // of them wants them (BST-1932).
+  const subscriptions = new Map<string, { readonly fromSeq: number; readonly threadId: string }>();
+  const subscribed = (threadId: string, seq?: number): boolean => {
+    for (const subscription of subscriptions.values()) {
+      if (subscription.threadId === threadId && (seq === undefined || seq > subscription.fromSeq)) {
+        return true;
+      }
     }
-    subscriptions.delete(threadId);
+    return false;
   };
   const disposables: Array<{ dispose(): void }> = [];
   const release = core.onCommitted((row: HostLogRow, parentThreadId?: string) => {
-    const from = subscriptions.get(row.threadId)?.fromSeq;
-    if (from !== undefined && row.seq > from && !disposed) {
+    if (subscribed(row.threadId, row.seq) && !disposed) {
       connection.sendNotification('log/event', row).catch(() => connection.dispose());
     }
     // BST-1932: a child's status change tells every client to re-read its parent's children.
@@ -194,7 +194,7 @@ export function bindHostConnection(
   // A running tool's live telemetry goes to the same subscribers as the thread's
   // rows, and is never committed (ADR-0011 amendment).
   const releaseTelemetry = core.onTelemetry((telemetry) => {
-    if (subscriptions.has(telemetry.threadId) && !disposed) {
+    if (subscribed(telemetry.threadId) && !disposed) {
       connection.sendNotification(HOST_RUN_TELEMETRY, telemetry).catch(() => connection.dispose());
     }
   });
@@ -385,6 +385,17 @@ export function bindHostConnection(
   handleCore('thread/rewind', (params) => core.rewinds.rewind(params));
   handleCore('thread/rewind/redo', (params) => core.rewinds.redo(params));
   handleCore('run/verdict', (params) => core.recordVerdict(params));
+  // ADR-0036: a preview carries file text, so only the desktop's private client reads it.
+  handleCore('interaction/preview', (params, signal) => {
+    if (origin !== 'desktop-ui') {
+      throw refusalError(
+        'authorization',
+        'interaction.preview-desktop-only',
+        "Approval previews are available only to the desktop's private client"
+      );
+    }
+    return core.previewInteraction(params, signal);
+  });
   handleCore('interaction/respond', (params) => core.respond(params));
   handleCore('interaction/resume', (params) => core.resume(params));
   handleCore('mcp/app/admit', (params) => core.mcpApps.admit(params));
@@ -393,24 +404,21 @@ export function bindHostConnection(
   handleCore('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
   handleCore('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
   handleCore('log/subscribe', async (params) => {
-    const current = subscriptions.get(params.threadId);
-    subscriptions.set(params.threadId, {
-      fromSeq: Math.min(current?.fromSeq ?? params.fromSeq, params.fromSeq),
-      views: (current?.views ?? 0) + 1,
-    });
+    // Held before the read, so a row committed during it is sent live too.
+    const subscriptionId = randomUUID();
+    subscriptions.set(subscriptionId, { fromSeq: params.fromSeq, threadId: params.threadId });
     try {
       const rows = await core.published.read(params.threadId, params.fromSeq);
       // Taken after the read, in the tick the response is sent: the replay
       // applies over the rows, and later telemetry follows it (ADR-0011 amendment).
-      return { rows, telemetry: core.liveTelemetry.replay(params.threadId) };
+      return { rows, subscriptionId, telemetry: core.liveTelemetry.replay(params.threadId) };
     } catch (cause) {
-      unsubscribe(params.threadId);
+      subscriptions.delete(subscriptionId);
       throw cause;
     }
   });
-  // Gated like its subscribe, so an unsubscribe sent during the fold runs after it.
   handleCore('log/unsubscribe', (params) => {
-    unsubscribe(params.threadId);
+    subscriptions.delete(params.subscriptionId);
     return { unsubscribed: true };
   });
   const close = (): void => {

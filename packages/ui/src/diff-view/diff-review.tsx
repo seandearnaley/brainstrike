@@ -5,6 +5,9 @@
  * sides `loadFile` returns; a file the view sent without a patch stays folded
  * until it is opened, then loads.
  *
+ * Files start open, or folded where the view only lists them (a turn's
+ * changes in the chat); a person opens or folds each one from its header.
+ *
  * Comments are drafts the caller owns: a + on a line, or a drag down the
  * gutter, opens one box at a time under the last line, and the saved comment
  * stays on the diff until the caller removes it.
@@ -97,7 +100,11 @@ const CHANGES_ACTION_ICON: Readonly<Record<ChangesAction, LucideIcon>> = {
 export interface DiffReviewProps {
   /** True while an action runs: every action control is disabled. */
   readonly actionsDisabled?: boolean | undefined;
+  /** Sizes the scroll region; it fills its parent otherwise. */
+  readonly className?: string | undefined;
   readonly comments?: readonly DiffComment[] | undefined;
+  /** Every file starts folded to its header. */
+  readonly defaultCollapsed?: boolean | undefined;
   readonly diffStyle: 'split' | 'unified';
   readonly files: readonly DiffReviewFile[];
   /** One file's diff with both sides; rejects with why it could not load. */
@@ -244,7 +251,7 @@ class ReviewItems {
   build(
     files: readonly DiffReviewFile[],
     loaded: ReadonlyMap<string, LoadedFile>,
-    collapsedIds: ReadonlySet<string>,
+    isFolded: (id: string) => boolean,
     notesOf: (
       file: DiffReviewFile,
       fileDiff: FileDiffMetadata,
@@ -260,7 +267,7 @@ class ReviewItems {
         ? { fileDiff: load.fileDiff, hunks: load.hunks }
         : this.#parse(file, load, parsed);
       hunksById.set(file.id, hunks);
-      const collapsed = collapsedIds.has(file.id) || isUnloaded(file, load);
+      const collapsed = isFolded(file.id) || isUnloaded(file, load);
       const annotations = notesOf(file, fileDiff, hunks);
       const notes = JSON.stringify(annotations);
       const previous = this.#versions.get(file.id);
@@ -440,7 +447,9 @@ function FileHeader({
 
 export function DiffReview({
   actionsDisabled = false,
+  className,
   comments = NO_COMMENTS,
+  defaultCollapsed = false,
   diffStyle,
   files,
   loadFile,
@@ -452,7 +461,8 @@ export function DiffReview({
   const appearance = useDiffAppearance();
   const viewer = useRef<CodeViewHandle<Note, undefined> | null>(null);
   const [cache] = useState(() => new ReviewItems());
-  const [collapsedIds, setCollapsedIds] = useState(NO_IDS);
+  /** Files a person opened or folded away from where they start. */
+  const [toggledIds, setToggledIds] = useState(NO_IDS);
   const [loadingIds, setLoadingIds] = useState(NO_IDS);
   const [loaded, setLoaded] = useState(NO_LOADED);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -472,44 +482,53 @@ export function DiffReview({
   const draftCommentId = draft?.commentId;
   const actionable = onAction !== undefined;
 
+  const fold = (id: string, folded: boolean): void =>
+    setToggledIds((current) => toggled(current, id, folded !== defaultCollapsed));
+
   const items = useMemo(
     () =>
-      cache.build(files, loaded, collapsedIds, (file, fileDiff, hunks) => {
-        const notes: DiffLineAnnotation<Note>[] = comments
-          .filter((comment) => comment.fileId === file.id && comment.id !== draftCommentId)
-          .map((comment) => ({
-            lineNumber: comment.endLine,
-            metadata: { comment, kind: 'comment' },
-            side: comment.side,
-          }));
-        if (draftTarget?.fileId === file.id) {
-          notes.push({
-            lineNumber: draftTarget.endLine,
-            metadata: { kind: 'draft' },
-            side: draftTarget.side,
-          });
+      cache.build(
+        files,
+        loaded,
+        (id) => toggledIds.has(id) !== defaultCollapsed,
+        (file, fileDiff, hunks) => {
+          const notes: DiffLineAnnotation<Note>[] = comments
+            .filter((comment) => comment.fileId === file.id && comment.id !== draftCommentId)
+            .map((comment) => ({
+              lineNumber: comment.endLine,
+              metadata: { comment, kind: 'comment' },
+              side: comment.side,
+            }));
+          if (draftTarget?.fileId === file.id) {
+            notes.push({
+              lineNumber: draftTarget.endLine,
+              metadata: { kind: 'draft' },
+              side: draftTarget.side,
+            });
+          }
+          const actions = actionable ? offeredActions(file) : NO_ACTIONS;
+          if (actions.length > 0 && file.status === 'modified' && hunks) {
+            fileDiff.hunks.forEach((hunk, index) => {
+              const end = lastChangedLine(hunk, diffStyle);
+              if (end && hunks[index] !== undefined) {
+                notes.push({ ...end, metadata: { actions, hunk: index, kind: 'hunk' } });
+              }
+            });
+          }
+          return notes;
         }
-        const actions = actionable ? offeredActions(file) : NO_ACTIONS;
-        if (actions.length > 0 && file.status === 'modified' && hunks) {
-          fileDiff.hunks.forEach((hunk, index) => {
-            const end = lastChangedLine(hunk, diffStyle);
-            if (end && hunks[index] !== undefined) {
-              notes.push({ ...end, metadata: { actions, hunk: index, kind: 'hunk' } });
-            }
-          });
-        }
-        return notes;
-      }),
+      ),
     [
       actionable,
       cache,
-      collapsedIds,
       comments,
+      defaultCollapsed,
       diffStyle,
       draftCommentId,
       draftTarget,
       files,
       loaded,
+      toggledIds,
     ]
   );
 
@@ -659,9 +678,15 @@ export function DiffReview({
         loadedFile={loadedFile}
         loading={loadingIds.has(file.id)}
         onAction={(action) => onAction?.(action, file, null)}
-        onToggle={() =>
-          unloaded ? void load(file) : setCollapsedIds((current) => toggled(current, file.id))
-        }
+        onToggle={() => {
+          if (unloaded) {
+            // Opens once it loads, whichever way the files start.
+            fold(file.id, false);
+            void load(file);
+          } else {
+            fold(file.id, !item.collapsed);
+          }
+        }}
         open={!item.collapsed}
       />
     );
@@ -711,7 +736,7 @@ export function DiffReview({
   return (
     <div className="h-full min-h-0" data-testid="diff-review">
       <CodeView<Note, undefined>
-        className="h-full overflow-auto overscroll-y-contain"
+        className={cn('h-full overflow-auto overscroll-y-contain', className)}
         items={items}
         options={options}
         ref={viewer}

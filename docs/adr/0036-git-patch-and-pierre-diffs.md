@@ -33,8 +33,10 @@ context, word-level highlights and comments anchored to lines. Codex draws it wi
    `@codemirror/merge`, the hunk slicer and the comment gutter extensions are removed;
    CodeMirror stays the file editor.
 3. **A proposed edit is diffed by the renderer.** An approval preview shows text that
-   is not in git yet, so @pierre/diffs diffs the agent's two strings. This is the one
-   place the renderer computes a diff.
+   is not in git yet. The card reads it with `interaction/preview`: the host runs the
+   call's own tool resolution and matcher without writing, and returns the file's text
+   now and after the call. Nothing durable holds it. @pierre/diffs diffs the two texts.
+   This is the one place the renderer computes a diff.
 4. **Comments are drafts until added to a message.** A line comment stays on the diff
    in session state, per changeset, until the person adds the drafts to the active
    thread's message. Nothing new is durable.
@@ -48,6 +50,8 @@ context, word-level highlights and comments anchored to lines. Codex draws it wi
   the drawn lines always agree.
 - The tree is navigation: choosing a file scrolls the diff to it. The selection filter
   is gone.
+- A turn's changes show in the chat under its reply, drawn by the same renderer from
+  the same view as Changes.
 - @pierre/diffs is a large dependency that loads only with a diff surface. Its themes
   are the user's code theme pair, on the app's background and fonts.
 - The library's gutter + has no accessible name and shows on hover, as the removed

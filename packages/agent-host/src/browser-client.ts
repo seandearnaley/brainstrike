@@ -4,6 +4,7 @@ import {
   BrowserMessageWriter,
   createMessageConnection,
 } from 'vscode-jsonrpc/browser';
+import { jsonRpcLogger } from './boundary-wire.ts';
 import { authenticateHostClient, type HostClient } from './client-connection.ts';
 
 export type { HostClient } from './client-connection.ts';
@@ -20,7 +21,8 @@ export function attachBrowserHost(
   hostGone.then(closed.resolve, closed.resolve);
   const connection = createMessageConnection(
     new BrowserMessageReader(port),
-    new BrowserMessageWriter(port)
+    new BrowserMessageWriter(port),
+    jsonRpcLogger('AgentHostClient')
   );
   port.start();
   closed.promise.then(() => connection.dispose());

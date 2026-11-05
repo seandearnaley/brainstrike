@@ -143,6 +143,38 @@ export async function ensureContainedDirectory(
 }
 
 /**
+ * Whether a write to the resolved path would create its file. The leaf is
+ * inspected WITHOUT following symlinks. A symlink leaf (live OR dangling)
+ * passes the canonical-ancestor containment check yet writeFile would follow
+ * it OUTSIDE the root — reject it as a containment escape. lstat also
+ * distinguishes a directory target, which cannot be overwritten with content.
+ * The write's approval preview decides with this same check.
+ */
+export async function inspectWriteLeaf(
+  absolutePath: string,
+  requestedPath: string
+): Promise<{ created: boolean }> {
+  try {
+    const leafStats = await fsPromises.lstat(absolutePath);
+    if (leafStats.isSymbolicLink()) {
+      throw new ToolInputError(`Path "${requestedPath}" is outside the selected workspace root.`);
+    }
+    if (leafStats.isDirectory()) {
+      throw new ToolInputError(
+        `Path "${requestedPath}" is a directory and cannot be overwritten with a file.`
+      );
+    }
+    return { created: false };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      throw error;
+    }
+    return { created: true };
+  }
+}
+
+/**
  * Symlink-safe, containment-checked write of `buffer` to the already-resolved
  * workspace write path. This is the SINGLE audited write path shared by
  * `writeWorkspaceFile` and `stringReplaceWorkspaceFile` — do not fork a weaker
@@ -162,29 +194,7 @@ export async function writeContainedFileBytes(args: {
   requestedPath: string;
 }): Promise<{ created: boolean }> {
   const { resolved, buffer, requestedPath } = args;
-
-  // Inspect the leaf WITHOUT following symlinks. A symlink leaf (live OR
-  // dangling) passes the canonical-ancestor containment check yet writeFile would
-  // follow it OUTSIDE the root — reject it as a containment escape. lstat also
-  // distinguishes a directory target, which cannot be overwritten with content.
-  let created = true;
-  try {
-    const leafStats = await fsPromises.lstat(resolved.absolutePath);
-    if (leafStats.isSymbolicLink()) {
-      throw new ToolInputError(`Path "${requestedPath}" is outside the selected workspace root.`);
-    }
-    if (leafStats.isDirectory()) {
-      throw new ToolInputError(
-        `Path "${requestedPath}" is a directory and cannot be overwritten with a file.`
-      );
-    }
-    created = false;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT') {
-      throw error;
-    }
-  }
+  const { created } = await inspectWriteLeaf(resolved.absolutePath, requestedPath);
 
   // Create missing parents one component at a time, rejecting symlinked
   // intermediates (a plain mkdir -p would traverse them).

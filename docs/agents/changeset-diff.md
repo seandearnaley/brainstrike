@@ -41,7 +41,8 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 - A view entry carries its file's complete patch while the view stays under its patch budget; a binary file, a file past the budget or a cut patch has `patch: null` and loads its `StructuredFileDiff` when opened. A file's own diff carries git's whole patch, cut after its last whole hunk only at the runner's capture ceiling.
 - A conflicted path refuses the scope that holds it (`changeset.unmerged-path`); git writes its patch as a combined diff, which nothing draws.
 - The renderer (`@brainstrike/ui/diff-view`, @pierre/diffs) parses the patch and never diffs it again. Full sides only expand unchanged context.
-- Only an approval preview, whose text is not in git yet, is diffed by the renderer.
+- Only an approval preview, whose text is not in git yet, is diffed by the renderer. Its text comes from `interaction/preview`: the host runs the call's own tool resolution and matcher without writing, and returns the file's text before and after.
+- A finished turn that edited files shows its agent-run view under its reply, each file folded to its header; it loads as the turn nears view, and Review opens it in Changes.
 - Line comments are per-changeset drafts in `changes-store` until added to the active thread's message.
 - A worktree status still loading is not a clean checkout. Closing UI never mutates durable run history.
 

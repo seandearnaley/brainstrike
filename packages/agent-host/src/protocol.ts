@@ -1,4 +1,5 @@
 import {
+  type ApprovalFileChange,
   isProviderCredential,
   McpAppOriginSchema,
   type OpenRouterModelMetadataSnapshot,
@@ -340,6 +341,11 @@ export const HOST_METHOD_SCHEMAS = {
     // transport its launcher handed over is authorized by holding it.
     token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u))),
   }),
+  /**
+   * ADR-0036: the file text a waiting approval's call would change, for the
+   * desktop's private client. A read: nothing is written or committed.
+   */
+  'interaction/preview': Schema.Struct({ ...Run, interactionId: Id }),
   'interaction/respond': Schema.Struct({
     ...Command,
     ...Run,
@@ -357,7 +363,8 @@ export const HOST_METHOD_SCHEMAS = {
   /** Every thread's runs and costed provider calls, as Core folds its committed log. */
   'ledger/read': Schema.Record(Schema.String, Schema.Never),
   'log/subscribe': Schema.Struct({ ...Thread, fromSeq: Seq }),
-  'log/unsubscribe': Schema.Struct(Thread),
+  /** Names the subscription its `log/subscribe` answered. */
+  'log/unsubscribe': Schema.Struct({ subscriptionId: Id }),
   /** Core's decision on an app's call under the thread's live policy; nothing runs. */
   'mcp/app/admit': Schema.Struct(McpAppCall),
   /** Decided afresh, an asked call runs only `approved`, on the app's own server. */
@@ -952,11 +959,17 @@ export const HOST_RESULT_SCHEMAS = {
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
     start: Id,
   }),
+  'interaction/preview': Schema.Struct({
+    after: Schema.NullOr(Schema.String),
+    before: Schema.NullOr(Schema.String),
+    path: Id,
+  }) satisfies Schema.ConstraintDecoder<ApprovalFileChange>,
   'interaction/respond': Schema.Struct({ accepted: Schema.Literal(true) }),
   'interaction/resume': Schema.Struct({ accepted: Schema.Literal(true) }),
   'ledger/read': Schema.Struct({ threads: Schema.mutable(Schema.Array(HostLedgerThreadSchema)) }),
   'log/subscribe': Schema.Struct({
     rows: Schema.mutable(Schema.Array(HostLogRowSchema)),
+    subscriptionId: Id,
     telemetry: Schema.mutable(Schema.Array(HostRunTelemetrySchema)),
   }),
   'log/unsubscribe': Schema.Struct({ unsubscribed: Schema.Literal(true) }),

@@ -1,5 +1,7 @@
 /** DOM lookups shared by the strip's focus and menu hooks. */
 
+import { prefersReducedMotion } from '../lib/motion';
+
 export function findTab(root: HTMLElement | null, id: string): HTMLElement | null {
   if (!root) {
     return null;
@@ -15,13 +17,6 @@ export function findTab(root: HTMLElement | null, id: string): HTMLElement | nul
 /** The committed selected tab, pinned or scroll: after a close, the consumer's new active tab. */
 export function findSelectedTab(root: HTMLElement | null): HTMLElement | null {
   return root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? null;
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)')?.matches === true
-  );
 }
 
 export function revealTab(tab: HTMLElement | null, smooth: boolean): void {

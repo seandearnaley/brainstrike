@@ -156,6 +156,7 @@ const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
   '@brainstrike/ui > @radix-ui/react-tooltip',
   '@brainstrike/ui > class-variance-authority',
   '@brainstrike/ui > clsx',
+  '@brainstrike/ui > diff',
   '@brainstrike/ui > katex',
   '@brainstrike/ui > pele/lazy',
   '@brainstrike/ui > rehype-katex',

@@ -36,6 +36,8 @@ afterEach(async () => {
 function tools(): Record<string, HostTool> {
   return createSharedNativeHostTools({
     ids: [
+      NATIVE_TOOL_ID.deleteWorkspaceFile,
+      NATIVE_TOOL_ID.renameWorkspaceFile,
       NATIVE_TOOL_ID.writeWorkspaceFile,
       NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
       NATIVE_TOOL_ID.manageTaskList,
@@ -78,6 +80,20 @@ test('an explicit root wins, by name or by id', () => {
     displayName: 'bravo-root',
     rootId: 'r-bravo',
   });
+});
+
+test('a delete or a rename names the folder it changes too', () => {
+  const all = tools();
+  expect(
+    byId(all, NATIVE_TOOL_ID.deleteWorkspaceFile).approvalTarget?.({ path: 'old.md' })
+  ).toEqual({ displayName: 'alpha-root', rootId: 'r-alpha' });
+  expect(
+    byId(all, NATIVE_TOOL_ID.renameWorkspaceFile).approvalTarget?.({
+      fromPath: 'a.md',
+      root: 'bravo-root',
+      toPath: 'b.md',
+    })
+  ).toEqual({ displayName: 'bravo-root', rootId: 'r-bravo' });
 });
 
 test('a root the run cannot use names no folder', () => {

@@ -1,8 +1,18 @@
-import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
+import {
+  DeleteWorkspaceFileInputSchema,
+  RenameWorkspaceFileInputSchema,
+  StringReplaceWorkspaceFileInputSchema,
+  WriteWorkspaceFileInputSchema,
+} from '@brainstrike/assistant-contract/native-tool-schemas';
+import type {
+  ApprovalFileChange,
+  CodeExecutionApprovalContext,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
-import { Badge, CodeSurface, LoadingFallback } from '@brainstrike/ui';
-import { Predicate } from 'effect';
-import { lazy, Suspense } from 'react';
+import { Badge, CodeSurface } from '@brainstrike/ui';
+import { Option, Predicate, Schema } from 'effect';
+import { lazy, Suspense, use, useState } from 'react';
+import { type ReadApprovalChange, useApprovalChange } from './approval-change-context';
 import {
   type ApprovalPreviewSubject,
   narrowRunPythonArgs,
@@ -10,22 +20,18 @@ import {
 } from './approval-preview-policy';
 import { formatRunDuration } from './run-python-result-model';
 
-// The diff renderer loads with the first edit approval, not with the chat.
+// The diff renderer loads with the first file approval, not with the chat.
 const FileDiffView = lazy(() =>
   import('@brainstrike/ui/diff-view').then((m) => ({ default: m.FileDiffView }))
 );
 
 /**
- * Character cap applied to each large text field (`oldStr`/`newStr`/`content`)
- * before it is handed to the `FileDiffView`/`CodeSurface` previews. The agent
- * schema allows these fields up to 8,000,000 chars each
- * (`packages/agent/src/tools/schemas.ts`); diffing and drawing that much text
- * would jank the renderer BEFORE the user can even approve or decline.
- * Truncation is always visible (a note names the shown/total char counts below
- * the preview) — the raw JSON expander further down always has
- * the untruncated value, so nothing is silently dropped.
+ * Character cap on run_python's code and the raw arguments before they are
+ * drawn: drawing megabytes of text would jank the renderer before the person
+ * can answer. A cut is always named (shown/total chars), and the raw JSON
+ * expander keeps the whole value.
  */
-export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
+const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
 
 /**
  * Registered ids of tools whose approval cards render a structured preview
@@ -36,8 +42,6 @@ export const APPROVAL_PREVIEW_CHAR_CAP = 100_000;
 const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
 const RUN_PYTHON_TOOL_ID = NATIVE_TOOL_ID.runPython;
 const RUN_SKILL_SCRIPT_TOOL_ID = NATIVE_TOOL_ID.runSkillScript;
-const STRING_REPLACE_TOOL_ID = NATIVE_TOOL_ID.stringReplaceWorkspaceFile;
-const WRITE_FILE_TOOL_ID = NATIVE_TOOL_ID.writeWorkspaceFile;
 const EXECUTE_COMMAND_ARG_KEYS = new Set([
   'command',
   'cwd',
@@ -54,19 +58,6 @@ const RUN_SKILL_SCRIPT_ARG_KEYS = new Set([
   'skillName',
   'timeoutMs',
 ]);
-
-interface StringReplaceApprovalArgs {
-  newStr: string;
-  oldStr: string;
-  path: string;
-  root?: string;
-}
-
-interface WriteFileApprovalArgs {
-  content: string;
-  path: string;
-  root?: string;
-}
 
 interface ExecuteCommandApprovalArgs {
   command: string;
@@ -194,46 +185,46 @@ function narrowExecuteCommandArgs(value: unknown): ExecuteCommandApprovalArgs | 
   };
 }
 
-/**
- * Structural guard mirroring the agent-package `StringReplaceWorkspaceFileInput`
- * shape. The UI package does not depend on `@brainstrike/agent`, so this is a
- * minimal local narrowing (path/oldStr/newStr strings, optional root) rather than
- * a shared zod parse. A failure returns `null` so the card falls back to the raw
- * JSON view with a visible note — never a confidently-wrong empty diff.
- */
-function narrowStringReplaceArgs(value: unknown): StringReplaceApprovalArgs | null {
-  if (!Predicate.isObject(value)) {
-    return null;
-  }
-  const { path, oldStr, newStr, root } = value;
-  if (typeof path !== 'string' || path.length === 0) {
-    return null;
-  }
-  if (typeof oldStr !== 'string' || typeof newStr !== 'string') {
-    return null;
-  }
-  if (root !== undefined && typeof root !== 'string') {
-    return null;
-  }
-  return { newStr, oldStr, path, ...(typeof root === 'string' ? { root } : {}) };
+/** A file tool's call: what it does, to which file, in which folder. */
+interface FileCall {
+  /** The action as the call names it, before the file is read. */
+  readonly action: 'Delete' | 'Edit' | 'Rename' | 'Write';
+  readonly path: string;
+  readonly root: string | undefined;
+  /** A rename's destination. */
+  readonly toPath?: string;
 }
 
-/** Structural guard mirroring the agent-package `WriteWorkspaceFileInput` shape. */
-function narrowWriteFileArgs(value: unknown): WriteFileApprovalArgs | null {
-  if (!Predicate.isObject(value)) {
-    return null;
+// The tools' own input schemas. A waiting call's input already passed them on
+// the host; the card's copy also carries the chat's parse marker (a symbol
+// key), so it reads the fields and leaves other keys alone.
+const readDelete = Schema.decodeUnknownOption(DeleteWorkspaceFileInputSchema);
+const readRename = Schema.decodeUnknownOption(RenameWorkspaceFileInputSchema);
+const readReplace = Schema.decodeUnknownOption(StringReplaceWorkspaceFileInputSchema);
+const readWrite = Schema.decodeUnknownOption(WriteWorkspaceFileInputSchema);
+
+/**
+ * A file tool's call, read with the tool's own input schema: none for a call
+ * the tool would refuse, undefined for any other tool.
+ */
+function readFileCall(toolName: string, args: unknown): Option.Option<FileCall> | undefined {
+  switch (toolName) {
+    case NATIVE_TOOL_ID.deleteWorkspaceFile:
+      return Option.map(readDelete(args), ({ path, root }) => ({ action: 'Delete', path, root }));
+    case NATIVE_TOOL_ID.renameWorkspaceFile:
+      return Option.map(readRename(args), ({ fromPath, root, toPath }) => ({
+        action: 'Rename',
+        path: fromPath,
+        root,
+        toPath,
+      }));
+    case NATIVE_TOOL_ID.stringReplaceWorkspaceFile:
+      return Option.map(readReplace(args), ({ path, root }) => ({ action: 'Edit', path, root }));
+    case NATIVE_TOOL_ID.writeWorkspaceFile:
+      return Option.map(readWrite(args), ({ path, root }) => ({ action: 'Write', path, root }));
+    default:
+      return undefined;
   }
-  const { path, content, root } = value;
-  if (typeof path !== 'string' || path.length === 0) {
-    return null;
-  }
-  if (typeof content !== 'string') {
-    return null;
-  }
-  if (root !== undefined && typeof root !== 'string') {
-    return null;
-  }
-  return { content, path, ...(typeof root === 'string' ? { root } : {}) };
 }
 
 /**
@@ -422,55 +413,149 @@ function RunPythonPreview({
   );
 }
 
-function RootLabel({ root }: { root: string }) {
+/** One line: what the call does, to which file, in which folder. */
+function FileSummary({
+  action,
+  call,
+  root,
+}: {
+  action: string;
+  call: FileCall;
+  root: string | undefined;
+}) {
+  const target = call.toPath === undefined ? call.path : `${call.path} → ${call.toPath}`;
+  // The spaces between the parts are text, so the line reads and copies as
+  // words; flex lays the parts out by its gap and drops the spaces.
   return (
-    <span
-      className="border-border bg-muted/60 text-muted-foreground inline-flex max-w-full min-w-0 rounded border px-1.5 py-0.5 text-[10px]"
-      data-testid="approval-workspace-root"
+    <p
+      className="text-foreground/90 flex min-w-0 items-baseline gap-1.5 text-xs whitespace-nowrap"
+      data-testid="approval-file-target-summary"
     >
-      <span className="shrink-0 whitespace-pre">{'Workspace root: '}</span>
-      <span
-        className="min-w-0 truncate font-mono"
-        data-testid="approval-workspace-root-value"
-        title={root}
-      >
-        {root}
+      <span className="shrink-0 font-medium">{action}</span>{' '}
+      <span className="min-w-0 truncate font-mono" title={target}>
+        {target}
       </span>
-    </span>
+      {root ? (
+        <>
+          {' '}
+          <span className="text-muted-foreground min-w-0 truncate">
+            in{' '}
+            <span data-testid="approval-workspace-root-value" title={root}>
+              {root}
+            </span>
+          </span>
+        </>
+      ) : null}
+    </p>
   );
 }
 
-function FileTargetSummary({
-  action,
-  path,
+type SettledChange = { readonly change: ApprovalFileChange } | { readonly error: string };
+
+/** The read as data, so the card shows a refusal in place of the diff. */
+function settle(read: Promise<ApprovalFileChange>): Promise<SettledChange> {
+  return read.then(
+    (change) => ({ change }),
+    (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })
+  );
+}
+
+function FileChangeDiff({
+  call,
+  read,
   root,
 }: {
-  action?: string;
-  path: string;
+  call: FileCall;
+  read: Promise<SettledChange>;
   root: string | undefined;
 }) {
+  const settled = use(read);
+  if ('error' in settled) {
+    return (
+      <>
+        <FileSummary action={call.action} call={call} root={root} />
+        <p className="text-warning mt-1.5 text-xs">{settled.error}</p>
+      </>
+    );
+  }
+  const { after, before, path } = settled.change;
   return (
-    <p
-      className="text-foreground/90 flex min-w-0 flex-wrap items-center text-xs font-medium"
-      data-testid="approval-file-target-summary"
-    >
-      {action ? <span>{action}</span> : null}
-      <span className="inline-flex max-w-full min-w-0 items-center">
-        {action ? <span className="shrink-0 whitespace-pre">{' · '}</span> : null}
-        <span className="inline-flex max-w-full min-w-0">
-          <span className="shrink-0 whitespace-pre">{'Path: '}</span>
-          <span className="min-w-0 truncate font-mono" title={path}>
-            {path}
-          </span>
-        </span>
-      </span>
-      {root ? (
-        <span className="inline-flex max-w-full min-w-0 items-center">
-          <span className="shrink-0 whitespace-pre">{' · '}</span>
-          <RootLabel root={root} />
-        </span>
-      ) : null}
-    </p>
+    <>
+      <FileSummary
+        action={after === null ? 'Delete' : before === null ? 'Create' : 'Edit'}
+        call={call}
+        root={root}
+      />
+      {/* Text that stays the same, or an empty file made or removed, has no lines to draw. */}
+      {(before ?? '') === (after ?? '') ? (
+        <p className="text-muted-foreground mt-1.5 text-xs">
+          {before === after ? 'No changes' : 'Empty file'}
+        </p>
+      ) : (
+        // The box grows with the diff up to its cap, then scrolls.
+        <div className="border-border mt-1.5 overflow-hidden rounded-md border">
+          <FileDiffView
+            after={after}
+            ariaLabel={`Changes to ${path}`}
+            before={before}
+            className="max-h-72"
+            path={path}
+            testId="approval-diff-view"
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * A waiting call's change, read from its file once per card: the summary and
+ * a loading box, then the diff with the file's own line numbers.
+ */
+function FileChange({
+  call,
+  interactionId,
+  readChange,
+  root,
+}: {
+  call: FileCall;
+  interactionId: string;
+  readChange: ReadApprovalChange;
+  root: string | undefined;
+}) {
+  // State, not render, holds the read: a suspended child keeps no state of its own.
+  const [read] = useState(() => settle(readChange(interactionId)));
+  return (
+    // A local read is quick, so the line waits alone rather than flash a box.
+    <Suspense fallback={<FileSummary action={call.action} call={call} root={root} />}>
+      <FileChangeDiff call={call} read={read} root={root} />
+    </Suspense>
+  );
+}
+
+/**
+ * A file tool's card: one line naming the action, the file and the folder,
+ * then, while the approval waits and the host can read it, the diff. A rename
+ * changes no text, and an answered approval has nothing left to read.
+ */
+function FilePreview({ approval, call }: { approval: ApprovalPreviewSubject; call: FileCall }) {
+  const readChange = useApprovalChange();
+  const root = approval.targetRoot?.displayName ?? call.root;
+  const { interactionId } = approval;
+  return (
+    <div className="mt-3">
+      {readChange && interactionId !== undefined && call.action !== 'Rename' ? (
+        <FileChange
+          call={call}
+          interactionId={interactionId}
+          key={interactionId}
+          readChange={readChange}
+          root={root}
+        />
+      ) : (
+        <FileSummary action={call.action} call={call} root={root} />
+      )}
+    </div>
   );
 }
 
@@ -628,14 +713,6 @@ function truncatePreviewText(
   return { shownChars: end, text: raw.slice(0, end), totalChars: raw.length, truncated: true };
 }
 
-/** Of two candidate truncations, the one whose original text is larger drives the note. */
-function moreTruncatedPreview(
-  a: TruncatedPreviewText,
-  b: TruncatedPreviewText
-): TruncatedPreviewText {
-  return a.totalChars >= b.totalChars ? a : b;
-}
-
 function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
   return (
     <p className="text-warning mt-1.5 text-xs" data-testid="approval-preview-truncated-note">
@@ -647,10 +724,10 @@ function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
 
 /**
  * Mutating approvals render a structured preview: `executeCommand` → the exact
- * command and execution context; `stringReplace` → a side-by-side/unified diff
- * of `oldStr` → `newStr`; `write` → a syntax-highlighted full-file preview.
- * Every other tool renders `null`. Known preview tools whose args fail strict
- * narrowing show a visible parse error and keep the raw-JSON view.
+ * command and execution context; a file tool → its action, file and folder,
+ * and while it waits, the diff of the file it would change. Every other tool
+ * renders `null`. Known preview tools whose args fail strict narrowing show a
+ * visible parse error and keep the raw-JSON view.
  */
 export function ApprovalPreview({
   approval,
@@ -675,63 +752,12 @@ export function ApprovalPreview({
     return <RunSkillScriptPreview args={args} />;
   }
 
-  if (toolName === STRING_REPLACE_TOOL_ID) {
-    const parsed = narrowStringReplaceArgs(args);
-    if (!parsed) {
-      return <PreviewParseError />;
-    }
-    const oldPreview = truncatePreviewText(parsed.oldStr);
-    const newPreview = truncatePreviewText(parsed.newStr);
-    const isTruncated = oldPreview.truncated || newPreview.truncated;
-    return (
-      <div className="mt-3">
-        <FileTargetSummary
-          path={parsed.path}
-          root={approval.targetRoot?.displayName ?? parsed.root}
-        />
-        <div className="border-border mt-1.5 h-72 overflow-hidden rounded-md border">
-          <Suspense fallback={<LoadingFallback message="Loading diff…" />}>
-            <FileDiffView
-              ariaLabel={`Proposed changes to ${parsed.path}`}
-              newText={newPreview.text}
-              oldText={oldPreview.text}
-              path={parsed.path}
-              testId="approval-diff-view"
-            />
-          </Suspense>
-        </div>
-        {isTruncated ? (
-          <PreviewTruncatedNote preview={moreTruncatedPreview(oldPreview, newPreview)} />
-        ) : null}
-      </div>
-    );
-  }
-
-  if (toolName === WRITE_FILE_TOOL_ID) {
-    const parsed = narrowWriteFileArgs(args);
-    if (!parsed) {
-      return <PreviewParseError />;
-    }
-    const contentPreview = truncatePreviewText(parsed.content);
-    return (
-      <div className="mt-3">
-        <FileTargetSummary
-          action="Creates or overwrites"
-          path={parsed.path}
-          root={approval.targetRoot?.displayName ?? parsed.root}
-        />
-        <div className="border-border mt-1.5 h-64 overflow-hidden rounded-md border">
-          <CodeSurface
-            ariaLabel={`New content for ${parsed.path}`}
-            path={parsed.path}
-            testId="approval-write-preview"
-            truncated={contentPreview.truncated}
-            value={contentPreview.text}
-          />
-        </div>
-        {contentPreview.truncated ? <PreviewTruncatedNote preview={contentPreview} /> : null}
-      </div>
-    );
+  const fileCall = readFileCall(toolName, args);
+  if (fileCall) {
+    return Option.match(fileCall, {
+      onNone: () => <PreviewParseError />,
+      onSome: (call) => <FilePreview approval={approval} call={call} />,
+    });
   }
 
   return <OtherArgumentsPreview args={args} enabled={showOtherArguments} />;

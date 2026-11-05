@@ -11,13 +11,17 @@ import { approvalDecisions, describableApprovalOptions } from './committed-appro
 
 type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 
-/** The committed approval's preview subject, with its host facts when they are valid. */
-function previewSubject(tool: ToolProps): ApprovalPreviewSubject {
+/**
+ * The waiting approval's preview subject, with its host facts when they are
+ * valid. The approval's id is the host's interaction id.
+ */
+function previewSubject(tool: ToolProps, interactionId: string): ApprovalPreviewSubject {
   const context: unknown = tool.providerMetadata?.['brainstrike']?.['executionContext'];
   const targetRoot: unknown = tool.providerMetadata?.['brainstrike']?.['targetRoot'];
   const sandboxed: unknown = tool.providerMetadata?.['brainstrike']?.['sandboxed'];
   return {
     args: tool.args,
+    interactionId,
     toolName: tool.toolName,
     ...(isCodeExecutionApprovalContext(context) ? { executionContext: context } : {}),
     ...(typeof sandboxed === 'boolean' ? { sandboxed } : {}),
@@ -49,7 +53,7 @@ export function ToolApprovalDecision({
   ) {
     return null;
   }
-  const subject = previewSubject(tool);
+  const subject = previewSubject(tool, approval.id);
   const options = describableApprovalOptions(approval.options, subject);
   const reviewNote: unknown = tool.providerMetadata?.['brainstrike']?.['reviewNote'];
   return (
