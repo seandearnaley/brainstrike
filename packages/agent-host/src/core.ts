@@ -186,13 +186,17 @@ export class HostCore {
     admit: (threadId, perform) => this.admit(threadId, perform),
     admitWake: ({ origin, params }) =>
       this.admitRun('wake', params, origin, () => hostStartPosition(this.runs.values(), params)),
-    appendTerminal: (threadId, events, beforePublish) =>
-      this.append(threadId, events, 'full', beforePublish),
+    appendTerminal: (items, beforePublish) => this.appendAcross(items, 'full', beforePublish),
     children: this.children,
     closeOwner: (run) => this.closeRunOwner(run),
     closing: () => this.closing,
     deletions: this.deletions,
     foldRows: (rows) => this.foldRows(rows),
+    // Queued: a thread being deleted or a closing host takes no notice.
+    post: (threadId, notice) =>
+      this.admit(threadId, () =>
+        this.append(threadId, [{ notice, type: 'notice.posted' }], 'normal', this.foldRows)
+      ),
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
     runs: () => this.runs,
@@ -526,7 +530,6 @@ export class HostCore {
     this.conversationIds.delete(threadId);
     this.threads.delete(threadId);
     this.children.forget(threadId);
-    this.ends.exits.forget(threadId);
     this.presentations.forget(threadId);
     this.workspaces.forget(threadId);
     this.selections.forget(threadId);
@@ -631,7 +634,7 @@ export class HostCore {
           method,
           runId,
         },
-        this.ends.deliveryPosition(method, params, selected, admission.delegation, runId),
+        this.ends.deliveryPosition(method, params, selected, runId),
         this.children.grants(root),
         admission.snapshot,
         controller
@@ -654,7 +657,6 @@ export class HostCore {
       await (method === 'wake'
         ? this.append(params.threadId, events, 'normal', foldRows)
         : this.accept(params.threadId, method, record, committed, events, foldRows));
-      this.ends.recordDelivery(params.threadId, started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);

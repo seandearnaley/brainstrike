@@ -3,9 +3,11 @@
 - **Status:** Proposed. The owner decided every open question on 2026-10-22 (see Owner
   decisions) and may mark it Accepted.
   - Implemented so far: step 2 (children never get `askUser` or `submitPlan`;
-    `PARENT_ONLY_TOOL_IDS` in `packages/assistant-contract/src/personas.ts`), and step 3 for
-    root runs (a created worktree binds its thread; `packages/agent-host/src/worktree-binding.ts`).
-  - Not yet: steps 4–10.
+    `PARENT_ONLY_TOOL_IDS` in `packages/assistant-contract/src/personas.ts`), step 3 for
+    root runs (a created worktree binds its thread; `packages/agent-host/src/worktree-binding.ts`),
+    and step 3b's notice for child reports and command-session exits
+    (`packages/agent-host/src/notices.ts`).
+  - Not yet: step 3b's step-boundary intake and human input; steps 4–10.
 - **Date:** 2026-10-22
 - **Builds on:** [ADR-0009](0009-host-run-loop-invariants.md) (with its 2026-10-22
   amendment), [ADR-0010](0010-approvals-and-delegation.md),
@@ -245,7 +247,8 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
 - Remote agent runs, transcript, approvals, grants: the agent's host.
 - Who started a served agent: its `thread.started` with a remote `origin`.
 - A message and any hold on it: receiver's log; the sender logs only its send effect.
-- Notes and watermark: starter's `run.started` `delivery` (unchanged).
+- Notes: a `notice.posted` on the starter's log, committed with the child run's end (step 3b).
+  Which notices a run took: that run's `run.started` `delivery`, read along its branch.
 - Status and directory: derived.
 - Host ID: minted once in the state DB.
 - Root policy and grants: the root host only.
@@ -272,6 +275,23 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
    `manageTaskList` already is in `narrowHostChildTools`); update the worker persona.
 3. **A created worktree binds its thread** or the delegation that made it. No agent switches the
    person's checkout. A worker delegated beside another live writer gets its own worktree.
+3b. **One notice** (owner decision 2026-11-05, from the agent messaging audit). Everything a
+   thread is told that no person typed is one notice on that thread's log, posted by the
+   commit that settles it and taken by the run or step that delivers it, along that run's own
+   branch. opencode ships this shape (a pending inbox row taken in the message's own
+   transaction); Claude Code reads incoming messages between tool calls; AI SDK 7 carries
+   messages `prepareStep` returns into later steps.
+   - **Done:** a child run's report and a command session's exit. The child's terminal commit
+     posts the report on its parent's log in the same transaction, so whether it reports is
+     decided once and the report outlives the child thread. An exit is posted on the thread
+     that hears it and survives a restart. A run takes the notices due on its branch: not yet
+     taken there, and, for a child's report, dispatched there. This removed the
+     process-global delivered set and the process-local exits queue.
+   - **Next:** a running thread takes its due notices at its next step boundary in
+     `prepareStep` (`steer`), and an idle one wakes or the next run takes them (`queue`).
+   - **Then:** a person's input to a running agent is a notice taken at the next step,
+     replacing "end the run, then start the next one" (`child-input.ts`, `run/steer`'s hand-off).
+     Step 4's `message` tool and step 5's `agents/notify` then post notices.
 4. **The `message` tool**, addressing children by call sign: follow-up run if idle, `run/input`
    if working. Committed as agent-authored.
 5. **Directory on one host:** `agents/list`, `agents/message`, `agents/notify`; the sidebar reads
