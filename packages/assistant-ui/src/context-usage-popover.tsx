@@ -73,14 +73,14 @@ const SourceRow = ({ source }: { readonly source: CumulativeSource }) => {
         <span className="min-w-0 truncate">
           {SOURCE_LABELS[source.kind]}
           {onlyModel ? (
-            <span className="text-muted-foreground/70">
+            <span className="text-muted-foreground">
               {' '}
               · {resolveModelLabel(onlyModel.provider, onlyModel.model)}
             </span>
           ) : null}
         </span>
         <span className="flex shrink-0 gap-3 tabular-nums">
-          <span className="text-muted-foreground/80">
+          <span className="text-muted-foreground">
             {formatCompact(source.inputTokens)} in · {formatCompact(source.outputTokens)} out
           </span>
           <span className="text-foreground w-14 text-right">
@@ -92,7 +92,7 @@ const SourceRow = ({ source }: { readonly source: CumulativeSource }) => {
         <ul className="border-border/60 ml-1 flex flex-col gap-px border-l pl-2">
           {source.models.map((model) => (
             <li
-              className="text-muted-foreground/70 flex items-center justify-between gap-2 text-[11px]"
+              className="text-muted-foreground text-2xs flex items-center justify-between gap-2"
               data-testid="context-usage-source-model"
               key={`${model.provider}::${model.model}`}
             >
@@ -153,7 +153,7 @@ export const CumulativeUsageSection = ({
         </span>
       </p>
       <p
-        className="text-muted-foreground/80 text-[11px] tabular-nums"
+        className="text-muted-foreground text-2xs tabular-nums"
         data-testid="context-usage-thread-total-split"
       >
         {formatCompact(inputTokens)} in · {formatCompact(outputTokens)} out
@@ -164,7 +164,7 @@ export const CumulativeUsageSection = ({
       </p>
       {hasCacheTraffic && (
         <p
-          className="bg-muted/60 text-muted-foreground rounded-md px-2 py-1 text-[11px] tabular-nums"
+          className="bg-muted/60 text-muted-foreground text-2xs rounded-md px-2 py-1 tabular-nums"
           data-testid="context-usage-cache-line"
         >
           Cache: {formatCompact(cumulativeUsage.cacheReadTokens)} read ({cachedShare}% of input) ·{' '}
@@ -178,10 +178,7 @@ export const CumulativeUsageSection = ({
         </p>
       )}
       {showSources && (
-        <ul
-          className="mt-0.5 flex flex-col gap-1 text-[11px]"
-          data-testid="context-usage-by-source"
-        >
+        <ul className="text-2xs mt-0.5 flex flex-col gap-1" data-testid="context-usage-by-source">
           {bySource.map((source) => (
             <SourceRow key={source.kind} source={source} />
           ))}
@@ -254,7 +251,7 @@ const OmMeterSection = ({ state }: OmMeterSectionProps) => {
   if (state.kind === 'stats') {
     return (
       <div
-        className="text-muted-foreground/70 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]"
+        className="text-muted-foreground text-2xs mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5"
         data-testid="context-usage-om-stats"
       >
         {state.observationTokens > 0 && (
@@ -287,8 +284,8 @@ const OmMeterSection = ({ state }: OmMeterSectionProps) => {
   return (
     <p
       className={cn(
-        'mt-1.5 text-[11px]',
-        note.tone === 'error' ? 'text-destructive/80' : 'text-muted-foreground/70'
+        'text-2xs mt-1.5',
+        note.tone === 'error' ? 'text-destructive' : 'text-muted-foreground'
       )}
       data-testid="context-usage-om-note"
     >
@@ -727,7 +724,7 @@ const WorkspaceFilesRow = ({
       Workspace files in the window
       {onOpenContextMap && (
         <button
-          className="text-foreground focus-visible:ring-ring text-[11px] underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:outline-hidden"
+          className="text-foreground focus-visible:ring-ring text-2xs underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:outline-hidden"
           data-testid="context-usage-open-context-map"
           onClick={onOpenContextMap}
           type="button"
@@ -789,10 +786,7 @@ export const ContextUsagePopoverContent = ({
         Context {Math.round(percentage)}% full · {formatCompact(usedTokens)}
         {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(effectiveInputBudget)}
       </p>
-      <p
-        className="text-muted-foreground/80 text-[11px]"
-        data-testid="context-usage-popover-window"
-      >
+      <p className="text-muted-foreground text-2xs" data-testid="context-usage-popover-window">
         model window {formatTokenCount(contextWindow)}
       </p>
 
@@ -802,7 +796,7 @@ export const ContextUsagePopoverContent = ({
       {/* Malformed wire part → surfaced honestly, never coerced into rows. */}
       {breakdownInvalid && (
         <p
-          className="text-destructive/80 mt-1 text-[11px]"
+          className="text-destructive/80 text-2xs mt-1"
           data-testid="context-usage-breakdown-invalid"
         >
           Prompt breakdown unavailable (malformed data from the last run).
@@ -829,7 +823,7 @@ export const ContextUsagePopoverContent = ({
                 <ul className="border-border/60 ml-3.5 flex max-h-48 flex-col gap-px overflow-y-auto border-l pl-2">
                   {subRowsByTestId[row.testId]?.map((subRow) => (
                     <li
-                      className="text-muted-foreground/70 flex items-center justify-between gap-2 text-[11px]"
+                      className="text-muted-foreground text-2xs flex items-center justify-between gap-2"
                       data-testid={subRow.testId}
                       key={subRow.testId}
                     >

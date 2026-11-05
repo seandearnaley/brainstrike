@@ -243,7 +243,7 @@ describe('ToolFallback activity step row', () => {
     fireEvent.click(row);
     const expanded = screen.getByRole('button', { name: 'Read src/app.ts, collapse details' });
     expect(expanded).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('Arguments:')).toBeInTheDocument();
+    expect(screen.getByText('Arguments')).toBeInTheDocument();
   });
 
   it('falls back to the tool id as the target when the args name none', () => {

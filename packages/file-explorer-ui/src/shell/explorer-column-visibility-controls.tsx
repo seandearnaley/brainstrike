@@ -95,7 +95,7 @@ export function ExplorerColumnVisibilityControls({ show }: { show: boolean }) {
         </div>
         <p
           className={cn(
-            'text-muted-foreground mt-1 border-t px-2 pt-2 text-[11px]',
+            'text-muted-foreground text-2xs mt-1 border-t px-2 pt-2',
             !areMetadataColumnsSuppressed && 'sr-only'
           )}
         >

@@ -445,11 +445,11 @@ function LaneView({
                 >
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate font-mono text-xs">{row.path.split('/').at(-1)}</span>
-                    <span className="text-muted-foreground truncate font-mono text-[11px]">
+                    <span className="text-muted-foreground text-2xs truncate font-mono">
                       {row.path}
                     </span>
                     {(row.editedWithoutRead || changedNow) && (
-                      <span className="text-muted-foreground text-[11px]">
+                      <span className="text-muted-foreground text-2xs">
                         {[
                           changedNow ? 'changed since read' : null,
                           row.editedWithoutRead ? 'edited without reading' : null,

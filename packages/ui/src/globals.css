@@ -481,6 +481,22 @@
     line-height: 1.55;
   }
 
+  /* The wrap-lines toggle (CodeBlockHeader): long lines wrap in place. */
+  .bs-code-block-body[data-wrap] pre,
+  .bs-code-block-body[data-wrap] .shiki {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* A collapsed long block (CodeBlockBody) shows its first 20 lines, fading
+     out above the "Show all N lines" toggle. The mask is alpha only. */
+  .bs-code-block-body[data-collapsed] pre,
+  .bs-code-block-body[data-collapsed] .shiki {
+    max-height: calc(20lh + 1.4rem);
+    overflow-y: hidden;
+    mask-image: linear-gradient(to bottom, var(--foreground) calc(100% - 2.5rem), transparent);
+  }
+
   /*
    * Shiki dual themes for class-based dark mode (every Shiki surface: assistant
    * chat, markdown file preview, notes preview). CodeBlockBody renders with

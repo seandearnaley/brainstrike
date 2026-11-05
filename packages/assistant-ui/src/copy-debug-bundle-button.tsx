@@ -141,7 +141,7 @@ export function CopyDebugBundleButton(): ReactElement | null {
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1" data-testid="copy-debug-bundle-footer">
       <Button
-        className="text-muted-foreground h-5 gap-1 px-1.5 text-[11px]"
+        className="text-muted-foreground text-2xs h-5 gap-1 px-1.5"
         data-testid="copy-debug-bundle"
         disabled={busy}
         onClick={() => void run('copy')}
@@ -152,7 +152,7 @@ export function CopyDebugBundleButton(): ReactElement | null {
         {labelFor('copy', 'Copy debug bundle')}
       </Button>
       <Button
-        className="text-muted-foreground h-5 gap-1 px-1.5 text-[11px]"
+        className="text-muted-foreground text-2xs h-5 gap-1 px-1.5"
         data-testid="download-debug-bundle"
         disabled={busy}
         onClick={() => void run('download')}
@@ -165,7 +165,7 @@ export function CopyDebugBundleButton(): ReactElement | null {
       </Button>
       {/* Live region: the result lands in the button label, but a failure is
           the only place the reason appears at all. */}
-      <span aria-live="polite" className="text-destructive text-[11px]" role="status">
+      <span aria-live="polite" className="text-destructive text-2xs" role="status">
         {phase.kind === 'error' ? `Copy failed: ${phase.message}` : ''}
       </span>
     </div>

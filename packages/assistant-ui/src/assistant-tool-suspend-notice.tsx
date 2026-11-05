@@ -366,7 +366,7 @@ function UnreadableSuspendPayloadNotice({
     >
       <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
       <p className="text-muted-foreground mt-1 text-xs">{detail}</p>
-      <pre className="text-muted-foreground mt-2 max-h-48 overflow-auto font-mono text-[11px] whitespace-pre-wrap">
+      <pre className="text-muted-foreground text-2xs mt-2 max-h-48 overflow-auto font-mono whitespace-pre-wrap">
         {payloadDetail}
       </pre>
       {children}
@@ -671,7 +671,7 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
         This tool paused the run for input, but this build has no resume UI registered for its
         resume schema, so the pause cannot be answered and the run cannot continue here.
       </p>
-      <pre className="text-muted-foreground mt-2 font-mono text-[11px] whitespace-pre-wrap">
+      <pre className="text-muted-foreground text-2xs mt-2 font-mono whitespace-pre-wrap">
         {detail}
       </pre>
       <div className="mt-2">
@@ -750,7 +750,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
         >
           The request didn't say which domains it needs, so it can't be allowed.
         </p>
-        <pre className="text-muted-foreground mt-2 font-mono text-[11px] whitespace-pre-wrap">
+        <pre className="text-muted-foreground text-2xs mt-2 font-mono whitespace-pre-wrap">
           {payloadDetail}
         </pre>
         <div className="mt-2">

@@ -11,6 +11,7 @@ import {
   Card,
   CardContent,
   ErrorBoundary,
+  ErrorNotice,
   Tabs,
   TabsContent,
   TabsList,
@@ -30,7 +31,6 @@ import type { McpConnectionStatus } from './tool-group-accordion';
 import { ToolGroupAccordion } from './tool-group-accordion';
 import { ToolRow } from './tool-row';
 import { ToolRowExpanded } from './tool-row-expanded';
-import { ToolsErrorFallback } from './tools-error-fallback';
 import { ToolsFilterBar } from './tools-filter-bar';
 import {
   initialToolsDataState,
@@ -858,7 +858,13 @@ function ToolsAccordionList({
 }: ToolsAccordionListProps) {
   return (
     <ErrorBoundary
-      fallback={<ToolsErrorFallback onRetry={onErrorBoundaryReset} />}
+      fallback={
+        <ErrorNotice
+          data-testid="tools-error-fallback"
+          message="Something went wrong loading tools. Retry to reload tool metadata and MCP status."
+          onRetry={onErrorBoundaryReset}
+        />
+      }
       key={errorBoundaryKey}
       onReset={onErrorBoundaryReset}
     >

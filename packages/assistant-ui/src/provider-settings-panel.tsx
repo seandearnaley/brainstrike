@@ -521,7 +521,7 @@ const MaxOutputSection = ({
         type="range"
         value={maxOutputEnabled ? maxOutputValue : defaultValue}
       />
-      <div className="text-muted-foreground flex justify-between text-[11px]">
+      <div className="text-muted-foreground text-2xs flex justify-between">
         <span>{settingsNumberFormatter.format(MAX_OUTPUT_MIN)}</span>
         <span>{settingsNumberFormatter.format(maximum)} tokens</span>
       </div>
@@ -661,7 +661,7 @@ const AnthropicReasoningSection = ({
           type="range"
           value={thinkingEnabled ? thinkingValue : ANTHROPIC_THINKING_DEFAULT}
         />
-        <div className="text-muted-foreground flex justify-between text-[11px]">
+        <div className="text-muted-foreground text-2xs flex justify-between">
           <span>{settingsNumberFormatter.format(ANTHROPIC_THINKING_MIN)}</span>
           <span>{settingsNumberFormatter.format(ANTHROPIC_THINKING_MAX)} tokens</span>
         </div>

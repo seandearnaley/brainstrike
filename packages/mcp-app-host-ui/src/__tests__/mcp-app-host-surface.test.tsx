@@ -209,4 +209,24 @@ describe('MCP Apps host surface', () => {
     await waitFor(() => expect(recoveryRef.current).toHaveFocus());
     expect(execute).toHaveBeenCalledOnce();
   });
+
+  it('offers to reopen an app whose session closed', async () => {
+    const user = userEvent.setup();
+    const reopen = vi.fn();
+    const { authority } = createAuthority();
+    await authority.close();
+    render(
+      <McpAppHostSurface
+        appName="Linear issue editor"
+        authority={authority}
+        onRetry={reopen}
+        recoveryFocusRef={createRef<HTMLElement>()}
+        state={{ phase: 'ready' }}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The app session is closed.');
+    await user.click(screen.getByRole('button', { name: 'Reopen Linear issue editor' }));
+    expect(reopen).toHaveBeenCalledOnce();
+  });
 });

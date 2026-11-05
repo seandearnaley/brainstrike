@@ -30,6 +30,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ErrorNotice,
   Label,
   Switch,
 } from '@brainstrike/ui';
@@ -218,6 +219,10 @@ export function SubagentPersonasSettingsSection({
   const [reloadVersion, setReloadVersion] = useState(0);
   const loading = load.status === 'loading';
   const loadFailed = load.status === 'failed';
+  const reloadPersonas = () => {
+    setLoad((current) => ({ ...current, status: 'loading' }));
+    setReloadVersion((version) => version + 1);
+  };
   const incompleteDirs = load.result?.incompleteDirs ?? [];
 
   useEffect(() => {
@@ -286,26 +291,16 @@ export function SubagentPersonasSettingsSection({
         {hasHost ? (
           <div className="space-y-2">
             {loadFailed ? (
-              <p className="text-destructive text-sm" role="alert">
-                Could not load user personas or check host availability. Retry after checking your
-                workspace and provider settings.
-              </p>
-            ) : null}
-            <Button
-              disabled={loading}
-              onClick={() => {
-                setLoad((current) => ({ ...current, status: 'loading' }));
-                setReloadVersion((version) => version + 1);
-              }}
-              size="sm"
-              variant="outline"
-            >
-              {loading
-                ? 'Checking personas…'
-                : loadFailed
-                  ? 'Retry loading personas'
-                  : 'Refresh personas and host checks'}
-            </Button>
+              <ErrorNotice
+                message="Could not load user personas or check host availability. Retry after checking your workspace and provider settings."
+                onRetry={reloadPersonas}
+                retryLabel="Retry loading personas"
+              />
+            ) : (
+              <Button disabled={loading} onClick={reloadPersonas} size="sm" variant="outline">
+                {loading ? 'Checking personas…' : 'Refresh personas and host checks'}
+              </Button>
+            )}
           </div>
         ) : null}
 

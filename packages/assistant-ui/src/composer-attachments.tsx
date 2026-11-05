@@ -39,7 +39,7 @@ const ComposerAttachmentChip = () => {
         // a visible named fallback, never the browser's broken-image glyph
         // (no-silent-fallbacks). Failure is distinguishable via the title.
         <span
-          className="text-muted-foreground flex size-14 items-center justify-center overflow-hidden px-1 text-center text-[10px]"
+          className="text-muted-foreground text-2xs flex size-14 items-center justify-center overflow-hidden px-1 text-center"
           data-testid="assistant-composer-attachment-fallback"
           title={failed ? `Preview unavailable for ${attachment.name}` : attachment.name}
         >

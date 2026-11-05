@@ -346,12 +346,12 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
         {pushing ? 'Pushing…' : 'Push'}
       </Button>
       {commitError ? (
-        <span className="text-destructive text-[11px]" data-testid="changeset-commit-error">
+        <span className="text-destructive text-2xs" data-testid="changeset-commit-error">
           {commitError}
         </span>
       ) : null}
       {pushError ? (
-        <span className="text-destructive text-[11px]" data-testid="changeset-push-error">
+        <span className="text-destructive text-2xs" data-testid="changeset-push-error">
           {pushError}
         </span>
       ) : null}
@@ -359,7 +359,7 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
         // Git's push output can run to many lines; one truncated line here,
         // the whole of it on hover.
         <span
-          className="text-muted-foreground max-w-64 truncate text-[11px]"
+          className="text-muted-foreground text-2xs max-w-64 truncate"
           data-testid="changeset-push-result"
           title={pushResult}
         >
@@ -458,7 +458,7 @@ function ChangesetActions({
     changeset.worktreePath
   );
   return (
-    <span className="text-muted-foreground text-[11px]" data-testid="changeset-actions-unavailable">
+    <span className="text-muted-foreground text-2xs" data-testid="changeset-actions-unavailable">
       Commit/push apply to the focused worktree only — switch focus to {worktreeName} to use them.
     </span>
   );
@@ -509,7 +509,7 @@ export function ChangesetHeader({
           className="flex flex-col items-start gap-1.5"
           data-testid="changeset-header-inventory-error"
         >
-          <p className="text-warning text-[11px]">Repository list unavailable: {inventoryError}</p>
+          <p className="text-warning text-2xs">Repository list unavailable: {inventoryError}</p>
           {onRetryInventory ? (
             <Button onClick={onRetryInventory} size="sm" type="button" variant="outline">
               <RefreshCw aria-hidden="true" className="size-3.5" />

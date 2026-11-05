@@ -26,7 +26,7 @@ export function ModelPickerGroup({
           <ProviderIcon className="size-3" providerId={provider.id} style={{ color }} />
           <span className="tracking-wide">{provider.name}</span>
           {modelCount !== undefined && (
-            <span className="border-border/60 bg-muted/55 ml-auto min-w-5 rounded-full border px-1.5 text-center text-[10px] font-normal tabular-nums">
+            <span className="border-border/60 bg-muted/55 text-2xs ml-auto min-w-5 rounded-full border px-1.5 text-center font-normal tabular-nums">
               {modelCount}
             </span>
           )}

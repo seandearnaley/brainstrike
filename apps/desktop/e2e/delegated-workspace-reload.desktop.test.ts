@@ -432,7 +432,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   // Delete through the actual sidebar action, then reload. The other root and
   // its workspace survive; stale saved child tabs may never revive work.
   await rootRow.getByRole('button', { name: `Thread actions ${ROOT_TITLE}` }).click();
-  await window.getByRole('button', { exact: true, name: 'Delete…' }).click();
+  await window.getByRole('menuitem', { exact: true, name: 'Delete…' }).click();
   await window.getByRole('button', { name: `Confirm delete thread ${ROOT_TITLE}` }).click();
   await expect(rootRow).toHaveCount(0);
   await expect(cedar).toHaveCount(0);

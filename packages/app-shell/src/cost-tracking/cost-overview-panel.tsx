@@ -134,7 +134,7 @@ function DailySpend({ trend }: { readonly trend: readonly LedgerTrendPoint[] }) 
           </li>
         ))}
       </ol>
-      <ol aria-hidden="true" className="text-muted-foreground flex gap-1.5 text-[11px]">
+      <ol aria-hidden="true" className="text-muted-foreground text-2xs flex gap-1.5">
         {days.map((point) => (
           <li className="min-w-0 flex-1 truncate text-center" key={point.day}>
             {point.label}

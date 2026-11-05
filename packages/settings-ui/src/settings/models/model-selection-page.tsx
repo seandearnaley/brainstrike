@@ -3,7 +3,7 @@ import {
   useModelRegistrySource,
 } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { Button, cn, useToast } from '@brainstrike/ui';
+import { Button, cn, ErrorNotice, useToast } from '@brainstrike/ui';
 import { RefreshCw } from 'lucide-react';
 
 import { useShallow } from 'zustand/react/shallow';
@@ -84,22 +84,11 @@ export function ModelSelectionPage() {
 
   if (error) {
     return (
-      <div
-        className="bg-destructive/10 text-destructive rounded-md p-4"
+      <ErrorNotice
         data-testid="model-registry-error"
-      >
-        <p className="font-medium">Error loading models</p>
-        <p className="text-sm">{error}</p>
-        <Button
-          className="mt-2"
-          data-testid="model-registry-retry"
-          onClick={handleRefresh}
-          size="sm"
-          variant="outline"
-        >
-          Retry
-        </Button>
-      </div>
+        message={`Error loading models: ${error}`}
+        onRetry={handleRefresh}
+      />
     );
   }
 

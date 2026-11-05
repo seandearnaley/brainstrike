@@ -9,7 +9,7 @@ const fullNumber = new Intl.NumberFormat('en-US');
 function Fact({ children, label }: { readonly children: ReactNode; readonly label: string }) {
   return (
     <div className="min-w-0 space-y-1">
-      <dt className="text-muted-foreground text-[11px]">{label}</dt>
+      <dt className="text-muted-foreground text-2xs">{label}</dt>
       <dd className="text-xs">{children}</dd>
     </div>
   );
@@ -19,7 +19,7 @@ function Chips({ values }: { readonly values: readonly string[] }) {
   return (
     <div className="flex flex-wrap gap-1">
       {values.map((value) => (
-        <Badge className="h-5 px-1.5 text-[10px] font-normal" key={value} variant="outline">
+        <Badge className="text-2xs h-5 px-1.5 font-normal" key={value} variant="outline">
           {value}
         </Badge>
       ))}

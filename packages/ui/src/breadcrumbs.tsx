@@ -188,10 +188,10 @@ export function Breadcrumbs({
             <Separator />
             <span
               aria-hidden="true"
-              className="text-muted-foreground flex h-4 w-4 items-center justify-center"
+              className="text-muted-foreground flex size-4 items-center justify-center"
               title={collapsed.map((segment) => segment.label).join(' / ')}
             >
-              <MoreHorizontal className="h-3 w-3" />
+              <MoreHorizontal className="size-3" />
             </span>
           </li>
         )}
@@ -202,10 +202,10 @@ export function Breadcrumbs({
               <DropdownMenuTrigger asChild>
                 <button
                   aria-label="Show hidden path segments"
-                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring flex h-4 w-4 items-center justify-center rounded-sm transition-colors focus-visible:ring-1 focus-visible:outline-hidden"
+                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring relative flex size-4 items-center justify-center rounded-sm transition-colors after:absolute after:-inset-1 after:content-[''] focus-visible:ring-1 focus-visible:outline-hidden"
                   type="button"
                 >
-                  <MoreHorizontal className="h-3 w-3" />
+                  <MoreHorizontal className="size-3" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">

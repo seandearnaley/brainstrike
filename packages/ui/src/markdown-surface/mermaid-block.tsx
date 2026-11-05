@@ -413,7 +413,7 @@ function DiagramFullSizeView({
             >
               <XIcon className="size-3.5" />
               Close
-              <kbd className="border-border text-muted-foreground rounded border px-1 font-mono text-[10px]">
+              <kbd className="border-border text-muted-foreground text-2xs rounded border px-1 font-mono">
                 Esc
               </kbd>
             </Button>

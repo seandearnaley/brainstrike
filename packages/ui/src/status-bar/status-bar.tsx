@@ -30,7 +30,7 @@ export function StatusBar({
       className={cn(
         'grid h-7 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center px-1.5',
         'border-border/80 bg-muted/70 border-t',
-        'text-muted-foreground text-[11px] leading-none',
+        'text-muted-foreground text-2xs leading-none',
         className
       )}
       data-testid={testId}

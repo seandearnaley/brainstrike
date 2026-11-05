@@ -41,7 +41,7 @@ const BudgetBlockedNotice = ({
     Last-24h budget cap reached — {totalLabel}. Sending is paused.
     <Button
       aria-label="Send anyway"
-      className="h-5 px-1.5 text-[11px]"
+      className="text-2xs h-5 px-1.5"
       data-testid="budget-guardrail-override"
       onClick={override}
       size="sm"
@@ -52,7 +52,7 @@ const BudgetBlockedNotice = ({
     </Button>
     {adjustCap ? (
       <Button
-        className="h-5 px-1.5 text-[11px]"
+        className="text-2xs h-5 px-1.5"
         onClick={adjustCap}
         size="sm"
         type="button"
@@ -90,7 +90,7 @@ export function BudgetGuardrailControl(): ReactElement | null {
   const blocked = status.overCap && !overridden;
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-0.5 text-[11px]"
+      className="text-2xs flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-0.5"
       data-testid="budget-guardrail"
     >
       <span

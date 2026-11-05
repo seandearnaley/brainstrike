@@ -124,7 +124,7 @@ export function HostChildConversationHeader({
         {ancestry && isAgentColor(parentColor) ? (
           <span
             aria-label={`Parent: ${parentName}`}
-            className="text-muted-foreground ml-auto flex shrink-0 items-center gap-1 text-[11px]"
+            className="text-muted-foreground text-2xs ml-auto flex shrink-0 items-center gap-1"
             role="img"
             title={`Parent: ${parentName}`}
           >

@@ -56,14 +56,14 @@ describe('ToolFallback detail level', () => {
     renderTool(internalToolProps, 'standard');
     expect(screen.getByText('3 matches')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /expand details/iu })).toBeInTheDocument();
-    expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Arguments')).not.toBeInTheDocument();
   });
 
   it('developer auto-expands args/result and surfaces raw I/O metadata', () => {
     renderTool(internalToolProps, 'developer');
     // No click needed — developer opens the panes by default.
-    expect(screen.getByText('Arguments:')).toBeInTheDocument();
-    expect(screen.getByText('Result:')).toBeInTheDocument();
+    expect(screen.getByText('Arguments')).toBeInTheDocument();
+    expect(screen.getByText('Result')).toBeInTheDocument();
     // Raw I/O detail that standard hides.
     expect(screen.getByText('call-internal-1')).toBeInTheDocument();
   });
@@ -135,12 +135,12 @@ describe('ToolFallback detail level', () => {
     );
 
     // Standard: collapsed, no panes.
-    expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Arguments')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'go developer' }));
 
     // Developer: the existing card auto-expands its panes.
-    expect(screen.getByText('Arguments:')).toBeInTheDocument();
-    expect(screen.getByText('Result:')).toBeInTheDocument();
+    expect(screen.getByText('Arguments')).toBeInTheDocument();
+    expect(screen.getByText('Result')).toBeInTheDocument();
   });
 });

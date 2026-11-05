@@ -33,6 +33,14 @@ function openArtifact(artifact: AssistantThreadHostArtifact): void {
   );
 }
 
+/** Opens the artifact's top-level thread in the workspace, without opening the canvas. */
+function openArtifactThread(artifact: AssistantThreadHostArtifact): void {
+  usePanelLayoutStore.getState().setActiveTab('explorer');
+  useAssistantThreadStore
+    .getState()
+    .openThreadTab(WORKSPACE_MEMORY_RESOURCE_ID, artifact.rootThreadId);
+}
+
 /**
  * The list, read whenever the page is shown and whenever a run commits a
  * canvas while it is. A failed read stays an error, never an empty gallery.
@@ -173,6 +181,7 @@ function ArtifactsGallery({
             artifacts={artifacts}
             key={`${artifact.threadId}\n${artifact.canvasId}`}
             onOpen={openArtifact}
+            onOpenThread={openArtifactThread}
             shellSrc={shellSrc}
             threadLabel={threadLabel(artifact)}
             updatedLabel={formatWorktreeActivity(new Date(artifact.updatedAt), now)}

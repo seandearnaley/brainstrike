@@ -22,6 +22,7 @@ import { ApprovalPreview } from './approval-preview';
 import { resolveApprovalPreviewPolicy } from './approval-preview-policy';
 import { resolveToolDisplayPolicy } from './assistant-detail-level.ts';
 import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
+import { DETAIL_LABEL_CLASS } from './detail-label';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 import { extractPrimaryArg } from './tool-summaries';
@@ -321,7 +322,7 @@ export function ApprovalCard({
                 {title.text}
               </span>
             </span>
-            <span className="bs-approval-status ml-2 rounded-full border px-2 py-0.5 text-[10px]">
+            <span className="bs-approval-status text-2xs ml-2 rounded-full border px-2 py-0.5">
               {state.status}
             </span>
           </p>
@@ -402,9 +403,9 @@ export function ApprovalCard({
           <dl className="grid grid-cols-[max-content_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 text-xs">
             {detailEntries.map(([label, text]) => (
               <div className="contents" key={label}>
-                <dt className="text-muted-foreground pt-1 font-medium">{label}</dt>
+                <dt className={cn(DETAIL_LABEL_CLASS, 'pt-1')}>{label}</dt>
                 <dd className="text-foreground/90 min-w-0 pt-1 break-words">
-                  <pre className="font-mono text-[11px] leading-4 whitespace-pre-wrap">{text}</pre>
+                  <pre className="text-2xs font-mono leading-4 whitespace-pre-wrap">{text}</pre>
                 </dd>
                 <dd>
                   <CopyTextButton ariaLabel={`Copy ${label}`} className="h-6 px-1.5" text={text} />

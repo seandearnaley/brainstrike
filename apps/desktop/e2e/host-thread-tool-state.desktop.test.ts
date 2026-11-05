@@ -173,7 +173,7 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     });
     await expect(actions).toHaveCount(1, { timeout: 30_000 });
     await actions.click();
-    await page.getByRole('button', { exact: true, name: 'Delete…' }).click();
+    await page.getByRole('menuitem', { exact: true, name: 'Delete…' }).click();
     await page.getByRole('button', { name: /^Confirm delete thread /u }).click();
     await expect(actions).toHaveCount(0, { timeout: 30_000 });
 

@@ -9,7 +9,7 @@ export const DetailLevelControl = () => {
 
   return (
     <fieldset className="space-y-1">
-      <legend className="text-muted-foreground mb-2 px-1 text-[11px] font-medium tracking-wide uppercase">
+      <legend className="text-muted-foreground text-2xs mb-2 px-1 font-medium tracking-wide uppercase">
         Detail
       </legend>
       {ASSISTANT_DETAIL_LEVELS.map((level) => {

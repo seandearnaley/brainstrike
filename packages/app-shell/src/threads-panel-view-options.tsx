@@ -184,7 +184,7 @@ export function ThreadsViewOptionsPopover({
       <PopoverContent align="end" className="w-52 p-2">
         <div className="grid gap-2">
           <div aria-label="Group by" role="radiogroup">
-            <div className="text-muted-foreground px-2 pb-1 text-[11px]">Group by</div>
+            <div className="text-muted-foreground text-2xs px-2 pb-1">Group by</div>
             {GROUP_BY_OPTIONS.map((option) => (
               <ViewOptionRadio
                 checked={groupBy === option.value}
@@ -197,7 +197,7 @@ export function ThreadsViewOptionsPopover({
           </div>
           {dateGrouping ? null : (
             <div aria-label="Sort by" role="radiogroup">
-              <div className="text-muted-foreground px-2 pb-1 text-[11px]">Sort by</div>
+              <div className="text-muted-foreground text-2xs px-2 pb-1">Sort by</div>
               {folderGrouping
                 ? FOLDER_SORT_BY_OPTIONS.map((option) => (
                     <ViewOptionRadio
@@ -222,7 +222,7 @@ export function ThreadsViewOptionsPopover({
           {/* A fieldset, not a div with role="group": same semantics, and the
               legend-free label stays honest to assistive tech. */}
           <fieldset aria-label="Show only" className="min-w-0">
-            <div className="text-muted-foreground px-2 pb-1 text-[11px]">Show only</div>
+            <div className="text-muted-foreground text-2xs px-2 pb-1">Show only</div>
             {THREAD_FILTER_OPTIONS.map((option) => (
               <ViewOptionCheckbox
                 checked={threadFilters[option.value]}

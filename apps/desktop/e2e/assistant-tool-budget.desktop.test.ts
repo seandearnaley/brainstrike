@@ -57,7 +57,7 @@ test.describe('Assistant tool execution budget (desktop, BST-1777)', () => {
       // stdout, not the echoed argument.
       assertOutcome: async ({ toolCard }) => {
         await toolCard.getByRole('button').first().click();
-        await expect(toolCard.getByText('Result:', { exact: true })).toBeVisible();
+        await expect(toolCard.getByText('Result', { exact: true })).toBeVisible();
         // The Result pane is the LAST <pre> in the details pane (Arguments,
         // then Result — tool-fallback-body.tsx's ToolDetailsPane), formatted
         // via formatResult()'s JSON.stringify(result, null, 2): the tool's
@@ -79,7 +79,7 @@ test.describe('Assistant tool execution budget (desktop, BST-1777)', () => {
         // "did not finish within its" timeout error text (already asserted
         // absent above).
         await toolCard.getByRole('button').first().click();
-        await expect(toolCard.getByText('Result:', { exact: true })).toBeVisible();
+        await expect(toolCard.getByText('Result', { exact: true })).toBeVisible();
         await expect(toolCard.locator('pre').last()).toContainText('"timedOut": true');
       },
       command: nodeCommand('setTimeout(() => undefined, 8000)'),

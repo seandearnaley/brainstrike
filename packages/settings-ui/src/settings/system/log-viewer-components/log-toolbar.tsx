@@ -142,7 +142,7 @@ export function LogToolbar({
           <ListFilter aria-hidden="true" className="h-3.5 w-3.5" />
           Filters
           {activeFilterCount > 0 ? (
-            <Badge aria-hidden="true" className="h-4 px-1 text-[10px]">
+            <Badge aria-hidden="true" className="text-2xs h-4 px-1">
               {activeFilterCount}
             </Badge>
           ) : null}

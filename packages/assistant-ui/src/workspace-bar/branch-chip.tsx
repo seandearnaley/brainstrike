@@ -84,7 +84,7 @@ const BranchMenuRow = ({
           </span>
           {row.disabledReason ? (
             <span
-              className="text-muted-foreground block font-sans text-[11px] whitespace-normal"
+              className="text-muted-foreground text-2xs block font-sans whitespace-normal"
               data-testid={`workspace-bar-branch-reason-${row.name}`}
             >
               {row.disabledReason}
@@ -92,7 +92,7 @@ const BranchMenuRow = ({
           ) : null}
         </span>
         {row.worktreeName ? (
-          <span className="text-muted-foreground flex shrink-0 items-center gap-1 font-sans text-[11px]">
+          <span className="text-muted-foreground text-2xs flex shrink-0 items-center gap-1 font-sans">
             <FolderGit2 aria-hidden="true" className="size-3" />
             <span className="sr-only">Checked out in worktree </span>
             {row.worktreeName}
@@ -176,7 +176,7 @@ const BranchSwitcher = ({
         value={branchMenu.query}
       />
       {branchMenu.pending ? (
-        <span className="text-muted-foreground block px-3 pt-2 text-[11px]" role="status">
+        <span className="text-muted-foreground text-2xs block px-3 pt-2" role="status">
           Branch operation in progress.
         </span>
       ) : null}

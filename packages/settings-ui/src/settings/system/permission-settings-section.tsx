@@ -50,6 +50,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  ErrorNotice,
   Label,
   Switch,
 } from '@brainstrike/ui';
@@ -475,7 +476,10 @@ export function PermissionSettingsSection() {
         <CardContent className="space-y-3">
           {hydration.status === 'failed' ? (
             <>
-              <p role="alert">Unable to load permission settings: {hydration.error}</p>
+              <ErrorNotice
+                message={`Unable to load permission settings: ${hydration.error}`}
+                onRetry={hydration.unreadable ? undefined : () => void rehydratePermissionPolicy()}
+              />
               {hydration.unreadable ? (
                 <>
                   <Button onClick={() => setConfirmingReset(true)}>Reset to defaults</Button>
@@ -488,9 +492,7 @@ export function PermissionSettingsSection() {
                     title="Reset permission settings?"
                   />
                 </>
-              ) : (
-                <Button onClick={() => void rehydratePermissionPolicy()}>Retry</Button>
-              )}
+              ) : null}
             </>
           ) : (
             <p role="status">Loading permission settings…</p>

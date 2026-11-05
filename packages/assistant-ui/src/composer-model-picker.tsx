@@ -123,7 +123,7 @@ function RecentRow({ entry, onPick, selected }: Omit<RowProps, 'showProvider'>):
           </span>
         ) : null}
       </span>
-      <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
+      <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
       <CapabilityIcons meta={entry.meta} />
       <SelectedMark selected={selected} />
     </Command.Item>
@@ -136,10 +136,10 @@ function ListRow({ entry, onPick, selected, showProvider }: RowProps): ReactNode
       {showProvider ? <ProviderDot providerId={entry.providerId} /> : null}
       <span className="min-w-0 flex-1 truncate leading-5">{entry.modelLabel}</span>
       {showProvider ? (
-        <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
+        <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
       ) : null}
       {entry.meta?.contextWindow ? (
-        <span className="border-border/50 bg-background/55 text-muted-foreground shrink-0 rounded-md border px-1 text-[10px]">
+        <span className="border-border/50 bg-background/55 text-muted-foreground text-2xs shrink-0 rounded-md border px-1">
           {formatContextWindow(entry.meta.contextWindow)}
         </span>
       ) : null}
@@ -211,7 +211,7 @@ function NotEnabledRow({
       <span className="text-muted-foreground min-w-0 flex-1 truncate leading-5">
         {entry.modelLabel}
       </span>
-      <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
+      <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
       <Plus aria-hidden className="text-muted-foreground size-3.5 shrink-0" />
     </Command.Item>
   );

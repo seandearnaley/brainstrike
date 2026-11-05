@@ -121,15 +121,12 @@ export function CheckpointTurnRevertControl({
 
   if (phase === 'failed') {
     return (
-      <span
-        className="flex items-center gap-1 text-[11px]"
-        data-testid="checkpoint-turn-revert-row"
-      >
+      <span className="text-2xs flex items-center gap-1" data-testid="checkpoint-turn-revert-row">
         <span className="text-destructive" data-testid="checkpoint-turn-revert-error">
           {failureMessage ?? 'Revert failed — some files may have changed on disk.'}
         </span>
         <Button
-          className="h-5 px-1.5 text-[11px]"
+          className="text-2xs h-5 px-1.5"
           data-testid="checkpoint-turn-revert-retry"
           onClick={retry}
           size="sm"
@@ -143,13 +140,10 @@ export function CheckpointTurnRevertControl({
 
   if (phase === 'conflict') {
     return (
-      <span
-        className="flex items-center gap-1 text-[11px]"
-        data-testid="checkpoint-turn-revert-row"
-      >
+      <span className="text-2xs flex items-center gap-1" data-testid="checkpoint-turn-revert-row">
         <span className="text-muted-foreground">Some files changed since —</span>
         <Button
-          className="h-5 px-1.5 text-[11px]"
+          className="text-2xs h-5 px-1.5"
           data-testid="checkpoint-turn-revert-anyway"
           onClick={() => runRevert(true)}
           size="sm"
@@ -165,7 +159,7 @@ export function CheckpointTurnRevertControl({
     return (
       <span className="flex items-center gap-1" data-testid="checkpoint-turn-revert-row">
         <Button
-          className="h-5 gap-1 px-1.5 text-[11px]"
+          className="text-2xs h-5 gap-1 px-1.5"
           data-testid="checkpoint-turn-revert-confirm"
           onClick={() => runRevert(false)}
           size="sm"
@@ -175,7 +169,7 @@ export function CheckpointTurnRevertControl({
           Revert {revertibleCount} edit{revertibleCount === 1 ? '' : 's'}
         </Button>
         <Button
-          className="text-muted-foreground h-5 px-1.5 text-[11px]"
+          className="text-muted-foreground text-2xs h-5 px-1.5"
           data-testid="checkpoint-turn-revert-cancel"
           onClick={() => setPhase('idle')}
           size="sm"
@@ -195,7 +189,7 @@ export function CheckpointTurnRevertControl({
           <span>
             <Button
               aria-label={label}
-              className="text-muted-foreground h-5 gap-1 px-1.5 text-[11px]"
+              className="text-muted-foreground text-2xs h-5 gap-1 px-1.5"
               data-testid="checkpoint-turn-revert"
               disabled={phase === 'reverting' || refusal !== null}
               onClick={() => setPhase('confirm')}
@@ -236,7 +230,7 @@ export function CheckpointTurnRevert(): ReactElement | null {
         <Tooltip>
           <TooltipTrigger asChild>
             <span
-              className="text-muted-foreground text-[11px]"
+              className="text-muted-foreground text-2xs"
               data-testid="checkpoint-turn-revert-unavailable"
             >
               Can't restore this turn's edits

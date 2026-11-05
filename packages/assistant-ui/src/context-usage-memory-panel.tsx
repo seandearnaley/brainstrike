@@ -208,7 +208,7 @@ export const MemoryDeveloperPanel = ({ state }: { readonly state: OmMeterState }
   return (
     <section
       aria-labelledby={headingId}
-      className="border-border/60 mt-1.5 border-t pt-1.5 text-[11px]"
+      className="border-border/60 text-2xs mt-1.5 border-t pt-1.5"
       data-testid="context-usage-memory-panel"
     >
       <h4 className="text-muted-foreground font-medium" id={headingId}>

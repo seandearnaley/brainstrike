@@ -102,11 +102,11 @@ export function RunVerdictButtons({
         <TooltipContent>Mark this run's work as failed</TooltipContent>
       </Tooltip>
       {phase.kind === 'failed' ? (
-        <span className="text-destructive ml-1 flex items-center gap-1 text-[11px]">
+        <span className="text-destructive text-2xs ml-1 flex items-center gap-1">
           Couldn't save verdict
           <Button
             aria-label="Retry saving verdict"
-            className="h-5 px-1.5 text-[11px]"
+            className="text-2xs h-5 px-1.5"
             onClick={() => void submit(phase.verdict)}
             size="sm"
             variant="ghost"
@@ -177,7 +177,7 @@ export function DerivedRunVerdict({
   }
   return (
     <span
-      className="text-muted-foreground text-[11px]"
+      className="text-muted-foreground text-2xs"
       data-testid="run-verdict-derived"
       title={verdict.detail}
     >

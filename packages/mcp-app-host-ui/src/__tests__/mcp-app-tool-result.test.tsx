@@ -756,3 +756,41 @@ it('keeps the full-pane MCP App authority, pending consent and iframe when the p
     })
   );
 });
+
+describe('MCP App frame size and restart', () => {
+  it('follows the app’s reported height up to the frame’s maximum', async () => {
+    const test = harness();
+    await mountApp(test);
+    const frameBox = () => screen.getByTitle('create_issue app').parentElement;
+    expect(frameBox()).toHaveStyle({ height: '256px' });
+
+    test.target.dispatch(test.frame, {
+      jsonrpc: '2.0',
+      method: 'ui/notifications/size-changed',
+      params: { height: 412 },
+    });
+    await waitFor(() => expect(frameBox()).toHaveStyle({ height: '412px' }));
+
+    test.target.dispatch(test.frame, {
+      jsonrpc: '2.0',
+      method: 'ui/notifications/size-changed',
+      params: { height: 5000 },
+    });
+    await waitFor(() => expect(frameBox()).toHaveStyle({ height: '640px' }));
+  });
+
+  it('restarts an app that failed to load from a fresh session on Retry', async () => {
+    const test = harness();
+    vi.mocked(test.bridge.readResource).mockRejectedValueOnce(new Error('resource unavailable'));
+    renderApp(test);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The app resource could not be loaded safely.'
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Retry create_issue' }));
+
+    expect(await screen.findByTitle('create_issue app')).toBeInTheDocument();
+    expect(test.bridge.readResource).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});

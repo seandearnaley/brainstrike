@@ -59,7 +59,7 @@ export function McpConfigAlert({
         <p className="text-muted-foreground mt-0.5 text-xs">
           MCP servers are read from
           {configInfo.path ? (
-            <code className="bg-muted mx-1 rounded px-1 py-0.5 font-mono text-[11px] break-all">
+            <code className="bg-muted text-2xs mx-1 rounded px-1 py-0.5 font-mono break-all">
               {configInfo.path}
             </code>
           ) : (

@@ -94,7 +94,7 @@ export function ContextLens({
                     {KIND_LABEL[span.kind]} {linesLabel(span)}
                     {span.repeat ? ' (unchanged repeat)' : ''}
                   </span>
-                  <span className="text-muted-foreground block truncate font-mono text-[11px]">
+                  <span className="text-muted-foreground text-2xs block truncate font-mono">
                     {at.call.toolName} · {STATE_LABEL[at.state]}
                     {fresh && fresh !== 'unknown' ? ` · ${FRESHNESS_LABEL[fresh]}` : ''}
                   </span>

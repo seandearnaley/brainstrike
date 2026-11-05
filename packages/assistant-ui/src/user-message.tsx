@@ -14,6 +14,7 @@ import { BranchPicker } from './branch-picker';
 import { UserMessageAttachments } from './composer-attachments';
 import { ExpandableMessageContent } from './expandable-message-content';
 import { MessageRewindAction } from './message-rewind-action';
+import { MessageTimestamp } from './message-timestamp';
 import { UserMessageText } from './user-message-text';
 
 // Imports only sibling modules, never the panel root, so it cannot re-enter
@@ -185,6 +186,7 @@ export const UserActionBar = () => {
           </TooltipIconButton>
         </ActionBarPrimitive.Edit>
       ) : null}
+      <MessageTimestamp className="self-end" />
     </ActionBarPrimitive.Root>
   );
 };

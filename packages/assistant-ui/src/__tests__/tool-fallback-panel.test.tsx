@@ -200,15 +200,15 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Result:/u)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Arguments$/u)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Result$/u)).not.toBeInTheDocument();
 
       const expandButton = screen.getByRole('button', { name: /expand details/iu });
       await user.click(expandButton);
 
-      expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
+      expect(screen.getByText(/^Arguments$/u)).toBeInTheDocument();
       expect(screen.getByText(/"input": "test value"/u)).toBeInTheDocument();
-      expect(screen.getByText(/Result:/u)).toBeInTheDocument();
+      expect(screen.getByText(/^Result$/u)).toBeInTheDocument();
       expect(screen.getByText(/result value/u)).toBeInTheDocument();
     });
 
@@ -225,11 +225,11 @@ describe('ToolFallback', () => {
 
       const expandButton = screen.getByRole('button', { name: /expand details/iu });
       await user.click(expandButton);
-      expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
+      expect(screen.getByText(/^Arguments$/u)).toBeInTheDocument();
 
       const collapseButton = screen.getByRole('button', { name: /collapse details/iu });
       await user.click(collapseButton);
-      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Arguments$/u)).not.toBeInTheDocument();
     });
   });
 
@@ -344,18 +344,18 @@ describe('ToolFallback', () => {
         />
       );
 
-      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Arguments$/u)).not.toBeInTheDocument();
 
       const expandButton = screen.getByRole('button', { name: /expand details/iu });
       await user.click(expandButton);
 
-      expect(screen.getByText(/Arguments:/u)).toBeInTheDocument();
+      expect(screen.getByText(/^Arguments$/u)).toBeInTheDocument();
       expect(screen.getByText(/"param": "value"/u)).toBeInTheDocument();
-      expect(screen.queryByText(/Result:/u)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Result$/u)).not.toBeInTheDocument();
 
       const collapseButton = screen.getByRole('button', { name: /collapse details/iu });
       await user.click(collapseButton);
-      expect(screen.queryByText(/Arguments:/u)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Arguments$/u)).not.toBeInTheDocument();
     });
   });
 
@@ -399,7 +399,7 @@ describe('ToolFallback', () => {
       );
 
       await user.click(screen.getByRole('button', { name: /expand details/iu }));
-      expect(screen.getByText(/Result:/u)).toBeInTheDocument();
+      expect(screen.getByText(/^Result$/u)).toBeInTheDocument();
       expect(screen.getByText(/complex/u)).toBeInTheDocument();
       expect(screen.getByText(/nested/u)).toBeInTheDocument();
     });
@@ -415,7 +415,7 @@ describe('ToolFallback', () => {
       );
 
       await user.click(screen.getByRole('button', { name: /expand details/iu }));
-      expect(screen.getByText(/Result:/u)).toBeInTheDocument();
+      expect(screen.getByText(/^Result$/u)).toBeInTheDocument();
       expect(screen.getByText('Simple string result')).toBeInTheDocument();
     });
   });

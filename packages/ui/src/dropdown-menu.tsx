@@ -127,18 +127,24 @@ DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 const DropdownMenuItem = ({
   className,
   inset,
+  variant = 'default',
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
   inset?: boolean;
+  /** `destructive` paints the item (and its icon) in the destructive colour. */
+  variant?: 'default' | 'destructive';
 } & { ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.Item> | null> }) => (
   <DropdownMenuPrimitive.Item
     className={cn(
       'focus:bg-accent focus:text-accent-foreground [&_svg:not([class*=text-])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+      variant === 'destructive' &&
+        'text-destructive focus:bg-destructive/10 focus:text-destructive [&_svg:not([class*=text-])]:text-destructive',
       inset && 'pl-8',
       className
     )}
     data-slot="dropdown-menu-item"
+    data-variant={variant}
     ref={ref}
     {...props}
   />
