@@ -445,6 +445,63 @@ describe('provider cassette replay', () => {
     expect(waitedOn).toEqual(['Read a.txt']);
   });
 
+  it('ends a response only after the requests other conversations had sent by then arrive', async () => {
+    const provider = await startStandInProvider();
+    const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
+    recorders.push(recorder);
+    for (const content of ['Read a.txt', 'Read b.txt']) {
+      await readChunks(
+        await fetch(`${recorder.baseUrlFor('OPENROUTER_BASE_URL')}/chat/completions`, {
+          body: JSON.stringify(turn(content)),
+          method: 'POST',
+        })
+      );
+    }
+    // As recorded: a runs from 0 to 300 ms, and b's request arrived at 100 ms, while a ran.
+    const recorded = cassetteOf(recorder);
+    const [a, b] = recorded.exchanges;
+    if (!(a && b)) {
+      throw new Error('expected two exchanges');
+    }
+    const lastAt = (exchange: ProviderCassetteExchange, ms: number) => ({
+      ...exchange,
+      response: {
+        ...exchange.response,
+        chunks: exchange.response.chunks.map((chunk, index, all) => ({
+          ...chunk,
+          atMs: index === all.length - 1 ? ms : 0,
+        })),
+      },
+    });
+    const cassette = {
+      ...recorded,
+      exchanges: [
+        { ...lastAt(a, 300), startedAtMs: 0 },
+        { ...lastAt(b, 10), startedAtMs: 100 },
+      ],
+    };
+    const server = await startReplay(
+      createProviderCassetteReplay(cassette, { settled: () => Promise.resolve() })
+    );
+    const finished: string[] = [];
+    const request = (content: string) =>
+      fetch(`${server.url}/OPENROUTER_BASE_URL/chat/completions`, {
+        body: JSON.stringify(turn(content)),
+        method: 'POST',
+      })
+        .then(readChunks)
+        .then(() => finished.push(content));
+    // Served at once, a would end before b asks; it waits for b's request, as recorded.
+    const aDone = request('Read a.txt');
+    for (let task = 0; task < 20; task += 1) {
+      await nextTask();
+    }
+    expect(finished).toEqual([]);
+    await request('Read b.txt');
+    await aDone;
+    expect(finished).toContain('Read a.txt');
+  });
+
   it('answers a title without waiting for a conversation, since its own run waits on it', async () => {
     const provider = await startStandInProvider();
     const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
