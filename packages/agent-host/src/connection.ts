@@ -385,6 +385,17 @@ export function bindHostConnection(
   handleCore('thread/rewind', (params) => core.rewinds.rewind(params));
   handleCore('thread/rewind/redo', (params) => core.rewinds.redo(params));
   handleCore('run/verdict', (params) => core.recordVerdict(params));
+  // ADR-0036: a preview carries file text, so only the desktop's private client reads it.
+  handleCore('interaction/preview', (params, signal) => {
+    if (origin !== 'desktop-ui') {
+      throw refusalError(
+        'authorization',
+        'interaction.preview-desktop-only',
+        "Approval previews are available only to the desktop's private client"
+      );
+    }
+    return core.previewInteraction(params, signal);
+  });
   handleCore('interaction/respond', (params) => core.respond(params));
   handleCore('interaction/resume', (params) => core.resume(params));
   handleCore('mcp/app/admit', (params) => core.mcpApps.admit(params));

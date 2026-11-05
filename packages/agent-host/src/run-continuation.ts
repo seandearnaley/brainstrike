@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
+import type { ApprovalFileChange, ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { describeBoundaryFailure, refusalError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -17,8 +17,10 @@ import {
   type HostBrowserOriginStore,
   saveHostBrowserOrigin,
 } from './browser-origin-answers.ts';
+import type { HostRunExecutionPorts } from './core-run-execution.ts';
 import {
   applyHostPermissionGrant,
+  type HostRunMap,
   hasHostInteractionResponse,
   type PendingInteraction,
   type HostRunState as Run,
@@ -183,18 +185,13 @@ function resumedGrant(
   const { action } = decodeNetworkConsent(resumed);
   return answeredGrant(run, pending, grant, action === 'allow' ? 'approve' : 'deny');
 }
-/** Core supplies its sole acceptance writer and continuation owner. */
-export async function commitHostInteractionResponse(
+/** The run's unanswered approval, or other interaction; anything else is stale. */
+function unansweredHostInteraction(
   run: Run,
-  { origins, platform }: HostInteractionOwner,
-  params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
-  accept: (events: readonly HostEvent[]) => Promise<void>,
-  continueRun: () => Promise<void>
-): Promise<{
-  accepted: true;
-}> {
-  const pending = run.approvals.get(params.interactionId);
-  const approval = 'decision' in params;
+  interactionId: string,
+  approval: boolean
+): PendingInteraction {
+  const pending = run.approvals.get(interactionId);
   if (
     run.terminal ||
     !pending ||
@@ -209,6 +206,54 @@ export async function commitHostInteractionResponse(
         : 'Human interaction is stale or belongs to another run'
     );
   }
+  return pending;
+}
+/**
+ * ADR-0036: the file change a waiting approval's call would make, from its
+ * tool's own resolution and matcher. A read: nothing is written or committed.
+ * It queues like an answer, so a closing or deleted thread refuses it.
+ */
+export function hostInteractionPreview(
+  runs: Pick<HostRunMap, 'requireForThread'>,
+  ports: () => Pick<HostRunExecutionPorts, 'admit' | 'platform'>
+): (params: HostParams<'interaction/preview'>, signal: AbortSignal) => Promise<ApprovalFileChange> {
+  return ({ interactionId, runId, threadId }, signal) => {
+    const { admit, platform } = ports();
+    return admit(
+      threadId,
+      async () => {
+        const run = runs.requireForThread(threadId, runId);
+        const pending = unansweredHostInteraction(run, interactionId, true);
+        await ensureHostRunAdmission(platform, run);
+        const registered = hostRunTools(run)[pending.event.toolId];
+        if (!registered || registered.identity !== pending.event.toolIdentity) {
+          throw new Error('Approval tool identity changed');
+        }
+        if (!registered.proposedChange) {
+          throw refusalError(
+            'input',
+            'interaction.preview-unavailable',
+            'This approval has no file change to preview'
+          );
+        }
+        return await registered.proposedChange(pending.event.input, signal);
+      },
+      signal
+    );
+  };
+}
+/** Core supplies its sole acceptance writer and continuation owner. */
+export async function commitHostInteractionResponse(
+  run: Run,
+  { origins, platform }: HostInteractionOwner,
+  params: HostParams<'interaction/respond'> | HostParams<'interaction/resume'>,
+  accept: (events: readonly HostEvent[]) => Promise<void>,
+  continueRun: () => Promise<void>
+): Promise<{
+  accepted: true;
+}> {
+  const approval = 'decision' in params;
+  const pending = unansweredHostInteraction(run, params.interactionId, approval);
   await ensureHostRunAdmission(platform, run);
   const resumed = approval
     ? undefined

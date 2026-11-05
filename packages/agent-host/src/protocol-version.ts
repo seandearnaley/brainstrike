@@ -74,5 +74,6 @@
 // sessions its runs started that ended by themselves (`run.started` delivery `commandSessions`,
 // with `entries` then possibly empty), and the turn a run the host continued in the worktree its
 // previous run entered carries on (`run.started` `turnId`, with `hostPrompt` for the prompt the
-// host wrote; ADR-0028 step 3).
+// host wrote; ADR-0028 step 3), and `interaction/preview` (the file text a waiting approval's
+// call would change; ADR-0036), a new method.
 export const AGENT_HOST_PROTOCOL_VERSION = 19;

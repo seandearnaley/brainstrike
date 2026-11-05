@@ -5,6 +5,7 @@
  */
 export * from './code-themes';
 export * from './fonts';
+export * from './reading';
 
 export type ThemeId = 'brainstrike' | 'ember' | 'tide' | 'orchid';
 

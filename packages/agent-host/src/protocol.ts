@@ -1,4 +1,5 @@
 import {
+  type ApprovalFileChange,
   isProviderCredential,
   McpAppOriginSchema,
   type OpenRouterModelMetadataSnapshot,
@@ -340,6 +341,11 @@ export const HOST_METHOD_SCHEMAS = {
     // transport its launcher handed over is authorized by holding it.
     token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u))),
   }),
+  /**
+   * ADR-0036: the file text a waiting approval's call would change, for the
+   * desktop's private client. A read: nothing is written or committed.
+   */
+  'interaction/preview': Schema.Struct({ ...Run, interactionId: Id }),
   'interaction/respond': Schema.Struct({
     ...Command,
     ...Run,
@@ -957,6 +963,11 @@ export const HOST_RESULT_SCHEMAS = {
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
     start: Id,
   }),
+  'interaction/preview': Schema.Struct({
+    after: Schema.NullOr(Schema.String),
+    before: Schema.NullOr(Schema.String),
+    path: Id,
+  }) satisfies Schema.ConstraintDecoder<ApprovalFileChange>,
   'interaction/respond': Schema.Struct({ accepted: Schema.Literal(true) }),
   'interaction/resume': Schema.Struct({ accepted: Schema.Literal(true) }),
   'ledger/read': Schema.Struct({ threads: Schema.mutable(Schema.Array(HostLedgerThreadSchema)) }),
