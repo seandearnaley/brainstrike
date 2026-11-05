@@ -129,11 +129,11 @@ describe('CodeBlockBody', () => {
     expect(props?.highlighter).toEqual({ highlighter: 'core' });
   });
 
-  it('highlights with the Shiki pair of the code theme chosen in Appearance', async () => {
+  it('highlights with the light and dark code themes chosen in Appearance', async () => {
     mocks.useShikiHighlighter.mockReturnValue({ highlighter: 'core' });
 
     render(
-      <ThemeProvider appearance={{ codeTheme: 'catppuccin' }}>
+      <ThemeProvider appearance={{ codeThemeDark: 'catppuccin', codeThemeLight: 'github' }}>
         <CodeBlockBody code="echo hi" language="bash" />
       </ThemeProvider>
     );
@@ -145,7 +145,7 @@ describe('CodeBlockBody', () => {
 
     expect(mocks.capturedShikiProps.at(-1)?.theme).toEqual({
       dark: 'catppuccin-mocha',
-      light: 'catppuccin-latte',
+      light: 'github-light',
     });
   });
 

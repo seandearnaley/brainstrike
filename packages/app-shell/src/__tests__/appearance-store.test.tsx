@@ -59,7 +59,8 @@ describe('appearance store with ThemeProvider', () => {
     const root = document.documentElement;
     root.classList.remove('light', 'dark');
     root.removeAttribute('data-theme');
-    root.removeAttribute('data-code-theme');
+    root.removeAttribute('data-code-theme-light');
+    root.removeAttribute('data-code-theme-dark');
     root.removeAttribute('data-motion');
     root.removeAttribute('data-transcript-size');
     root.removeAttribute('data-transcript-width');
@@ -71,7 +72,8 @@ describe('appearance store with ThemeProvider', () => {
 
     expect(result.current).toMatchObject({
       codeFont: 'geist-mono',
-      codeTheme: 'classic',
+      codeThemeDark: 'classic',
+      codeThemeLight: 'classic',
       font: 'geist',
       mode: 'system',
       theme: 'brainstrike',
@@ -80,7 +82,8 @@ describe('appearance store with ThemeProvider', () => {
     // System mode follows the OS, dark in this test.
     expect(root.classList.contains('dark')).toBe(true);
     expect(root.dataset['theme']).toBe('brainstrike');
-    expect(root.dataset['codeTheme']).toBe('classic');
+    expect(root.dataset['codeThemeLight']).toBe('classic');
+    expect(root.dataset['codeThemeDark']).toBe('classic');
   });
 
   it('uses the default mode the app passes until the user picks one', async () => {
@@ -97,7 +100,8 @@ describe('appearance store with ThemeProvider', () => {
       first.result.current.setTheme('tide');
       first.result.current.setFont('inter');
       first.result.current.setCodeFont('jetbrains-mono');
-      first.result.current.setCodeTheme('one');
+      first.result.current.setCodeThemeLight('one');
+      first.result.current.setCodeThemeDark('catppuccin');
     });
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     first.unmount();
@@ -106,14 +110,16 @@ describe('appearance store with ThemeProvider', () => {
 
     expect(result.current).toMatchObject({
       codeFont: 'jetbrains-mono',
-      codeTheme: 'one',
+      codeThemeDark: 'catppuccin',
+      codeThemeLight: 'one',
       font: 'inter',
       mode: 'dark',
       theme: 'tide',
     });
     const root = document.documentElement;
     expect(root.dataset['theme']).toBe('tide');
-    expect(root.dataset['codeTheme']).toBe('one');
+    expect(root.dataset['codeThemeLight']).toBe('one');
+    expect(root.dataset['codeThemeDark']).toBe('catppuccin');
     expect(root.style.getPropertyValue('--font-sans')).toContain('"Inter Variable"');
     expect(root.style.getPropertyValue('--font-mono')).toContain('"JetBrains Mono Variable"');
   });

@@ -4,6 +4,7 @@ import * as React from 'react';
 import {
   type CodeFontId,
   type CodeFontSize,
+  type CodeThemeChoice,
   type CodeThemeId,
   codeFontStack,
   DEFAULT_CODE_FONT,
@@ -32,7 +33,8 @@ export interface SavedAppearance {
   readonly codeFont?: CodeFontId;
   /** Unset keeps each code surface's own size; `undefined` clears a choice. */
   readonly codeFontSize?: CodeFontSize | undefined;
-  readonly codeTheme?: CodeThemeId;
+  readonly codeThemeDark?: CodeThemeId;
+  readonly codeThemeLight?: CodeThemeId;
   /** An installed font named by the user, tried before `codeFont`; `undefined` clears it. */
   readonly customCodeFont?: string | undefined;
   readonly font?: FontId;
@@ -62,7 +64,8 @@ interface ThemeProviderProps {
 export interface Appearance {
   readonly codeFont: CodeFontId;
   readonly codeFontSize: CodeFontSize | null;
-  readonly codeTheme: CodeThemeId;
+  readonly codeThemeDark: CodeThemeId;
+  readonly codeThemeLight: CodeThemeId;
   readonly customCodeFont: string;
   readonly font: FontId;
   readonly motion: MotionPreference;
@@ -76,7 +79,8 @@ interface ThemeProviderState extends Appearance {
   setCodeFont: (codeFont: CodeFontId) => void;
   /** `null` goes back to each surface's own size. */
   setCodeFontSize: (codeFontSize: CodeFontSize | null) => void;
-  setCodeTheme: (codeTheme: CodeThemeId) => void;
+  setCodeThemeDark: (codeTheme: CodeThemeId) => void;
+  setCodeThemeLight: (codeTheme: CodeThemeId) => void;
   /** An empty name goes back to the bundled code font alone. */
   setCustomCodeFont: (customCodeFont: string) => void;
   setFont: (font: FontId) => void;
@@ -114,7 +118,8 @@ export function ThemeProvider({
   const theme = saved.theme ?? defaultTheme;
   const font = saved.font ?? DEFAULT_FONT;
   const codeFont = saved.codeFont ?? DEFAULT_CODE_FONT;
-  const codeTheme = saved.codeTheme ?? DEFAULT_CODE_THEME;
+  const codeThemeLight = saved.codeThemeLight ?? DEFAULT_CODE_THEME;
+  const codeThemeDark = saved.codeThemeDark ?? DEFAULT_CODE_THEME;
   const codeFontSize = saved.codeFontSize ?? null;
   const customCodeFont = saved.customCodeFont ?? '';
   const motion = saved.motion ?? DEFAULT_MOTION;
@@ -138,15 +143,17 @@ export function ThemeProvider({
     root.classList.add(mode);
   }, [mode]);
 
-  // The palette is a `data-theme` attribute and the code theme a
-  // `data-code-theme` attribute, both orthogonal to the light/dark class.
+  // The palette is a `data-theme` attribute and the code themes
+  // `data-code-theme-light`/`-dark`; the light/dark class picks which applies.
   React.useEffect(() => {
     window.document.documentElement.dataset['theme'] = theme;
   }, [theme]);
 
   React.useEffect(() => {
-    window.document.documentElement.dataset['codeTheme'] = codeTheme;
-  }, [codeTheme]);
+    const { dataset } = window.document.documentElement;
+    dataset['codeThemeLight'] = codeThemeLight;
+    dataset['codeThemeDark'] = codeThemeDark;
+  }, [codeThemeLight, codeThemeDark]);
 
   // Fonts replace the stacks Tailwind's `font-sans`/`font-mono` read, so every
   // surface that uses them (and CodeMirror, which reads `--font-mono`) follows.
@@ -195,7 +202,8 @@ export function ThemeProvider({
   const value: ThemeProviderState = {
     codeFont,
     codeFontSize,
-    codeTheme,
+    codeThemeDark,
+    codeThemeLight,
     customCodeFont,
     font,
     mode,
@@ -204,7 +212,8 @@ export function ThemeProvider({
     // Clearing a choice saves `undefined`, which the store drops, so the
     // choice follows the default again.
     setCodeFontSize: (next) => choose({ codeFontSize: next ?? undefined }),
-    setCodeTheme: (next) => choose({ codeTheme: next }),
+    setCodeThemeDark: (next) => choose({ codeThemeDark: next }),
+    setCodeThemeLight: (next) => choose({ codeThemeLight: next }),
     setCustomCodeFont: (next) => choose({ customCodeFont: next || undefined }),
     setFont: (next) => choose({ font: next }),
     setMode: (next) => choose({ mode: next }),
@@ -221,12 +230,17 @@ export function ThemeProvider({
 }
 
 /**
- * The current code theme, for code blocks. A code block can render outside
- * the app's provider (an isolated surface or a component test); there it uses
- * the default code theme, as the CodeMirror tokens do with no `data-code-theme`.
+ * The code themes chosen for light and dark mode, for code blocks and diffs. A
+ * code block can render outside the app's provider (an isolated surface or a
+ * component test); there it uses the default code theme, as the CodeMirror
+ * tokens do with no `data-code-theme-*`.
  */
-export function useCodeTheme(): CodeThemeId {
-  return React.useContext(ThemeProviderContext)?.codeTheme ?? DEFAULT_CODE_THEME;
+export function useCodeTheme(): CodeThemeChoice {
+  const context = React.useContext(ThemeProviderContext);
+  return {
+    dark: context?.codeThemeDark ?? DEFAULT_CODE_THEME,
+    light: context?.codeThemeLight ?? DEFAULT_CODE_THEME,
+  };
 }
 
 /** Light, dark or system, for code surfaces; outside the provider it follows the system. */
