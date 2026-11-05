@@ -181,6 +181,9 @@ export class HostCore {
   private admission: Promise<void> = Promise.resolve();
   /** A run's end: its terminal commit, memory settlement, then the next run or wake. */
   private readonly ends = new HostRunEnds({
+    admit: (threadId, perform) => this.admit(threadId, perform),
+    admitWake: ({ origin, params }) =>
+      this.admitRun('wake', params, origin, () => hostStartPosition(this.runs.values(), params)),
     appendTerminal: (threadId, events, beforePublish) =>
       this.append(threadId, events, 'full', beforePublish),
     children: this.children,
@@ -191,16 +194,9 @@ export class HostCore {
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
     runs: () => this.runs,
+    selections: this.selections,
     startNextRun: (next, origin) => this.startNextRun(next, origin),
-    wake: (threadId, exits) =>
-      this.admit(threadId, async () => {
-        const wake = this.children.wakeParams(threadId, this.runs, this.selections, exits);
-        if (wake) {
-          await this.admitRun('wake', wake.params, wake.origin, () =>
-            hostStartPosition(this.runs.values(), this.rewinds.position(wake.params))
-          );
-        }
-      }),
+    tip: (threadId) => this.rewinds.tip(threadId),
   });
   /** The Artifacts gallery's canvas reads, across every thread Core holds. */
   readonly canvases = hostCanvases(this.records, this.children, this.threads);
@@ -260,7 +256,8 @@ export class HostCore {
     this.ends.exits.listen(this.platform);
     await recoverHostRuns(this.runs.values(), {
       continueRun: (run) => this.continueRun(run),
-      finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, false),
+      finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, true),
+      refuseInput: (run) => this.ends.takeInput(run, true),
       retainRun: this.retainRun,
     });
   }
@@ -650,9 +647,11 @@ export class HostCore {
       const references = hostReferencedFileEvents(admission, run.id);
       const events = [...chosen, started, ...unavailable, ...references];
       committed = { runId: run.id };
+      // A live start ends the thread's rewind as recovery's fold does: a later wake follows this run.
+      const { foldRows } = this.rewinds;
       await (method === 'wake'
-        ? this.append(params.threadId, events)
-        : this.accept(params.threadId, method, record, committed, events));
+        ? this.append(params.threadId, events, 'normal', foldRows)
+        : this.accept(params.threadId, method, record, committed, events, foldRows));
       this.ends.recordDelivery(params.threadId, started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
@@ -896,7 +895,6 @@ export class HostCore {
       loop: (model) => this.loop(run, model),
       openRun: () => this.openRun(run),
       platform: this.platform,
-      startNextRun: (next) => this.startNextRun(next, run.input?.origin),
     });
   }
 
@@ -914,8 +912,9 @@ export class HostCore {
       acceptHostChildInput(
         this.runs.requireForThread(params.threadId, params.runId),
         this.children.isChild(params.threadId),
-        params,
-        () => this.accept(params.threadId, 'run/input', params, { accepted: true }, [])
+        () =>
+          this.accept(params.threadId, 'run/input', params, { accepted: true }, [], this.foldRows),
+        (run) => this.ends.takeLateInput(run)
       )
     );
   }
@@ -995,8 +994,7 @@ export class HostCore {
       closeOwner: (owned) => this.closeRunOwner(owned),
       closePlatform: () => this.platform.close(),
       failedAdmissions: () => [...this.failedAdmissions.values()],
-      finish: (owned) =>
-        this.ends.finish(owned, 'interrupted', 'Host closed with a pending decision'),
+      finish: (owned) => this.ends.finish(owned, 'interrupted', 'Host is closing'),
       pendingAdmissions: this.pendingAdmissions.keys(),
       runs: () => [...this.runs.values()],
     });

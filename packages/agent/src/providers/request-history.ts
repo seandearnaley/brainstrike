@@ -99,10 +99,21 @@ export function dropAbortedOpenAIItems(
   });
 }
 
+/** What interrupted a run's tool calls: the person's Stop, or the app closing or restarting. */
+export type ToolInterruption = 'stopped' | 'interrupted';
+
+const INTERRUPTED_RESULT: Record<ToolInterruption, string> = {
+  interrupted:
+    'Tool execution was interrupted when the app closed or restarted. Its effects may be incomplete; verify before retrying.',
+  stopped:
+    'Tool execution was interrupted by Stop. Its effects may be incomplete; verify before retrying.',
+};
+
 /** Heal only calls the host knows were interrupted; unrelated missing results remain failures. */
-export function healInterruptedToolCalls(
+function healInterruptedToolCalls(
   prompt: LanguageModelV4Prompt,
-  interruptedToolCallIds: ReadonlySet<string>
+  interruptedToolCallIds: ReadonlySet<string>,
+  cause: ToolInterruption
 ): LanguageModelV4Prompt {
   const missing = new Set<string>();
   for (const occurrence of collectToolCallOccurrences(prompt)) {
@@ -129,8 +140,7 @@ export function healInterruptedToolCalls(
       results.push({
         output: {
           type: 'error-text',
-          value:
-            'Tool execution was interrupted by Stop. Its effects may be incomplete; verify before retrying.',
+          value: INTERRUPTED_RESULT[cause],
         },
         toolCallId: part.toolCallId,
         toolName: part.toolName,
@@ -153,7 +163,8 @@ export function healInterruptedModelMessages<
   },
 >(
   messages: readonly Message[],
-  interruptedToolCallIds: ReadonlySet<string>
+  interruptedToolCallIds: ReadonlySet<string>,
+  cause: ToolInterruption
 ): Array<
   | Message
   | {
@@ -163,7 +174,8 @@ export function healInterruptedModelMessages<
 > {
   return healInterruptedToolCalls(
     messages as unknown as LanguageModelV4Prompt,
-    interruptedToolCallIds
+    interruptedToolCallIds,
+    cause
   ) as unknown as Array<
     | Message
     | {

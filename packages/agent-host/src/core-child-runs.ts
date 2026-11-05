@@ -112,52 +112,53 @@ export interface HostPreparedChild {
   readonly threadId: string;
 }
 type Pending = ReturnType<HostChildRuns['pending']>;
-/** The command sessions a wake reports, for the thread it wakes. */
+/** The command sessions that ended by themselves, waiting for the thread a run starts on. */
 export interface HostWakeExits {
   readonly exits: readonly HostCommandSessionExit[];
   readonly threadId: string;
-  /** The turn the wake continues when it delivers no child result: the thread tip's. */
-  readonly turnId: string;
+  /** The turn a wake continues when it delivers no child result: the run it follows. */
+  readonly turnId: string | undefined;
 }
 /**
- * A new run's position with the child results it delivers (BST-1932), and,
- * for a wake, the command sessions that ended by themselves.
+ * A new run's position with the child results and ended command sessions it
+ * delivers (BST-1932): a wake's prompt is that delivery; any other run carries
+ * it ahead of the person's own message.
  */
 export function hostDeliveryPosition(
   method: string,
   messageId: string,
   position: HostRunPosition,
   pending: Pending,
-  ended?: HostWakeExits
+  ended: HostWakeExits
 ): HostRunPosition {
+  const { exits } = ended;
+  const sessions =
+    exits.length > 0 ? { commandSessions: exits.map(hostCommandSessionDelivery) } : {};
+  const parts = [
+    pending?.ledger,
+    exits.length > 0 ? describeHostCommandSessionExits(ended.threadId, exits) : undefined,
+  ];
+  const report = parts.some(Boolean) ? describeHostDelivery(parts) : '';
   if (method === 'wake') {
-    const exits = ended?.exits ?? [];
-    const turnId = pending?.turnId ?? (exits.length > 0 ? ended?.turnId : undefined);
+    const turnId = pending?.turnId ?? (exits.length > 0 ? ended.turnId : undefined);
     if (turnId === undefined) {
       throw new Error('A wake has nothing undelivered');
     }
-    const report =
-      ended && exits.length > 0 ? describeHostCommandSessionExits(ended.threadId, exits) : '';
     return {
       ...position,
-      delivery: {
-        ...(exits.length > 0 ? { commandSessions: exits.map(hostCommandSessionDelivery) } : {}),
-        entries: pending?.entries ?? [],
-        messageId,
-        turnId,
-        via: 'wake',
-      },
-      prompt: describeHostDelivery([pending?.ledger, report]),
+      delivery: { ...sessions, entries: pending?.entries ?? [], messageId, turnId, via: 'wake' },
+      prompt: report,
     };
   }
-  if (!pending) {
+  if (report === '') {
     return position;
   }
   return {
     ...position,
     delivery: {
-      entries: pending.entries,
-      ledger: describeHostDelivery([pending.ledger]),
+      ...sessions,
+      entries: pending?.entries ?? [],
+      ledger: report,
       messageId: randomUUID(),
       via: 'next-turn',
     },
@@ -485,13 +486,20 @@ export class HostChildRuns {
     selections: {
       forWake(threadId: string): HostRunSelection;
     },
-    /** Command sessions that ended by themselves, waiting for this thread. */
-    exits: readonly unknown[] = []
+    /** Whether command sessions that ended by themselves wait for this thread. */
+    exited: boolean,
+    /**
+     * The run a rewind left as the thread's tip (`HostThreadRewinds.tip`):
+     * null for the thread's start, which a wake cannot follow, so results
+     * wait for the next user turn; undefined: the latest run.
+     */
+    rewound: string | null | undefined
   ) {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
-    const tip = own.at(-1);
+    const tip =
+      rewound === undefined ? own.at(-1) : rewound === null ? undefined : runs.get(rewound);
     const pending = this.pending(threadId, runs, undefined, false);
-    if (!(tip && (pending || exits.length > 0)) || own.some((run) => !run.terminal)) {
+    if (!(tip && (pending || exited)) || own.some((run) => !run.terminal)) {
       return;
     }
     return {
