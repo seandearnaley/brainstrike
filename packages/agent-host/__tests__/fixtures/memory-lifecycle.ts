@@ -59,7 +59,11 @@ export function watch<T>(promise: Promise<T>) {
 
 // XML and SDK v4 payloads follow the shipped memory-persistence and scripted-model fixtures.
 export function textStream(
-  text = '<observations>\n- The user asked about Paris weather.\n</observations>'
+  text = '<observations>\n- The user asked about Paris weather.\n</observations>',
+  finishReason: { raw: string | undefined; unified: 'interrupted' | 'stop' } = {
+    raw: 'stop',
+    unified: 'stop',
+  }
 ): ModelResult {
   return {
     stream: simulateReadableStream({
@@ -70,7 +74,7 @@ export function textStream(
         { delta: text, id: 'observation-text', type: 'text-delta' },
         { id: 'observation-text', type: 'text-end' },
         {
-          finishReason: { raw: 'stop', unified: 'stop' },
+          finishReason,
           type: 'finish',
           usage: {
             inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 42, total: 42 },

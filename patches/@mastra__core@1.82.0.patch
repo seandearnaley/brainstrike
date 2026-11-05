@@ -1,8 +1,8 @@
-diff --git a/dist/agent-DBNH8HUM.cjs b/dist/agent-DBNH8HUM.cjs
-index 37e4572f675b4ae882acebec66ce773cd9ce1474..b537456190a58ed122954d2794a7843aa95acb60 100644
---- a/dist/agent-DBNH8HUM.cjs
-+++ b/dist/agent-DBNH8HUM.cjs
-@@ -43037,7 +43037,12 @@ var AgentThreadStreamRuntime = class {
+diff --git a/dist/agent-3djrMSaa.cjs b/dist/agent-3djrMSaa.cjs
+index 87f78b04c2fbbb804807fbb30d9e4f5c1c77664a..93ed3a19fee1469ca1d5e54600ce65e6e3c47e04 100644
+--- a/dist/agent-3djrMSaa.cjs
++++ b/dist/agent-3djrMSaa.cjs
+@@ -23728,7 +23728,12 @@ var AgentThreadStreamRuntime = class {
  		const state = this.#getState(pubsub);
  		const abortController = new AbortController();
  		const upstreamAbortSignal = options.abortSignal;
@@ -11,16 +11,16 @@ index 37e4572f675b4ae882acebec66ce773cd9ce1474..b537456190a58ed122954d2794a7843a
 +		// here, so Memory's internal observer and reflector streams received a generic
 +		// AbortError instead of the run's reason. Remove when upstream passes
 +		// memory-public-lifecycle's owner-signal cases.
-+		// https://github.com/mastra-ai/mastra/blob/@mastra/core@1.80.0/packages/core/src/agent/thread-stream-runtime.ts
++		// https://github.com/mastra-ai/mastra/blob/@mastra/core@1.82.0/packages/core/src/agent/thread-stream-runtime.ts
 +		const abort = () => abortController.abort(upstreamAbortSignal?.reason);
  		if (upstreamAbortSignal?.aborted) abort();
  		else upstreamAbortSignal?.addEventListener("abort", abort, { once: true });
  		const preparedRun = {
-diff --git a/dist/agent-b2Y5GsZg.js b/dist/agent-b2Y5GsZg.js
-index 97b1db47efcc7ff7716eed0b29ef86ca7ed8d8ce..2219fbedd67bcb116a8d9b4a824f22ad96abbc98 100644
---- a/dist/agent-b2Y5GsZg.js
-+++ b/dist/agent-b2Y5GsZg.js
-@@ -43033,7 +43033,12 @@ var AgentThreadStreamRuntime = class {
+diff --git a/dist/agent-BP9OWM6D.js b/dist/agent-BP9OWM6D.js
+index 02b6b413fcbe5d0036bad0343a61f1539287cf42..f19a994694341a888b9a8db10b833bbe63bd26a8 100644
+--- a/dist/agent-BP9OWM6D.js
++++ b/dist/agent-BP9OWM6D.js
+@@ -23725,7 +23725,12 @@ var AgentThreadStreamRuntime = class {
  		const state = this.#getState(pubsub);
  		const abortController = new AbortController();
  		const upstreamAbortSignal = options.abortSignal;
@@ -29,7 +29,7 @@ index 97b1db47efcc7ff7716eed0b29ef86ca7ed8d8ce..2219fbedd67bcb116a8d9b4a824f22ad
 +		// here, so Memory's internal observer and reflector streams received a generic
 +		// AbortError instead of the run's reason. Remove when upstream passes
 +		// memory-public-lifecycle's owner-signal cases.
-+		// https://github.com/mastra-ai/mastra/blob/@mastra/core@1.80.0/packages/core/src/agent/thread-stream-runtime.ts
++		// https://github.com/mastra-ai/mastra/blob/@mastra/core@1.82.0/packages/core/src/agent/thread-stream-runtime.ts
 +		const abort = () => abortController.abort(upstreamAbortSignal?.reason);
  		if (upstreamAbortSignal?.aborted) abort();
  		else upstreamAbortSignal?.addEventListener("abort", abort, { once: true });

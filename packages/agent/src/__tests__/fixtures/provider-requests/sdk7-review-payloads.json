@@ -1,4 +1,5 @@
 {
+  "openai": "4.0.106",
   "payloads": {
     "stored_split": {
       "model": "gpt-6-sol",
@@ -141,7 +142,6 @@
       ]
     }
   },
-  "sdk": "7.0.142",
-  "source": "pinned runtime parsing/serialization; mocked HTTP; no real account",
-  "openai": "4.0.96"
+  "sdk": "7.0.160",
+  "source": "pinned runtime parsing/serialization; mocked HTTP; no real account"
 }
