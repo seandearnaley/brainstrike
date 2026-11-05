@@ -26,8 +26,6 @@ export type AssistantConversationPanelProps = Partial<
   readonly openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
   readonly onProviderSettingsValidationChange?: ((reason: string | undefined) => void) | undefined;
   readonly allowIdleInput?: boolean;
-  /** Steering is a queue control: offered only while the thread has a queue. */
-  readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   readonly onSendActiveInput?: SendActiveConversationInput | undefined;
   readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
   readonly className?: string;

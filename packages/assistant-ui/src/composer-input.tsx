@@ -40,6 +40,8 @@ interface ComposerInputRowProps {
   /** The access mode control; absent where no permission policy owner is wired. */
   accessMode?: AccessModeComposerControls | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
+  /** The thread steers into its running run; absent, no Steer control (capability-gated). */
+  canSteer?: boolean | undefined;
   /**
    * Fixed footer controls (e.g. the Controls menu), placed after the access
    * mode and ahead of `footerStart`, never beside the run-state controls.
@@ -49,8 +51,6 @@ interface ComposerInputRowProps {
   footerStart?: ReactNode;
   hideDefaultCancel?: boolean | undefined;
   isComposerDisabled: boolean;
-  /** Steering transport; absent ⇒ no Steer control (capability-gated). */
-  onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   planMode?: PlanModeComposerControls | undefined;
   slashPopover?: ReactNode;
 }
@@ -75,7 +75,7 @@ const ComposerInputRow = ({
   footerStart,
   isComposerDisabled,
   hideDefaultCancel,
-  onSteerActiveRun,
+  canSteer,
   planMode,
   slashPopover,
 }: ComposerInputRowProps) => {
@@ -92,7 +92,7 @@ const ComposerInputRow = ({
     (state) => state.composer.text.trim().length > 0 || state.composer.attachments.length > 0
   );
   const isRunning = useAuiState((state) => state.thread.isRunning);
-  const runActions = useComposerRunActions({ onSteerActiveRun });
+  const runActions = useComposerRunActions({ canSteer });
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
   const stagingDisabled = isComposerDisabled || activeInput?.canSend === false;
@@ -174,7 +174,7 @@ const ComposerInputRow = ({
                 <ArrowUpIcon aria-hidden="true" />
               </button>
             ) : (
-              <ComposerRunControls onSteerActiveRun={onSteerActiveRun} />
+              <ComposerRunControls canSteer={canSteer} />
             )}
             {!hideDefaultCancel && (
               <ComposerPrimitive.Cancel

@@ -160,6 +160,7 @@ function CommittedRuntimePanel({
   commands,
   adapters,
   onCommandError,
+  onSteer,
   ...panel
 }: CommittedRuntimePanelProps): ReactElement {
   // The composer stages images only while the presentation offers them; the
@@ -173,7 +174,15 @@ function CommittedRuntimePanel({
     adapters: runtimeAdapters,
     commands,
     onCommandError,
+    onSteer,
     store,
   });
-  return <AssistantConversationPanel {...panel} runtime={runtime} threadKey={store.threadId} />;
+  return (
+    <AssistantConversationPanel
+      {...panel}
+      canSteer={onSteer !== undefined}
+      runtime={runtime}
+      threadKey={store.threadId}
+    />
+  );
 }
