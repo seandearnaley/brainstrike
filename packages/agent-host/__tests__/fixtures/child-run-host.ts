@@ -257,6 +257,9 @@ export function crashableStorePort(
       return store.append(items, durability);
     },
     deleteSetting: (key) => store.deleteSetting(key),
+    // Core's deletion order is what these tests cover; the store's purge needs the
+    // indexer and is state-store's own (state-deletion tests), so it erases nothing here.
+    deleteThread: async () => undefined,
     getSetting: (key) => store.getSetting(key),
     health: () => store.health(),
     holdBlobGc: () => store.holdBlobGc(),
