@@ -129,10 +129,9 @@ function useRepinWhenQueueShrinks(): void {
 
 /**
  * The waiting messages, stacked on the composer's top edge in send order. Each
- * row can be steered into a running run (read at its next step
- * step), sent now when no run is active (after a Stop the queue waits for the
- * user), pulled back into an empty composer to edit, or removed; a removed row
- * is never sent. Queued tool decisions and messages with images can be sent
+ * row can be steered into a running run (read at its next step), sent now
+ * when no run is active (after a Stop the queue waits for the user), pulled
+ * back into an empty composer to edit, or removed; a removed row is never sent. Queued tool decisions and messages with images can be sent
  * or removed but not edited as text.
  */
 export function FollowUpQueueChips({

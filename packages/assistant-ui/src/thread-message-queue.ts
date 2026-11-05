@@ -131,7 +131,7 @@ export class ThreadMessageQueue {
       __internal_setDispatchTransform: inner.__internal_setDispatchTransform,
       edit: inner.edit,
       enqueue: track(inner.enqueue),
-      // A queued row's Steer moves it from the queue lane to the steer lane.
+      // A queued row's Steer sends it into the running run; otherwise it moves to the steer lane.
       move: (itemId, placement) => {
         const item = this.queued.get(itemId);
         const queued = inner.items.some((entry) => entry.id === itemId);
