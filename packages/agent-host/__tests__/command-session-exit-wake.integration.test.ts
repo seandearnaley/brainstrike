@@ -74,7 +74,7 @@ async function exitHost(hold?: Promise<void>) {
     },
     personas: [worker],
   });
-  const exit = (threadId: string, exitCode = 1): void => {
+  const exit = (threadId: string, exitCode = 1, sessionId = 'command-session-1'): void => {
     for (const listener of listeners) {
       listener({
         createdAt: 1000,
@@ -82,7 +82,7 @@ async function exitHost(hold?: Promise<void>) {
         exitedAt: 66_000,
         outputCursor: 9000,
         rootId: 'root-a',
-        sessionId: 'command-session-1',
+        sessionId,
         signal: null,
         threadId,
       });
@@ -145,6 +145,21 @@ test('a busy root hears a session that ended once its run ends', async () => {
   release.resolve();
   const wake = await wakeRun(harness);
   expect(wake.parentMessageId).toBe(busy);
+});
+
+test("a turn Stop wakes nothing even once the turn's latest run is its wake", async () => {
+  const { exit, harness } = await exitHost();
+  const turn = await harness.start('Run the tests in the background.');
+  exit(harness.threadId);
+  await wakeRun(harness);
+
+  // The composer's Stop names the turn's first run, not the wake after it.
+  await harness.core().stop({ commandId: randomUUID(), runId: turn, threadId: harness.threadId });
+  exit(harness.threadId, 0, 'command-session-2');
+
+  const rows = await quiet(harness);
+  expect(rows.filter((row) => row.event.type === 'run.started')).toHaveLength(2);
+  expect(rows.some(wakeFor('command-session-2'))).toBe(false);
 });
 
 test("a Stop wakes nothing; the person's next turn carries the session", async () => {

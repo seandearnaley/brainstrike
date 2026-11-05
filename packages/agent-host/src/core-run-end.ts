@@ -1,8 +1,8 @@
 import { settleHostChildInput, takeHostChildInput } from './child-input.ts';
+import { hostRunTurnId, hostTurnStopped } from './committed-identities.ts';
 import {
   type HostChildRuns,
   hostDeliveryPosition,
-  hostRunTurnId,
   reportHostChildWakeFailure,
 } from './core-child-runs.ts';
 import { HostCommandSessionExits } from './core-command-exits.ts';
@@ -79,20 +79,23 @@ export class HostRunEnds {
     method: 'run/start' | 'run/regenerate' | 'wake',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
     position: HostRunPosition,
-    delegation: HostDelegation | undefined
+    delegation: HostDelegation | undefined,
+    runId: string
   ): HostRunPosition {
     const { threadId } = params;
     const runs = this.ports.runs();
-    // A wake continues the turn of the run it follows.
+    // A wake continues the turn of the run it follows, or starts its own once that turn stopped.
     const tip =
       'parentMessageId' in position ? runs.get(position.parentMessageId ?? '') : undefined;
+    const followed = tip && hostRunTurnId(tip);
+    const turnId = followed === undefined || hostTurnStopped(runs, followed) ? runId : followed;
     const exits = this.exits.pending(threadId);
     return hostDeliveryPosition(
       method,
       params.commandId,
       position,
       this.ports.children.pending(threadId, runs, delegation, method !== 'wake'),
-      { exits, threadId, turnId: tip && hostRunTurnId(tip) }
+      { exits, threadId, turnId }
     );
   }
 
@@ -141,9 +144,11 @@ export class HostRunEnds {
     let next = open && (await this.takeInput(run, recovered));
     // An approved plan, or ADR-0028 step 3's worktree: the task goes on in
     // the same turn, so the turn's workers before and after it are one.
+    const turnId = hostRunTurnId(run);
+    const stopped = run.stopped || hostTurnStopped(ports.runs(), turnId);
     const continued =
-      !next && open && !run.stopped && run.outcome === 'completed'
-        ? hostContinuationRun(run, hostRunTurnId(run))
+      !(next || stopped) && open && run.outcome === 'completed'
+        ? hostContinuationRun(run, turnId)
         : undefined;
     if (continued) {
       next = await ports.startNextRun(continued, run.input?.origin);
