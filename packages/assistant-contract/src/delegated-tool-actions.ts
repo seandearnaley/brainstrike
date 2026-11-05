@@ -1,5 +1,11 @@
 import { Predicate } from 'effect';
-import type { DelegatedRunIdentity } from './delegated-conversation-stream.ts';
+/** Native execution coordinates; ownership is resolved by the authenticated host. */
+export interface DelegatedRunIdentity {
+  readonly childRuntimeRunId: string;
+  readonly parentRuntimeRunId: string;
+  readonly parentToolCallId: string;
+  readonly personaId: string;
+}
 
 export const ASSISTANT_TOOL_ACTION_ID_MAX_CHARS = 512;
 /** Wire-size ceiling only; the runtime's delegation budget may be stricter. */
