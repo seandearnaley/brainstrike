@@ -56,26 +56,12 @@ export const assistantChildInputSchema = Schema.Struct({
 );
 export type AssistantChildAttachment = Readonly<(typeof assistantChildAttachmentSchema)['Type']>;
 export type AssistantChildInput = Readonly<(typeof assistantChildInputSchema)['Type']>;
-export type AssistantChildInputPart =
-  | AssistantChildAttachment
-  | {
-      readonly type: 'text';
-      readonly text: string;
-    };
 /** Shared UI/HTTP/native boundary: no context or authority fields are accepted. */
 export function normalizeAssistantChildInput(input: unknown): AssistantChildInput {
   return Schema.decodeUnknownSync(assistantChildInputSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   })(input);
-}
-export function assistantChildInputContents(
-  input: Pick<AssistantChildInput, 'text' | 'attachments'>
-): AssistantChildInputPart[] {
-  return [
-    ...(input.text ? [{ text: input.text, type: 'text' as const }] : []),
-    ...(input.attachments ?? []),
-  ];
 }
 /** Fixed field order for complete-content receipt identity, independent of object insertion order. */
 export function serializeAssistantChildInput(
@@ -98,48 +84,4 @@ export function serializeAssistantChildInput(
         }
       : {}),
   });
-}
-/** Native signal contents carry the same text/file parts on both projection paths. */
-export const assistantChildSignalContentsSchema = Schema.Union([
-  Schema.String,
-  Schema.mutable(
-    Schema.Array(
-      Schema.Union([
-        Schema.Struct({ text: Schema.String, type: Schema.Literal('text') }),
-        assistantChildAttachmentSchema,
-      ])
-    )
-  ),
-]);
-export function readAssistantChildSignalContents(contents: unknown): {
-  readonly text: string;
-  readonly attachments?: AssistantChildAttachment[];
-} {
-  const parsed = Schema.decodeUnknownSync(assistantChildSignalContentsSchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(contents);
-  if (typeof parsed === 'string') {
-    return { text: parsed };
-  }
-  const text: string[] = [];
-  const attachments: AssistantChildAttachment[] = [];
-  for (const part of parsed) {
-    if (part.type === 'text') {
-      text.push(part.text);
-    } else {
-      attachments.push(part);
-    }
-  }
-  return {
-    text: text.join('\n'),
-    ...(attachments.length > 0
-      ? {
-          attachments: Schema.decodeSync(assistantChildAttachmentsSchema, {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })(attachments),
-        }
-      : {}),
-  };
 }

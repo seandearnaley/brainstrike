@@ -1,56 +1,17 @@
 // @vitest-environment node
-import { DELEGATED_CONVERSATION_DATA_NAME } from '@brainstrike/assistant-contract';
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import {
   readSubagentConversationAddress,
-  readSubagentConversationThread,
   readSubagentInvocationRun,
 } from '../subagent-conversation-navigation';
 
-const part = (call: string, child: string) => ({
-  data: { baseline: { threadId: child }, identity: { parentToolCallId: call } },
-  name: DELEGATED_CONVERSATION_DATA_NAME,
-  type: 'data',
-});
-
-describe('subagent card conversation identity', () => {
-  it('uses the host thread address for this exact call, not the persona or another child', () => {
-    const parts = [part('a', 'cedar'), part('b', 'willow')];
-    expect(readSubagentConversationThread(parts, 'a')).toBe('cedar');
-    expect(readSubagentConversationThread(parts, 'b')).toBe('willow');
-    expect(readSubagentConversationThread(parts, 'missing')).toBeUndefined();
-  });
-  it('refuses conflicting addresses instead of choosing a conversation', () => {
-    expect(() =>
-      readSubagentConversationThread([part('a', 'cedar'), part('a', 'willow')], 'a')
-    ).toThrow();
-    expect(readSubagentConversationThread([part('a', 'cedar'), part('a', 'cedar')], 'a')).toBe(
-      'cedar'
-    );
-  });
-});
-
-it('returns an explicit renderable failure for conflicting addresses', () => {
-  expect(readSubagentConversationAddress([part('a', 'cedar'), part('a', 'willow')], 'a')).toEqual({
-    error: 'Conflicting child conversation addresses.',
-    kind: 'invalid',
-  });
-  expect(readSubagentConversationAddress([part('a', 'cedar')], 'a')).toEqual({
+it('reads a completed delegation’s child thread from its result after reload', () => {
+  expect(readSubagentConversationAddress({ subAgentThreadId: 'cedar' })).toEqual({
     kind: 'available',
     threadId: 'cedar',
   });
-  expect(readSubagentConversationAddress([], 'a')).toEqual({ kind: 'unavailable' });
-});
-
-it('retains the native completed delegation address after reload and rejects conflicting live identity', () => {
-  expect(readSubagentConversationAddress([], 'a', { subAgentThreadId: 'cedar' })).toEqual({
-    kind: 'available',
-    threadId: 'cedar',
-  });
-  expect(
-    readSubagentConversationAddress([part('a', 'willow')], 'a', { subAgentThreadId: 'cedar' })
-  ).toEqual({ error: 'Conflicting child conversation addresses.', kind: 'invalid' });
-  expect(readSubagentConversationAddress([], 'a', { subAgentThreadId: '' }).kind).toBe('invalid');
+  expect(readSubagentConversationAddress({ subAgentThreadId: '' }).kind).toBe('invalid');
+  expect(readSubagentConversationAddress(undefined)).toEqual({ kind: 'unavailable' });
 });
 
 it('resolves the exact persisted native invocation across pending child history and rejects contradictory runs', () => {
@@ -77,14 +38,12 @@ it('resolves the exact persisted native invocation across pending child history 
 
 it('reads the agent host child thread from its delegation result and rejects a conflicting address', () => {
   const started = { childThreadId: 'cedar', status: 'started', text: 'Background task started.' };
-  expect(readSubagentConversationAddress([], 'a', started)).toEqual({
+  expect(readSubagentConversationAddress(started)).toEqual({
     kind: 'available',
     threadId: 'cedar',
   });
-  expect(readSubagentConversationAddress([], 'a', { ...started, childThreadId: '' }).kind).toBe(
-    'invalid'
-  );
-  expect(readSubagentConversationAddress([part('a', 'willow')], 'a', started)).toEqual({
+  expect(readSubagentConversationAddress({ ...started, childThreadId: '' }).kind).toBe('invalid');
+  expect(readSubagentConversationAddress({ ...started, subAgentThreadId: 'willow' })).toEqual({
     error: 'Conflicting child conversation addresses.',
     kind: 'invalid',
   });
