@@ -11,6 +11,8 @@ import type { HostParams } from './protocol.ts';
 
 const NAMESPACE = 'brainstrike';
 const INTAKE = { [NAMESPACE]: { intake: true } };
+/** A person's message an earlier run left unread, read before this turn's own message (`before`). */
+const EARLIER = { [NAMESPACE]: { before: true, intake: true } };
 
 /** The user message that carries `text`, the notices a running run takes, to its model. */
 export function hostIntakeMessage(text: string): UserModelMessage {
@@ -31,7 +33,8 @@ export const HOST_INPUT_CONTEXT = { [NAMESPACE]: { context: true } };
  */
 export function hostPersonInputMessage(
   input: HostParams<'run/input'>,
-  context?: string
+  context?: string,
+  earlier = false
 ): UserModelMessage {
   return {
     content: [
@@ -43,9 +46,18 @@ export function hostPersonInputMessage(
         ? [{ providerOptions: HOST_INPUT_CONTEXT, text: context, type: 'text' as const }]
         : []),
     ],
-    providerOptions: INTAKE,
+    providerOptions: earlier ? EARLIER : INTAKE,
     role: 'user',
   };
+}
+
+/**
+ * Whether `message` is a person's message an earlier run left unread (a Stop,
+ * a restart), which the turn's first step read: the person wrote it before
+ * the turn's own message, so the turn's context places it ahead of that.
+ */
+export function isHostEarlierInput(message: ModelMessage): boolean {
+  return message.role === 'user' && message.providerOptions?.[NAMESPACE]?.['before'] === true;
 }
 
 /** Whether `message` opens a turn: a user message the host did not add inside a run. */

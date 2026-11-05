@@ -24,8 +24,11 @@ export interface HostReadPersonInput {
 export async function hostReadPersonInput(
   admission: HostRunAdmission,
   runId: string,
-  input: HostParams<'run/input'>
+  input: HostParams<'run/input'>,
+  /** Left unread by an earlier run, and read before this turn's own message. */
+  earlier: boolean
 ): Promise<HostReadPersonInput> {
+  const message = (context?: string) => hostPersonInputMessage(input, context, earlier);
   try {
     const gate = await admission.hooks?.userPromptSubmit(input.prompt);
     if (gate?.blocked) {
@@ -36,7 +39,7 @@ export async function hostReadPersonInput(
           'hook.prompt-blocked',
           `The request was blocked by a hook: ${gate.reason}`
         ),
-        message: hostPersonInputMessage(input),
+        message: message(),
       };
     }
     const read = await admission.readPromptContext?.(input.prompt);
@@ -50,9 +53,9 @@ export async function hostReadPersonInput(
         failures.length > 0
           ? [{ files: [...failures], runId, type: 'references.unavailable' }]
           : [],
-      message: hostPersonInputMessage(input, context),
+      message: message(context),
     };
   } catch (cause) {
-    return { events: [], failure: cause, message: hostPersonInputMessage(input) };
+    return { events: [], failure: cause, message: message() };
   }
 }

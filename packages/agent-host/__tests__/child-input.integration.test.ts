@@ -34,6 +34,8 @@ afterEach(async () => {
 const TASK = 'CHILD_TASK: write the notes.';
 const FOLLOW = 'FOLLOW_UP_INPUT: also add a title.';
 const FOLLOWED = 'Notes written, with a title.';
+const PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 type Child = 'answer' | 'block' | 'fail' | 'read';
 type Harness = Awaited<ReturnType<typeof setupChildRunHost>>;
@@ -206,7 +208,10 @@ test('an input committed after a failed child run still starts its next run', as
   );
 });
 
-/** The child's next run, started by the person, and whether its model read the earlier input. */
+/**
+ * The child's next run, started by the person, and whether its model read the
+ * earlier input ahead of the person's newer message, as they wrote them.
+ */
 async function nextChildRun(harness: Harness, child: string, model: MockLanguageModelV4) {
   const before = model.doStreamCalls.length;
   const runs = await finished(harness, child);
@@ -218,9 +223,18 @@ async function nextChildRun(harness: Harness, child: string, model: MockLanguage
     threadId: child,
   });
   await harness.core().idle(harness.threadId);
-  return model.doStreamCalls
+  const read = model.doStreamCalls
     .slice(before)
-    .some((call) => userTexts(call).some((value) => value.includes(FOLLOW)));
+    .map(userTexts)
+    .filter((texts) => texts.some((value) => value.includes(FOLLOW)));
+  return (
+    read.length > 0 &&
+    read.every(
+      (texts) =>
+        texts.findIndex((value) => value.includes(FOLLOW)) <
+        texts.findIndex((value) => value.includes('Carry on.'))
+    )
+  );
 }
 
 test('an input a stopped child never read waits for the next run, which reads it', async () => {
@@ -397,10 +411,16 @@ test('an input whose start is refused takes only itself, and the next input stil
   });
   const runId = await harness.start('Answer.');
   await answering.promise;
+  const attachments = [{ data: PIXEL, mediaType: 'image/png', name: 'pixel.png', type: 'image' }];
   const input = (prompt: string, modelId: string) =>
-    harness
-      .core()
-      .input({ commandId: randomUUID(), modelId, prompt, runId, threadId: harness.threadId });
+    harness.core().input({
+      attachments,
+      commandId: randomUUID(),
+      modelId,
+      prompt,
+      runId,
+      threadId: harness.threadId,
+    } as const);
   await input(FOLLOW, 'unavailable');
   await input(LATER, 'scripted');
   sent.resolve();
@@ -412,4 +432,10 @@ test('an input whose start is refused takes only itself, and the next input stil
   expect(
     model.doStreamCalls.some((call) => userTexts(call).some((value) => value.includes(LATER)))
   ).toBe(true);
+  // The inputs hold the image; each run that starts from one keeps only its hash.
+  const started = (await harness.core().read(harness.threadId, 0)).flatMap(({ event }) =>
+    event.type === 'command.accepted' && event.method === 'run/start' ? [event.payload] : []
+  );
+  expect(started.slice(1)).toHaveLength(2);
+  expect(JSON.stringify(started)).not.toContain(PIXEL);
 });

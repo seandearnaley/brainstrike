@@ -19,7 +19,11 @@ import type { HostClientOrigin } from './ports.ts';
 import type { HostEvent, HostLogRow, HostNotice, HostParams } from './protocol.ts';
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
-import type { HostRunPosition } from './run-branch.ts';
+import {
+  type HostRunPosition,
+  type HostStartCommandRecord,
+  hostStartCommandRecord,
+} from './run-branch.ts';
 import { type HostNextRun, hostContinuationRun, startHostNextRun } from './run-continuation.ts';
 import type { HostThreadPresentationState } from './thread-presentation-state.ts';
 
@@ -33,7 +37,9 @@ export interface HostRunEndPorts {
   readonly admitWake: (
     method: 'run/start' | 'wake',
     params: HostParams<'run/start'>,
-    origin: HostClientOrigin | undefined
+    origin: HostClientOrigin | undefined,
+    /** The command as committed; a run/start's images are stored once, by hash. */
+    record?: HostStartCommandRecord
   ) => Promise<unknown>;
   /** One transaction: the run's terminal events and the notices its end posts on other threads. */
   readonly appendTerminal: (
@@ -45,7 +51,7 @@ export interface HostRunEndPorts {
   readonly closing: () => boolean;
   /** Commit a run/start that could not start, with its failed run's events. */
   readonly commitStart: (
-    params: HostParams<'run/start'>,
+    record: HostStartCommandRecord,
     runId: string,
     events: readonly HostEvent[]
   ) => Promise<unknown>;
@@ -250,13 +256,14 @@ export class HostRunEnds {
     origin: HostClientOrigin | undefined
   ): Promise<void> {
     const { admitWake, commitStart, runs } = this.ports;
+    const record = hostStartCommandRecord(params);
     let refused = false;
     await startHostNextRun(
       runs().values(),
       { params },
-      () => admitWake('run/start', params, origin),
+      () => admitWake('run/start', params, origin, record),
       async (runId, events) => {
-        await commitStart(params, runId, hostInputTakenBy(input, events));
+        await commitStart(record, runId, hostInputTakenBy(input, events));
         refused = true;
       }
     );

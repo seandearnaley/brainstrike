@@ -61,6 +61,7 @@ import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.ts
 import { hostTelemetry } from './telemetry/host-telemetry.ts';
 import { hostArtifactReader } from './tool-artifacts.ts';
 import type { HostToolRecords } from './tool-records.ts';
+import { isHostTurnInput } from './turn-input.ts';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
 
@@ -520,9 +521,11 @@ async function takeHostIntake(
 ): Promise<{ readonly failure?: unknown; readonly messages: ModelMessage[] }> {
   let messages = input;
   for (const intake of ports.intake(run)) {
+    // A message sent to an earlier run, read at this run's first step, precedes the turn's own.
+    const earlier = 'input' in intake && intake.input.runId !== run.id && run.steps === 0;
     const read =
       'input' in intake
-        ? await hostReadPersonInput(admission, run.id, intake.input)
+        ? await hostReadPersonInput(admission, run.id, intake.input, earlier)
         : { events: [], message: intake.message };
     if (read.events.length > 0) {
       await ports.append(run.threadId, read.events, 'normal', ports.foldRows);
@@ -539,7 +542,11 @@ async function takeHostIntake(
     if ('failure' in read) {
       return { failure: read.failure, messages };
     }
-    messages = [...messages, read.message];
+    const at = earlier ? messages.findLastIndex(isHostTurnInput) : -1;
+    messages =
+      at < 0
+        ? [...messages, read.message]
+        : [...messages.slice(0, at), read.message, ...messages.slice(at)];
   }
   return { messages };
 }

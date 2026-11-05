@@ -184,14 +184,16 @@ export class HostCore {
   /** A run's end: its terminal commit, memory settlement, then the next run or wake. */
   private readonly ends = new HostRunEnds({
     admit: (threadId, perform) => this.admit(threadId, perform),
-    admitWake: (method, params, origin) =>
-      this.admitRun(method, params, origin, () => hostStartPosition(this.runs.values(), params)),
+    admitWake: (method, params, origin, record) => {
+      const position = () => hostStartPosition(this.runs.values(), params);
+      return this.admitRun(method, params, origin, position, record);
+    },
     appendTerminal: (items, beforePublish) => this.appendAcross(items, 'full', beforePublish),
     children: this.children,
     closeOwner: (run) => this.closeRunOwner(run),
     closing: () => this.closing,
-    commitStart: (params, runId, events) =>
-      this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows),
+    commitStart: (record, runId, events) =>
+      this.accept(record.threadId, 'run/start', record, { runId }, events, this.foldRows),
     deletions: this.deletions,
     foldRows: (rows) => this.foldRows(rows),
     // Queued: a thread being deleted or a closing host takes no notice.
