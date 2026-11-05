@@ -33,7 +33,7 @@ import {
   hostInvocationLimitText,
 } from './child-runs.ts';
 import { HostChildWorkQueue } from './child-work-queue.ts';
-import { hostRootRunTurnId } from './committed-identities.ts';
+import { hostRunTurnId, hostTurnStopped } from './committed-identities.ts';
 import {
   describeHostCommandSessionExits,
   hostCommandSessionDelivery,
@@ -85,6 +85,7 @@ export interface HostChildRunPort {
   /** The live root permission policy a descendant's decisions follow. */
   policy(threadId: string): Promise<PermissionToolGateSnapshot>;
   retainRun(): () => void;
+  readonly runs: ReadonlyMap<string, HostRunState>;
   stop(child: HostRunState, reason: unknown): void;
   /** Whether an ID is already a committed thread or conversation identity. */
   taken(id: string): boolean;
@@ -116,8 +117,8 @@ type Pending = ReturnType<HostChildRuns['pending']>;
 export interface HostWakeExits {
   readonly exits: readonly HostCommandSessionExit[];
   readonly threadId: string;
-  /** The turn a wake continues when it delivers no child result: the run it follows. */
-  readonly turnId: string | undefined;
+  /** The turn a wake continues when it delivers no invocation's result: the run it follows, unless stopped. */
+  readonly turnId: string;
 }
 /**
  * A new run's position with the child results and ended command sessions it
@@ -140,8 +141,8 @@ export function hostDeliveryPosition(
   ];
   const report = parts.some(Boolean) ? describeHostDelivery(parts) : '';
   if (method === 'wake') {
-    const turnId = pending?.turnId ?? (exits.length > 0 ? ended.turnId : undefined);
-    if (turnId === undefined) {
+    const turnId = pending?.turnId ?? ended.turnId;
+    if (report === '') {
       throw new Error('A wake has nothing undelivered');
     }
     return {
@@ -180,14 +181,6 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
     errorName: cause instanceof Error ? cause.name : typeof cause,
     threadId,
   });
-}
-/** The root turn a run belongs to: children and wakes keep their turn's ID. */
-export function hostRunTurnId(run: HostRunState): string {
-  return (
-    run.turnId ??
-    run.origin?.turnId ??
-    hostRootRunTurnId({ delivery: run.branch.delivery, runId: run.id })
-  );
 }
 type Outcome = NonNullable<HostRunState['outcome']>;
 function settledState(outcome: Outcome): HostChildDeliveryEntry['state'] {
@@ -465,14 +458,19 @@ export class HostChildRuns {
       }
     }
   }
-  /** Non-terminal runs of a root run's turn, at any depth (report section 4 root Stop). */
-  turnChildren(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): HostRunState[] {
-    if (run.origin) {
+  /**
+   * What a Stop of `run` ends besides `run`: for a run that carries its turn,
+   * every other unfinished run of that turn on any thread at any depth (its
+   * wake and its workers; report section 4); for one of the turn's workers,
+   * nothing more.
+   */
+  turnRuns(run: HostRunState, runs: ReadonlyMap<string, HostRunState>): HostRunState[] {
+    const turn = hostRunTurnId(run);
+    if (run.origin?.turnId === turn) {
       return [];
     }
-    const turn = hostRunTurnId(run);
     return [...runs.values()].filter(
-      (child) => !child.terminal && child.origin !== undefined && hostRunTurnId(child) === turn
+      (other) => other !== run && !other.terminal && hostRunTurnId(other) === turn
     );
   }
   /**
@@ -679,6 +677,10 @@ export class HostChildRuns {
       this.settlements.delete(prepared.child.id);
       prepared.child.task = start();
       prepared.child.task.catch(() => undefined);
+      // A turn Stop that landed during the commit listed the turn's runs without this one.
+      if (hostTurnStopped(port.runs, prepared.origin.turnId)) {
+        port.stop(prepared.child, new Error('Run stopped by user'));
+      }
       return hostChildStarted(prepared.threadId, request.action.toolId);
     }
     return this.join(prepared, request.run.controller.signal, start, (reason) =>
@@ -716,15 +718,10 @@ export class HostChildRuns {
     | {
         readonly entries: HostChildDeliveryEntry[];
         readonly ledger: string;
-        turnId: string;
+        readonly turnId: string | undefined;
       }
     | undefined {
     const { all, followUps } = this.reports(threadId, runs);
-    const stopped = (turnId: string): boolean =>
-      [...runs.values()].some(
-        (run) =>
-          !run.origin && run.stopped && run.threadId === threadId && hostRunTurnId(run) === turnId
-      );
     // An invocation still taking human input reports with that input's run.
     const reported = ({ run }: Invocation): Outcome | undefined =>
       hostRunTakingInput(run, runs) ? undefined : run.outcome;
@@ -732,7 +729,7 @@ export class HostChildRuns {
       const outcome = reported(invocation);
       return outcome &&
         !this.delivered.has(invocation.run.id) &&
-        (includeStopped || !stopped(invocation.origin.turnId))
+        (includeStopped || !hostTurnStopped(runs, invocation.origin.turnId))
         ? [{ ...invocation, outcome }]
         : [];
     });
@@ -826,7 +823,8 @@ export class HostChildRuns {
           describeHostChildContinuation(followUp, hostChildCallSign(followUp.childThreadId))
         ),
       ].join('\n\n'),
-      turnId: continuing.at(-1)?.run.id ?? due.at(-1)?.origin.turnId ?? threadId,
+      // The turn its invocations belong to; a follow-up's report is not a turn of the parent's.
+      turnId: due.at(-1)?.origin.turnId,
     };
   }
   /**

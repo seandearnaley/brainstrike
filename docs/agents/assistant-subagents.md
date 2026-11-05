@@ -25,6 +25,8 @@ Owners: [child admission](../../packages/agent-host/src/child-runs.ts), [persona
 Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 
 - A turn is a person's message and every run the host starts to carry it on: its wakes, and the run continued in the worktree one of its runs entered (ADR-0028 step 3; `run.started` `turnId`). Workers dispatched before and after that switch share one queue, ledger, invocation limit and root Stop.
+  - Each run's turn is the one its `run.started` commits (`hostRunTurnId`): a wake's delivery turn, a carried-on run's `turnId`, a worker's invocation turn, otherwise its own run ID. Core and the thread summary read the same rule, so a regenerated wake reply starts its own turn in both.
+  - A wake continues the turn whose invocations it delivers, else the turn of the run it follows, unless that turn was stopped: then the wake starts its own. A worker's follow-up is its own turn and never names the parent's.
 - Tree limits come from admitted subagent settings; invocation admission is atomic across parallel calls.
 - All descendants share the turn's work queue.
   - Model streams and tool execution hold permits; delegation and approval waits hold none.
@@ -55,6 +57,7 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
   - A thread view reads its tree again only when told, and never reads a child's log for its cards, approvals strip or waiting questions. Reading every descendant's full log made a thread with many subagents hold hundreds of megabytes and kept the host busy for seconds (2026-11-02).
 - While a root has no run of its own, its working background children are named at its composer; their Stop is the turn's root Stop (accepted after that run ended).
 - Root Stop cancels the turn's descendants; child Stop leaves its parent and siblings running.
+  - A Stop of any run that carries the turn (its first run, even ended, a wake or a continuation) ends every unfinished run of that turn on any thread (`turnRuns`). That Stop is the one "turn stopped" fact (`hostTurnStopped`), read by delivery, command-session exits, the continuation and a worker whose delegation commit lands after the Stop, which ends stopped.
 - Join actual work and memory/provider owners before releasing resources.
 - Stopped turns keep results for the next user turn and don't auto-wake.
 - Restart marks child runs and interactions interrupted; it never replays them.
