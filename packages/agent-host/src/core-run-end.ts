@@ -14,7 +14,7 @@ import type { HostChildDelivery, HostEvent, HostLogRow, HostParams } from './pro
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
 import type { HostRunPosition } from './run-branch.ts';
-import { enteredWorktreeRunParams, type HostNextRun } from './run-continuation.ts';
+import { type HostNextRun, hostContinuationRun } from './run-continuation.ts';
 import type { HostThreadPresentationState } from './thread-presentation-state.ts';
 
 type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
@@ -106,39 +106,47 @@ export class HostRunEnds {
         ports.appendTerminal(run.threadId, await hostRunTerminalEvents(run, event), (rows) => {
           commit();
           ports.foldRows(rows);
-        })
-    ).then(async () => {
-      ports.presentations.settle(run);
-      this.exits.handOn(run.threadId);
-      const parent =
-        ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
-      // BST-1932: a child's human input runs next; only that run reports to the parent.
-      const open = wakes && !(ports.closing() || ports.deletions.has(run.threadId));
-      const input = takeHostChildInput(run, outcome, open);
-      let next = false;
-      if (input) {
-        try {
-          next = await ports.startNextRun(input, run.input?.origin);
-        } finally {
-          // The input's run, or its refusal, is committed: the report now waits on that run.
-          settleHostChildInput(run, ports.runs());
-        }
+        }),
+      () => this.handOn(run, wakes)
+    );
+  }
+
+  /**
+   * Once per run, after its `run.finished` commits: what the thread does next,
+   * decided from the committed outcome. A run the person stopped starts nothing
+   * after it, so a Stop that lands while the run's end commits never waits on
+   * the run it would have started.
+   */
+  private async handOn(run: HostRunState, wakes: boolean): Promise<void> {
+    const ports = this.ports;
+    ports.presentations.settle(run);
+    this.exits.handOn(run.threadId);
+    const parent =
+      ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
+    // BST-1932: a child's human input runs next; only that run reports to the parent.
+    const open = wakes && !(ports.closing() || ports.deletions.has(run.threadId));
+    const input = takeHostChildInput(run, open);
+    let next = false;
+    if (input) {
+      try {
+        next = await ports.startNextRun(input, run.input?.origin);
+      } finally {
+        // The input's run, or its refusal, is committed: the report now waits on that run.
+        settleHostChildInput(run, ports.runs());
       }
-      // ADR-0028 step 3: the task goes on in the worktree the run entered, in
-      // the same turn, so the turn's workers before and after it are one.
-      if (!next && open && outcome === 'completed' && run.enteredWorktree) {
-        next = await ports.startNextRun(
-          {
-            params: enteredWorktreeRunParams(run, run.enteredWorktree),
-            turnId: hostRunTurnId(run),
-          },
-          run.input?.origin
-        );
-      }
-      if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
-        this.wake(parent);
-      }
-    });
+    }
+    // An approved plan, or ADR-0028 step 3's worktree: the task goes on in
+    // the same turn, so the turn's workers before and after it are one.
+    const continued =
+      !next && open && !run.stopped && run.outcome === 'completed'
+        ? hostContinuationRun(run, hostRunTurnId(run))
+        : undefined;
+    if (continued) {
+      next = await ports.startNextRun(continued, run.input?.origin);
+    }
+    if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
+      this.wake(parent);
+    }
   }
 
   /** Await before admitting the thread's next run or rewind, outside Core's shared queue. */

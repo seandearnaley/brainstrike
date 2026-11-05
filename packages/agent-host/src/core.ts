@@ -897,7 +897,6 @@ export class HostCore {
       loop: (model) => this.loop(run, model),
       openRun: () => this.openRun(run),
       platform: this.platform,
-      startNextRun: (next) => this.startNextRun(next, run.input?.origin),
     });
   }
 

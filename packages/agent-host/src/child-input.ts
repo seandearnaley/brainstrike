@@ -1,7 +1,5 @@
 import { deriveHostInputRunCommandId, type HostRunState } from './core-state.ts';
-import type { HostEvent, HostParams } from './protocol.ts';
-
-type HostRunOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+import type { HostParams } from './protocol.ts';
 
 /**
  * BST-1932 (AT-09): accept human input for a running child. Its active run
@@ -60,15 +58,14 @@ export function settleHostChildInput(
  */
 export function takeHostChildInput(
   run: HostRunState,
-  outcome: HostRunOutcome,
   open: boolean
 ): { readonly params: HostParams<'run/start'>; readonly refused?: Error } | undefined {
   const params = run.childInput;
   if (!(open && params)) {
     return;
   }
-  if (run.stopped || outcome !== 'completed') {
-    const ended = run.stopped ? 'stopped' : outcome;
+  if (run.stopped || run.outcome !== 'completed') {
+    const ended = run.stopped ? 'stopped' : run.outcome;
     return {
       params,
       refused: new Error(`The child run ended ${ended} before it read this input.`),

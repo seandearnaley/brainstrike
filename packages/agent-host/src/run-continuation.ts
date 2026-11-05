@@ -310,7 +310,7 @@ function approvedHostPlanRunParams(
   };
 }
 /** ADR-0028 step 3: the `run/start` that carries a run's task on in the worktree it entered. */
-export function enteredWorktreeRunParams(
+function enteredWorktreeRunParams(
   run: Run,
   worktree: NonNullable<Run['enteredWorktree']>
 ): HostParams<'run/start'> {
@@ -334,6 +334,20 @@ export interface HostNextRun {
   readonly params: HostParams<'run/start'>;
   readonly refused?: Error;
   readonly turnId?: string;
+}
+/**
+ * The run the host starts to carry a completed run's task on: its approved
+ * plan carried out, or the task in the worktree it entered, in the same turn
+ * (`turnId`, ADR-0028 step 3).
+ */
+export function hostContinuationRun(run: Run, turnId: string): HostNextRun | undefined {
+  const plan = approvedHostPlan(run);
+  if (plan) {
+    return { params: approvedHostPlanRunParams(run, plan) };
+  }
+  return run.enteredWorktree
+    ? { params: enteredWorktreeRunParams(run, run.enteredWorktree), turnId }
+    : undefined;
 }
 /**
  * Starts the thread's next run. A next run that cannot start is committed as
@@ -653,12 +667,11 @@ export interface HostRunContinuationPorts {
   readonly loop: (model: LanguageModel) => Promise<void>;
   readonly openRun: () => Promise<unknown>;
   readonly platform: HostPlatform;
-  readonly startNextRun: (next: HostNextRun) => Promise<boolean>;
 }
 /**
  * Continue a run once every decision it waits on is answered: commit the
- * approved calls' results, then start an approved plan's run, finish at the
- * step limit, or loop again.
+ * approved calls' results, then finish (an approved plan, the step limit) or
+ * loop again.
  */
 export async function continueHostRun(run: Run, ports: HostRunContinuationPorts): Promise<void> {
   if (run.terminal) {
@@ -677,10 +690,9 @@ export async function continueHostRun(run: Run, ports: HostRunContinuationPorts)
     // The SDK collects approvals from one final tool message, preserving parallel calls.
     const responses = await createHostApprovalResponses(run, ports.platform, ports.dispatch);
     await ports.commitMessages(responses.length > 0 ? [{ content: responses, role: 'tool' }] : []);
-    const plan = approvedHostPlan(run);
-    if (plan) {
+    // An approved plan's run starts from this run's end (core-run-end.ts).
+    if (approvedHostPlan(run)) {
       await ports.finish('completed');
-      await ports.startNextRun({ params: approvedHostPlanRunParams(run, plan) });
       return;
     }
     if (run.steps >= admission.snapshot.maxSteps) {

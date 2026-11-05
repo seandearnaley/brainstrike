@@ -462,7 +462,9 @@ export function finishHostRun(
   publish: (
     event: Extract<HostEvent, { type: 'run.finished' }>,
     commit: () => void
-  ) => Promise<unknown>
+  ) => Promise<unknown>,
+  /** What the thread does next, once per run, decided from the committed outcome. */
+  handOn: () => Promise<void>
 ): Promise<void> {
   if (run.completion !== undefined) {
     return run.completion;
@@ -504,6 +506,7 @@ export function finishHostRun(
         void owner.settle(run);
       }
     );
+    await handOn();
   })();
   return run.completion;
 }
