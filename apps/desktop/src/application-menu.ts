@@ -11,11 +11,17 @@
 export const APP_MENU_IDS = {
   checkForUpdates: 'app-check-for-updates',
   openSourceLicenses: 'help-open-source-licenses',
+  privacyPolicy: 'help-privacy-policy',
   releaseNotes: 'help-release-notes',
   settings: 'app-settings',
   showCrashReports: 'help-show-crash-reports',
   showLogs: 'help-show-logs',
+  termsOfService: 'help-terms-of-service',
 } as const;
+
+/** The privacy policy and terms on the site (BST-2353). */
+export const PRIVACY_POLICY_URL = 'https://brainstrike.ai/privacy';
+export const TERMS_OF_SERVICE_URL = 'https://brainstrike.ai/terms';
 
 /** The public release page of the running version (the `publish` repo in package.json). */
 export function releaseNotesUrl(version: string): string {
@@ -112,6 +118,8 @@ export interface HelpMenuDeps {
   readonly onOpenReleaseNotes: () => void;
   /** Opens the notices of the third-party software the app ships. */
   readonly onOpenSourceLicenses: () => void;
+  /** Opens a page of the site in the default browser: the privacy policy or the terms. */
+  readonly onOpenWebPage: (url: string) => void;
   /** Opens the folder of local minidumps, so a user can attach one to a report. */
   readonly onShowCrashReports: () => void;
   readonly onShowLogs: () => void;
@@ -122,6 +130,7 @@ export function buildHelpMenuTemplate({
   onCheckForUpdates,
   onOpenReleaseNotes,
   onOpenSourceLicenses,
+  onOpenWebPage,
   onShowCrashReports,
   onShowLogs,
 }: HelpMenuDeps): Electron.MenuItemConstructorOptions {
@@ -139,6 +148,17 @@ export function buildHelpMenuTemplate({
         click: onOpenSourceLicenses,
         id: APP_MENU_IDS.openSourceLicenses,
         label: 'Open-Source Licenses',
+      },
+      { type: 'separator' },
+      {
+        click: () => onOpenWebPage(PRIVACY_POLICY_URL),
+        id: APP_MENU_IDS.privacyPolicy,
+        label: 'Privacy Policy',
+      },
+      {
+        click: () => onOpenWebPage(TERMS_OF_SERVICE_URL),
+        id: APP_MENU_IDS.termsOfService,
+        label: 'Terms of Service',
       },
       ...(includeAbout
         ? ([
