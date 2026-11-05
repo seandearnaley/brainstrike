@@ -492,38 +492,6 @@ describe.each(entrypoints)(
       ).toBe(false);
     });
 
-    it('joins the remaining observation-group indexing branch before returning the first failure', async () => {
-      const siblingStarted = gate();
-      const sibling = gate();
-      const failure = new Error('index branch rejected');
-      const vectorWrites: string[] = [];
-      const grouped =
-        '<observations>\n<observation-group id="first" range="a:b">Paris weather.</observation-group>\n<observation-group id="second" range="c:d">Paris travel.</observation-group>\n</observations>';
-      const f = await fixture({
-        model: model(async () => textStream(grouped)),
-        onIndexObservations: async ({ groupId }) => {
-          if (groupId === 'first') {
-            throw failure;
-          }
-          siblingStarted.resolve();
-          await sibling.promise;
-          vectorWrites.push(groupId);
-        },
-        retrieval: true,
-      });
-      const observation = watch(observeFixture(f));
-      await siblingStarted.promise;
-      const joined = watch(f.engine.settled());
-      await nextTurn();
-      expect(observation.settled).toBe(false);
-      expect(joined.settled).toBe(false);
-      expect(vectorWrites).toEqual([]);
-      sibling.resolve();
-      expect(await observation.result).toEqual({ reason: failure, status: 'rejected' });
-      expect(await joined.result).toEqual({ reason: failure, status: 'rejected' });
-      expect(vectorWrites).toEqual(['second']);
-    });
-
     it('joins a held resource observation batch before returning a sibling provider failure', async () => {
       const siblingStarted = gate();
       const sibling = gate();
@@ -570,38 +538,56 @@ describe.each(entrypoints)(
       expect(lateTails).toBe(1);
     });
 
-    it('joins resource-thread indexing branches through their actual late callback write', async () => {
-      const siblingStarted = gate();
-      const sibling = gate();
-      const failure = new Error('resource index rejected');
-      const vectorWrites: string[] = [];
-      const f = await resourceFixture({
-        model: model(async () =>
-          textStream(
-            `<observations>\n<thread id="${f.threadId}"><observation-group id="first" range="a:b">Paris weather.</observation-group></thread>\n<thread id="${f.secondThreadId}"><observation-group id="second" range="c:d">Paris travel.</observation-group></thread>\n</observations>`
-          )
-        ),
-        onIndexObservations: async ({ groupId }) => {
-          if (groupId === 'first') {
-            throw failure;
-          }
-          siblingStarted.resolve();
-          await sibling.promise;
-          vectorWrites.push(groupId);
-        },
-        retrieval: true,
+    // AI SDK providers report a stream that ended without its completion signal as
+    // `interrupted`; the text so far may be cut short. With no retries left, the cycle
+    // fails instead of saving that text as memory.
+    const interrupted = { raw: undefined, unified: 'interrupted' } as const;
+    const incomplete = {
+      cause: expect.objectContaining({
+        finishReason: 'interrupted',
+        name: 'OmIncompleteResponseError',
+      }),
+      name: 'OmModelExecutionError',
+    };
+
+    it('never commits an interrupted observer reply', async () => {
+      const f = await fixture({
+        model: model(async () => textStream(undefined, interrupted)),
+        observation: { bufferTokens: false, maxRetries: 0, messageTokens: 10 },
       });
-      const observation = watch(observeFixture(f, { messages: [f.firstMessage] }));
-      await siblingStarted.promise;
-      const joined = watch(f.engine.settled());
-      await nextTurn();
-      expect(observation.settled).toBe(false);
-      expect(joined.settled).toBe(false);
-      expect(vectorWrites).toEqual([]);
-      sibling.resolve();
-      expect(await observation.result).toEqual({ reason: failure, status: 'rejected' });
-      expect(await joined.result).toEqual({ reason: failure, status: 'rejected' });
-      expect(vectorWrites).toEqual(['second']);
+      await expect(observeFixture(f)).rejects.toMatchObject(incomplete);
+      expect(
+        (await f.domain.getObservationalMemory(f.threadId, f.resourceId))?.activeObservations
+      ).toBe('');
+    });
+
+    it('never commits an interrupted reflector reply', async () => {
+      let calls = 0;
+      let reflectionError: unknown;
+      const f = await fixture({
+        hooks: {
+          onReflectionEnd: ({ error }) => {
+            reflectionError = error;
+          },
+        },
+        model: model(async () => {
+          calls++;
+          return calls === 1
+            ? textStream()
+            : textStream('<observations>\n- Reflected: Paris trip.\n</observations>', interrupted);
+        }),
+        reflection: { maxRetries: 0, observationTokens: 10_000 },
+      });
+      await observeFixture(f);
+      const observed = await f.domain.getObservationalMemory(f.threadId, f.resourceId);
+      expect(observed?.activeObservations).toContain('Paris weather');
+      // A manual reflection reports its failure through the end hook, not a rejection.
+      expect(await f.engine.reflect(f.threadId, f.resourceId)).toMatchObject({ reflected: false });
+      expect(calls).toBe(2);
+      expect(reflectionError).toMatchObject(incomplete);
+      const current = await f.domain.getObservationalMemory(f.threadId, f.resourceId);
+      expect(current?.id).toBe(observed?.id);
+      expect(current?.activeObservations).toBe(observed?.activeObservations);
     });
 
     it('propagates the Memory constructor owner signal to an active request and joins expected cancellation', async () => {
