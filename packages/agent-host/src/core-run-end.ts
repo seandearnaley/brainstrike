@@ -9,7 +9,7 @@ import { HostCommandSessionExits } from './core-command-exits.ts';
 import { joinHostThreadSettlements, settleHostRunOwner } from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
 import { hostRunTerminalEvents } from './hook-context.ts';
-import type { HostClientOrigin, HostCommandSessionExit, HostDelegation } from './ports.ts';
+import type { HostClientOrigin, HostDelegation } from './ports.ts';
 import type { HostChildDelivery, HostEvent, HostLogRow, HostParams } from './protocol.ts';
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
@@ -21,6 +21,10 @@ type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 
 /** Core's writer, admission and run owners, lent to a run's end. */
 export interface HostRunEndPorts {
+  /** Core's one admission queue. */
+  readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
+  /** Admit the wake run `HostChildRuns.wakeParams` chose. */
+  readonly admitWake: (wake: HostWake) => Promise<unknown>;
   readonly appendTerminal: (
     threadId: string,
     events: readonly HostEvent[],
@@ -34,13 +38,14 @@ export interface HostRunEndPorts {
   readonly presentations: Pick<HostThreadPresentationState, 'finishing' | 'settle'>;
   readonly read: (threadId: string) => Promise<HostLogRow[]>;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
+  readonly selections: Parameters<HostChildRuns['wakeParams']>[2];
   readonly startNextRun: (
     next: HostNextRun,
     origin: HostClientOrigin | undefined
   ) => Promise<boolean>;
-  /** Admit the thread's wake run, when its children or ended command sessions left it one. */
-  readonly wake: (threadId: string, exits: readonly HostCommandSessionExit[]) => Promise<void>;
 }
+
+type HostWake = NonNullable<ReturnType<HostChildRuns['wakeParams']>>;
 
 /**
  * A run's end. `run.finished` commits once the answer and the owner's
@@ -185,7 +190,15 @@ export class HostRunEnds {
       if (this.ports.closing() || this.ports.deletions.has(threadId)) {
         return;
       }
-      await this.ports.wake(threadId, this.exits.pending(threadId));
+      const { admitWake, children, runs, selections } = this.ports;
+      await this.ports.admit(threadId, async () => {
+        // Read in the queue: a wake admitted ahead of this one may have delivered it all.
+        const exited = this.exits.pending(threadId).length > 0;
+        const wake = children.wakeParams(threadId, runs(), selections, exited);
+        if (wake) {
+          await admitWake(wake);
+        }
+      });
     })().catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
   }
 }

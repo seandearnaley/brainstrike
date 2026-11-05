@@ -180,6 +180,9 @@ export class HostCore {
   private admission: Promise<void> = Promise.resolve();
   /** A run's end: its terminal commit, memory settlement, then the next run or wake. */
   private readonly ends = new HostRunEnds({
+    admit: (threadId, perform) => this.admit(threadId, perform),
+    admitWake: ({ origin, params }) =>
+      this.admitRun('wake', params, origin, () => hostStartPosition(this.runs.values(), params)),
     appendTerminal: (threadId, events, beforePublish) =>
       this.append(threadId, events, 'full', beforePublish),
     children: this.children,
@@ -190,16 +193,8 @@ export class HostCore {
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
     runs: () => this.runs,
+    selections: this.selections,
     startNextRun: (next, origin) => this.startNextRun(next, origin),
-    wake: (threadId, exits) =>
-      this.admit(threadId, async () => {
-        const wake = this.children.wakeParams(threadId, this.runs, this.selections, exits);
-        if (wake) {
-          await this.admitRun('wake', wake.params, wake.origin, () =>
-            hostStartPosition(this.runs.values(), this.rewinds.position(wake.params))
-          );
-        }
-      }),
   });
   /** The Artifacts gallery's canvas reads, across every thread Core holds. */
   readonly canvases = hostCanvases(this.records, this.children, this.threads);

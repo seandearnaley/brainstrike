@@ -484,13 +484,13 @@ export class HostChildRuns {
     selections: {
       forWake(threadId: string): HostRunSelection;
     },
-    /** Command sessions that ended by themselves, waiting for this thread. */
-    exits: readonly unknown[] = []
+    /** Whether command sessions that ended by themselves wait for this thread. */
+    exited: boolean
   ) {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
     const tip = own.at(-1);
     const pending = this.pending(threadId, runs, undefined, false);
-    if (!(tip && (pending || exits.length > 0)) || own.some((run) => !run.terminal)) {
+    if (!(tip && (pending || exited)) || own.some((run) => !run.terminal)) {
       return;
     }
     return {
