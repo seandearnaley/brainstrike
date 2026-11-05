@@ -10,24 +10,39 @@ vi.mock('../theme-provider', () => ({
 
 describe('ThemeSettings', () => {
   const setCodeFont = vi.fn();
+  const setCodeFontSize = vi.fn();
   const setCodeTheme = vi.fn();
+  const setCustomCodeFont = vi.fn();
   const setFont = vi.fn();
   const setMode = vi.fn();
+  const setMotion = vi.fn();
   const setTheme = vi.fn();
+  const setTranscriptTextSize = vi.fn();
+  const setTranscriptWidth = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     (useTheme as ReturnType<typeof vi.fn>).mockReturnValue({
       codeFont: 'geist-mono',
+      codeFontSize: null,
       codeTheme: 'classic',
+      customCodeFont: '',
       font: 'geist',
       mode: 'light',
+      motion: 'system',
       setCodeFont,
+      setCodeFontSize,
       setCodeTheme,
+      setCustomCodeFont,
       setFont,
       setMode,
+      setMotion,
       setTheme,
+      setTranscriptTextSize,
+      setTranscriptWidth,
       theme: 'brainstrike',
+      transcriptTextSize: 'medium',
+      transcriptWidth: 'wide',
     });
   });
 
@@ -66,8 +81,8 @@ describe('ThemeSettings', () => {
       expect(name).toBeTruthy();
       return name;
     });
-    // Four pickers, and no two share a group.
-    expect(new Set(groupNames).size).toBe(4);
+    // Eight pickers, and no two share a group.
+    expect(new Set(groupNames).size).toBe(8);
   });
 
   it.each([
@@ -86,6 +101,42 @@ describe('ThemeSettings', () => {
       expect(setter).toHaveBeenCalledWith(next);
     }
   );
+
+  it.each([
+    ['Transcript text size', 'Medium', 'Large', setTranscriptTextSize, 'large'],
+    ['Transcript width', 'Wide', 'Narrow', setTranscriptWidth, 'narrow'],
+    ['Motion', 'System', 'Reduced', setMotion, 'reduced'],
+    ['Code font size', 'Default', '15px', setCodeFontSize, 15],
+  ] as const)(
+    '%s shows the current choice and switches on click',
+    (label, active, next, setter, value) => {
+      render(<ThemeSettings />);
+      const group = within(screen.getByRole('radiogroup', { name: label }));
+      expect(group.getByRole('radio', { name: active })).toBeChecked();
+      fireEvent.click(group.getByRole('radio', { name: next }));
+      expect(setter).toHaveBeenCalledWith(value);
+    }
+  );
+
+  it("goes back to each surface's own code size when Default is picked", () => {
+    vi.mocked(useTheme).mockReturnValue({
+      ...vi.mocked(useTheme)(),
+      codeFontSize: 15,
+    });
+    render(<ThemeSettings />);
+    const group = within(screen.getByRole('radiogroup', { name: 'Code font size' }));
+    expect(group.getByRole('radio', { name: '15px' })).toBeChecked();
+    fireEvent.click(group.getByRole('radio', { name: 'Default' }));
+    expect(setCodeFontSize).toHaveBeenCalledWith(null);
+  });
+
+  it('saves a custom code font as it is typed', () => {
+    render(<ThemeSettings />);
+    fireEvent.change(screen.getByLabelText('Custom code font'), {
+      target: { value: 'Berkeley Mono' },
+    });
+    expect(setCustomCodeFont).toHaveBeenCalledWith('Berkeley Mono');
+  });
 
   it('previews each font in its own typeface', () => {
     render(<ThemeSettings />);

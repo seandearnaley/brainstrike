@@ -945,9 +945,18 @@ span.bs-composer-chip {
   padding-block: 0.625rem;
 }
 
+/* Transcript text size (Settings > Appearance): Medium is the 13px default. */
+:root[data-transcript-size="small"] {
+  --transcript-font-size: 0.75rem;
+}
+
+:root[data-transcript-size="large"] {
+  --transcript-font-size: 0.9375rem;
+}
+
 .aui-assistant-message-content,
 .aui-user-message-content {
-  font-size: 0.8125rem;
+  font-size: var(--transcript-font-size, 0.8125rem);
 }
 
 /* Button sizing */
@@ -968,6 +977,25 @@ span.bs-composer-chip {
     max-width: 48rem;
     margin-inline: auto;
   }
+}
+
+/**
+ * TRANSCRIPT WIDTH (Settings > Appearance). Wide is the rule above. Narrow caps
+ * messages at a reading column at every panel width; Full lets them span the
+ * panel even when it is wide. The `:root[data-…]` prefix outranks the
+ * container rule, so either choice wins over it.
+ */
+:root[data-transcript-width="narrow"]
+  .aui-thread-viewport
+  :where(.aui-user-message-root, .aui-assistant-message-root) {
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
+:root[data-transcript-width="full"]
+  .aui-thread-viewport
+  :where(.aui-user-message-root, .aui-assistant-message-root) {
+  max-width: none;
 }
 
 .bs-expandable-message {

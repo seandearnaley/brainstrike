@@ -7,6 +7,7 @@ import {
   // See __tests__/fast-refresh-hook-aliasing.test.ts.
   unstable_useThreadMessageIds as useThreadMessageIds,
 } from '@assistant-ui/react';
+import { prefersReducedMotion as prefersReducedMotionSetting } from '@brainstrike/ui';
 import { observeElementOffset, useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { ArrowDownIcon } from 'lucide-react';
 import {
@@ -116,8 +117,7 @@ const JUMP_TO_LATEST_PROPS = {
  * cannot push the target away mid-animation). So the option must be explicit —
  * which bypasses the CSS override — and the preference is honoured here.
  */
-const prefersReducedMotion = (): boolean =>
-  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const prefersReducedMotion = (): boolean => prefersReducedMotionSetting();
 
 /**
  * Positioning context for the scroller + its floating affordance, and the one

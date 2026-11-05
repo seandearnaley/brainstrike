@@ -67,3 +67,51 @@ export function fontFamily(id: FontId): string {
 export function codeFontFamily(id: CodeFontId): string {
   return familyOf(CODE_FONTS, id);
 }
+
+/**
+ * Code font sizes in px. Unset means each code surface keeps its own built-in
+ * size (13px in the editor, diffs and terminal; a little smaller than the
+ * prose in chat); a chosen size applies to all of them.
+ */
+export const CODE_FONT_SIZES = [11, 12, 13, 14, 15, 16, 18] as const;
+export type CodeFontSize = (typeof CODE_FONT_SIZES)[number];
+/** What the terminal uses while no size is chosen, matching the editor. */
+export const DEFAULT_TERMINAL_FONT_SIZE = 13;
+
+export function isCodeFontSize(value: unknown): value is CodeFontSize {
+  return typeof value === 'number' && (CODE_FONT_SIZES as readonly number[]).includes(value);
+}
+
+/** Longest custom font name kept; a real family name is far shorter. */
+const CUSTOM_FONT_MAX_LENGTH = 64;
+
+/**
+ * A font the user typed, reduced to a bare family name: the characters that
+ * could end the quoted name or the declaration are dropped, so the value can
+ * only ever name a font.
+ */
+export function cleanCustomFontName(value: string): string {
+  return value
+    .replace(/["'`;{}\\<>]/gu, '')
+    .trim()
+    .slice(0, CUSTOM_FONT_MAX_LENGTH);
+}
+
+/**
+ * A saved custom font is kept as typed, so the field shows what the user
+ * wrote; {@link codeFontStack} cleans it each time it is used.
+ */
+export function isCustomFontName(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= CUSTOM_FONT_MAX_LENGTH * 4;
+}
+
+/**
+ * The whole code font stack: the user's own installed font first when they
+ * named one, then the chosen bundled font, so a misspelled or missing custom
+ * font still lands on a monospace face.
+ */
+export function codeFontStack(id: CodeFontId, customFont?: string): string {
+  const bundled = codeFontFamily(id);
+  const custom = customFont ? cleanCustomFontName(customFont) : '';
+  return custom ? `"${custom}", ${bundled}` : bundled;
+}
