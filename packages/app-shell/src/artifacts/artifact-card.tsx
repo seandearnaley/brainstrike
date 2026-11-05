@@ -62,8 +62,12 @@ export function ArtifactCard({
           version={artifact.version}
         />
         <span className="border-border flex min-w-0 flex-col gap-0.5 border-t px-3 py-2">
-          <span className="text-foreground truncate text-sm font-medium">{title}</span>
-          <span className="text-muted-foreground truncate text-xs">{threadLabel}</span>
+          <span className="text-foreground truncate text-sm font-medium" title={title}>
+            {title}
+          </span>
+          <span className="text-muted-foreground truncate text-xs" title={threadLabel}>
+            {threadLabel}
+          </span>
           <span className="text-muted-foreground truncate text-xs tabular-nums">
             v{artifact.version} · {updatedLabel}
           </span>

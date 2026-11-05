@@ -28,6 +28,7 @@ import {
   CopyTextButton,
   cn,
   EmptyState,
+  ErrorNotice,
   saveDownload,
   Tabs,
   TabsList,
@@ -116,7 +117,7 @@ function ContextRingBar({
         />
         {filesTokens !== null && (
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-blue-600 dark:bg-blue-400"
+            className="bg-info absolute inset-y-0 left-0 rounded-full"
             style={{ width: percentOf(Math.min(filesTokens, ring.usedTokens), ring.budgetTokens) }}
             title="Workspace files in the window"
           />
@@ -247,9 +248,7 @@ function LaneChips({
         </TabsList>
       </Tabs>
       {listError !== undefined && (
-        <p className="text-destructive text-xs" role="alert">
-          Subagents could not be listed: {listError}
-        </p>
+        <ErrorNotice message={`Subagents could not be listed: ${listError}`} />
       )}
     </div>
   );
@@ -542,18 +541,11 @@ function LaneError({
   readonly onRetry: () => void;
 }): ReactElement {
   return (
-    <div
-      className="text-destructive flex flex-wrap items-center gap-2 text-xs"
+    <ErrorNotice
       data-testid="context-map-lane-error"
-      role="alert"
-    >
-      <span>
-        {callSign}'s log could not be read: {message}
-      </span>
-      <Button className="h-6 text-xs" onClick={onRetry} size="sm" variant="outline">
-        Retry
-      </Button>
-    </div>
+      message={`${callSign}'s log could not be read: ${message}`}
+      onRetry={onRetry}
+    />
   );
 }
 

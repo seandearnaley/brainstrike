@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Unplug } from 'lucide-react';
 import type * as React from 'react';
 
 export interface RootSectionHeaderProps {
@@ -159,15 +159,22 @@ export const RootSectionHeader = ({
       </button>
       {statusControl && <span className="mr-1 flex shrink-0 items-center">{statusControl}</span>}
       {onDisconnect && (
-        <button
-          aria-label="Disconnect folder"
-          className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring mr-1 shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:outline-hidden"
-          data-testid="root-section-disconnect"
-          onClick={onDisconnect}
-          type="button"
-        >
-          <X className="h-3 w-3" />
-        </button>
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label="Disconnect folder"
+                className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring mr-1 shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:outline-hidden"
+                data-testid="root-section-disconnect"
+                onClick={onDisconnect}
+                type="button"
+              >
+                <Unplug aria-hidden="true" className="size-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Disconnect folder</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
     </div>
   );

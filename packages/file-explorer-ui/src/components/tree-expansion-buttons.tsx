@@ -56,13 +56,13 @@ export const TreeExpansionButtons = React.memo(
               data-testid="expand-all-button-small"
               disabled={disabled.expand}
               onClick={onExpandAll}
-              size="icon"
+              size="icon-xs"
               variant="ghost"
             >
               {isExpandingAll ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
               ) : (
-                <ChevronsUpDown className="h-4 w-4" />
+                <ChevronsUpDown className="size-4" />
               )}
             </Button>
           </TooltipTrigger>
@@ -78,10 +78,10 @@ export const TreeExpansionButtons = React.memo(
               data-testid="collapse-all-button-small"
               disabled={disabled.collapse}
               onClick={onCollapseAll}
-              size="icon"
+              size="icon-xs"
               variant="ghost"
             >
-              <ChevronsDownUp className="h-4 w-4" />
+              <ChevronsDownUp className="size-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">

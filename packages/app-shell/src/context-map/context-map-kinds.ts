@@ -24,24 +24,27 @@ export const KIND_LABEL: Readonly<Record<ContextSpanKind, string>> = {
  * - Hatched (`GONE_FILL_CLASS`): `opacity-70` lets 30% of the muted track
  *   through, so the rendered fill is weaker than its own utility — about 40%
  *   weaker here. Measured against the real track token in all four theme
- *   modes, the tightest is 3.11:1 (`read`, high-contrast dark) against the 3:1
- *   WCAG 1.4.11 non-text floor. Re-measure both states when a value changes.
+ *   modes with the semantic tokens, the tightest is 3.22:1 (`edit`, light)
+ *   against the 3:1 WCAG 1.4.11 non-text floor. Re-measure both states when a
+ *   value changes.
  *
  * #3639 claimed every fill cleared 4.8:1 against the track. It measured the
  * solid swatch only: composited, `dark:text-pink-400` was 2.96:1 and
  * `dark:text-purple-400` 2.98:1 in high-contrast dark, so both moved up a step
  * rather than weakening the opacity, which is doing visual work for this state.
  *
- * Warning hues go through the measured `--warning` token rather than a raw
- * amber, which is where this first drifted: amber-600 sat at 2.80:1 on the light
- * track and 2.55:1 in high contrast. Every cell also names its kind in its title
- * and the lens table.
+ * Status hues go through the measured semantic tokens (`--success`, `--info`,
+ * `--warning`) rather than raw palette steps, so a custom palette and high
+ * contrast reach them; a raw amber is where this first drifted: amber-600 sat
+ * at 2.80:1 on the light track and 2.55:1 in high contrast. `pinned` has no
+ * semantic token and keeps its measured pink. Every cell also names its kind in
+ * its title and the lens table.
  */
 export const KIND_COLOR_CLASS: Readonly<Record<ContextSpanKind, string>> = {
-  edit: 'text-green-800 dark:text-green-500',
+  edit: 'text-success',
   grep: 'text-warning',
   pinned: 'text-pink-800 dark:text-pink-300',
-  read: 'text-blue-700 dark:text-blue-400',
+  read: 'text-info',
 };
 
 /** Seen, but no longer in the window: hatched in the kind's color. */

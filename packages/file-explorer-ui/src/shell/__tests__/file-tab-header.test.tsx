@@ -15,6 +15,7 @@ describe('FileTabHeader', () => {
     );
     expect(screen.getByText('readme.md')).toBeInTheDocument();
     expect(screen.getByText('/root/docs')).toBeInTheDocument();
+    expect(screen.getByTitle('/root/docs/readme.md')).toBeInTheDocument();
     expect(screen.queryByTestId('file-tab-mode-toggle')).not.toBeInTheDocument();
   });
 

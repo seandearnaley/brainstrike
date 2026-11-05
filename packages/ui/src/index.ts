@@ -29,6 +29,7 @@ export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';
 // Export ErrorBoundary
 export { default as ErrorBoundary } from './error-boundary';
 export * from './error-fallback';
+export * from './error-notice';
 export type { ExpandableTextareaProps } from './expandable-textarea';
 export { ExpandableTextarea } from './expandable-textarea';
 export * from './hooks';
@@ -50,6 +51,7 @@ export * from './loading-fallback';
 export { isMarkdownPath } from './markdown-surface/is-markdown-path';
 export * from './model-picker';
 export * from './navigation-sidebar';
+export * from './path-label';
 export * from './popover';
 export * from './progress';
 export type { PanelLayoutState } from './providers/panel-layout-provider';
