@@ -122,17 +122,26 @@ export function pinnedStatusArgs(pathspec: string): string[] {
 
 /**
  * A view entry's {@link ChangedFileEntry.revision}: a hash of its status,
- * rename source, counts and git's whole patch for it. Both engines use it,
- * so a files target names a file as the view drew it, and the host refuses
- * the file once the same listing reads differently.
+ * rename source, counts and git's whole patch for it, plus `identity`: what
+ * else names its content (git's blob ids, or a working-tree stamp). Both
+ * engines use it, so a files target names a file as the view drew it, and
+ * the host refuses the file once the same listing reads differently.
  */
 export function fileRevision(
   file: Pick<ChangedFileEntry, 'additions' | 'deletions' | 'status'> & {
+    readonly identity?: readonly string[] | undefined;
     readonly oldPath?: string | null | undefined;
     readonly patch: string | null;
   }
 ): string {
-  const drawn = [file.status, file.oldPath ?? null, file.additions, file.deletions, file.patch];
+  const drawn = [
+    file.status,
+    file.oldPath ?? null,
+    file.additions,
+    file.deletions,
+    file.patch,
+    file.identity ?? [],
+  ];
   return createHash('sha256').update(JSON.stringify(drawn)).digest('hex');
 }
 

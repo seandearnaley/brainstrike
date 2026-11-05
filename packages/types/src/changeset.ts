@@ -148,8 +148,9 @@ export interface ChangedFileEntry {
   readonly path: string;
   readonly repositoryRoot: string | null;
   /**
-   * Identity of what the view drew for this file: its status, counts and
-   * patch. A files target names it, and the host refuses the file once its
+   * Identity of what the view drew for this file: its status, counts, patch
+   * and git's blob ids, or its working-tree stat where no patch names its
+   * content. A files target names it, and the host refuses the file once its
    * entry reads differently.
    */
   readonly revision: string;

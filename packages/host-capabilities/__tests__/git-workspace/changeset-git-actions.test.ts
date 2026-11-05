@@ -5,7 +5,17 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -555,6 +565,27 @@ describe('a stale or unoffered target', () => {
     // As drawn, it applies.
     expect((await changes.apply('revert', unstaged, target)).ok).toBe(true);
     expect(git(dir, ['status', '--porcelain', '--untracked-files=all'])).toBe('');
+  });
+
+  it('a file the view draws no content for is refused once it is written again', async () => {
+    const dir = await repoWith({ 'f.txt': 'one\n' });
+    const bin = path.join(dir, 'new.bin');
+    await writeFile(bin, '\0one');
+    // Its first write, well before the view was drawn.
+    await utimes(bin, new Date(2020, 0, 1), new Date(2020, 0, 1));
+    const changes = changesIn(dir);
+    const unstaged = scope('unstaged', dir);
+    const target = await drawn(changes, unstaged, ['new.bin']);
+
+    // The same size, and no patch to compare: only its stat tells.
+    await writeFile(bin, '\0two');
+    const revert = await changes.apply('revert', unstaged, target);
+
+    expect(revert).toMatchObject({ error: { code: 'changeset.stale' }, ok: false });
+    expect(await readFile(bin, 'utf8')).toBe('\0two');
+    const redrawn = await drawn(changes, unstaged, ['new.bin']);
+    expect((await changes.apply('revert', unstaged, redrawn)).ok).toBe(true);
+    expect(existsSync(bin)).toBe(false);
   });
 
   it('a patch that no longer applies changes nothing', async () => {

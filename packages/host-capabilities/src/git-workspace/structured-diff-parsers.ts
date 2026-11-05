@@ -85,7 +85,10 @@ export function parseNumstatZ(output: string): readonly NumstatEntry[] {
 
 /** One record from `git diff --raw -z --no-abbrev [--find-renames]`. */
 export interface RawDiffRecord {
+  /** The new side's blob id; all zeros for a working-tree side git did not hash. */
+  readonly newId: string;
   readonly newMode: string;
+  readonly oldId: string;
   readonly oldMode: string;
   /** The source path of a rename or copy, null otherwise. */
   readonly oldPath: string | null;
@@ -95,7 +98,7 @@ export interface RawDiffRecord {
 }
 
 // `:<old mode> <new mode> <old id> <new id> <status>[<score>]`.
-const RAW_RECORD_PATTERN = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([A-Z])\d*$/u;
+const RAW_RECORD_PATTERN = /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])\d*$/u;
 
 /**
  * Parse `git diff --raw -z --no-abbrev [--find-renames]` output: each record
@@ -115,14 +118,22 @@ export function parseRawZ(output: string): readonly RawDiffRecord[] {
     if (!match) {
       throw new Error(`git diff --raw -z returned a malformed record "${record}"`);
     }
-    const [, oldMode = '', newMode = '', status = ''] = match;
+    const [, oldMode = '', newMode = '', oldId = '', newId = '', status = ''] = match;
     const paired = status === 'R' || status === 'C';
     const first = fields[index + 1];
     const second = paired ? fields[index + 2] : first;
     if (!(first && second)) {
       throw new Error(`git diff --raw -z returned record "${record}" without its paths`);
     }
-    records.push({ newMode, oldMode, oldPath: paired ? first : null, path: second, status });
+    records.push({
+      newId,
+      newMode,
+      oldId,
+      oldMode,
+      oldPath: paired ? first : null,
+      path: second,
+      status,
+    });
     index += paired ? 3 : 2;
   }
   return records;

@@ -15,7 +15,7 @@
  * reuse the W1 engine for per-file content.
  */
 
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createConcurrencyLimiter } from '@brainstrike/effect-kit';
@@ -311,19 +311,23 @@ async function resolveFullCommitId(
 
 interface ScopeChangeRecord {
   readonly additions: number | null;
+  /** Git's blob ids for both sides, from `--raw`; none for an untracked file. */
+  readonly blobs: readonly string[];
   readonly deletions: number | null;
   /** A submodule or embedded repository, mode 160000 on either side. */
   readonly gitlink: boolean;
   readonly oldPath: string | null;
   /** The file's whole patch, before the view's budget (`boundViewPatches`). */
   readonly patch: string | null;
+  /** True when git's patch for the file (a binary's included) names its content. */
+  readonly patchNamesContent: boolean;
   readonly path: string;
   /** {@link fileRevision} of the file as listed. */
   readonly revision: string;
   readonly status: ChangedFileStatus;
 }
 
-type ListedChange = Omit<ScopeChangeRecord, 'patch' | 'revision'>;
+type ListedChange = Omit<ScopeChangeRecord, 'patch' | 'patchNamesContent' | 'revision'>;
 
 /**
  * An untracked file's counts and patch, read through its own per-file diff,
@@ -369,7 +373,8 @@ function attachPatches(
     withPatches.push({
       ...record,
       patch: record.additions === null ? null : (section ?? null),
-      revision: fileRevision({ ...record, patch: section ?? null }),
+      patchNamesContent: section !== undefined,
+      revision: fileRevision({ ...record, identity: record.blobs, patch: section ?? null }),
     });
   }
   const [stray] = unclaimed;
@@ -492,6 +497,7 @@ async function listRefComparisonChanges(
     }
     records.push({
       additions: numstatEntry.additions,
+      blobs: [statusEntry.oldId, statusEntry.newId],
       deletions: numstatEntry.deletions,
       gitlink: statusEntry.oldMode === GITLINK_MODE || statusEntry.newMode === GITLINK_MODE,
       oldPath: mappedStatus === 'renamed' ? numstatEntry.oldPath : null,
@@ -541,10 +547,12 @@ async function listUntrackedChanges(
         const diff = index < UNTRACKED_VIEW_DIFFS ? await limit(() => readDiff(file.path)) : null;
         const listed = {
           additions: diff?.additions ?? null,
+          blobs: [],
           deletions: diff?.deletions ?? null,
           gitlink: false,
           oldPath: null,
           patch: diff?.patch ?? null,
+          patchNamesContent: (diff?.patch ?? null) !== null,
           path: file.path,
           status: 'untracked' as const,
         };
@@ -552,6 +560,51 @@ async function listUntrackedChanges(
       })
   );
   return { ok: true, value: records };
+}
+
+/**
+ * A working-tree file's stat as git's index keeps it: size, times, inode and
+ * mode. A file that is gone reads `absent`.
+ */
+async function worktreeStamp(cwd: string, file: string): Promise<string> {
+  try {
+    const stats = await lstat(path.join(cwd, file), { bigint: true });
+    return [stats.size, stats.mtimeNs, stats.ctimeNs, stats.ino, stats.mode].join(':');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return 'absent';
+    }
+    throw error;
+  }
+}
+
+/**
+ * A working-tree file no patch names the content of (an untracked binary, or
+ * a file past the view's limits) also names its stat, so newer content there
+ * reads differently even where git's listing would not.
+ */
+async function stampUndrawn(
+  cwd: string,
+  records: readonly ScopeChangeRecord[]
+): Promise<BoundaryResult<readonly ScopeChangeRecord[]>> {
+  try {
+    const stamped = await Promise.all(
+      records.map(async (record) =>
+        record.patchNamesContent
+          ? record
+          : {
+              ...record,
+              revision: fileRevision({
+                ...record,
+                identity: [record.revision, await worktreeStamp(cwd, record.path)],
+              }),
+            }
+      )
+    );
+    return { ok: true, value: stamped };
+  } catch (error) {
+    return gitUnexpected(`could not read a changed file's stat: ${String(error)}`);
+  }
 }
 
 /** A working-tree scope: the tracked changes against `oldTarget`, then the untracked files. */
@@ -678,11 +731,18 @@ export async function resolveGitScopeChangesetView(
     return cwdResult;
   }
   const invoke = createInvoke(cwdResult.value, deps.run);
-  const changesResult = await resolveScopeChanges(
+  const listed = await resolveScopeChanges(
     invoke,
     changeset.scope,
     untrackedDiffReader(cwdResult.value, deps.run)
   );
+  if (!listed.ok) {
+    return listed;
+  }
+  const changesResult =
+    changeset.scope.kind === 'unstaged' || changeset.scope.kind === 'uncommitted'
+      ? await stampUndrawn(cwdResult.value, listed.value)
+      : listed;
   if (!changesResult.ok) {
     return changesResult;
   }
