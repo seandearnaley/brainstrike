@@ -335,6 +335,13 @@
   }
 }
 
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
+  .bs-scroll-to-bottom {
+    transition: none;
+  }
+}
+
 .bs-composer-shell {
   flex-shrink: 0;
   border-top: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
@@ -945,9 +952,18 @@ span.bs-composer-chip {
   padding-block: 0.625rem;
 }
 
+/* Transcript text size (Settings > Appearance): Medium is the 13px default. */
+:root[data-transcript-size="small"] {
+  --transcript-font-size: 0.75rem;
+}
+
+:root[data-transcript-size="large"] {
+  --transcript-font-size: 0.9375rem;
+}
+
 .aui-assistant-message-content,
 .aui-user-message-content {
-  font-size: 0.8125rem;
+  font-size: var(--transcript-font-size, 0.8125rem);
 }
 
 /* Button sizing */
@@ -968,6 +984,31 @@ span.bs-composer-chip {
     max-width: 48rem;
     margin-inline: auto;
   }
+}
+
+/**
+ * TRANSCRIPT WIDTH (Settings > Appearance). Wide is the rule above. Narrow caps
+ * messages at a reading column at every panel width; Full lets them span the
+ * panel even when it is wide. The `:root[data-…]` prefix outranks the
+ * container rule, so either choice wins over it.
+ */
+:root[data-transcript-width="narrow"]
+  .aui-thread-viewport
+  :where(.aui-user-message-root, .aui-assistant-message-root) {
+  max-width: 40rem;
+  margin-inline: auto;
+}
+
+:root[data-transcript-width="full"]
+  .aui-thread-viewport
+  :where(
+    .aui-user-message-root,
+    .aui-assistant-message-root,
+    .aui-assistant-message-content,
+    .bs-chain-of-thought
+  ) {
+  /* The roots, and the reading caps (`max-w-2xl`) on a reply and its activity. */
+  max-width: none;
 }
 
 .bs-expandable-message {
@@ -1051,6 +1092,14 @@ span.bs-composer-chip {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-tool-timeline,
+  .assistant-ui-panel .bs-run-timeline {
+    animation: none;
+  }
+}
+
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
   .assistant-ui-panel .bs-tool-timeline,
   .assistant-ui-panel .bs-run-timeline {
     animation: none;
@@ -1295,6 +1344,13 @@ span.bs-composer-chip {
   }
 }
 
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
+  .assistant-ui-panel .bs-todo-progress-fill {
+    transition: none;
+  }
+}
+
 /**
  * ACTIVITY TRACE MOTION (phase 2). CSS-only by repo rule. Four primitives:
  * - .bs-trace-label: a keyed span that fades/slides in when its text changes
@@ -1452,6 +1508,19 @@ span.bs-composer-chip {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-trace-label,
+  .assistant-ui-panel .bs-trace-reveal {
+    animation: none;
+  }
+
+  .assistant-ui-panel .bs-trace-collapse,
+  .assistant-ui-panel .bs-trace-glyph {
+    transition: none;
+  }
+}
+
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
   .assistant-ui-panel .bs-trace-label,
   .assistant-ui-panel .bs-trace-reveal {
     animation: none;
@@ -1975,6 +2044,13 @@ span.bs-composer-chip {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-run-mark-running {
+    animation: none;
+  }
+}
+
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
   .assistant-ui-panel .bs-run-mark-running {
     animation: none;
   }
@@ -2558,6 +2634,38 @@ span.bs-composer-chip {
   }
 }
 
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
+  /* The two compound selectors are listed explicitly: the trace's live status
+     label matches all three classes at once, and the compound rules above are
+     (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
+     (0,2,0) — cannot reach it however late the block is declared. Drop either
+     and exactly one element keeps shimmering under a reduced-motion
+     preference. */
+  .assistant-ui-panel .bs-thinking-pulse,
+  .assistant-ui-panel .bs-thinking-core,
+  .assistant-ui-panel .bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label.bs-thinking-shimmer,
+  .assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
+    animation: none;
+  }
+
+  .assistant-ui-panel .bs-thinking-pulse {
+    opacity: 0.18;
+    transform: scale(1);
+  }
+
+  .assistant-ui-panel .bs-thinking-core {
+    opacity: 0.78;
+    transform: scale(1);
+  }
+
+  .assistant-ui-panel .bs-thinking-shimmer {
+    background: none;
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
+  }
+}
+
 @media (forced-colors: active) {
   .assistant-ui-panel .bs-thinking-shimmer {
     background: none;
@@ -2747,7 +2855,8 @@ span.bs-composer-chip {
   padding: 0.7rem 0.9rem;
   background: color-mix(in oklab, var(--color-muted) 60%, transparent);
   overflow-x: auto;
-  font-size: 0.82em;
+  /* Same size as the highlighted block (globals.css), so the swap keeps its metrics. */
+  font-size: var(--code-font-size, 0.82em);
   line-height: 1.55;
 }
 
@@ -2854,6 +2963,14 @@ span.bs-composer-chip {
  * once. The vendor stylesheet has no such rule.
  */
 @media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .aui-md [data-sd-animate],
+  .assistant-ui-panel .aui-md [data-sd-animate-marker]::marker {
+    animation: none;
+  }
+}
+
+/* The same, for Reduced motion picked in Settings > Appearance. */
+:root[data-motion="reduce"] {
   .assistant-ui-panel .aui-md [data-sd-animate],
   .assistant-ui-panel .aui-md [data-sd-animate-marker]::marker {
     animation: none;

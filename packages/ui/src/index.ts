@@ -42,7 +42,7 @@ export * from './layers';
 export * from './layout';
 export { useIdeFileEditor } from './layout/ide-layout';
 export { formatShortcut } from './lib/format-shortcut';
-export { prefersReducedMotion, smoothScrollBehavior } from './lib/motion';
+export * from './lib/motion';
 export * from './lib/panel-surface';
 export * from './lib/utils';
 export * from './lightweight-checkbox';

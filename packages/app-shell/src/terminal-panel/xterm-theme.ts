@@ -59,32 +59,20 @@ export const XTERM_LIGHT_THEME: ITheme = {
   yellow: '#949800',
 };
 
-/** Used only when the `--font-mono` token is unset (e.g. before ThemeProvider writes it). */
-export const XTERM_FALLBACK_FONT_FAMILY =
-  'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
-
 /** Contrast floor xterm enforces for every cell's foreground. */
 export const XTERM_MINIMUM_CONTRAST_RATIO = 4.5;
 
-export interface TerminalAppearance {
-  readonly fontFamily: string;
-  readonly theme: ITheme;
-}
-
 /**
- * The terminal's palette and font for the app theme currently applied to the
- * document: the light/dark class `ThemeProvider` writes on `<html>`, the
- * `--background` token painted behind `element`, and the `--font-mono` stack.
+ * The terminal's palette for the app theme currently applied to the document:
+ * the light/dark class `ThemeProvider` writes on `<html>` and the
+ * `--background` token painted behind `element`. The code font comes from
+ * `useCodeFont` in the session hook.
  */
-export function readTerminalAppearance(element: HTMLElement): TerminalAppearance {
+export function readTerminalTheme(element: HTMLElement): ITheme {
   const view = element.ownerDocument.defaultView;
   const style = view?.getComputedStyle(element);
   const dark = element.ownerDocument.documentElement.classList.contains('dark');
   const palette = dark ? XTERM_DARK_THEME : XTERM_LIGHT_THEME;
   const background = style?.getPropertyValue('--background').trim() ?? '';
-  const fontFamily = style?.getPropertyValue('--font-mono').trim() ?? '';
-  return {
-    fontFamily: fontFamily === '' ? XTERM_FALLBACK_FONT_FAMILY : fontFamily,
-    theme: background === '' ? palette : { ...palette, background, cursorAccent: background },
-  };
+  return background === '' ? palette : { ...palette, background, cursorAccent: background };
 }

@@ -1,9 +1,14 @@
 import { persistDurable } from '@brainstrike/storage';
 import {
   isCodeFontId,
+  isCodeFontSize,
   isCodeThemeId,
+  isCustomFontName,
   isFontId,
+  isMotionPreference,
   isThemeId,
+  isTranscriptTextSize,
+  isTranscriptWidth,
   type SavedAppearance,
   type ThemeMode,
 } from '@brainstrike/ui';
@@ -19,10 +24,15 @@ export const APPEARANCE_STORAGE_KEY = 'brainstrike:ui-appearance';
 
 const VALIDATORS: { readonly [Key in keyof SavedAppearance]-?: (value: unknown) => boolean } = {
   codeFont: isCodeFontId,
+  codeFontSize: isCodeFontSize,
   codeTheme: isCodeThemeId,
+  customCodeFont: isCustomFontName,
   font: isFontId,
   mode: isThemeMode,
+  motion: isMotionPreference,
   theme: isThemeId,
+  transcriptTextSize: isTranscriptTextSize,
+  transcriptWidth: isTranscriptWidth,
 };
 
 /**

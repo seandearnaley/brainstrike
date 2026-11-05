@@ -216,6 +216,21 @@
   }
 }
 
+/* The same, when the user picks Reduced motion in Settings > Appearance. */
+:root[data-motion="reduce"],
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
+  animation-duration: 0.01ms !important;
+  /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
+  animation-iteration-count: 1 !important;
+  /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
+  transition-duration: 0.01ms !important;
+  /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
+  scroll-behavior: auto !important;
+}
+
 /* Define animations for components like accordion */
 @keyframes accordion-down {
   from {
@@ -461,7 +476,8 @@
     margin: 0;
     padding: 0.7rem 0.9rem;
     overflow-x: auto;
-    font-size: 0.82em;
+    /* The chosen code font size (Settings > Appearance), else a step below the prose. */
+    font-size: var(--code-font-size, 0.82em);
     line-height: 1.55;
   }
 

@@ -1,6 +1,6 @@
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
-import { prefersReducedMotion, useToast } from '@brainstrike/ui';
+import { prefersReducedMotion, useCodeFont, useToast } from '@brainstrike/ui';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
@@ -12,7 +12,7 @@ import {
 } from '../roots/transient-root-error';
 import { useTerminalBridge } from '../workspace-terminal-services';
 import { SurrogateBuffer } from './surrogate-buffer';
-import { readTerminalAppearance, XTERM_MINIMUM_CONTRAST_RATIO } from './xterm-theme';
+import { readTerminalTheme, XTERM_MINIMUM_CONTRAST_RATIO } from './xterm-theme';
 
 const logger = createLogger('TerminalPanel');
 
@@ -78,6 +78,21 @@ export interface UseTerminalSessionResult {
 
 /** Min interval (ms) between resize→fit→bridge.resize commits while dragging. */
 const RESIZE_DEBOUNCE_MS = 100;
+
+/**
+ * The stack a terminal opens with. The chosen code font replaces it once that
+ * font has loaded (see the font effect in `useTerminalSession`): xterm measures
+ * its cells only when the font option changes, so opening on a font that is
+ * already available keeps the first measurement right.
+ */
+const OPENING_FONT_FAMILY =
+  'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
+
+/** The live terminal, for the font effect to restyle without restarting the shell. */
+interface LiveTerminal {
+  readonly refit: () => void;
+  readonly term: Terminal;
+}
 
 /** Every timer/subscription the lifecycle effect below can own, at the point cleanup runs. */
 interface TerminalSessionHandles {
@@ -164,6 +179,10 @@ export function useTerminalSession(
   // the silent boot-race retry loop is bounded. Reset on success, on a manual
   // restart, and when the focused root changes.
   const transientRetryCountRef = useRef(0);
+  const liveTerminalRef = useRef<LiveTerminal | null>(null);
+  // The code font and size from Settings > Appearance. xterm draws to a canvas
+  // and cannot read `--font-mono`, so the terminal takes them as options.
+  const { family: fontFamily, size: fontSize } = useCodeFont();
   const restart = () => {
     transientRetryCountRef.current = 0;
     setSessionId((id) => id + 1);
@@ -200,34 +219,30 @@ export function useTerminalSession(
     let offExit: (() => void) | null = null;
     let offInput: (() => void) | null = null;
 
-    const appearance = readTerminalAppearance(container);
+    let appliedTheme = readTerminalTheme(container);
     const term = new Terminal({
       convertEol: false,
       cursorBlink: !prefersReducedMotion(),
-      fontFamily: appearance.fontFamily,
+      fontFamily: OPENING_FONT_FAMILY,
       fontSize: 13,
       minimumContrastRatio: XTERM_MINIMUM_CONTRAST_RATIO,
       scrollback: 5000,
-      theme: appearance.theme,
+      theme: appliedTheme,
     });
-    // ThemeProvider writes the light/dark class, palette and font stack on
-    // <html>; repaint the terminal whenever any of them changes. The observer
-    // fires after the attribute lands, so the computed tokens are current.
-    let appliedAppearance = appearance;
+    // ThemeProvider writes the light/dark class and palette on <html>; repaint
+    // the terminal whenever either changes. The observer fires after the
+    // attribute lands, so the computed tokens are current.
     const appearanceObserver = new MutationObserver(() => {
-      const next = readTerminalAppearance(container);
+      const next = readTerminalTheme(container);
       // Palettes differ in foreground; a palette switch keeps the mode but
       // repaints `--background`.
       if (
-        next.theme.foreground !== appliedAppearance.theme.foreground ||
-        next.theme.background !== appliedAppearance.theme.background
+        next.foreground !== appliedTheme.foreground ||
+        next.background !== appliedTheme.background
       ) {
-        term.options.theme = next.theme;
+        term.options.theme = next;
+        appliedTheme = next;
       }
-      if (next.fontFamily !== appliedAppearance.fontFamily) {
-        term.options.fontFamily = next.fontFamily;
-      }
-      appliedAppearance = next;
     });
     appearanceObserver.observe(container.ownerDocument.documentElement, {
       attributeFilter: ['class', 'data-theme', 'style'],
@@ -243,6 +258,22 @@ export function useTerminalSession(
       // proposeDimensions can throw if the node is detached/zero-size; the
       // backend defaults (80x24) apply until the first ResizeObserver tick.
     }
+    liveTerminalRef.current = {
+      // A font change re-fits the grid and, once the pty exists, tells it the new size.
+      refit: () => {
+        try {
+          fitAddon.fit();
+        } catch {
+          return;
+        }
+        if (terminalId) {
+          void bridge
+            .resize({ cols: term.cols, rows: term.rows, terminalId })
+            .catch(warnBridgeRejection('resize'));
+        }
+      },
+      term,
+    };
 
     bridge
       .create({ cols: term.cols, rootId, rows: term.rows, ...(cwd === null ? {} : { cwd }) })
@@ -380,6 +411,7 @@ export function useTerminalSession(
     return () => {
       cancelled = true;
       appearanceObserver.disconnect();
+      liveTerminalRef.current = null;
       disposeTerminalSessionHandles({
         offData,
         offExit,
@@ -394,6 +426,36 @@ export function useTerminalSession(
       term.dispose();
     };
   }, [bridge, rootId, cwd, container, sessionId, sessionKey, toast]);
+
+  // The code font follows Settings > Appearance live, without restarting the
+  // shell. Declared after the lifecycle effect and keyed on the same inputs, so
+  // it also styles each new terminal right after that effect opens it. A
+  // bundled web font is loaded before it is applied, so xterm measures its
+  // cells with the real glyphs.
+  useEffect(() => {
+    const live = liveTerminalRef.current;
+    if (!live) {
+      return;
+    }
+    let cancelled = false;
+    const apply = () => {
+      if (cancelled) {
+        return;
+      }
+      live.term.options.fontFamily = fontFamily;
+      live.term.options.fontSize = fontSize;
+      live.refit();
+    };
+    if (typeof document.fonts?.load === 'function') {
+      // A font the device lacks still resolves (to no faces); apply either way.
+      document.fonts.load(`${fontSize}px ${fontFamily}`).then(apply, apply);
+    } else {
+      apply();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [fontFamily, fontSize, bridge, rootId, cwd, container, sessionId, sessionKey]);
 
   // Derive the displayed state during render (no effect mirror):
   //  - no bridge/root → idle;
