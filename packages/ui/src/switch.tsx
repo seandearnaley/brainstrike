@@ -12,7 +12,7 @@ const Switch = ({
 }) => (
   <SwitchPrimitives.Root
     className={cn(
-      'peer focus-visible:border-ring focus-visible:ring-ring/50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input dark:data-[state=unchecked]:bg-input/80 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-transparent shadow-xs outline-hidden transition-[background-color,border-color,box-shadow,opacity] focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50',
+      'peer focus-visible:border-ring focus-visible:ring-ring data-[state=checked]:bg-primary data-[state=unchecked]:bg-input dark:data-[state=unchecked]:bg-input/80 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-transparent shadow-xs outline-hidden transition-[background-color,border-color,box-shadow,opacity] focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
       className
     )}
     data-slot="switch"

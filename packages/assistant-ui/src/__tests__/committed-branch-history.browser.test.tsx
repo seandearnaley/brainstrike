@@ -183,9 +183,7 @@ test('Regenerate and Edit on a selected branch dispatch its committed user messa
   await settleFrames();
 
   await userEvent.hover(view.row(REGENERATED));
-  await press(
-    await within(view.row(REGENERATED)).findByRole('button', { name: 'Regenerate response' })
-  );
+  await press(await within(view.row(REGENERATED)).findByRole('button', { name: 'Retry' }));
   expect(actions.onReload).toHaveBeenCalledOnce();
   expect(actions.onReload).toHaveBeenCalledWith(SECOND_USER, expect.anything());
 

@@ -29,6 +29,8 @@ export function createWorkspaceInstructionsSettingsCategory(
       'system prompt',
       'conventions',
       'auto-inject',
+      'instruction files',
+      'inject workspace instructions',
     ],
     title: 'Workspace Instructions',
   };

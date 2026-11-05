@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   Button,
+  CopyTextButton,
   cn,
   DropdownMenu,
   DropdownMenuContent,
@@ -13,13 +14,17 @@ import {
 } from '@brainstrike/ui';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, ShieldCheck, Timer, X } from 'lucide-react';
 import { type CSSProperties, useId, useMemo, useState } from 'react';
+import { verbForTool } from './activity-verbs';
 import { agentColorStyle } from './agent-color-style';
 import { RISK_CATEGORY_GRANT_NOUN } from './approval-notice-status';
 import { approvalDepth } from './approval-presentation';
 import { ApprovalPreview } from './approval-preview';
 import { resolveApprovalPreviewPolicy } from './approval-preview-policy';
+import { resolveToolDisplayPolicy } from './assistant-detail-level.ts';
+import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
+import { extractPrimaryArg } from './tool-summaries';
 import type { ApprovalNoticeState } from './use-approval-notice-state';
 
 /**
@@ -29,12 +34,12 @@ import type { ApprovalNoticeState } from './use-approval-notice-state';
  * than inventing one.
  */
 const RISK_CATEGORY_REASON: Record<string, string> = {
-  edit: 'edit (modifies files or state)',
+  edit: 'Changes files or app state.',
   // "commands or code": run_python is execute-risk and runs code, not a
   // command — and the wider phrasing reads better for executeCommand too.
-  execute: 'execute (runs commands or code on your computer)',
-  mcp: 'external MCP tool',
-  read: 'read',
+  execute: 'Runs commands or code on your computer.',
+  mcp: 'Calls a tool on an external MCP server.',
+  read: 'Reads files or data.',
 };
 
 function resolveApprovalReason(approval: AssistantToolApprovalRequest): string | null {
@@ -42,7 +47,7 @@ function resolveApprovalReason(approval: AssistantToolApprovalRequest): string |
   if (typeof risk !== 'string') {
     return null;
   }
-  return RISK_CATEGORY_REASON[risk] ?? risk;
+  return RISK_CATEGORY_REASON[risk] ?? `Risk category: ${risk}.`;
 }
 
 /**
@@ -52,6 +57,43 @@ function resolveApprovalReason(approval: AssistantToolApprovalRequest): string |
  */
 function resolveGrantCategory(approval: AssistantToolApprovalRequest): ToolRiskCategory | null {
   return isToolRiskCategory(approval.riskCategory) ? approval.riskCategory : null;
+}
+
+interface ApprovalTitle {
+  /** The untruncated title, for the hover tooltip. */
+  readonly full: string;
+  /** The title already spells the tool id, so the card omits its id line. */
+  readonly namesTool: boolean;
+  readonly text: string;
+}
+
+/**
+ * "Run pnpm test?": the action asked for, in the verb's request form and with
+ * its target, read like `ApprovalRow`. A verb that takes no target reads alone
+ * ("List canvases?"); a call whose target has not arrived names the tool
+ * instead ("Allow brainstrike.executeCommand?"). An answered card keeps the
+ * title; its status chip says what became of the request.
+ */
+function resolveApprovalTitle(approval: AssistantToolApprovalRequest): ApprovalTitle {
+  const verb = verbForTool(approval.toolName, approval.args);
+  if (verb.namesTool) {
+    const text = `${verb.request}?`;
+    return { full: text, namesTool: true, text };
+  }
+  const target = extractPrimaryArg(approval.args, undefined, verb.targetArg);
+  if (target) {
+    return {
+      full: `${verb.request} ${target.full}?`,
+      namesTool: false,
+      text: `${verb.request} ${target.display}?`,
+    };
+  }
+  if (verb.targetArg === null) {
+    const text = `${verb.request}?`;
+    return { full: text, namesTool: false, text };
+  }
+  const text = `Allow ${approval.toolName}?`;
+  return { full: text, namesTool: true, text };
 }
 
 function formatJsonValue(value: unknown): string {
@@ -237,16 +279,21 @@ export function ApprovalCard({
   // second one. Every other tool's previewPolicy is null and unaffected.
   const previewPolicy = resolveApprovalPreviewPolicy(approval);
   const grantCategory = previewPolicy?.suppressGrants ? null : resolveGrantCategory(approval);
+  // The resume schema is plumbing; only the Developer detail level (raw I/O) shows it.
+  const { showRawIo } = resolveToolDisplayPolicy(useAssistantDetailLevel().detailLevel);
   const detailEntries = useMemo(
     () =>
       [
-        ['runId', approval.runId],
-        ['toolCallId', approval.toolCallId],
-        ['args', approval.args],
-        ['resumeSchema', approval.resumeSchema],
-      ].filter((entry): entry is [string, unknown] => entry[1] !== undefined),
-    [approval]
+        ['Run ID', approval.runId],
+        ['Call ID', approval.toolCallId],
+        ['Arguments', approval.args],
+        ['Resume schema', showRawIo ? approval.resumeSchema : undefined],
+      ]
+        .filter((entry): entry is [string, unknown] => entry[1] !== undefined)
+        .map(([label, value]): readonly [string, string] => [label, formatJsonValue(value)]),
+    [approval, showRawIo]
   );
+  const title = resolveApprovalTitle(approval);
   const nesting = resolveApprovalCardNesting(approval, presentation);
 
   return (
@@ -270,8 +317,8 @@ export function ApprovalCard({
         <div className="min-w-0">
           <p className="text-sm font-medium">
             <span className="inline-flex min-w-0 items-center gap-1.5">
-              <span className="truncate">
-                {state.decisionLocked ? 'Tool decision' : 'Tool approval required'}
+              <span className="truncate" title={title.full}>
+                {title.text}
               </span>
             </span>
             <span className="bs-approval-status ml-2 rounded-full border px-2 py-0.5 text-[10px]">
@@ -289,11 +336,11 @@ export function ApprovalCard({
               {ownerDisplayName ?? state.delegationOwner}
             </p>
           ) : null}
-          <p className="text-muted-foreground mt-1 truncate text-xs">{approval.toolName}</p>
+          {title.namesTool ? null : (
+            <p className="text-muted-foreground mt-1 truncate text-xs">{approval.toolName}</p>
+          )}
           {approvalReason && !state.decisionLocked ? (
-            <p className="bs-approval-reason mt-0.5 truncate text-xs">
-              Requires approval: {approvalReason}
-            </p>
+            <p className="bs-approval-reason mt-0.5 truncate text-xs">{approvalReason}</p>
           ) : null}
           <RediscoveredPauseLines display={state.rediscovered} />
           <ApprovalPreview approval={approval} showOtherArguments={presentation === 'review'} />
@@ -351,15 +398,16 @@ export function ApprovalCard({
         </Button>
       </div>
       {isExpanded ? (
-        <div className="border-t border-dashed border-amber-500/30 px-4 py-3" id={detailsId}>
-          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
-            {detailEntries.map(([key, value]) => (
-              <div className="contents" key={key}>
-                <dt className="text-muted-foreground font-medium">{key}</dt>
-                <dd className="text-foreground/90 min-w-0 break-words">
-                  <pre className="font-mono text-[11px] leading-4 whitespace-pre-wrap">
-                    {formatJsonValue(value)}
-                  </pre>
+        <div className="border-border border-t border-dashed px-4 py-3" id={detailsId}>
+          <dl className="grid grid-cols-[max-content_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 text-xs">
+            {detailEntries.map(([label, text]) => (
+              <div className="contents" key={label}>
+                <dt className="text-muted-foreground pt-1 font-medium">{label}</dt>
+                <dd className="text-foreground/90 min-w-0 pt-1 break-words">
+                  <pre className="font-mono text-[11px] leading-4 whitespace-pre-wrap">{text}</pre>
+                </dd>
+                <dd>
+                  <CopyTextButton ariaLabel={`Copy ${label}`} className="h-6 px-1.5" text={text} />
                 </dd>
               </div>
             ))}

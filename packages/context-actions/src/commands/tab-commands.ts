@@ -127,8 +127,8 @@ export function createTabCommands(getStrip: () => TabCommandStrip | undefined): 
             // The unique tab id is the palette item's value, never the label:
             // two open index.ts files must not select each other.
             id: `tab.go-to:${tab.id}`,
-            // The palette shows the first keyword as the item's hint.
-            ...(tab.detail ? { keywords: [tab.detail] } : {}),
+            // The detail is shown beside the label and searchable with it.
+            ...(tab.detail ? { detail: tab.detail, keywords: [tab.detail] } : {}),
             label: tab.label,
             run: withStrip((strip) => settleTabOperation(() => strip.activate(tab.id))),
           })

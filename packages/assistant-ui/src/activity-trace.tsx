@@ -410,6 +410,7 @@ export function ActivityTrace({
             failed={summary.counts.failed}
             marks={strip.marks}
             onPick={strip.onPick}
+            steps={summary.counts.steps}
           />
         ) : null}
       </div>

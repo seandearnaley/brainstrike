@@ -123,7 +123,7 @@ export function WorkspaceInstructionsSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Workspace instructions</CardTitle>
+        <CardTitle>Instruction files</CardTitle>
         <CardDescription>
           Automatically add each open workspace folder’s <code>AGENTS.md</code>,{' '}
           <code>AGENT.md</code>, or <code>CLAUDE.md</code> to the assistant’s context every turn. A

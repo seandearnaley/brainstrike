@@ -226,7 +226,7 @@ describe('LoggingSettingsSection', () => {
       },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /open destination/iu }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open log folder' }));
 
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith('/tmp/existing.log'));
     expect(toastSpy).toHaveBeenCalledWith(

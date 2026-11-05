@@ -23,6 +23,8 @@ export function createNotificationSettingsCategory(): SettingsCategory {
       'run finished',
       'run failed',
       'tool approval',
+      'enable notifications',
+      'notify me when',
     ],
     title: 'Notifications',
   };

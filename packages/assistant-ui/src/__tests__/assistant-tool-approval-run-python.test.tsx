@@ -299,8 +299,6 @@ describe('run_python approval card — fail-safe paths', () => {
 describe('run_python approval card — shared copy', () => {
   it('the execute reason line covers code, not only commands', () => {
     renderNotice(baseApproval, null);
-    expect(
-      screen.getByText(/requires approval: execute \(runs commands or code on your computer\)/iu)
-    ).toBeInTheDocument();
+    expect(screen.getByText('Runs commands or code on your computer.')).toBeInTheDocument();
   });
 });

@@ -195,10 +195,10 @@ export const TreeActionButtons = React.memo(
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}
-              size="icon"
+              size="icon-xs"
               variant="ghost"
             >
-              <RefreshCw className={cn('h-4 w-4', { 'animate-spin': isRefreshing })} />
+              <RefreshCw className={cn('size-4', { 'animate-spin': isRefreshing })} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>

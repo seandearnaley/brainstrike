@@ -8,6 +8,7 @@ import {
   Button,
   getProviderColor,
   ProviderIcon,
+  smoothScrollBehavior,
   TableCell,
   TableRow,
   TooltipIconButton,
@@ -218,7 +219,7 @@ export function CredentialRow({
   // biome-ignore lint/plugin: The scroll must follow the highlight PROPS changing — the trigger lives in a sibling section with no event this row can subscribe to — so reacting to the change is the correct tool, not an event handler.
   useEffect(() => {
     if (highlighted) {
-      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      rowRef.current?.scrollIntoView({ behavior: smoothScrollBehavior(), block: 'center' });
     }
   }, [highlighted, highlightNonce]);
   // biome-ignore lint/plugin: Focus restoration must follow EVERY close path — including non-local ones (save success, the slot becoming env on reload) that have no row-level event to hook — so reacting to the editing prop transition is the correct tool, not an event handler stand-in.

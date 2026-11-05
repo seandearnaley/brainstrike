@@ -170,7 +170,8 @@ export interface ActionServices {
 /** Menu group; determines ordering and separator placement. */
 export type ActionGroup = 'primary' | 'tree' | 'copy' | 'navigate' | 'inspect' | 'danger';
 
-export type ActionShortcutModifier = 'primary' | 'shift' | 'alt';
+/** `primary` is ⌘ on macOS and Ctrl elsewhere; `ctrl` is Control on every platform. */
+export type ActionShortcutModifier = 'primary' | 'ctrl' | 'shift' | 'alt';
 
 /**
  * Semantic shortcut metadata. Renderers translate `primary` to the platform's

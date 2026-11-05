@@ -3,7 +3,7 @@ import { countSelectedInDirectory } from '@brainstrike/file-explorer/selection';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
-import { ActionContextMenu, EmptyState, LightweightCheckbox } from '@brainstrike/ui';
+import { ActionContextMenu, EmptyState, ErrorNotice, LightweightCheckbox } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { DisconnectRootDialog } from '../components/disconnect-root-dialog';
@@ -122,27 +122,32 @@ const ErrorDisplay = ({
   treeError?: Error | null;
   filterError?: Error | null;
 }) => (
-  <div
-    className="m-2 rounded border border-red-400 bg-red-100 p-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900 dark:text-red-200"
-    role="alert"
-  >
-    <strong>Error: </strong>
-    {treeError?.message}
-    {filterError && ` ${filterError.message}`}
-  </div>
+  <ErrorNotice
+    className="m-2"
+    message={[treeError?.message, filterError?.message].filter(Boolean).join(' ')}
+  />
 );
 
-const EmptyStateComponent = ({
+/**
+ * The single-root tree's empty state says WHY it is empty, in the same words
+ * as a forest section: still loading, nothing matches the search, the view
+ * filters hide everything, or the folder really is empty.
+ */
+const SingleRootEmptyState = ({
+  isFilteredOut,
   isLoading,
 }: {
+  isFilteredOut: boolean;
   isLoading: boolean;
-  quickFilteredTree: IFileNode[] | null;
-  rootDirectoryHandle: DirectoryHandle | null;
-}) => (
-  <div className="text-muted-foreground py-8 text-center">
-    {isLoading ? 'Loading files…' : 'No matching files found'}
-  </div>
-);
+}) => {
+  const { includeFilters } = useActiveWorkspaceFilters();
+  const quickFilter = useFileExplorerStoreSelector((s) => s.quickFilter);
+  return (
+    <div className="text-muted-foreground px-4 py-8 text-center text-sm">
+      {treeEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
+    </div>
+  );
+};
 
 /** First few patterns + a count, e.g. "*.tsx, *.ts, *.js, +2 more". */
 function formatFilterHint(patterns: readonly string[]): string {
@@ -150,7 +155,7 @@ function formatFilterHint(patterns: readonly string[]): string {
   return patterns.length > 3 ? `${shown}, +${patterns.length - 3} more` : shown;
 }
 
-function forestEmptyStateMessage(args: {
+function treeEmptyStateMessage(args: {
   includeFilters: readonly string[];
   isFilteredOut: boolean;
   isLoading: boolean;
@@ -206,7 +211,7 @@ const ForestSectionEmptyState = ({
   }
   return (
     <div className="text-muted-foreground px-9 py-1.5 text-xs">
-      {forestEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
+      {treeEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
     </div>
   );
 };
@@ -1030,7 +1035,10 @@ const FileExplorerSidebar = memo(
               ref={singleRootMenuAnchorRef}
               tabIndex={-1}
             >
-              <span className="text-muted-foreground truncate text-xs">
+              <span
+                className="text-muted-foreground truncate text-xs"
+                title={rootDirectoryHandle.path}
+              >
                 {rootDirectoryHandle.name}
               </span>
               {singleRootFolderId ? <ThreadScopeMarker rootId={singleRootFolderId} /> : null}
@@ -1082,10 +1090,11 @@ const FileExplorerSidebar = memo(
                 showColumnHeader={hasExplorerSort || visibleMetadataColumnIds.length > 0}
               />
             ) : (
-              <EmptyStateComponent
+              <SingleRootEmptyState
+                // The filtered tree came back empty while the canonical one
+                // was not: the search or view filters hid everything.
+                isFilteredOut={isDisplayTreeFiltered === true}
                 isLoading={isLoading}
-                quickFilteredTree={singleRootTree}
-                rootDirectoryHandle={rootDirectoryHandle}
               />
             )}
           </div>

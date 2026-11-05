@@ -4,6 +4,7 @@ import {
   Breadcrumbs,
   CopyTextButton,
   cn,
+  PathLabel,
 } from '@brainstrike/ui';
 import { Code, Eye, PanelLeft } from 'lucide-react';
 
@@ -83,12 +84,14 @@ export function FileTabHeader({
             segments={breadcrumbs.segments}
           />
         ) : (
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate text-sm font-medium">{fileName}</span>
-            {directory ? (
-              <span className="text-muted-foreground truncate text-xs">{directory}</span>
-            ) : null}
-          </div>
+          // The file name stays whole; the folder loses its start first, so
+          // the nearest parent stays readable, and the full path is the title.
+          <PathLabel
+            className="gap-2 text-sm font-medium"
+            directory={directory}
+            directoryClassName="text-xs font-normal"
+            name={fileName}
+          />
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">

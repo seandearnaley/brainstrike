@@ -185,7 +185,7 @@ export function SkillsSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Agent Skills</CardTitle>
+        <CardTitle>Available skills</CardTitle>
         <CardDescription>
           Skills teach the assistant specialized workflows (following the Agent Skills spec). Add a
           skill as a <code>&lt;name&gt;/SKILL.md</code> folder under{' '}

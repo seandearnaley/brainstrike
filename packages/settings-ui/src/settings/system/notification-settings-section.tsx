@@ -101,7 +101,7 @@ export function NotificationSettingsSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Notifications</CardTitle>
+        <CardTitle>Desktop notifications</CardTitle>
         <CardDescription>
           Show a desktop notification when the assistant finishes a run, a run fails, or a tool
           needs your approval — only while this window is not focused. Off by default.

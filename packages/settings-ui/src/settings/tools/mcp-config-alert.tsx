@@ -77,7 +77,7 @@ export function McpConfigAlert({
             variant="outline"
           >
             <FolderOpen className="h-3 w-3" />
-            Select Config File
+            Select config file
           </Button>
           <Button
             className="h-7 gap-1.5 px-2.5 text-xs"
@@ -87,7 +87,7 @@ export function McpConfigAlert({
             variant="ghost"
           >
             <RotateCcw className="h-3 w-3" />
-            Reset to Default
+            Reset to default
           </Button>
           {onCreateSample && (
             <Button
@@ -98,7 +98,7 @@ export function McpConfigAlert({
               variant="ghost"
             >
               <FileJson className="h-3 w-3" />
-              Create Sample Config
+              Create sample config
             </Button>
           )}
         </div>

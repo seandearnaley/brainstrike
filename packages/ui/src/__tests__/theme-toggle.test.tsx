@@ -21,6 +21,57 @@ describe('ThemeToggle', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const stubSystemTheme = (dark: boolean) => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: dark,
+        media: '(prefers-color-scheme: dark)',
+        onchange: null,
+        removeEventListener: vi.fn(),
+      }))
+    );
+  };
+
+  it.each([
+    { dark: true, next: 'light' },
+    { dark: false, next: 'dark' },
+  ])(
+    'in System mode with a dark OS ($dark), one click switches to $next',
+    async ({ dark, next }) => {
+      const user = userEvent.setup();
+      stubSystemTheme(dark);
+      (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        mode: 'system',
+        setMode: mockSetMode,
+      });
+
+      renderThemeToggle();
+      const button = await screen.findByRole('button', { name: `Switch to ${next} mode` });
+      await user.click(button);
+
+      expect(mockSetMode).toHaveBeenCalledWith(next);
+    }
+  );
+
+  it('says it is following the system in System mode', async () => {
+    const user = userEvent.setup();
+    stubSystemTheme(true);
+    (useTheme as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      mode: 'system',
+      setMode: mockSetMode,
+    });
+
+    renderThemeToggle();
+    await user.hover(await screen.findByRole('button', { name: 'Switch to light mode' }));
+
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('Switch to light mode');
+    expect(tooltip).toHaveTextContent('Following system');
   });
 
   it('renders toggle button with correct aria-label for light mode', () => {

@@ -121,7 +121,7 @@ export function DiagnosticsStatusItem() {
       </span>
       <button
         aria-label={display.ariaLabel}
-        className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 shrink-0 cursor-pointer items-center overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset"
+        className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 shrink-0 cursor-pointer items-center overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-hidden focus-visible:ring-inset"
         data-testid="diagnostics-status-trigger"
         onClick={handleClick}
         type="button"

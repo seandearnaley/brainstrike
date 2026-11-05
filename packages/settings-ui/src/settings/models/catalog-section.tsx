@@ -146,7 +146,7 @@ export function CatalogSection({
           <button
             aria-controls={regionId}
             aria-expanded={expanded}
-            className="focus-visible:ring-ring/50 flex max-w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left outline-none focus-visible:ring-2"
+            className="focus-visible:ring-ring/50 flex max-w-full min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left outline-hidden focus-visible:ring-2"
             data-testid={`model-catalog-section-toggle-${providerId}`}
             onClick={() => onToggleSection(providerId)}
             type="button"

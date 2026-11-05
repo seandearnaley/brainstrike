@@ -24,10 +24,7 @@ function HighlightedText({ query, text }: { readonly query: string; readonly tex
     <>
       {highlightSegments(text, query).map((segment) =>
         segment.match ? (
-          <mark
-            className="rounded-[2px] bg-yellow-300/60 text-inherit dark:bg-yellow-400/30"
-            key={segment.start}
-          >
+          <mark className="bg-primary/20 rounded-[2px] text-inherit" key={segment.start}>
             {segment.text}
           </mark>
         ) : (
