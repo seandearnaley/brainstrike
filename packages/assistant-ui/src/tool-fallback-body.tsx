@@ -1,3 +1,4 @@
+import { CopyTextButton } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import type { ActivityStepState } from './activity-trace-model';
 import { CanvasLinkChip } from './canvas-link-chip';
@@ -150,6 +151,26 @@ function ToolDetailLabel({ children }: { children: ReactNode }) {
   );
 }
 
+/** A pane label with a Copy button for the pane's text, on one line. */
+function ToolDetailHeader({
+  children,
+  copyLabel,
+  text,
+}: {
+  readonly children: ReactNode;
+  readonly copyLabel: string;
+  readonly text: string;
+}) {
+  return (
+    <div className="mb-1 flex items-center justify-between gap-2">
+      <p className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
+        {children}
+      </p>
+      <CopyTextButton ariaLabel={copyLabel} className="h-6 px-1.5" text={text} />
+    </div>
+  );
+}
+
 /**
  * The expanded args/result panes, plus a developer-only metadata block.
  * Formats the arguments and result HERE (memoized) rather than in ToolFallback: this
@@ -190,22 +211,26 @@ function ToolDetailsPane({
           </dl>
         </div>
       ) : null}
-      {argsText ? (
+      {formattedArgs === undefined ? null : (
         <div className="px-2 py-1">
-          <ToolDetailLabel>Arguments:</ToolDetailLabel>
+          <ToolDetailHeader copyLabel="Copy arguments" text={formattedArgs}>
+            Arguments:
+          </ToolDetailHeader>
           <pre className="bg-muted/40 max-h-48 overflow-auto rounded p-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
             {formattedArgs}
           </pre>
         </div>
-      ) : null}
-      {hasResult && !isError ? (
+      )}
+      {formattedResult === undefined || isError ? null : (
         <div className="px-2 pb-2">
-          <ToolDetailLabel>Result:</ToolDetailLabel>
+          <ToolDetailHeader copyLabel="Copy result" text={formattedResult}>
+            Result:
+          </ToolDetailHeader>
           <pre className="bg-muted/40 max-h-64 overflow-auto rounded p-1.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
             {formattedResult}
           </pre>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

@@ -111,20 +111,62 @@ describe('WorktreeSettingsSection', () => {
     );
   });
 
-  it.each(['"', "'"])('rejects setup commands containing %s without saving', async (quote) => {
+  it.each(['"', "'"])('rejects setup commands containing %s as they are typed', async (quote) => {
     const user = userEvent.setup();
     const onSave = vi.fn(() => Promise.resolve());
     render(
       <WorktreeSettingsSection onSave={onSave} settings={SETTINGS} status={{ kind: 'ready' }} />
     );
     const command = screen.getByTestId('worktree-settings-setup-command');
-    await user.type(command, `sh -c ${quote}pnpm install${quote}`);
-    await user.click(screen.getByTestId('worktree-settings-save'));
+    await user.type(command, `sh -c ${quote}pnpm install`);
 
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Quoting is not supported. Each whitespace-separated token becomes one argument.'
     );
+    expect(screen.getByTestId('worktree-settings-save')).toBeDisabled();
+    await user.click(screen.getByTestId('worktree-settings-save'));
     expect(onSave).not.toHaveBeenCalled();
+
+    await user.clear(command);
+    await user.type(command, 'pnpm install');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByTestId('worktree-settings-save')).toBeEnabled();
+  });
+
+  it('offers Save only once something changed', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorktreeSettingsSection onSave={vi.fn()} settings={SETTINGS} status={{ kind: 'ready' }} />
+    );
+    const save = screen.getByTestId('worktree-settings-save');
+    expect(save).toBeDisabled();
+
+    await user.type(screen.getByTestId('worktree-settings-setup-command'), 'pnpm install');
+    expect(save).toBeEnabled();
+
+    await user.clear(screen.getByTestId('worktree-settings-setup-command'));
+    expect(save).toBeDisabled();
+  });
+
+  it('shows Saving… while the save runs, then Saved until the next edit', async () => {
+    const user = userEvent.setup();
+    const pending = Promise.withResolvers<void>();
+    const onSave = vi.fn(() => pending.promise);
+    render(
+      <WorktreeSettingsSection onSave={onSave} settings={SETTINGS} status={{ kind: 'ready' }} />
+    );
+    const command = screen.getByTestId('worktree-settings-setup-command');
+    await user.type(command, 'pnpm install');
+    await user.click(screen.getByTestId('worktree-settings-save'));
+
+    expect(screen.getByTestId('worktree-settings-save')).toHaveTextContent('Saving…');
+    expect(screen.queryByText('Saved')).toBeNull();
+    pending.resolve();
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved');
+    expect(screen.getByTestId('worktree-settings-save')).toHaveTextContent('Save');
+
+    await user.type(command, ' --frozen-lockfile');
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('shows the live whitespace-split argv preview', async () => {
@@ -164,6 +206,7 @@ describe('WorktreeSettingsSection', () => {
     render(
       <WorktreeSettingsSection onSave={onSave} settings={SETTINGS} status={{ kind: 'ready' }} />
     );
+    await user.type(screen.getByTestId('worktree-settings-directory'), '/inside');
     await user.click(screen.getByTestId('worktree-settings-save'));
     expect(await screen.findByTestId('worktree-settings-error')).toHaveTextContent(
       'must not live inside the granted folder'

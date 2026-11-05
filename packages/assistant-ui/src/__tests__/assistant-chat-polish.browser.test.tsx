@@ -519,7 +519,7 @@ describe('ActivityTrace (real browser)', () => {
     // animates its opacity, so there is nothing left to wait for and a wait
     // here would only hide a regression behind a 2s timeout.
     expect(screen.getByText('Read 2 files, searched')).toBeVisible();
-    expect(screen.getByText(/Worked for 12\.0s/u)).toBeVisible();
+    expect(screen.getByText(/Worked for 12s/u)).toBeVisible();
     expect(screen.getByText(/5 steps/u)).toBeVisible();
 
     // Auto-collapsed when done: the body is hidden (display:none via [hidden]).

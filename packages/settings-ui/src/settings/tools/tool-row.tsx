@@ -107,7 +107,7 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              className="hover:bg-muted/50 focus-visible:ring-ring flex-shrink-0 rounded p-0.5 focus-visible:ring-1 focus-visible:outline-none"
+              className="hover:bg-muted/50 focus-visible:ring-ring flex-shrink-0 rounded p-0.5 focus-visible:ring-1 focus-visible:outline-hidden"
               data-testid="requires-approval-icon"
               onClick={(e) => e.stopPropagation()}
               type="button"

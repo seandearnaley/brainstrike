@@ -184,7 +184,7 @@ function ThreadGroupRenameForm({
       <input
         aria-label="Group name"
         autoFocus
-        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-[13px] leading-4 outline-none focus-visible:ring-2"
+        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-[13px] leading-4 outline-hidden focus-visible:ring-2"
         onChange={(event) => {
           onDraftNameChange(event.target.value);
         }}

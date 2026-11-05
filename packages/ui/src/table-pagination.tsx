@@ -312,7 +312,7 @@ function RangeSummary({ shouldRenderRangeSummary, rangeSummary }: RangeSummaryPr
         <Tooltip>
           <TooltipTrigger asChild>
             <span
-              className="focus-visible:ring-ring/50 truncate rounded-sm outline-hidden focus-visible:ring-[3px]"
+              className="focus-visible:ring-ring truncate rounded-sm outline-hidden focus-visible:ring-2"
               // biome-ignore lint/a11y/noNoninteractiveTabindex: Range summary is a Radix tooltip trigger; focus enables keyboard tooltip access.
               tabIndex={0}
             >

@@ -218,32 +218,52 @@ export function resolveEffectiveObservationalMemorySettings(args: {
   };
 }
 
+/**
+ * Why the assistant cannot send yet, and, when a Settings page is the fix,
+ * that page: its category id (`#settings/{id}`) and the action's label. A
+ * reason the composer itself fixes (pick a provider or model) names none.
+ */
+export interface AssistantProviderNotice {
+  readonly message: string;
+  readonly settings?: { readonly categoryId: string; readonly label: string } | undefined;
+}
+
+const CONNECT_PROVIDER = { categoryId: 'providers', label: 'Connect a provider' } as const;
+const OPEN_PROVIDERS = { categoryId: 'providers', label: 'Open provider settings' } as const;
+const ENABLE_MODELS = { categoryId: 'model-catalog', label: 'Enable models' } as const;
+
 export function resolveAssistantProviderDisabledReason(args: {
   configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
   providerHasEnabledModels: (provider: SupportedProvider) => boolean;
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
   selectedProvider: SupportedProvider | null;
-}): string | undefined {
+}): AssistantProviderNotice | undefined {
   if (args.configuredProviders.length === 0) {
-    return 'Connect an AI provider in Settings → Providers to enable the assistant.';
+    return {
+      message: 'Connect an AI provider in Settings → Providers to enable the assistant.',
+      settings: CONNECT_PROVIDER,
+    };
   }
   if (!args.selectedProvider) {
-    return 'Select an AI provider to start chatting.';
+    return { message: 'Select an AI provider to start chatting.' };
   }
   const providerReadError = args.providerReadErrors?.[args.selectedProvider];
   if (providerReadError) {
-    return providerReadError;
+    return { message: providerReadError, settings: OPEN_PROVIDERS };
   }
   if (!args.configuredProviders.includes(args.selectedProvider)) {
-    return 'The selected provider is no longer configured.';
+    return { message: 'The selected provider is no longer configured.', settings: OPEN_PROVIDERS };
   }
   if (!args.providerHasEnabledModels(args.selectedProvider)) {
     const definition = getProviderDefinition(args.selectedProvider);
-    return `Enable at least one model for ${definition.displayName} to continue.`;
+    return {
+      message: `Enable at least one model for ${definition.displayName} to continue.`,
+      settings: ENABLE_MODELS,
+    };
   }
   if (!args.currentModel) {
-    return 'Select a model for the chosen provider to continue.';
+    return { message: 'Select a model for the chosen provider to continue.' };
   }
   return;
 }

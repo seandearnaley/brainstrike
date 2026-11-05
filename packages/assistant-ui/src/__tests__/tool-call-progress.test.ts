@@ -57,7 +57,7 @@ describe('describeToolCallProgress', () => {
     // that never streams argument text may leave it there for the whole run.
     expect(
       describeToolCallProgress({ argsByteLength: 0, argsStreaming: true, elapsedMs: 45_000 })
-    ).toBe('Running · 45.0s');
+    ).toBe('Running · 45s');
   });
 
   it('reads as plain running once the arguments are complete and the tool executes', () => {

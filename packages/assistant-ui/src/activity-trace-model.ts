@@ -50,7 +50,7 @@ export interface ActivitySummary {
    * `resting` on purpose: the header demotes the verb summary to a
    * `· <verbs>` meta segment when `Stopped`/`Activity failed` takes the
    * headline, and demoting `resting` there put the placeholder on screen as
-   * "Stopped after 4.0s · Worked · 1 step" (review finding 1).
+   * "Stopped after 4s · Worked · 1 step" (review finding 1).
    */
   readonly verbs: string | null;
   /**

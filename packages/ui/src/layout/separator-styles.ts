@@ -22,7 +22,7 @@ import { cn } from '../lib/utils';
  * pinned by a source-level test.
  */
 const SEPARATOR_BASE =
-  'z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+  'z-10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring';
 
 /**
  * The resize cursor, drawn by the separator itself (BST-2184).

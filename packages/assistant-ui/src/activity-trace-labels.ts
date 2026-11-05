@@ -48,18 +48,21 @@ export function headlineFor(phase: TracePhase, restingHeadline: string): string 
 }
 
 /**
- * The elapsed-meta text next to the headline; omitted entirely for `failed`.
- * There is no separator node between the meta spans (the visual gap is CSS),
- * so each segment carries its own: the done meta reads "· Worked for 12.0s"
- * like "· N steps" and "· N failed" beside it. Cancelled is the exception —
- * it continues its own headline, so it keeps a leading space and reads
- * "Stopped after 4.0s" as one phrase rather than "Stopped · after 4.0s".
+ * The elapsed-meta text next to the headline. There is no separator node
+ * between the meta spans (the visual gap is CSS), so each segment carries its
+ * own: the done meta reads "· Worked for 12s" like "· N steps" and "· N
+ * failed" beside it. Cancelled and failed are the exception — they continue
+ * their own headline, so they keep a leading space and read "Stopped after
+ * 4s" / "Activity failed after 8s" as one phrase rather than "Stopped · after
+ * 4s".
  */
 export function metaFor(phase: TracePhase, elapsedLabel: string | null): string | null {
-  if (!elapsedLabel || phase === 'failed') {
+  if (!elapsedLabel) {
     return null;
   }
-  return phase === 'cancelled' ? ` after ${elapsedLabel}` : `· Worked for ${elapsedLabel}`;
+  return phase === 'cancelled' || phase === 'failed'
+    ? ` after ${elapsedLabel}`
+    : `· Worked for ${elapsedLabel}`;
 }
 
 /**
@@ -67,9 +70,9 @@ export function metaFor(phase: TracePhase, elapsedLabel: string | null): string 
  * with `Stopped` / `Activity failed`, the verb summary that would otherwise
  * have been the headline is demoted to a `· <verb summary>` meta segment
  * instead of disappearing — so "Read 2 files, ran a script" is still visible
- * next to "Stopped after 4.0s". Takes the VERB SUMMARY (`summary.verbs`,
+ * next to "Stopped after 4s". Takes the VERB SUMMARY (`summary.verbs`,
  * null when no tool step settled), never `resting`: demoting the latter put
- * its `Worked`/`Thought` placeholder on screen as "Stopped after 4.0s ·
+ * its `Worked`/`Thought` placeholder on screen as "Stopped after 4s ·
  * Worked · 1 step" for the very groups this rule exists for (review
  * finding 1).
  */

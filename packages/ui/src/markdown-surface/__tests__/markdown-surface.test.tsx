@@ -179,6 +179,25 @@ describe('MarkdownSurface', () => {
     }
   });
 
+  it('jumps to an anchor without animating when the user asks for reduced motion', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      (query: string) =>
+        ({ matches: query === '(prefers-reduced-motion: reduce)' }) as unknown as MediaQueryList
+    );
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined);
+    try {
+      renderSurface('# Section\n\n[jump](#section)\n');
+      fireEvent.click(screen.getByRole('link', { name: 'jump' }));
+      expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }));
+    } finally {
+      scrollIntoView.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not throw or call onOpenLink for a malformed anchor', () => {
     const onOpenLink = vi.fn();
     renderSurface('[bad](#%)\n', { onOpenLink });

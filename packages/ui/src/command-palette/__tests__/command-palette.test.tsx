@@ -46,6 +46,7 @@ describe('CommandPalette', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('renders an accessible DialogTitle + Description (Radix requires them, unconditionally)', async () => {
@@ -106,6 +107,67 @@ describe('CommandPalette', () => {
       expect(screen.queryByText('Open Settings')).toBeNull();
     });
     expect(screen.getByText('New Thread')).toBeTruthy();
+  });
+
+  it('keeps keywords for search only, never as a hint beside the label', async () => {
+    render(
+      <CommandPalette
+        commands={[makeCommand({ id: 'thread.new', keywords: ['chat'], label: 'New thread' })]}
+        context={EMPTY_CONTEXT}
+        onOpenChange={() => {}}
+        open
+      />
+    );
+
+    const option = await screen.findByRole('option');
+    expect(option).toHaveTextContent(/^New thread$/u);
+  });
+
+  it.each([
+    { modifier: 'primary', platform: 'MacIntel', shown: '⌘,' },
+    { modifier: 'primary', platform: 'Win32', shown: 'Ctrl+,' },
+    { modifier: 'ctrl', platform: 'MacIntel', shown: '⌃,' },
+  ] as const)(
+    'shows a $modifier shortcut in $platform keycaps',
+    async ({ modifier, platform, shown }) => {
+      vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+      render(
+        <CommandPalette
+          commands={[
+            makeCommand({
+              id: 'nav.settings',
+              label: 'Open settings',
+              shortcut: { key: ',', modifiers: [modifier] },
+            }),
+          ]}
+          context={EMPTY_CONTEXT}
+          onOpenChange={() => {}}
+          open
+        />
+      );
+
+      const option = await screen.findByRole('option');
+      expect(option.querySelector('kbd')?.textContent).toBe(shown);
+    }
+  );
+
+  it('marks danger commands in the destructive colour', async () => {
+    render(
+      <CommandPalette
+        commands={[
+          makeCommand({ group: 'danger', id: 'thread.delete', label: 'Delete thread' }),
+          makeCommand({ group: 'thread', id: 'thread.new', label: 'New thread' }),
+        ]}
+        context={EMPTY_CONTEXT}
+        onOpenChange={() => {}}
+        open
+      />
+    );
+
+    expect(await screen.findByRole('option', { name: 'Delete thread' })).toHaveClass(
+      'text-destructive'
+    );
+    expect(screen.getByRole('option', { name: 'New thread' })).not.toHaveClass('text-destructive');
   });
 
   it('shows the empty state when nothing matches', async () => {
@@ -285,8 +347,8 @@ describe('CommandPalette', () => {
         label: 'Go to Tab…',
         page: () => ({
           commands: [
-            makeCommand({ id: 'tab.go-to:a', keywords: ['src/a'], label: 'index.ts', run: first }),
-            makeCommand({ id: 'tab.go-to:b', keywords: ['src/b'], label: 'index.ts', run: second }),
+            makeCommand({ detail: 'src/a', id: 'tab.go-to:a', label: 'index.ts', run: first }),
+            makeCommand({ detail: 'src/b', id: 'tab.go-to:b', label: 'index.ts', run: second }),
           ],
           heading: 'Tabs',
           placeholder: 'Go to tab…',

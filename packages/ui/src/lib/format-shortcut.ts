@@ -13,6 +13,9 @@ export function formatShortcut(shortcut: ActionShortcut): string {
       if (modifier === 'primary') {
         return '⌘';
       }
+      if (modifier === 'ctrl') {
+        return '⌃';
+      }
       if (modifier === 'shift') {
         return '⇧';
       }
@@ -21,7 +24,7 @@ export function formatShortcut(shortcut: ActionShortcut): string {
     return `${modifiers.join('')}${key}`;
   }
   const modifiers = shortcut.modifiers.map((modifier) => {
-    if (modifier === 'primary') {
+    if (modifier === 'primary' || modifier === 'ctrl') {
       return 'Ctrl';
     }
     if (modifier === 'shift') {

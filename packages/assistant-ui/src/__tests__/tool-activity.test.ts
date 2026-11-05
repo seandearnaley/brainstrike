@@ -117,4 +117,21 @@ describe('formatActivityDuration', () => {
     expect(formatActivityDuration(3400)).toBe('3.4s');
     expect(formatActivityDuration(72_000)).toBe('1m 12s');
   });
+
+  it('drops the trailing .0 on a whole number of seconds', () => {
+    expect(formatActivityDuration(8000)).toBe('8s');
+    expect(formatActivityDuration(12_040)).toBe('12s');
+  });
+
+  it('rounds to the displayed precision before splitting units', () => {
+    expect(formatActivityDuration(999.6)).toBe('1s');
+    expect(formatActivityDuration(59_970)).toBe('1m');
+    expect(formatActivityDuration(119_600)).toBe('2m');
+    expect(formatActivityDuration(89_500)).toBe('1m 30s');
+    expect(formatActivityDuration(1949)).toBe('1.9s');
+  });
+
+  it('never renders a negative duration', () => {
+    expect(formatActivityDuration(-5)).toBe('0ms');
+  });
 });

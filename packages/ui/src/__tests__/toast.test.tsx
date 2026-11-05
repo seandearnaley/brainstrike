@@ -92,7 +92,7 @@ describe('Toast Components', () => {
   });
 
   describe('ToastClose', () => {
-    it('renders close button with X icon', () => {
+    it('names the close button so screen readers announce what it does', () => {
       render(
         <TestProvider>
           <Toast>
@@ -100,7 +100,7 @@ describe('Toast Components', () => {
           </Toast>
         </TestProvider>
       );
-      const button = screen.getByRole('button', { name: '' });
+      const button = screen.getByRole('button', { name: 'Dismiss notification' });
       expect(button).toHaveAttribute('toast-close', '');
       expect(button).toHaveClass('absolute', 'right-2', 'top-2');
     });
@@ -181,8 +181,7 @@ describe('Toast Components', () => {
       expect(screen.getByText('This is a test notification')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Action' })).toBeInTheDocument();
 
-      // Find close button by attribute instead of role+name
-      const closeButton = screen.getByRole('button', { name: '' });
+      const closeButton = screen.getByRole('button', { name: 'Dismiss notification' });
       expect(closeButton).toHaveAttribute('toast-close');
     });
   });

@@ -61,7 +61,7 @@ const DialogOverlay = ({
   return (
     <DialogPrimitive.Overlay
       className={cn(
-        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=open]:animate-in fixed inset-0 bg-black/80',
+        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=open]:animate-in fixed inset-0 bg-[var(--scrim)]',
         layer.overlay,
         className
       )}

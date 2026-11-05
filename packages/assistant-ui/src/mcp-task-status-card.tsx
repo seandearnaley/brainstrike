@@ -289,7 +289,7 @@ export function McpTaskStatusCard({
           </h3>
           <div
             aria-live="polite"
-            className="text-muted-foreground focus-visible:ring-ring mt-1 flex items-center gap-1.5 text-xs outline-none focus-visible:ring-2"
+            className="text-muted-foreground focus-visible:ring-ring mt-1 flex items-center gap-1.5 text-xs outline-hidden focus-visible:ring-2"
             data-testid="mcp-task-status-summary"
             ref={summaryRef}
             role="status"
@@ -328,7 +328,7 @@ export function McpTaskStatusCard({
 
       {visibleActionState.diagnostic ? (
         <div
-          className="border-destructive/30 bg-destructive/5 text-destructive focus-visible:ring-ring mt-3 flex items-start gap-2 rounded-md border p-2 text-sm outline-none focus-visible:ring-2"
+          className="border-destructive/30 bg-destructive/5 text-destructive focus-visible:ring-ring mt-3 flex items-start gap-2 rounded-md border p-2 text-sm outline-hidden focus-visible:ring-2"
           ref={alertRef}
           role="alert"
           tabIndex={-1}
