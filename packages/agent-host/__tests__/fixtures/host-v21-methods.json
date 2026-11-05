@@ -7,6 +7,7 @@
     "canvas/list",
     "canvas/read",
     "changes/apply",
+    "changes/commits",
     "changes/file-diff",
     "changes/inventory",
     "changes/resolve-view",

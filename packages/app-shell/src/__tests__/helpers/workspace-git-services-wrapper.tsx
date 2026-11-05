@@ -26,6 +26,7 @@ export function workspaceGitWrapper(
 export function stubChangesBridge(overrides: Partial<ChangesBridge> = {}): ChangesBridge {
   return {
     apply: vi.fn(),
+    commits: vi.fn(),
     fileDiff: vi.fn(),
     inventory: vi.fn(),
     onInvalidated: vi.fn(() => () => undefined),

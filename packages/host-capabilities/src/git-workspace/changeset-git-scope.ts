@@ -195,7 +195,7 @@ export async function resolveContainedWorktreeCwd(
 
 /** `HEAD` is unborn (no commits yet) when `rev-parse --verify --quiet HEAD`
  * fails to resolve a commit. */
-async function isHeadUnborn(invoke: InvokeFn): Promise<boolean> {
+export async function isHeadUnborn(invoke: InvokeFn): Promise<boolean> {
   const run_ = await invoke(['rev-parse', '--verify', '--quiet', 'HEAD']);
   return run_.exitCode !== 0;
 }

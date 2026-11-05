@@ -24,6 +24,7 @@ function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
   const listeners: ((event: ChangesInvalidationEvent) => void)[] = [];
   bridge = {
     apply: vi.fn(),
+    commits: vi.fn(),
     fileDiff: vi.fn(),
     inventory: vi.fn(),
     onInvalidated,

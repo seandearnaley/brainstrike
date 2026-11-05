@@ -40,6 +40,7 @@ function fakeService(
 ) {
   return {
     apply: vi.fn(async () => ({ ok: true, value: { paths: ['a.txt'] } }) as const),
+    commits: vi.fn(async () => ({ ok: true, value: [] }) as const),
     fileDiff: overrides.fileDiff ?? vi.fn(async () => ({ ok: true, value: DIFF }) as const),
     resolveView: overrides.resolveView ?? vi.fn(async () => ({ ok: true, value: VIEW }) as const),
   };
