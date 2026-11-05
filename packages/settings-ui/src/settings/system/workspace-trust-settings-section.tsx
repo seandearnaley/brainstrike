@@ -12,6 +12,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ErrorNotice,
 } from '@brainstrike/ui';
 import { useEffect, useState } from 'react';
 import {
@@ -115,14 +116,7 @@ export function WorkspaceTrustSettingsSection({
         {list.kind === 'loading' ? (
           <p className="text-muted-foreground text-sm">Checking folders…</p>
         ) : null}
-        {list.kind === 'error' ? (
-          <div className="flex items-center justify-between gap-4" role="alert">
-            <p className="text-destructive text-sm">{list.message}</p>
-            <Button onClick={reload} size="sm" variant="outline">
-              Retry
-            </Button>
-          </div>
-        ) : null}
+        {list.kind === 'error' ? <ErrorNotice message={list.message} onRetry={reload} /> : null}
         {list.kind === 'ready' && list.roots.length === 0 ? (
           <p className="text-muted-foreground text-sm" data-testid="workspace-trust-no-roots">
             No folders are open. Open a folder to choose whether to trust it.

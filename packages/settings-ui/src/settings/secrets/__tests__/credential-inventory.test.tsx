@@ -62,6 +62,24 @@ vi.mock('@brainstrike/ui', () => ({
       {typeof text === 'function' ? text() : text}
     </button>
   ),
+  ErrorNotice: ({
+    message,
+    onRetry,
+    'data-testid': testId,
+  }: {
+    message: React.ReactNode;
+    onRetry?: () => void;
+    'data-testid'?: string;
+  }) => (
+    <div data-testid={testId} role="alert">
+      {message}
+      {onRetry ? (
+        <button onClick={onRetry} type="button">
+          Retry
+        </button>
+      ) : null}
+    </div>
+  ),
   getProviderColor: () => 'hsl(0, 0%, 50%)',
   Input: ({
     autoFocus,
@@ -274,6 +292,27 @@ describe('CredentialInventory', () => {
     });
     expect(screen.getAllByTestId(/^credential-row-/u)).toHaveLength(3);
     expect((screen.getByTestId('credential-set-openai') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('re-reads a failed listing on Retry and clears the banner', async () => {
+    const base = createSecretsApi();
+    setSecretsApi({
+      ...base,
+      list: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Environment file is malformed.'))
+        .mockResolvedValue([]),
+    });
+
+    render(<CredentialInventory />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-key-load-error')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => {
+      expect(screen.queryByTestId('provider-key-load-error')).toBeNull();
+    });
   });
 
   it('surfaces malformed fingerprint metadata as a visible failure, never guessed', async () => {

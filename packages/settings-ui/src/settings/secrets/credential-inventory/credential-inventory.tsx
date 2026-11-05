@@ -359,7 +359,10 @@ export function CredentialInventory({
 
   return (
     <div className="space-y-3">
-      <CredentialLoadError message={visibleErrors} />
+      <CredentialLoadError
+        message={visibleErrors}
+        onRetry={loadError === null ? undefined : () => void refresh()}
+      />
       {/* Auto layout: the column widths are preferences, never narrower than
           their content, so two row actions cannot spill over the Key column
           (a fixed 16% Actions column did at 1536px, BST-1981). */}
