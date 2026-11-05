@@ -17,7 +17,6 @@ import {
   type Chunk,
   childThreads,
   finished,
-  rowsUntil,
   setupChildRunHost,
   stream,
   text,
@@ -97,20 +96,26 @@ const wakeFor = (sessionId: string) => (row: HostLogRow) =>
   row.event.delivery?.via === 'wake' &&
   row.event.delivery.commandSessions?.some((session) => session.sessionId === sessionId) === true;
 
+/** The thread's committed rows once it and its workers have nothing left in flight. */
+async function quiet(harness: ChildRunHarness): Promise<HostLogRow[]> {
+  await harness.core().idle(harness.threadId);
+  return harness.core().read(harness.threadId, 0);
+}
+
 async function wakeRun(harness: ChildRunHarness) {
-  const rows = await rowsUntil(harness, harness.threadId, wakeFor('command-session-1'), 5000);
+  const rows = await quiet(harness);
   const started = rows.find(wakeFor('command-session-1'))?.event;
   if (started?.type !== 'run.started') {
     throw new Error('No wake reported the session');
   }
-  await rowsUntil(harness, harness.threadId, finished(started.runId), 5000);
+  expect(rows.some(finished(started.runId))).toBe(true);
   return started;
 }
 
 test('a session the root started that exits by itself wakes the root', async () => {
   const { exit, harness } = await exitHost();
-  const first = await harness.start('Run the tests in the background.');
-  await rowsUntil(harness, harness.threadId, finished(first), 5000);
+  await harness.start('Run the tests in the background.');
+  await quiet(harness);
 
   exit(harness.threadId);
 
@@ -138,8 +143,8 @@ test('a busy root hears a session that ended once its run ends', async () => {
   expect(during.filter((row) => row.event.type === 'run.started')).toHaveLength(1);
 
   release.resolve();
-  await rowsUntil(harness, harness.threadId, finished(busy), 5000);
-  await wakeRun(harness);
+  const wake = await wakeRun(harness);
+  expect(wake.parentMessageId).toBe(busy);
 });
 
 test("a Stop wakes nothing; the person's next turn carries the session", async () => {
@@ -150,10 +155,13 @@ test("a Stop wakes nothing; the person's next turn carries the session", async (
 
   await harness.core().stop({ commandId: randomUUID(), runId: busy, threadId: harness.threadId });
   release.resolve();
-  await rowsUntil(harness, harness.threadId, finished(busy), 5000);
+  // Nothing woke: once the thread is quiet, the stopped run is its only run.
+  const stopped = await quiet(harness);
+  expect(stopped.filter((row) => row.event.type === 'run.started')).toHaveLength(1);
+  expect(stopped.some(finished(busy))).toBe(true);
 
   const next = await harness.start('Is the build done?');
-  const rows = await rowsUntil(harness, harness.threadId, finished(next), 5000);
+  const rows = await quiet(harness);
   const started = rows.filter((row) => row.event.type === 'run.started').map((row) => row.event);
   expect(started).toHaveLength(2);
   expect(started[1]).toMatchObject({
@@ -169,19 +177,13 @@ test("a Stop wakes nothing; the person's next turn carries the session", async (
 
 test('a worker that returned hands its session to the parent', async () => {
   const { exit, harness } = await exitHost();
-  const first = await harness.start('DELEGATE the build.');
-  await rowsUntil(harness, harness.threadId, finished(first), 5000);
+  await harness.start('DELEGATE the build.');
+  // The worker returns, and the parent's wake for its result ends.
+  await quiet(harness);
   const [child] = await childThreads(harness);
   if (!child) {
     throw new Error('No worker was delegated');
   }
-  // The worker returns, and the parent's wake for its result ends.
-  await rowsUntil(
-    harness,
-    harness.threadId,
-    (row) => row.event.type === 'run.finished' && row.event.runId !== first,
-    5000
-  );
 
   exit(child);
 

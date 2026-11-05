@@ -74,8 +74,10 @@ test('a later wake of the same turn names an earlier worker without re-sending i
   };
   await expect.poll(async () => (await finishedWakes()).length, { timeout: 10_000 }).toBe(1);
   slow.resolve();
-  await expect.poll(async () => (await finishedWakes()).length, { timeout: 10_000 }).toBe(2);
-  const [first = '', second = ''] = await finishedWakes();
+  await harness.core().idle(harness.threadId);
+  const wakes = await finishedWakes();
+  expect(wakes).toHaveLength(2);
+  const [first = '', second = ''] = wakes;
 
   // The wake that first delivers the fast worker carries its whole report.
   expect(first).toContain(FAST_REPORT);
