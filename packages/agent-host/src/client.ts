@@ -14,6 +14,7 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
+import { jsonRpcLogger } from './boundary-wire.ts';
 import { authenticateHostClient, type HostClient } from './client-connection.ts';
 import { closeReceivedConnection } from './client-receive-lifetime.ts';
 import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
@@ -90,7 +91,11 @@ async function connectAgentHost(
         receivedFailures.add(cause);
       }
     });
-    connection = createMessageConnection(reader, new StreamMessageWriter(socket));
+    connection = createMessageConnection(
+      reader,
+      new StreamMessageWriter(socket),
+      jsonRpcLogger('AgentHostClient')
+    );
     return await authenticateHostClient(connection, record, close, completion.promise);
   } catch (cause) {
     socket.destroy();

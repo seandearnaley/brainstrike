@@ -70,7 +70,7 @@ function scriptedClient(
     request: (async (method: HostMethod, params: unknown) => {
       requests.push({ method, params });
       if (method === 'log/subscribe') {
-        return { rows, telemetry: [] };
+        return { rows, subscriptionId: 'subscription-1', telemetry: [] };
       }
       if (method === 'log/unsubscribe') {
         return { unsubscribed: true };
