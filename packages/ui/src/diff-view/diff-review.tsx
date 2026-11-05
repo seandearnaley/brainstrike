@@ -113,6 +113,11 @@ export interface DiffReviewProps {
   /** Every file starts folded to its header. */
   readonly defaultCollapsed?: boolean | undefined;
   readonly diffStyle: 'split' | 'unified';
+  /**
+   * Wraps a file's header, as in the menu its right-click opens. Only the
+   * header takes it, so a right-click on the lines stays the page's own.
+   */
+  readonly fileMenu?: ((file: DiffReviewFile, header: ReactElement) => ReactElement) | undefined;
   readonly files: readonly DiffReviewFile[];
   /** One file's diff with both sides; rejects with why it could not load. */
   readonly loadFile: (id: string) => Promise<StructuredFileDiff>;
@@ -123,8 +128,6 @@ export interface DiffReviewProps {
   /** Saves a new or edited comment. Without it the diff takes none. */
   readonly onComment?: ((comment: DiffComment) => void) | undefined;
   readonly onDeleteComment?: ((id: string) => void) | undefined;
-  /** A right-click on a file's header. */
-  readonly onFileContextMenu?: ((file: DiffReviewFile) => void) | undefined;
   /**
    * Opens a file at a line of its new version, from a click on that line's
    * number. Without it line numbers do nothing.
@@ -166,6 +169,7 @@ interface LoadedFile {
 
 const NO_ACTIONS: readonly ChangesAction[] = [];
 const NO_COMMENTS: readonly DiffComment[] = [];
+const NO_FOLDS: ReadonlyMap<string, boolean> = new Map();
 const NO_IDS: ReadonlySet<string> = new Set();
 const NO_VIEWED: ReadonlyMap<string, string> = new Map();
 const NO_LOADED: ReadonlyMap<string, LoadedFile> = new Map();
@@ -393,7 +397,6 @@ function FileHeader({
   loadedFile,
   loading,
   onAction,
-  onContextMenu,
   onToggle,
   onViewed,
   open,
@@ -407,7 +410,6 @@ function FileHeader({
   readonly loadedFile: LoadedFile | undefined;
   readonly loading: boolean;
   readonly onAction: (action: ChangesAction) => void;
-  readonly onContextMenu: (() => void) | undefined;
   readonly onToggle: () => void;
   readonly onViewed: ((viewed: boolean) => void) | undefined;
   readonly open: boolean;
@@ -420,11 +422,9 @@ function FileHeader({
     </span>
   );
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/noNoninteractiveElementInteractions: the menu key on the header's own controls bubbles here; the header takes no focus itself.
     <div
       className="border-border bg-background flex h-11 items-center gap-2 border-b px-2 font-sans text-xs"
       data-testid="diff-review-file-header"
-      onContextMenu={onContextMenu}
     >
       {expandable ? (
         <button
@@ -491,12 +491,12 @@ export function DiffReview({
   comments = NO_COMMENTS,
   defaultCollapsed = false,
   diffStyle,
+  fileMenu,
   files,
   loadFile,
   onAction,
   onComment,
   onDeleteComment,
-  onFileContextMenu,
   onOpenLine,
   onViewed,
   ref,
@@ -505,8 +505,11 @@ export function DiffReview({
   const appearance = useDiffAppearance();
   const viewer = useRef<CodeViewHandle<Note, undefined> | null>(null);
   const [cache] = useState(() => new ReviewItems());
-  /** Files a person opened or folded away from where they start. */
-  const [toggledIds, setToggledIds] = useState(NO_IDS);
+  /**
+   * Whether a person folded (true) or opened each file they toggled. The rest
+   * sit where they start, so a refresh never flips a file a person chose.
+   */
+  const [folds, setFolds] = useState(NO_FOLDS);
   const [loadingIds, setLoadingIds] = useState(NO_IDS);
   const [loaded, setLoaded] = useState(NO_LOADED);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -527,13 +530,15 @@ export function DiffReview({
   const actionable = onAction !== undefined;
 
   const isViewed = (file: DiffReviewFile): boolean => viewed.get(file.id) === file.revision;
-  /** Where a file starts before a person folds or opens it: viewed files start folded. */
-  const startsFolded = (file: DiffReviewFile): boolean => defaultCollapsed || isViewed(file);
   const fold = (file: DiffReviewFile, folded: boolean): void =>
-    setToggledIds((current) => toggled(current, file.id, folded !== startsFolded(file)));
+    setFolds((current) => new Map(current).set(file.id, folded));
   const markViewed = (file: DiffReviewFile, marked: boolean): void => {
-    // Marking folds the file and unmarking opens it, from where it now starts.
-    setToggledIds((current) => toggled(current, file.id, false));
+    // Marking folds the file and unmarking opens it: it goes back to where it starts.
+    setFolds((current) => {
+      const next = new Map(current);
+      next.delete(file.id);
+      return next;
+    });
     onViewed?.(file, marked);
   };
 
@@ -542,8 +547,9 @@ export function DiffReview({
       cache.build(
         files,
         loaded,
-        (file) =>
-          toggledIds.has(file.id) !== (defaultCollapsed || viewed.get(file.id) === file.revision),
+        // A person's choice, or where the file starts: folded when every file
+        // does, or when it is viewed.
+        (file) => folds.get(file.id) ?? (defaultCollapsed || viewed.get(file.id) === file.revision),
         (file, fileDiff, hunks) => {
           const notes: DiffLineAnnotation<Note>[] = comments
             .filter((comment) => comment.fileId === file.id && comment.id !== draftCommentId)
@@ -580,8 +586,8 @@ export function DiffReview({
       draftCommentId,
       draftTarget,
       files,
+      folds,
       loaded,
-      toggledIds,
       viewed,
     ]
   );
@@ -739,7 +745,7 @@ export function DiffReview({
     const loadedFile = loadedOf(file, loaded);
     const binary = isBinary(file, loadedFile);
     const unloaded = isUnloaded(file, loadedFile);
-    return (
+    const header = (
       <FileHeader
         actions={actionable ? offeredActions(file) : NO_ACTIONS}
         actionsDisabled={actionsDisabled}
@@ -749,7 +755,6 @@ export function DiffReview({
         loadedFile={loadedFile}
         loading={loadingIds.has(file.id)}
         onAction={(action) => onAction?.(action, file, null)}
-        onContextMenu={onFileContextMenu && (() => onFileContextMenu(file))}
         onToggle={() => {
           if (unloaded) {
             // Opens once it loads, whichever way the files start.
@@ -764,6 +769,7 @@ export function DiffReview({
         viewed={isViewed(file)}
       />
     );
+    return fileMenu ? fileMenu(file, header) : header;
   };
 
   const renderAnnotation = (

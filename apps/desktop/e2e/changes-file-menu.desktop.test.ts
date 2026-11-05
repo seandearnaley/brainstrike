@@ -1,7 +1,8 @@
 /**
  * A changed file from the Changes diff (ADR-0036), against a real repository:
  * a line number of the new version opens the file at that line, and a file
- * header's right-click copies the file's patch.
+ * header's right-click copies the file's patch while the lines keep the page's
+ * own menu.
  */
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -41,7 +42,24 @@ test("a line number opens its file, and a file's menu copies its patch", async (
   const patch = await app.evaluate(({ clipboard }) => clipboard.readText());
   expect(patch).toContain('-two\n+TWO\n');
 
-  await diff.locator('[data-additions] [data-column-number="2"]').click();
+  // A right-click on the diff's lines is the page's own (Copy, or Paste in a
+  // comment box): the file menu never cancels it.
+  const line = diff.locator('[data-additions] [data-column-number="2"]');
+  const cancelled = await line.evaluate(
+    (cell) =>
+      !cell.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          button: 2,
+          cancelable: true,
+          composed: true,
+        })
+      )
+  );
+  expect(cancelled).toBe(false);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+
+  await line.click();
   await expect(workspaceTabs(page).getByRole('tab', { name: /notes\.txt/u })).toBeVisible({
     timeout: 15_000,
   });

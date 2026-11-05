@@ -1,7 +1,7 @@
 import './diff-review.browser.css';
 import type { ChangesAction, StructuredFileDiff } from '@brainstrike/types';
 import { cleanup, render } from '@testing-library/react';
-import { useState } from 'react';
+import { type ReactElement, useState } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { type DiffComment, DiffReview, type DiffReviewFile } from '../diff-view';
@@ -93,7 +93,7 @@ function Review({
   loadFile = loadById,
   onAction,
   onComment = () => {},
-  onFileContextMenu,
+  fileMenu,
   onOpenLine,
 }: {
   readonly actionsDisabled?: boolean;
@@ -102,7 +102,7 @@ function Review({
   readonly loadFile?: (id: string) => Promise<StructuredFileDiff>;
   readonly onAction?: OnAction;
   readonly onComment?: (comment: DiffComment) => void;
-  readonly onFileContextMenu?: (file: DiffReviewFile) => void;
+  readonly fileMenu?: (file: DiffReviewFile, header: ReactElement) => ReactElement;
   readonly onOpenLine?: (file: DiffReviewFile, line: number) => void;
 }) {
   const [comments, setComments] = useState<DiffComment[]>([]);
@@ -114,6 +114,7 @@ function Review({
             actionsDisabled={actionsDisabled}
             comments={comments}
             diffStyle={diffStyle}
+            fileMenu={fileMenu}
             files={files}
             loadFile={loadFile}
             onAction={onAction}
@@ -122,7 +123,6 @@ function Review({
               setComments((current) => [...current.filter((c) => c.id !== comment.id), comment]);
             }}
             onDeleteComment={(id) => setComments((current) => current.filter((c) => c.id !== id))}
-            onFileContextMenu={onFileContextMenu}
             onOpenLine={onOpenLine}
           />
         </div>
@@ -173,11 +173,21 @@ test('a line number of the new version opens the file at that line', async () =>
   expect(onOpenLine).not.toHaveBeenCalled();
 });
 
-test('a right-click on a file header names its file', async () => {
-  const onFileContextMenu = vi.fn();
-  render(<Review onFileContextMenu={onFileContextMenu} />);
+test('a file menu takes right-clicks on its header, never on its lines', async () => {
+  const menuOf = vi.fn();
+  render(
+    <Review
+      fileMenu={(file, header) => (
+        <div className="contents" onContextMenuCapture={() => menuOf(file.id)}>
+          {header}
+        </div>
+      )}
+    />
+  );
+  await userEvent.click(page.getByText('return x + y;'), { button: 'right' });
+  expect(menuOf).not.toHaveBeenCalled();
   await userEvent.click(page.getByText('src/sum.ts'), { button: 'right' });
-  expect(onFileContextMenu).toHaveBeenCalledWith(expect.objectContaining({ id: 'sum' }));
+  expect(menuOf).toHaveBeenCalledWith('sum');
 });
 
 test('every file shows in one scroll with its counts', async () => {
@@ -608,6 +618,15 @@ test('a file marked viewed folds, and opens again once it changes', async () => 
   await mark.click();
   await expect.element(header).toHaveAttribute('aria-expanded', 'false');
   view.rerender(<Viewed files={[{ ...sum, revision: 'sum-2' }]} />);
+  await expect.element(mark).not.toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+
+  // A viewed file opened to read again stays open once it changes.
+  await mark.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  await header.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+  view.rerender(<Viewed files={[{ ...sum, revision: 'sum-3' }]} />);
   await expect.element(mark).not.toBeChecked();
   await expect.element(header).toHaveAttribute('aria-expanded', 'true');
 });

@@ -253,9 +253,20 @@ export function ChangesetDiffPane({
     }
   };
 
-  const claimFile = (file: DiffReviewFile) => {
-    const entry = entryById.get(file.id);
-    setContextMenuTarget(entry && rootPathById ? changedFileTarget(entry, rootPathById) : null);
+  // Each header takes the file's menu; a right-click on the lines stays the
+  // page's own (Copy, or Paste in a comment box).
+  const fileMenu = (file: DiffReviewFile, header: ReactElement): ReactElement => {
+    const claim = () => {
+      const entry = entryById.get(file.id);
+      setContextMenuTarget(entry && rootPathById ? changedFileTarget(entry, rootPathById) : null);
+    };
+    return (
+      <ActionContextMenu controller={contextMenu}>
+        <div className="contents" onContextMenuCapture={claim}>
+          {header}
+        </div>
+      </ActionContextMenu>
+    );
   };
 
   const openLine = (file: DiffReviewFile, line: number) => {
@@ -290,24 +301,6 @@ export function ChangesetDiffPane({
       })
     : [];
   const unified = diffStyle === 'unified';
-  const diff = (
-    <DiffReview
-      actionsDisabled={applying}
-      comments={comments}
-      diffStyle={diffStyle}
-      files={reviewFiles}
-      key={changesetKey}
-      loadFile={loadFile}
-      onAction={applyAction && applyToFile}
-      onComment={onSendComments && saveDraft}
-      onDeleteComment={(id) => deleteComment(changesetKey, id)}
-      onFileContextMenu={rootPathById && claimFile}
-      onOpenLine={openFileInTab && openLine}
-      onViewed={(file, marked) => setViewed(changesetKey, file.id, marked ? file.revision : null)}
-      ref={reviewRef}
-      viewed={viewed}
-    />
-  );
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="changeset-diff-pane">
       <div className="border-border flex h-9 shrink-0 items-center gap-1.5 border-b px-2">
@@ -346,15 +339,26 @@ export function ChangesetDiffPane({
           </Button>
         </div>
       </div>
-      {rootPathById ? (
-        <ActionContextMenu controller={contextMenu}>
-          <div className="min-h-0 flex-1" onContextMenuCapture={() => setContextMenuTarget(null)}>
-            {diff}
-          </div>
-        </ActionContextMenu>
-      ) : (
-        <div className="min-h-0 flex-1">{diff}</div>
-      )}
+      <div className="min-h-0 flex-1">
+        <DiffReview
+          actionsDisabled={applying}
+          comments={comments}
+          diffStyle={diffStyle}
+          fileMenu={rootPathById && fileMenu}
+          files={reviewFiles}
+          key={changesetKey}
+          loadFile={loadFile}
+          onAction={applyAction && applyToFile}
+          onComment={onSendComments && saveDraft}
+          onDeleteComment={(id) => deleteComment(changesetKey, id)}
+          onOpenLine={openFileInTab && openLine}
+          onViewed={(file, marked) =>
+            setViewed(changesetKey, file.id, marked ? file.revision : null)
+          }
+          ref={reviewRef}
+          viewed={viewed}
+        />
+      </div>
       {reverting ? (
         <Dialog
           onOpenChange={(open) => {
