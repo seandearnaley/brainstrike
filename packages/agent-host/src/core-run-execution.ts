@@ -472,11 +472,11 @@ async function runHostSdkAttempts(
     if (ended.checkpointFailure !== undefined) {
       throw ended.checkpointFailure;
     }
-    // A stopped, closing, steered or timed-out run ends here: none asked for another attempt.
+    // A stopped, closing, worktree-bound or timed-out run ends here: none asked for another attempt.
     const record =
       ended.maxAttempts === undefined ||
       run.stopped ||
-      run.steered ||
+      run.enteredWorktree !== undefined ||
       run.deadline !== undefined ||
       ports.closing()
         ? undefined
@@ -733,8 +733,11 @@ async function runHostSdkAttempt(
           ...gated,
         };
       },
-      // A committed run/steer ends the run after the step in flight (BST-588).
-      stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
+      // ADR-0028 step 3: a run that entered a worktree ends after that step.
+      stopWhen: [
+        stepCountIs(admission.snapshot.maxSteps - run.steps),
+        () => run.enteredWorktree !== undefined,
+      ],
       toolApproval: ({ toolCall }) =>
         decideHostSdkApproval(run, ports.platform, ports.origins, toolCall, ports.runs),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),

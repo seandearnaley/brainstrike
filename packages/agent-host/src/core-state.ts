@@ -292,7 +292,7 @@ export interface HostRunState {
   readonly effectTools: Map<string, string>;
   /**
    * ADR-0028 step 3: the worktree a call bound the thread to. The run ends
-   * after that step (`steered`); the thread's next run works there.
+   * after that step; the thread's next run works there.
    */
   enteredWorktree?: { readonly branch: string | null; readonly path: string } | undefined;
   /** Its thread's grants for this host process, shared with the thread's other runs. */
@@ -364,8 +364,6 @@ export interface HostRunState {
   settlement?: Promise<void> | undefined;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
-  /** A committed run/steer: the run ends after its step in flight. */
-  steered: boolean;
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
@@ -490,7 +488,6 @@ export function createHostRunState(
     rawInputs: new Map(),
     responses: new Set(),
     started: new Set(),
-    steered: false,
     steps: 0,
     stopped: false,
     terminal: false,
@@ -515,7 +512,7 @@ export function foldHostAcceptedCommand(
     result: event.result,
     threadId,
   });
-  if (event.method !== 'run/stop' && event.method !== 'run/steer') {
+  if (event.method !== 'run/stop') {
     return;
   }
   const params = Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS[event.method], {
@@ -526,11 +523,7 @@ export function foldHostAcceptedCommand(
   if (!run) {
     return;
   }
-  if (event.method === 'run/stop') {
-    run.stopped = true;
-    return;
-  }
-  run.steered = true;
+  run.stopped = true;
 }
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */
 export function foldHostRunMessages(

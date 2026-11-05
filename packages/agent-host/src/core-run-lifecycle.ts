@@ -90,20 +90,6 @@ export function recoverHostRun(run: HostRunState): HostRunRecovery | undefined {
 }
 
 /**
- * Commit a run/steer, then end the run after its step in flight (the SDK
- * loop's stopWhen reads the flag): legacy BST-588 steering.
- */
-export async function steerHostRun(
-  run: HostRunState,
-  accept: (result: { readonly outcome: 'steering' | 'already-terminal' }) => Promise<void>
-): Promise<{ outcome: 'steering' | 'already-terminal' }> {
-  const result = { outcome: run.terminal ? ('already-terminal' as const) : ('steering' as const) };
-  await accept(result);
-  run.steered ||= result.outcome === 'steering';
-  return result;
-}
-
-/**
  * run/stop's commit: the intent, in the admission queue. An ended run's Stop
  * still marks its turn stopped and ends the turn's running children; aborting
  * it would only cancel the memory it settles.

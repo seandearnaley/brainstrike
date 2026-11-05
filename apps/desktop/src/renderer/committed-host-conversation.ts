@@ -1,4 +1,5 @@
-import { MessageNotSentError } from '@assistant-ui/react';
+import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
+import { isConnectionLoss } from '@brainstrike/agent-host/boundary-wire';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   type HostImageAttachment,
@@ -18,7 +19,7 @@ import type {
 import { Schema } from 'effect';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
-import { createCommittedHostThread } from './committed-host-thread';
+import { createCommittedHostThread, hostUserMessage } from './committed-host-thread';
 import { CommittedHostVerdicts } from './committed-host-verdicts';
 import { respondToHostApproval, resumeHostInteraction } from './host-approval-response';
 import { HostTreeApprovals } from './host-tree-approvals';
@@ -48,17 +49,17 @@ export interface CommittedHostConversation {
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
   /**
-   * BST-1932: human input for this running child. The host ends the active run
-   * after its step in flight and starts the input as the child's next run.
+   * BST-1932: human input for this running child, which the run reads at its
+   * next step (ADR-0028 step 3b).
    */
   sendInput(input: AssistantChildInput, signal: AbortSignal): Promise<void>;
   /** The thread's committed session; this conversation connects and releases it. */
   readonly source: CommittedThreadSession;
   /**
-   * Steer the active run: Core ends it after its step in flight. Resolves to
-   * the steered run, or undefined when no run was left to steer.
+   * A message into the active run, which reads it at its next step; a run
+   * that ended first starts the person's turn with it (`run/input`).
    */
-  steer(): Promise<string | undefined>;
+  steer(message: AppendMessage): Promise<void>;
   readonly store: CommittedAssistantLogStore;
   /** The thread's committed run verdicts, recorded through the host. */
   readonly verdicts: CommittedHostVerdicts;
@@ -129,6 +130,7 @@ export function createCommittedHostConversation(
 ): CommittedHostConversation {
   const { client, replacement, threadId } = options;
   const runSettings = () => hostRunSettings(options);
+  const settleLost = replacement ? settleLostSend(client, replacement, threadId) : undefined;
   const thread = createCommittedHostThread({
     ...(options.bindThreadRoot ? { beforeStart: options.bindThreadRoot } : {}),
     client,
@@ -137,7 +139,7 @@ export function createCommittedHostConversation(
     // BST-2004: a send whose host was lost before it answered, or before the
     // send left, is settled from the replacement's committed log. Only that log
     // says whether the turn was admitted; nothing is resent.
-    ...(replacement ? { settleLost: settleLostSend(client, replacement, threadId) } : {}),
+    ...(settleLost ? { settleLost } : {}),
     threadId,
   });
   const { source, store } = thread;
@@ -208,17 +210,27 @@ export function createCommittedHostConversation(
       });
     },
     source,
-    steer: async () => {
+    steer: async (message) => {
       const runId = store.getCommittedView().activeRunId;
       if (!runId) {
-        return;
+        throw new Error('No run is active to steer');
       }
-      const { outcome } = await client.request('run/steer', {
-        commandId: crypto.randomUUID(),
-        runId,
-        threadId,
-      });
-      return outcome === 'steering' ? runId : undefined;
+      const commandId = crypto.randomUUID();
+      try {
+        await client.request('run/input', {
+          ...hostUserMessage(message),
+          commandId,
+          ...runSettings(),
+          runId,
+          threadId,
+        });
+      } catch (cause) {
+        // BST-2004: a lost host may have committed it; only its log says, and nothing is resent.
+        if (settleLost && isConnectionLoss(cause)) {
+          return await settleLost(commandId);
+        }
+        throw cause;
+      }
     },
     store,
     verdicts: new CommittedHostVerdicts(client, source, threadId),

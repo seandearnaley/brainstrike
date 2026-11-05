@@ -235,7 +235,7 @@ export const ChatThreadUI = ({
   slashCommands,
   onComposerDraftCommandApplied,
   onComposerTextChange,
-  onSteerActiveRun,
+  canSteer,
   workspaceBar,
   workspaceNotice,
   planMode,
@@ -258,7 +258,7 @@ export const ChatThreadUI = ({
   omSegment?: OmMeterState | undefined;
   effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
-  onSteerActiveRun?: (() => Promise<boolean>) | undefined;
+  canSteer?: boolean | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
   providerGroups: ProviderGroupConfig[];
   hasGroupedProviders: boolean;
@@ -433,10 +433,7 @@ export const ChatThreadUI = ({
                       {/* Last-24h budget burn-down + over-cap send notice (owned module,
             budget-guardrail-control.tsx); renders nothing without a binding. */}
                       <BudgetGuardrailControl />
-                      <FollowUpQueueChips
-                        onSteerActiveRun={onSteerActiveRun}
-                        threadKey={threadKey}
-                      />
+                      <FollowUpQueueChips canSteer={canSteer} threadKey={threadKey} />
                       <ApprovalQueueStrip key={threadKey} />
                       {approvalStrip ?? null}
                       <ComposerPrimitive.Root
@@ -453,9 +450,9 @@ export const ChatThreadUI = ({
               its preview + Remove button after a switch to a text-only model. */}
                         {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
                         <ComposerInputWithTriggers
+                          canSteer={canSteer}
                           hideDefaultCancel={hideDefaultCancel}
                           isComposerDisabled={composerDisabled}
-                          onSteerActiveRun={onSteerActiveRun}
                           {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                           {...(planMode ? { planMode } : {})}
                           {...(accessMode ? { accessMode } : {})}

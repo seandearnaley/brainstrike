@@ -24,7 +24,6 @@ import {
   recoverHostRuns,
   rejectHostRunAdmission,
   retainHostRunWork,
-  steerHostRun,
   stopHostRunOutsideQueue,
   stopHostRunTree,
 } from './core-run-lifecycle.ts';
@@ -729,8 +728,8 @@ export class HostCore {
   private childRunPort(run: Run, action: Action): HostChildRunPort {
     return {
       commit: async ({ child, items, threadId }) => {
-        await this.appendAcross(items, 'full');
-        this.threads.add(threadId);
+        // BST-2463: the child is readable before any listener hears of its rows.
+        await this.appendAcross(items, 'full', () => this.threads.add(threadId));
         this.runs.set(child.id, child);
         recordHostConversationId(this.conversationIds, threadId);
         recordHostConversationId(this.conversationIds, child.id);
@@ -929,14 +928,6 @@ export class HostCore {
       this.ends.wake(threadId);
       return { accepted: true } as const;
     });
-  }
-
-  steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
-    return this.command('run/steer', params, () =>
-      steerHostRun(this.runs.requireForThread(params.threadId, params.runId), (result) =>
-        this.accept(params.threadId, 'run/steer', params, result, [])
-      )
-    );
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
