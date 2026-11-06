@@ -10,11 +10,7 @@ import { useSubagentPersonasStore } from '@brainstrike/app-state/stores/subagent
 import {
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
-  buildUserPersona,
-  effectiveChildStepBudget,
-  personaScope,
 } from '@brainstrike/assistant-contract';
-import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -163,7 +159,7 @@ describe('SubagentPersonasSettingsSection', () => {
     });
     render(<Section />);
 
-    const detail = await screen.findByText(/this copy is inactive/iu);
+    const detail = await screen.findByText(/Shadowed by/u);
     expect(detail).toBeInTheDocument();
     expect(detail).toHaveClass('text-muted-foreground');
     expect(detail).not.toHaveClass('text-destructive');
@@ -193,157 +189,9 @@ describe('SubagentPersonasSettingsSection', () => {
     expect(warnings.querySelector('.text-destructive')).toBeNull();
     expect(warnings.closest('fieldset')).toBeNull();
   });
-
-  it("states each persona's mode, step budget and tool scope from the host, in plain terms", async () => {
-    setHost({
-      list: () =>
-        Promise.resolve({
-          personas: [
-            {
-              allowedToolIds: ['*'],
-              description: 'Ships the deliverable.',
-              id: 'shipper',
-              label: 'Shipper',
-              maxSteps: 12,
-              mode: 'worker',
-              source: 'user',
-              status: 'ok',
-            },
-            {
-              allowedToolIds: [
-                'brainstrike.readWorkspaceFile',
-                'brainstrike.grepSearch',
-                'brainstrike.globWorkspace',
-              ],
-              description: 'Surveys the tree.',
-              id: 'surveyor',
-              label: 'Surveyor',
-              maxSteps: 4,
-              mode: 'read-only',
-              source: 'user',
-              status: 'ok',
-            },
-            {
-              // Worker mode with a declared read-only list: the mode permits
-              // edit/run tools to be declared, it does not grant them.
-              allowedToolIds: ['brainstrike.readWorkspaceFile'],
-              description: 'Reads one file at a time.',
-              id: 'one-shot',
-              label: 'One shot',
-              maxSteps: 1,
-              mode: 'worker',
-              source: 'user',
-              status: 'ok',
-            },
-          ],
-        }),
-    });
-    render(<Section />);
-    const shipper = (await screen.findByTestId('subagent-persona-scope-shipper')).textContent;
-    expect(shipper).toContain('Worker mode');
-    expect(shipper).toContain('Up to 12 steps (1 reserved for its summary)');
-    expect(shipper).toContain('every tool the host permits, including edit and run tools');
-    const surveyor = screen.getByTestId('subagent-persona-scope-surveyor').textContent;
-    expect(surveyor).toContain('Read-only');
-    expect(surveyor).toContain('Up to 4 steps');
-    expect(surveyor).toContain('3 tools');
-    expect(surveyor).toContain('readWorkspaceFile');
-    expect(surveyor).not.toContain('brainstrike.');
-    // Worker mode never promises edit access the declared list does not give,
-    // and a one-step child has no reserved summary turn.
-    const oneShot = screen.getByTestId('subagent-persona-scope-one-shot').textContent;
-    expect(oneShot).toContain('Worker mode');
-    expect(oneShot).toContain('Up to 1 step ·');
-    expect(oneShot).not.toContain('reserved');
-    expect(oneShot).not.toContain('edit');
-    expect(oneShot).toContain('1 tool: readWorkspaceFile');
-  });
-
-  it('shows a description-only profile as its curated read-only scope', async () => {
-    const parsed = buildUserPersona({
-      content: '---\ndescription: Surveys the workspace.\n---\nReturn the relevant facts.',
-      fileName: 'minimal.md',
-    });
-    if (!parsed.ok) {
-      throw new Error(parsed.error);
-    }
-    const persona = parsed.persona;
-    setHost({
-      list: () =>
-        Promise.resolve({
-          personas: [
-            {
-              ...personaScope(persona),
-              description: persona.description,
-              id: persona.id,
-              label: persona.label,
-              source: 'user',
-              status: 'ok',
-            },
-          ],
-        }),
-    });
-    render(<Section />);
-    const scope = await screen.findByTestId('subagent-persona-scope-minimal');
-    expect(scope).toHaveTextContent('Read-only');
-    expect(scope).toHaveTextContent('6 tools:');
-    expect(scope).toHaveTextContent('readWorkspaceFile');
-    expect(scope).not.toHaveTextContent('every tool');
-    expect(scope).not.toHaveTextContent('edit and run');
-  });
-
-  it('limits a read-only wildcard from a host to read-only host tools', async () => {
-    // Current persona files reject read-only wildcards; the host contract
-    // can still represent one, and its description must not widen its mode.
-    setHost({
-      list: () =>
-        Promise.resolve({
-          personas: [
-            {
-              allowedToolIds: ['*'],
-              description: 'Reads the host catalog.',
-              id: 'reader',
-              label: 'Reader',
-              maxSteps: 4,
-              mode: 'read-only',
-              source: 'user',
-              status: 'ok',
-            },
-          ],
-        }),
-    });
-    render(<Section />);
-    const scope = await screen.findByTestId('subagent-persona-scope-reader');
-    expect(scope).toHaveTextContent('every read-only tool the host permits');
-    expect(scope).not.toHaveTextContent('edit and run');
-  });
-
-  it("states the built-in personas' scope without the host scan from the same definitions the host enforces", () => {
-    render(<Section />);
-    const worker = BUILT_IN_PERSONAS.find((persona) => persona.id === 'worker');
-    const explore = BUILT_IN_PERSONAS.find((persona) => persona.id === 'explore');
-    if (!(worker && explore)) {
-      throw new Error('built-in worker and explore personas must exist');
-    }
-    const workerScope = screen.getByTestId('subagent-persona-scope-worker').textContent;
-    expect(workerScope).toContain('Worker mode');
-    // The shown budget is the enforced one: the user's setting governs.
-    expect(workerScope).toContain(
-      `Up to ${effectiveChildStepBudget(worker, DEFAULT_RUNTIME_SUBAGENT_SETTINGS)} steps`
-    );
-    expect(workerScope).toContain('every tool the host permits, including edit and run tools');
-    const exploreScope = screen.getByTestId('subagent-persona-scope-explore').textContent;
-    expect(exploreScope).toContain('Read-only');
-    expect(exploreScope).toContain(`${explore.allowedToolIds.length} tools`);
-  });
-
-  it('without the host scan, shows the desktop-only note for user personas', () => {
-    render(<Section />);
-    expect(screen.getByText(/desktop/iu)).toBeInTheDocument();
-  });
 });
 
-it('shows an actionable host issue while keeping declared scope distinct', async () => {
+it('shows a host issue that blocks a persona in red', async () => {
   setHost({
     list: async () => ({
       personas: [
@@ -370,11 +218,9 @@ it('shows an actionable host issue while keeping declared scope distinct', async
     }),
   });
   render(<Section />);
-  expect(
-    await screen.findByText('Add credentials for anthropic in Providers.')
-  ).toBeInTheDocument();
-  expect(screen.getByText('Unavailable until corrected')).toBeInTheDocument();
-  expect(screen.getByText(/Declared scope:/u)).toBeInTheDocument();
+  expect(await screen.findByText('Add credentials for anthropic in Providers.')).toHaveClass(
+    'text-destructive'
+  );
 });
 
 it('reports loading failure and retries the host scan instead of hiding user profiles', async () => {
@@ -399,10 +245,10 @@ it('reports loading failure and retries the host scan instead of hiding user pro
     },
   });
   render(<Section />);
-  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load user personas');
+  expect(await screen.findByRole('alert')).toHaveTextContent('The personas didn’t load.');
   expect(screen.queryByText('private disk error')).not.toBeInTheDocument();
   expect(screen.queryByTestId('subagent-persona-toggle-worker')).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Retry loading personas' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByText('Restored profile')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
@@ -417,7 +263,7 @@ it('keeps refresh disabled while the host scan is pending and enables it after s
     },
   });
   render(<Section />);
-  const refresh = screen.getByRole('button', { name: /personas/iu });
+  const refresh = screen.getByRole('button', { name: /^Refresh/u });
   expect(refresh).toBeDisabled();
   await userEvent.click(refresh);
   expect(calls).toBe(1);

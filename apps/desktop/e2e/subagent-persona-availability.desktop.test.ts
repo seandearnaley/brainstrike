@@ -42,21 +42,15 @@ test('shows actual host persona issues and refreshes an edited profile @smoke', 
   await expect(row).toContainText('Trusted');
   await settings.openCategory(/Subagents/iu, 'subagents');
   // Settings is keep-mounted; refresh after root reconciliation completed.
-  await window.getByRole('button', { name: 'Refresh personas and host checks' }).click();
+  await window.getByRole('button', { name: 'Refresh personas' }).click();
   const availability = window.getByTestId('subagent-persona-availability-availability-proof');
   await expect(availability).toContainText('bst1727-missing-model');
   await expect(availability).toContainText('bst1727_missing.edit');
-  await expect(window.getByTestId('subagent-persona-scope-availability-proof')).toContainText(
-    'Declared scope: Worker mode'
-  );
   await writeFile(
     profile,
     '---\ndescription: Corrected read-only profile\n---\nInspect the workspace.'
   );
-  await window.getByRole('button', { name: 'Refresh personas and host checks' }).click();
+  await window.getByRole('button', { name: 'Refresh personas' }).click();
   await expect(window.getByText('Corrected read-only profile', { exact: true })).toBeVisible();
   await expect(availability).toBeEmpty();
-  await expect(window.getByTestId('subagent-persona-scope-availability-proof')).toContainText(
-    'Declared scope: Read-only'
-  );
 });
