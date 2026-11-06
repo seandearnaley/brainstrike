@@ -10,9 +10,7 @@ import {
   type DbProvider,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import { modelVendor } from '@brainstrike/assistant-contract/model-vendors';
-import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { findModelVendor } from '@brainstrike/assistant-contract/provider-registry';
 import {
   Button,
@@ -28,43 +26,36 @@ import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 interface CatalogModel {
+  /** `provider::model`. */
   readonly id: string;
+  readonly isEnabled: boolean;
   readonly label: string;
   readonly markLabel: string;
   readonly provider: string;
   readonly vendor?: string | undefined;
 }
 
-/**
- * Every enabled model of a provider with a key, in catalog order, keyed
- * `provider::model`: the composer's own gate, so a model the host could not
- * admit is not offered.
- */
-function enabledModels(
+function catalogModels(
   models: readonly DbModel[],
-  providers: readonly DbProvider[],
-  withKeys: ReadonlySet<string> | undefined
+  providers: readonly DbProvider[]
 ): readonly CatalogModel[] {
   const byId = new Map(providers.map((provider) => [provider.id, provider]));
-  return models
-    .filter(
-      (model) => model.isEnabled && (withKeys === undefined || withKeys.has(model.providerId))
-    )
+  return [...models]
     .sort(
       (left, right) =>
         (byId.get(left.providerId)?.sortOrder ?? 0) -
           (byId.get(right.providerId)?.sortOrder ?? 0) || left.sortOrder - right.sortOrder
     )
     .map((model) => {
-      const provider = byId.get(model.providerId);
       const vendor = findModelVendor(model.providerId, model.id);
       const maker = vendor ? modelVendor(vendor) : undefined;
       return {
         id: `${model.providerId}::${model.id}`,
+        isEnabled: model.isEnabled,
         label: model.name,
         markLabel: modelMarkLabel({
           providerId: model.providerId,
-          providerName: provider?.name ?? model.providerId,
+          providerName: byId.get(model.providerId)?.name ?? model.providerId,
           vendorId: maker?.id,
           vendorName: maker?.name,
         }),
@@ -74,58 +65,86 @@ function enabledModels(
     });
 }
 
+/** Why an allowed model cannot run now; nothing when it can. */
+function rowStatus(
+  model: CatalogModel | undefined,
+  withKeys: ReadonlySet<string> | undefined
+): string | undefined {
+  if (!model) {
+    return 'Not in the catalog';
+  }
+  if (!model.isEnabled) {
+    return 'Not enabled';
+  }
+  return withKeys && !withKeys.has(model.provider) ? 'Provider not connected' : undefined;
+}
+
 export function SubagentModelsSection({
-  providerKeySources,
+  configuredProviders,
+  providersError,
 }: {
-  /** The providers with a key; absent, every enabled provider's models are offered. */
-  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+  /**
+   * The providers the host can run, as the composer's picker reads them;
+   * absent while that is unknown, when no model is offered.
+   */
+  readonly configuredProviders?: readonly string[] | undefined;
+  /** Why the providers could not be read. */
+  readonly providersError?: string | undefined;
 }) {
   useEnsureModelRegistry();
-  const { models, providers } = useModelRegistryStore(
-    useShallow((state) => ({ models: state.models, providers: state.providers }))
+  const { error, hasLoaded, models, providers } = useModelRegistryStore(
+    useShallow((state) => ({
+      error: state.error,
+      hasLoaded: state.hasLoaded,
+      models: state.models,
+      providers: state.providers,
+    }))
   );
   const { allowed, setModels } = useAssistantSubagentPreferencesStore(
     useShallow((state) => ({ allowed: state.models, setModels: state.setModels }))
   );
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const catalog = enabledModels(
-    models,
-    providers,
-    providerKeySources ? new Set(providerKeySources.map(({ provider }) => provider)) : undefined
-  );
+  const catalog = catalogModels(models, providers);
   const byId = new Map(catalog.map((model) => [model.id, model]));
+  const withKeys = configuredProviders ? new Set<string>(configuredProviders) : undefined;
+  const loaded = hasLoaded && !error;
   const close = (next: boolean): void => {
     setOpen(next);
     if (!next) {
       setQuery('');
     }
   };
-  const options: ModelMenuOption[] = catalog
-    .filter(
-      (model) =>
-        !allowed.includes(model.id) &&
-        matchesModelQuery(
-          {
+  const options: ModelMenuOption[] =
+    loaded && withKeys
+      ? catalog
+          .filter(
+            (model) =>
+              model.isEnabled &&
+              withKeys.has(model.provider) &&
+              !allowed.includes(model.id) &&
+              matchesModelQuery(
+                {
+                  label: model.label,
+                  modelId: model.id,
+                  providerId: model.provider,
+                  providerName: model.markLabel,
+                },
+                query
+              )
+          )
+          .map((model) => ({
+            key: model.id,
             label: model.label,
-            modelId: model.id,
-            providerId: model.provider,
-            providerName: model.markLabel,
-          },
-          query
-        )
-    )
-    .map((model) => ({
-      key: model.id,
-      label: model.label,
-      markLabel: model.markLabel,
-      onSelect: () => {
-        setModels([...allowed, model.id]);
-        close(false);
-      },
-      provider: model.provider,
-      vendor: model.vendor,
-    }));
+            markLabel: model.markLabel,
+            onSelect: () => {
+              setModels([...allowed, model.id]);
+              close(false);
+            },
+            provider: model.provider,
+            vendor: model.vendor,
+          }))
+      : [];
 
   return (
     <Card className="space-y-3 p-4" data-testid="subagent-models-section">
@@ -135,18 +154,29 @@ export function SubagentModelsSection({
           Models subagents may run on
         </h3>
       </div>
+      {error ? (
+        <p className="text-destructive text-sm" role="alert">
+          The model catalog didn’t load: {error}
+        </p>
+      ) : null}
+      {providersError ? (
+        <p className="text-destructive text-sm" role="alert">
+          The connected providers didn’t load: {providersError}
+        </p>
+      ) : null}
       {allowed.length > 0 ? (
         <ul aria-labelledby="subagent-models-heading" className="divide-border divide-y">
           {allowed.map((id) => {
             const model = byId.get(id);
-            const separator = id.indexOf('::');
-            const provider = model?.provider ?? id.slice(0, Math.max(separator, 0));
+            const provider = model?.provider ?? id.slice(0, Math.max(id.indexOf('::'), 0));
             const label = model?.label ?? id;
+            // A status speaks only once the catalog it reads has loaded.
+            const status = loaded ? rowStatus(model, withKeys) : undefined;
             return (
               <li className="flex items-center gap-2 py-1.5 text-sm" key={id}>
                 <ModelMark label={model?.markLabel} provider={provider} vendor={model?.vendor} />
                 <span className="min-w-0 flex-1 truncate">{label}</span>
-                {model ? null : <span className="text-destructive text-xs">Not enabled</span>}
+                {status ? <span className="text-destructive text-xs">{status}</span> : null}
                 <Button
                   aria-label={`Remove ${label}`}
                   className="size-7"
@@ -170,7 +200,13 @@ export function SubagentModelsSection({
         open={open}
         query={query}
         trigger={
-          <Button className="gap-1.5" size="sm" type="button" variant="outline">
+          <Button
+            className="gap-1.5"
+            disabled={!(loaded && withKeys)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
             <Plus aria-hidden="true" className="size-4" />
             Add model
           </Button>

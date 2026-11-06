@@ -4,7 +4,12 @@ import {
   isNativeTool,
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
-import { useAssistantAvailability, useHostAssistantStatusFetcher } from '@brainstrike/app-shell';
+import {
+  resolveAssistantProviderSource,
+  useAssistantAvailability,
+  useAssistantProviders,
+  useHostAssistantStatusFetcher,
+} from '@brainstrike/app-shell';
 import { useAssistantThreadHost } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
@@ -275,6 +280,19 @@ export default function SettingsPageContent() {
     assistantAvailability.state === 'enabled'
       ? assistantAvailability.providerKeySources
       : undefined;
+  // Subagents may run on the providers the composer's picker offers.
+  const subagentProviderSource = useMemo(
+    () => resolveAssistantProviderSource(assistantAvailability),
+    [assistantAvailability]
+  );
+  const subagentProviders = useAssistantProviders(subagentProviderSource);
+  const subagentProvidersError = subagentProviders.discoveryError;
+  const knownSubagentProviders =
+    assistantAvailability.state !== 'loading' &&
+    (subagentProviders.discoveryState === 'ready' ||
+      subagentProviders.discoveryState === 'inactive')
+      ? subagentProviders.providers
+      : undefined;
 
   // The agent host owns the MCP config, extension dials, tool preferences,
   // server status and lifecycle control; a window without the host has none.
@@ -540,7 +558,8 @@ export default function SettingsPageContent() {
       createPermissionSettingsCategory(browserOrigins ? { browserOrigins } : undefined),
       createSubagentPersonasSettingsCategory({
         ...(workspaceSettings ? { listPersonas: () => workspaceSettings.listPersonas() } : {}),
-        ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
+        configuredProviders: knownSubagentProviders,
+        providersError: subagentProvidersError,
       }),
       createSkillsSettingsCategory(
         hostDiscovery ? { scanSkills: () => hostDiscovery.scanSkills() } : {}
@@ -614,8 +633,10 @@ export default function SettingsPageContent() {
     hookReviewRoots,
     hostDiscovery,
     hostProviders,
+    knownSubagentProviders,
     mcpSettings,
     revealEnvFile,
+    subagentProvidersError,
     setDevInlineFixtureEnabled,
     toolOperations,
     workspaceSettings,

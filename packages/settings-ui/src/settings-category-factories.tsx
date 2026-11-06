@@ -257,16 +257,22 @@ export function createAssistantMemorySettingsCategory({
 }
 
 export function createSubagentPersonasSettingsCategory({
-  providerKeySources,
+  configuredProviders,
+  providersError,
   ...options
 }: SubagentPersonasSettingsSectionProps & {
-  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+  /** The providers the host can run; absent while unknown. */
+  readonly configuredProviders?: readonly string[] | undefined;
+  readonly providersError?: string | undefined;
 } = {}): SettingsCategory {
   return {
     content: (
       <div className="space-y-6">
         <SubagentPersonasSettingsSection {...options} />
-        <SubagentModelsSection {...(providerKeySources ? { providerKeySources } : {})} />
+        <SubagentModelsSection
+          configuredProviders={configuredProviders}
+          providersError={providersError}
+        />
         <SubagentSettingsSection />
       </div>
     ),

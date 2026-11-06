@@ -27,6 +27,8 @@ const model = (providerId: string, id: string, name: string, isEnabled = true) =
   tagline: null,
 });
 
+const configured = ['openai', 'openrouter'] as const;
+
 beforeEach(() => {
   useAssistantSubagentPreferencesStore.getState().resetToDefaults();
   useModelRegistryStore.setState({
@@ -47,7 +49,7 @@ beforeEach(() => {
 
 it('adds an enabled model a delegation may name, shows it with its mark, and removes it', async () => {
   const user = userEvent.setup();
-  render(<SubagentModelsSection />);
+  render(<SubagentModelsSection configuredProviders={configured} />);
   const section = screen.getByTestId('subagent-models-section');
   expect(within(section).queryByRole('list')).not.toBeInTheDocument();
 
@@ -78,19 +80,64 @@ it('adds an enabled model a delegation may name, shows it with its mark, and rem
 
 it('offers only the models of providers with a key', async () => {
   const user = userEvent.setup();
-  render(<SubagentModelsSection providerKeySources={[{ provider: 'openai', source: 'stored' }]} />);
+  render(<SubagentModelsSection configuredProviders={['openai']} />);
   await user.click(screen.getByRole('button', { name: 'Add model' }));
   const menu = await screen.findByRole('dialog', { name: 'Add a model subagents may run on' });
   expect(within(menu).getByRole('option', { name: /GPT-6 Sol/u })).toBeInTheDocument();
   expect(within(menu).queryByRole('option', { name: /Claude Opus/u })).not.toBeInTheDocument();
 });
 
-it('keeps a chosen model that is no longer enabled, says so, and lets it be removed', () => {
-  useAssistantSubagentPreferencesStore.getState().setModels(['openrouter::qwen/qwen-4-coder']);
-  render(<SubagentModelsSection />);
+it('says why an allowed model cannot run: disabled, without a key, or gone from the catalog', () => {
+  useAssistantSubagentPreferencesStore
+    .getState()
+    .setModels(['openrouter::qwen/qwen-4-coder', 'openai::gpt-6-sol', 'openrouter::gone/model']);
+  render(<SubagentModelsSection configuredProviders={['openrouter']} />);
   const list = screen.getByRole('list', { name: 'Models subagents may run on' });
-  expect(within(list).getByText('Not enabled')).toBeInTheDocument();
+  const rows = within(list).getAllByRole('listitem');
+  // A disabled model keeps its name.
+  expect(rows[0]).toHaveTextContent('Qwen 4 Coder (OpenRouter)Not enabled');
+  expect(rows[1]).toHaveTextContent('GPT-6 SolProvider not connected');
+  expect(rows[2]).toHaveTextContent('openrouter::gone/modelNot in the catalog');
   expect(
-    within(list).getByRole('button', { name: 'Remove openrouter::qwen/qwen-4-coder' })
+    within(list).getByRole('button', { name: 'Remove openrouter::gone/model' })
   ).toBeInTheDocument();
+});
+
+it('offers nothing and says nothing before the catalog and the keys are known', () => {
+  useAssistantSubagentPreferencesStore.getState().setModels(['openai::gpt-6-sol']);
+  useModelRegistryStore.setState({ hasLoaded: false, models: [] });
+  const { rerender } = render(<SubagentModelsSection configuredProviders={configured} />);
+  expect(screen.getByRole('button', { name: 'Add model' })).toBeDisabled();
+  expect(
+    screen.queryByText(/Not in the catalog|Not enabled|Provider not connected/u)
+  ).not.toBeInTheDocument();
+
+  // The catalog loaded but the keys' status is still unknown.
+  useModelRegistryStore.setState({
+    hasLoaded: true,
+    models: [model('openai', 'gpt-6-sol', 'GPT-6 Sol')],
+  });
+  rerender(<SubagentModelsSection />);
+  expect(screen.getByRole('button', { name: 'Add model' })).toBeDisabled();
+});
+
+it('shows providers that failed to load, and offers nothing', () => {
+  render(<SubagentModelsSection providersError="The keychain is locked." />);
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'The connected providers didn’t load: The keychain is locked.'
+  );
+  expect(screen.getByRole('button', { name: 'Add model' })).toBeDisabled();
+});
+
+it('shows a catalog that failed to load, and offers nothing from it', () => {
+  useModelRegistryStore.setState({
+    error: 'The catalog store is locked.',
+    hasLoaded: true,
+    models: [],
+  });
+  render(<SubagentModelsSection configuredProviders={configured} />);
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'The model catalog didn’t load: The catalog store is locked.'
+  );
+  expect(screen.getByRole('button', { name: 'Add model' })).toBeDisabled();
 });
