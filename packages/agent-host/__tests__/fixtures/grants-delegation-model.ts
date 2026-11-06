@@ -470,13 +470,12 @@ export async function checkAgainstModel(
 }
 
 /**
- * The generated property, run as {@link GENERATED_PARTS} test files of
- * {@link GENERATED_RUNS_PER_PART} runs each: one file of all 100 runs was the
- * longest file in the agent-host integration lane, and separate files run on
- * separate workers.
+ * The generated property's share for one test file. Four files
+ * (grants-delegation-model{,-2,-3,-4}.integration.test.ts) run it, 100 cases in
+ * all: one file of 100 cases was the longest file in the agent-host integration
+ * lane, and separate files run on separate workers.
  */
-export const GENERATED_PARTS = 4;
-const GENERATED_RUNS_PER_PART = 100 / GENERATED_PARTS;
+const GENERATED_RUNS_PER_FILE = 25;
 
 export async function checkGeneratedSequences(): Promise<void> {
   await fc.assert(
@@ -485,6 +484,6 @@ export async function checkGeneratedSequences(): Promise<void> {
       fc.array(stepArb, { maxLength: 6, minLength: 1 }),
       (initial, steps) => checkAgainstModel(initial, steps, reachesChildrenAsDocumented)
     ),
-    { numRuns: GENERATED_RUNS_PER_PART }
+    { numRuns: GENERATED_RUNS_PER_FILE }
   );
 }

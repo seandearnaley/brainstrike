@@ -4,13 +4,9 @@
  * driver are in ./fixtures/grants-delegation-model.ts.
  */
 import { test } from 'vitest';
-import {
-  checkAgainstModel,
-  checkGeneratedSequences,
-  GENERATED_PARTS,
-} from './fixtures/grants-delegation-model.ts';
+import { checkAgainstModel, checkGeneratedSequences } from './fixtures/grants-delegation-model.ts';
 
-test(`every call is ran, asked or refused exactly as the policy, grants and admitted denies say (part 1 of ${GENERATED_PARTS})`, async () => {
+test('every call is ran, asked or refused exactly as the policy, grants and admitted denies say (part 1 of 4)', async () => {
   await checkGeneratedSequences();
 }, 300_000);
 
