@@ -1,8 +1,7 @@
 /**
  * Settings → Subagents panel: master delegation switch + per-persona toggles.
  * Desktop lists user personas (incl. invalid files with their error) from the
- * agent host's scan; without a host scan (web) only the built-ins render, with
- * an honest desktop-only note.
+ * agent host's scan; without a host scan (web) only the built-ins render.
  */
 
 import '@testing-library/jest-dom/vitest';
@@ -191,7 +190,7 @@ describe('SubagentPersonasSettingsSection', () => {
   });
 });
 
-it('shows a host issue that blocks a persona in red', async () => {
+it('says a host issue blocks a persona without relying on colour', async () => {
   setHost({
     list: async () => ({
       personas: [
@@ -218,9 +217,11 @@ it('shows a host issue that blocks a persona in red', async () => {
     }),
   });
   render(<Section />);
-  expect(await screen.findByText('Add credentials for anthropic in Providers.')).toHaveClass(
-    'text-destructive'
-  );
+  const issue = await screen.findByText('Add credentials for anthropic in Providers.', {
+    exact: false,
+  });
+  expect(issue).toHaveTextContent('Unavailable: Add credentials for anthropic in Providers.');
+  expect(issue).toHaveClass('text-destructive');
 });
 
 it('reports loading failure and retries the host scan instead of hiding user profiles', async () => {

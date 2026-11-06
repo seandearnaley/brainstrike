@@ -21,7 +21,7 @@ import {
   personaScope,
 } from '@brainstrike/assistant-contract';
 import { Badge, Button, Card, cn, ErrorNotice, Label, Switch } from '@brainstrike/ui';
-import { AlertTriangle, Layers, Users } from 'lucide-react';
+import { AlertTriangle, Layers, Users, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.map((persona) => ({
@@ -66,21 +66,25 @@ function PersonaRowDetail({
     );
   }
   const { availability } = item;
+  // Severity never rests on colour alone: each has its own icon and spoken prefix.
+  const blocked = availability?.status === 'blocked';
+  const SeverityIcon = blocked ? XCircle : AlertTriangle;
   return (
     <>
       <p className="text-muted-foreground text-sm">{item.description}</p>
       {/* An empty checked result deliberately distinguishes no issues from an unchecked row. */}
       {availability ? (
         <div className="mt-1 space-y-1" data-testid={`subagent-persona-availability-${item.id}`}>
-          {/* A blocking issue is red; one to check is amber. */}
           {availability.issues.map((issue) => (
             <p
               className={cn(
-                'text-sm',
-                availability.status === 'blocked' ? 'text-destructive' : 'text-warning'
+                'flex items-center gap-1 text-sm',
+                blocked ? 'text-destructive' : 'text-warning'
               )}
               key={`${issue.code}:${issue.toolId ?? ''}`}
             >
+              <SeverityIcon aria-hidden="true" className="size-3.5 shrink-0" />
+              <span className="sr-only">{blocked ? 'Unavailable: ' : 'Check: '}</span>
               {issue.message}
             </p>
           ))}
