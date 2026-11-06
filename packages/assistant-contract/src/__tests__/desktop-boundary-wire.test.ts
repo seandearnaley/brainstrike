@@ -1,9 +1,6 @@
 import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import {
-  childExecutionConfigurationSchema,
-  childNextRunSchema,
-} from '../child-execution-configuration.js';
+import { childExecutionConfigurationSchema } from '../child-execution-configuration.js';
 import { assistantChildAttachmentSchema, assistantChildInputSchema } from '../child-input.js';
 import { ReadDeliverySchema } from '../context-provenance.js';
 import { AssistantModelStepDataSchema, AssistantModelStreamPartSchema } from '../model-step.js';
@@ -33,12 +30,6 @@ const decodeClosed = (schema: Decoder, value: unknown) =>
 
 test.each([
   ['execution', childExecutionConfigurationSchema, execution, execution],
-  [
-    'next-run',
-    childNextRunSchema,
-    { model: { modelId: 'model', provider: 'openai' } },
-    { model: { modelId: 'model', provider: 'openai' } },
-  ],
   [
     'child input',
     assistantChildInputSchema,
