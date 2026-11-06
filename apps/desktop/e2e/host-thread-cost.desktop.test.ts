@@ -12,6 +12,8 @@ const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 /** The catalog label the cost views name the model by. */
 const MODEL_LABEL = 'Claude Sonnet 4.6 (OpenRouter)';
 const REPLY = 'A costed host reply.';
+/** What the shim's OpenRouter reports it billed for the reply. */
+const BILLED = 0.0042;
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -46,19 +48,19 @@ async function openCostTracking(page: Page) {
   return new SettingsPage(page).openCategory(/Cost Tracking/iu, 'cost-tracking');
 }
 
-test('a host run counts toward the daily cap, gates the next send, and lists in the Task Ledger', async ({
+test('a billed host run counts toward the daily cap, gates the next send, and lists in the Task Ledger at its bill', async ({
   modelProvider,
   window: page,
 }) => {
   test.setTimeout(300_000);
   await enableModel(page);
   const cost = await openCostTracking(page);
-  // Any priced call exceeds this cap: the shim reports 4 input and 3 output tokens.
+  // The billed reply exceeds this cap.
   await cost.getByTestId('budget-daily-cap-input').fill('0.000001');
   await page.keyboard.press('Escape');
   const usageBefore = await legacyUsageRows(page);
 
-  modelProvider.setScript({ finalText: REPLY });
+  modelProvider.setScript({ billedCost: BILLED, finalText: REPLY });
   await ensureAssistantShellVisible(page);
   const region = page.getByRole('region', { exact: true, name: 'Assistant' });
   const input = region.getByRole('textbox', { name: 'Message input' });
@@ -79,11 +81,11 @@ test('a host run counts toward the daily cap, gates the next send, and lists in 
   await expect(region.getByRole('button', { exact: true, name: 'Send' })).toBeDisabled();
   await expect(region.getByTestId('budget-guardrail-unpriced')).toHaveCount(0);
 
-  // The cost views list the host run from its committed log.
+  // The cost views list the host run from its committed log, at what OpenRouter billed.
   const ledger = (await openCostTracking(page)).getByTestId('task-ledger-panel');
   const run = ledger.getByTestId('task-ledger-run-row').filter({ hasText: MODEL_LABEL });
   await expect(run).toHaveCount(1, { timeout: 30_000 });
-  await expect(run.getByTestId('task-ledger-run-cost')).not.toHaveText(/^\s*$/u);
+  await expect(run.getByTestId('task-ledger-run-cost')).toHaveText('$0.0042');
   await page.keyboard.press('Escape');
 
   // Projected, never written: the legacy usage table is untouched.
