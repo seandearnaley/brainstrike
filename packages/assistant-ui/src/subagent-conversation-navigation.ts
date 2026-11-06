@@ -53,6 +53,8 @@ export type SubagentChildRun =
         | 'failed'
         | 'interrupted';
       readonly toolCalls: number;
+      /** The `provider::model` the child's latest run was admitted on. */
+      readonly modelId?: string | undefined;
     }
   | { readonly reason: string; readonly status: 'unavailable'; readonly toolCalls: number };
 /** The owner's child run states by child thread; a read keeps its identity until it changes. */

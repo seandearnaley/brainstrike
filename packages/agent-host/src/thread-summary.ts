@@ -38,6 +38,8 @@ class ThreadSummaryFold {
   /** The thread's first run: a child's delegated invocation, part of its parent's turn. */
   private first: string | undefined;
   private latest: string | undefined;
+  /** The latest run's admitted model. */
+  private latestModel = '';
   /** The latest run's root turn, read as a root thread's run (`hostRootRunTurnId`). */
   private latestTurn = '';
   private outcome: Outcome | undefined;
@@ -73,6 +75,7 @@ class ThreadSummaryFold {
           run.status === before.run.status &&
           run.toolCalls === before.run.toolCalls &&
           run.delegatedInvocation === before.run.delegatedInvocation &&
+          run.modelId === before.run.modelId &&
           run.turnId === before.run.turnId));
     if (same) {
       return false;
@@ -92,6 +95,7 @@ class ThreadSummaryFold {
       case 'run.started':
         this.first ??= event.runId;
         this.latest = event.runId;
+        this.latestModel = event.modelId;
         this.latestTurn = hostRootRunTurnId(event);
         this.outcome = undefined;
         this.answeredText = false;
@@ -173,6 +177,7 @@ class ThreadSummaryFold {
     }
     return {
       delegatedInvocation: this.latest === this.first,
+      modelId: this.latestModel,
       status: this.status(),
       toolCalls: this.toolCalls.size,
       turnId: this.latestTurn,
