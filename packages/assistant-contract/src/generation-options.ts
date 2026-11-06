@@ -3,7 +3,7 @@
  * request's `modelSettings` and the `providerOptions` each provider's SDK
  * reads (reasoning effort, thinking shape, visibility). Pure functions over
  * the catalog, so the composer builds a run's options and the host builds a
- * delegated child's with one implementation (ADR-0037).
+ * delegated child's with one implementation.
  */
 import { type AssistantProviderSettings, getGoogleThinkingLevels } from '@brainstrike/types';
 import { BEDROCK_BUDGET_TOKENS_BY_EFFORT, BEDROCK_REASONING_EFFORTS } from './model-reasoning.ts';
