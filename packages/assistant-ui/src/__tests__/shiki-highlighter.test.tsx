@@ -1,11 +1,18 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown';
-import { render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { TooltipProvider } from '@brainstrike/ui';
+import { render as baseRender, screen, waitFor } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const shikiMocks = vi.hoisted(() => ({
   createHighlighterCore: vi.fn(),
-  createOnigurumaEngine: vi.fn(() => ({ engine: 'oniguruma' })),
+  // The real engine owns the Wasm loader it is handed. The stub never needs the
+  // Wasm, but still settles the loader: Shiki 4.6 decompresses it on import with
+  // Response#bytes, which happy-dom lacks, and an unobserved rejection fails the run.
+  createOnigurumaEngine: vi.fn((wasm: Promise<unknown>) => {
+    wasm.catch(() => undefined);
+    return { engine: 'oniguruma' };
+  }),
 }));
 
 vi.mock('react-shiki/core', () => ({
@@ -39,6 +46,9 @@ const components: SyntaxHighlighterProps['components'] = {
   ),
   Pre: ({ children }: { children?: ReactNode }) => <pre data-testid="fallback-pre">{children}</pre>,
 };
+
+/** The chat mounts every code box under the app's TooltipProvider. */
+const render = (ui: ReactElement) => baseRender(ui, { wrapper: TooltipProvider });
 
 async function importSubject(): Promise<typeof import('../shiki-highlighter')> {
   return import('../shiki-highlighter');

@@ -118,12 +118,13 @@ function scrollNear(): void {
 
 function changedFile(path: string, overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   return {
+    actions: [],
     additions: 2,
     deletions: 1,
     patch: `diff --git a/${path} b/${path}\n`,
     path,
     repositoryRoot: null,
-    revertible: true,
+    revision: 'r1',
     rootId: 'root-1',
     status: 'modified',
     worktreePath: null,

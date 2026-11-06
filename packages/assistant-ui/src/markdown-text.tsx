@@ -1,14 +1,12 @@
 /// <reference path="./vite-env.d.ts" />
 import { useMessagePartText } from '@assistant-ui/react';
 import {
-  type CodeHeaderProps,
   type ComponentsByLanguage,
   type StreamdownTextComponents,
   StreamdownTextPrimitive,
   type SyntaxHighlighterProps,
 } from '@assistant-ui/react-streamdown';
 import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/citation-markers';
-import { CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { type ComponentPropsWithoutRef, type ComponentType, memo } from 'react';
 import { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -93,12 +91,6 @@ export const MarkdownText = memo(function MarkdownText() {
   return <MarkdownTextImpl preprocess={stripProviderCitationMarkers} />;
 });
 
-// Module-scope adapter (NOT inline in defaultComponents): an inline component
-// would get a new identity per render and remount every streamed chunk.
-function CodeHeader({ language, code }: CodeHeaderProps) {
-  return <CodeBlockHeader code={code ?? ''} language={language} />;
-}
-
 // Module scope: Streamdown's per-block memo compares each component by
 // identity, so a stable map keeps finished blocks from re-rendering.
 //
@@ -114,8 +106,8 @@ const defaultComponents = {
   // the desktop renderer's navigation fence denies it, and on web it would
   // navigate the whole app away. Link activation is routed to the host instead.
   a: MarkdownLink,
-  // biome-ignore lint/style/useNamingConvention: assistant-ui expects "CodeHeader" key
-  CodeHeader,
+  // No CodeHeader: the SyntaxHighlighter slot renders the whole shared code
+  // box, so its header and body share the wrap state.
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
   SyntaxHighlighter: SyntaxHighlighterComponent,
   // Streamdown renders bold as a styled span; keep the semantic element.
@@ -123,8 +115,6 @@ const defaultComponents = {
 } satisfies {
   readonly a: ComponentType<ComponentPropsWithoutRef<'a'>>;
   readonly strong: 'strong';
-  // biome-ignore lint/style/useNamingConvention: assistant-ui expects "CodeHeader" key
-  readonly CodeHeader: ComponentType<CodeHeaderProps>;
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
   readonly SyntaxHighlighter: ComponentType<SyntaxHighlighterProps>;
 } as unknown as StreamdownTextComponents;

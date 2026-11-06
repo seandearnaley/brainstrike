@@ -16,8 +16,15 @@ let mockMessages: unknown[] = [];
 let mockIsRunning = false;
 vi.mock('@assistant-ui/react', () => ({
   useAuiState: <T,>(
-    selector: (state: { thread: { isRunning: boolean; messages: unknown[] } }) => T
-  ) => selector({ thread: { isRunning: mockIsRunning, messages: mockMessages } }),
+    selector: (state: {
+      composer: { text: string };
+      thread: { isRunning: boolean; messages: unknown[] };
+    }) => T
+  ) =>
+    selector({
+      composer: { text: '' },
+      thread: { isRunning: mockIsRunning, messages: mockMessages },
+    }),
 }));
 
 /** Open the meter's detail popover by activating its trigger. */

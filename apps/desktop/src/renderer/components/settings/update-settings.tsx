@@ -7,6 +7,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ErrorNotice,
   Label,
   Switch,
 } from '@brainstrike/ui';
@@ -124,11 +125,7 @@ function UpdateStatusRow({ bridge }: { readonly bridge: NonNullable<Window['appU
         <p className="text-sm" data-testid="updates-status" role="status">
           {update ? describeUpdateStatus(update) : 'Reading the update status…'}
         </p>
-        {state.error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {state.error}
-          </p>
-        ) : null}
+        {state.error ? <ErrorNotice message={state.error} /> : null}
       </div>
       {update?.state === 'ready' ? (
         <Button
@@ -220,7 +217,7 @@ export function DesktopUpdateSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Updates</CardTitle>
+        <CardTitle>Automatic updates</CardTitle>
         <CardDescription>
           Brainstrike checks for a new version when it starts and every few hours, downloads it in
           the background and installs it when you quit.
@@ -246,11 +243,7 @@ export function DesktopUpdateSettings() {
             onCheckedChange={(value) => setBetaUpdates(value === true)}
           />
         </div>
-        {state.status !== 'loading' && state.error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {state.error}
-          </p>
-        ) : null}
+        {state.status !== 'loading' && state.error ? <ErrorNotice message={state.error} /> : null}
       </CardContent>
     </Card>
   );

@@ -66,18 +66,29 @@ export function finishHostRunWithProviderBilling(
   publish: (
     event: Extract<HostEvent, { type: 'run.finished' }>,
     commit: () => void
-  ) => Promise<unknown>
+  ) => Promise<unknown>,
+  handOn: () => Promise<void>
 ): Promise<void> {
-  return finishHostRun(run, outcome, detail, closing, owner, async (event, commit) => {
-    const provider =
-      run.admission?.configuration.provider ?? run.snapshot?.configuration['provider'];
-    const history =
-      event.outcome === 'completed' && provider === 'openrouter' ? await readHistory() : undefined;
-    return publish(event, () => {
-      commit();
-      if (history) {
-        reportHostProviderBilling(history, run.id);
-      }
-    });
-  });
+  return finishHostRun(
+    run,
+    outcome,
+    detail,
+    closing,
+    owner,
+    async (event, commit) => {
+      const provider =
+        run.admission?.configuration.provider ?? run.snapshot?.configuration['provider'];
+      const history =
+        event.outcome === 'completed' && provider === 'openrouter'
+          ? await readHistory()
+          : undefined;
+      return publish(event, () => {
+        commit();
+        if (history) {
+          reportHostProviderBilling(history, run.id);
+        }
+      });
+    },
+    handOn
+  );
 }

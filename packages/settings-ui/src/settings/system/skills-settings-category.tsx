@@ -26,6 +26,8 @@ export function createSkillsSettingsCategory(
       'workflows',
       'instructions',
       'progressive disclosure',
+      'available skills',
+      'enable agent skills',
     ],
     title: 'Skills',
   };

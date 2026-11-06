@@ -18,15 +18,6 @@ export interface RuntimeAgentLoopSettings {
 }
 
 /**
- * In-memory mid-run steering control (BST-588). Injected server-side (like
- * `signal`); never serialized. `stopRequested()` is polled by the agent loop
- * at step boundaries.
- */
-export interface AssistantRunSteeringControl {
-  stopRequested(): boolean;
-}
-
-/**
  * Re-exported, never re-declared. `@brainstrike/types` is the leaf that owns
  * these reasoning vocabularies; a second declaration here would be free to
  * drift from the pickers that read them.
@@ -69,7 +60,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.81); re-read it when the provider is upgraded.
+ * `@ai-sdk/anthropic` (4.0.94); re-read it when the provider is upgraded.
  *
  * `budgetTokens` is OPTIONAL upstream and required here on purpose: an
  * `enabled` request without an explicit budget is not a shape this app emits.
@@ -99,7 +90,7 @@ export interface AnthropicProviderOptions extends RuntimeJsonObject {
 }
 
 /**
- * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.117).
+ * Mirrors `reasoningConfig` of the installed `@ai-sdk/amazon-bedrock` (5.0.130).
  *
  * Deliberately NOT a discriminated union: `type: 'enabled'` carries
  * `budgetTokens` for Claude routes and `maxReasoningEffort` for Amazon Nova,
@@ -296,16 +287,6 @@ export interface RuntimeData {
    * engine is stripped.
    */
   skillsPreference?: SkillsContextRequest;
-  /**
-   * Mid-run steering control (BST-588). IN-MEMORY ONLY, exactly like `signal`:
-   * the server injects it after request validation; it never rides the wire.
-   * When `stopRequested()` turns true, the agent loop ends the run gracefully
-   * at the next step boundary (a `run.steered` event + normal finish) so the
-   * queued steer message can dispatch as the next turn on the same thread.
-   * Seam is shaped for a future swap onto Mastra's signals `sendMessage`
-   * live-delivery once that API graduates from beta.
-   */
-  steering?: AssistantRunSteeringControl;
   /**
    * Renderer-supplied subagent persona availability (from the subagent-personas
    * preferences store). A preference, not a security boundary — it can only

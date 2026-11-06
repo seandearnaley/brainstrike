@@ -17,6 +17,7 @@ import {
   ThreadPrimitive,
   useLocalRuntime,
 } from '@assistant-ui/react';
+import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -76,14 +77,16 @@ function Harness({ text, recovery = false }: { text: string; recovery?: boolean 
   const runtime = useLocalRuntime(chatModel, { initialMessages });
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Messages
-        components={{
-          AssistantMessage: AssistantActionBar,
-          UserMessage: () => null,
-        }}
-      />
-    </AssistantRuntimeProvider>
+    <TooltipProvider>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ThreadPrimitive.Messages
+          components={{
+            AssistantMessage: AssistantActionBar,
+            UserMessage: () => null,
+          }}
+        />
+      </AssistantRuntimeProvider>
+    </TooltipProvider>
   );
 }
 
@@ -95,7 +98,7 @@ describe('AssistantActionBar copy', () => {
 
   it('does not offer model regeneration for a decision discovery failure', () => {
     render(<Harness recovery text="" />);
-    expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Copy message' })).not.toBeInTheDocument();
     expect(chatModel.run).not.toHaveBeenCalled();
   });

@@ -28,6 +28,7 @@ import {
   CopyTextButton,
   cn,
   EmptyState,
+  ErrorNotice,
   saveDownload,
   Tabs,
   TabsList,
@@ -116,7 +117,7 @@ function ContextRingBar({
         />
         {filesTokens !== null && (
           <div
-            className="absolute inset-y-0 left-0 rounded-full bg-blue-600 dark:bg-blue-400"
+            className="bg-info absolute inset-y-0 left-0 rounded-full"
             style={{ width: percentOf(Math.min(filesTokens, ring.usedTokens), ring.budgetTokens) }}
             title="Workspace files in the window"
           />
@@ -247,9 +248,7 @@ function LaneChips({
         </TabsList>
       </Tabs>
       {listError !== undefined && (
-        <p className="text-destructive text-xs" role="alert">
-          Subagents could not be listed: {listError}
-        </p>
+        <ErrorNotice message={`Subagents could not be listed: ${listError}`} />
       )}
     </div>
   );
@@ -436,7 +435,7 @@ function LaneView({
                     // Narrow: name and tokens, then the strip on its own line.
                     'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded px-2 py-1.5 text-left',
                     '@[40rem]/context-map:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_6rem]',
-                    'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
+                    'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-hidden',
                     isSelected && 'bg-muted',
                     mode === 'window' && row.gone && 'opacity-60'
                   )}
@@ -446,11 +445,11 @@ function LaneView({
                 >
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate font-mono text-xs">{row.path.split('/').at(-1)}</span>
-                    <span className="text-muted-foreground truncate font-mono text-[11px]">
+                    <span className="text-muted-foreground text-2xs truncate font-mono">
                       {row.path}
                     </span>
                     {(row.editedWithoutRead || changedNow) && (
-                      <span className="text-muted-foreground text-[11px]">
+                      <span className="text-muted-foreground text-2xs">
                         {[
                           changedNow ? 'changed since read' : null,
                           row.editedWithoutRead ? 'edited without reading' : null,
@@ -542,18 +541,11 @@ function LaneError({
   readonly onRetry: () => void;
 }): ReactElement {
   return (
-    <div
-      className="text-destructive flex flex-wrap items-center gap-2 text-xs"
+    <ErrorNotice
       data-testid="context-map-lane-error"
-      role="alert"
-    >
-      <span>
-        {callSign}'s log could not be read: {message}
-      </span>
-      <Button className="h-6 text-xs" onClick={onRetry} size="sm" variant="outline">
-        Retry
-      </Button>
-    </div>
+      message={`${callSign}'s log could not be read: ${message}`}
+      onRetry={onRetry}
+    />
   );
 }
 

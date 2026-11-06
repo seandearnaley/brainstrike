@@ -11,6 +11,7 @@ import {
   isDelegatedToolDecisionState,
 } from '@brainstrike/assistant-contract';
 import { Predicate } from 'effect';
+import { formatRelativeTime } from './relative-time.ts';
 
 export type RediscoveredPauseDisplay =
   | {
@@ -54,26 +55,11 @@ export function readRediscoveredPauseDisplay(data: unknown): RediscoveredPauseDi
   return { stale, suspendedAt };
 }
 
-const RELATIVE_TIME_UNITS: ReadonlyArray<readonly [Intl.RelativeTimeFormatUnit, number]> = [
-  ['day', 86_400_000],
-  ['hour', 3_600_000],
-  ['minute', 60_000],
-];
-
-// Building an Intl formatter is expensive; hoist a single shared instance.
-const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-
 /** "Pending since <relative>" text; null when the timestamp is unparseable. */
 export function formatPendingSince(suspendedAt: string, now: number): string | null {
   const suspendedMs = Date.parse(suspendedAt);
   if (Number.isNaN(suspendedMs)) {
     return null;
   }
-  const elapsedMs = Math.max(0, now - suspendedMs);
-  for (const [unit, unitMs] of RELATIVE_TIME_UNITS) {
-    if (elapsedMs >= unitMs) {
-      return RELATIVE_TIME_FORMATTER.format(-Math.floor(elapsedMs / unitMs), unit);
-    }
-  }
-  return RELATIVE_TIME_FORMATTER.format(-Math.floor(elapsedMs / 1000), 'second');
+  return formatRelativeTime(suspendedMs, now);
 }

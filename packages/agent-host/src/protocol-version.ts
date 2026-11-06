@@ -4,8 +4,7 @@
 // `thread.updated`: title, colour and icon, also in `thread/list`), withheld observational memory,
 // tool catalog IDs on committed tool events, image attachments on a user message (`run/start` and
 // `run.started`), committed workspace edit attribution, `checkpoint/revert`, per-thread tool state,
-// the prompt breakdown on `provider.request.prepared`, `run/steer` (end the active run at its next
-// step boundary), run attempt records, `mcp.tools.unavailable`, committed with `run.started` for
+// the prompt breakdown on `provider.request.prepared`, run attempt records, `mcp.tools.unavailable`, committed with `run.started` for
 // each configured MCP server whose tools the run proceeds without, permission grants answered with
 // an approval (`interaction/respond` grant, `permission.granted`, the request's risk), plan mode
 // (`run/start`, `run/regenerate` and `run.started` planMode), child threads (BST-1932):
@@ -78,5 +77,20 @@
 // method.
 // v20 (2026-11-05): `log/subscribe` answers a `subscriptionId`, and `log/unsubscribe` names it
 // instead of the thread, so ending one view's subscription never ends another's. The required
-// parameter is why this is a version bump.
-export const AGENT_HOST_PROTOCOL_VERSION = 20;
+// parameter is why this is a version bump. Additive since: `run.started` `hostPrompt`, set when
+// the host wrote the run's prompt (the worktree continuation); a next-turn delivery carries the
+// thread's ended command sessions too (`commandSessions`, with `entries` then possibly empty).
+// v21 (2026-11-05): each `changes/resolve-view` entry carries the actions the host offers for it
+// (`actions`) and the `revision` of what the view drew, and `revertible` is gone; `changes/apply`
+// stages, unstages or reverts a view's hunks or files (ADR-0036), a new method. The required
+// fields are why this is a version bump. Additive since: a turn's entries carry `wholeFile`,
+// and a settled turn's view reverts whole files; `changes/commits` (a worktree's latest
+// commits, for the Changes commit picker), a new method; `notice.posted` (a child run's report
+// or a command session's exit, posted on the thread that hears it; ADR-0028 step 3b), a new
+// variant; `model.messages` carries the notices a running run took at a step (`delivery`);
+// `run/input` is a notice on any thread, read at the run's next step or starting the person's
+// turn on an idle thread, and a delivery names the inputs it took (`inputs`, `ledger` optional).
+// v22 (2026-11-05): `run/steer` is gone. A person's message to a running thread is `run/input`,
+// which the run reads at its next step, so no run ends early to make room for it. Removing a
+// method is why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 22;

@@ -2,10 +2,12 @@
 
 - **Status:** Proposed. The owner decided every open question on 2026-10-22 (see Owner
   decisions) and may mark it Accepted.
-  - Implemented so far: step 3 for root runs (a created worktree binds its thread;
-    `packages/agent-host/src/worktree-binding.ts`).
-  - Not yet: step 2 (worker children still admit `askUser` through `*`;
-    `narrowHostChildTools` drops only delegation tools and `manageTaskList`), and steps 4–10.
+  - Implemented so far: step 2 (children never get `askUser` or `submitPlan`;
+    `PARENT_ONLY_TOOL_IDS` in `packages/assistant-contract/src/personas.ts`), step 3 for
+    root runs (a created worktree binds its thread; `packages/agent-host/src/worktree-binding.ts`),
+    and step 3b's notice for child reports, command-session exits and a person's input, taken at
+    a run's start or its next step (`packages/agent-host/src/notices.ts`).
+  - Not yet: steps 4–10.
 - **Date:** 2026-10-22
 - **Builds on:** [ADR-0009](0009-host-run-loop-invariants.md) (with its 2026-10-22
   amendment), [ADR-0010](0010-approvals-and-delegation.md),
@@ -48,7 +50,8 @@ A child is an ordinary host run in its own child thread, on its parent's host
   the tree approvals list (`apps/desktop/src/renderer/host-tree-approvals.ts`), which reads
   Core's folded summary of the tree (`thread/tree`), never the children's logs. The root's
   policy governs the tree.
-- **Questions:** the built-in `worker` persona admits `*`, so a child can call `askUser`.
+- **Questions:** the built-in `worker` persona admitted `*`, so a child could call `askUser`
+  (removed by step 2).
 - **Limits:** `maxInvocations`, `maxDepth`, a per-turn work queue, the persona step budget, the
   child's own watchdog and an optional per-leg `maxChildRuntimeMs`. The parent's watchdog never
   judges a running delegation (ADR-0009 amendment, PR #4142).
@@ -127,7 +130,7 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
 - **Forked subagent:** missing. Add a `fork` option later (decision 6).
 - **Continue / message a child from the model:** people only today. Add a `message` tool
   (step 4).
-- **Children asking the person:** differs. Remove `askUser` and `submitPlan` from children
+- **Children asking the person:** matches. Children have no `askUser` or `submitPlan`
   (decision 1, step 2).
 - **Worktree isolation:** partial. Bind created worktrees; give writers their own (decision 7,
   steps 3 and 6).
@@ -244,7 +247,8 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
 - Remote agent runs, transcript, approvals, grants: the agent's host.
 - Who started a served agent: its `thread.started` with a remote `origin`.
 - A message and any hold on it: receiver's log; the sender logs only its send effect.
-- Notes and watermark: starter's `run.started` `delivery` (unchanged).
+- Notes: a `notice.posted` on the starter's log, committed with the child run's end (step 3b).
+  Which notices a run took: that run's `run.started` `delivery`, read along its branch.
 - Status and directory: derived.
 - Host ID: minted once in the state DB.
 - Root policy and grants: the root host only.
@@ -267,10 +271,35 @@ Brainstrike adopts this model on its own host protocol, with standards at the bo
 
 0. **Done:** watchdog fix, PR #4142 (`62d6ee36e`).
 1. **Done:** owner decisions (2026-10-22).
-2. **Questions go up, by removal.** Drop `askUser` and `submitPlan` from child admission (as
+2. **Done: questions go up, by removal.** Drop `askUser` and `submitPlan` from child admission (as
    `manageTaskList` already is in `narrowHostChildTools`); update the worker persona.
 3. **A created worktree binds its thread** or the delegation that made it. No agent switches the
    person's checkout. A worker delegated beside another live writer gets its own worktree.
+3b. **One notice** (owner decision 2026-11-05, from the agent messaging audit). Everything a
+   thread is told that no person typed is one notice on that thread's log, posted by the
+   commit that settles it and taken by the run or step that delivers it, along that run's own
+   branch. opencode ships this shape (a pending inbox row taken in the message's own
+   transaction); Claude Code reads incoming messages between tool calls; AI SDK 7 carries
+   messages `prepareStep` returns into later steps.
+   - **Done:** a child run's report and a command session's exit. The child's terminal commit
+     posts the report on its parent's log in the same transaction, so whether it reports is
+     decided once and the report outlives the child thread. An exit is posted on the thread
+     that hears it and survives a restart. A run takes the notices due on its branch: not yet
+     taken there, and, for a child's report, dispatched there. This removed the
+     process-global delivered set and the process-local exits queue.
+   - **Done:** a running thread takes its due notices at its next step boundary in
+     `prepareStep` (`steer`): one user message, committed as `model.messages` whose `delivery`
+     names them, so the branch counts them taken. An idle thread wakes, or its next run takes
+     them (`queue`). A turn's input is its first user message by identity
+     (`turn-input.ts`), not the last user message by role.
+   - **Done:** a person's input (`run/input`) is a notice: its committed command. A working run
+     reads it at its next step, as its own user message, so an awaited child's answer to it is
+     its parent's tool result; an idle thread, decided in commit order, starts the person's turn
+     with it. This removed "end the run, then start the next one" (`child-input.ts`). The read
+     message passes its UserPromptSubmit hooks, mentioned files and skills, as a prompt does.
+   - **Done:** the composer's Steer sends `run/input` on every thread, so the run reads the
+     message at its next step and no run ends early to make room for it. This removed
+     `run/steer`. Step 4's `message` tool and step 5's `agents/notify` then post notices.
 4. **The `message` tool**, addressing children by call sign: follow-up run if idle, `run/input`
    if working. Committed as agent-authored.
 5. **Directory on one host:** `agents/list`, `agents/message`, `agents/notify`; the sidebar reads

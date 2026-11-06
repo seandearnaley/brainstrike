@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=24.20.0 <25 || >=26.8.2 <27"
+    "node": ">=24.22.1 <25 || >=26.12.1 <27"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -73,6 +73,7 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "fast-check": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "@effect/tsgo": "catalog:"

@@ -1,4 +1,5 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown';
+import { CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { lazy, memo, Suspense } from 'react';
 import { useIsCodeFenceIncomplete } from 'streamdown';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
@@ -21,8 +22,11 @@ const MermaidHighlighterImpl = (props: SyntaxHighlighterProps) => {
   }
   return (
     <Suspense fallback={<SyntaxHighlighterComponent {...props} />}>
-      <div className="border-border rounded-b-md border border-t-0 p-3">
-        <MermaidBlock code={props.code} key={props.code} />
+      <div className="bs-code-block my-4">
+        <CodeBlockHeader code={props.code} language={props.language} />
+        <div className="border-border rounded-b-md border border-t-0 p-3">
+          <MermaidBlock code={props.code} key={props.code} />
+        </div>
       </div>
     </Suspense>
   );

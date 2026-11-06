@@ -20,7 +20,7 @@ async function openThreadsPanel(page: Page): Promise<void> {
 async function customize(page: Page, title: string) {
   const panel = page.getByTestId('threads-panel');
   await panel.getByRole('button', { exact: true, name: `Thread actions ${title}` }).click();
-  await page.getByRole('button', { exact: true, name: 'Customize' }).click();
+  await page.getByRole('menuitem', { exact: true, name: 'Customize' }).click();
   const customization = page.getByTestId('thread-customization-panel');
   await expect(customization).toBeVisible();
   return customization;
@@ -54,7 +54,7 @@ test('a host thread keeps its title, colour and icon across a reload', async ({
   await expect(strip.getByRole('tab', { name: UNTITLED })).toHaveCount(1, { timeout: 30_000 });
 
   await threads.getByRole('button', { exact: true, name: `Thread actions ${UNTITLED}` }).click();
-  await window.getByRole('button', { exact: true, name: 'Rename' }).click();
+  await window.getByRole('menuitem', { exact: true, name: 'Rename' }).click();
   const titleInput = window.getByRole('textbox', { exact: true, name: 'Thread title' });
   await titleInput.fill(TITLE);
   await window.getByRole('button', { exact: true, name: 'Save thread title' }).click();

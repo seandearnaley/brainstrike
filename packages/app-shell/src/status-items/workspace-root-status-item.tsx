@@ -49,29 +49,29 @@ function RootRow({
         <div className="flex items-center gap-1.5">
           <span className="truncate text-xs font-medium">{root.displayName}</span>
           {root.isMain && (
-            <Badge className="px-1.5 py-0 text-[9px]" variant="secondary">
+            <Badge className="text-2xs px-1.5 py-0" variant="secondary">
               Main
             </Badge>
           )}
           {root.isFocused && (
-            <span className="text-muted-foreground shrink-0 text-[10px]">Focused</span>
+            <span className="text-muted-foreground text-2xs shrink-0">Focused</span>
           )}
           {root.threadScope ? (
             <span
-              className="text-muted-foreground shrink-0 text-[10px]"
+              className="text-muted-foreground text-2xs shrink-0"
               data-testid="workspace-root-thread-scope"
             >
               {root.threadScope === 'in' ? 'This thread' : 'Not in this thread'}
             </span>
           ) : null}
         </div>
-        <div className="text-muted-foreground truncate text-[11px]" title={root.pathLabel}>
+        <div className="text-muted-foreground text-2xs truncate" title={root.pathLabel}>
           {root.pathLabel}
         </div>
       </div>
       {!root.isMain && (
         <Button
-          className="h-6 shrink-0 px-2 text-[11px]"
+          className="text-2xs h-6 shrink-0 px-2"
           onClick={() => onSetMainRoot(root.rootId)}
           size="sm"
           type="button"
@@ -138,7 +138,7 @@ export function WorkspaceRootStatusItem() {
               ? `Workspace main root ${mainName} plus ${otherCount} more. Open workspace folders`
               : `Workspace folder ${mainName}. Open workspace folders`
           }
-          className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset md:px-2"
+          className="hover:bg-accent/80 focus-visible:ring-ring flex h-7 max-w-56 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-sm px-1.5 text-left whitespace-nowrap transition-[background-color,color] duration-150 focus-visible:ring-1 focus-visible:outline-hidden focus-visible:ring-inset md:px-2"
           data-testid="workspace-root-status-trigger"
           title={mainPathTitle}
           type="button"
@@ -167,7 +167,7 @@ export function WorkspaceRootStatusItem() {
             Workspace folders
           </div>
           {isMulti && (
-            <div className="text-muted-foreground text-[11px]">
+            <div className="text-muted-foreground text-2xs">
               A new thread starts in Main, then works in its own folders. Focused follows your
               selection.
             </div>

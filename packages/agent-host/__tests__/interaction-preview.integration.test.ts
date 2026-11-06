@@ -93,8 +93,24 @@ async function waitingRun() {
     (await core.read(threadId, 0))
       .map((row) => row.event)
       .filter((event): event is Requested => event.type === 'interaction.requested');
-  await expect.poll(async () => (await requested()).length).toBe(2);
+  // The waiting step's own end, after both requests, is the last row the run commits while it waits.
+  const stepEnded = async (): Promise<boolean> => {
+    const events = (await core.read(threadId, 0)).map(({ event }) => event);
+    const asked = events.findLastIndex((event) => event.type === 'interaction.requested');
+    return events
+      .slice(asked + 1)
+      .some(
+        (event) =>
+          event.type === 'stream.chunk' &&
+          typeof event.chunk === 'object' &&
+          event.chunk !== null &&
+          !Array.isArray(event.chunk) &&
+          event.chunk['type'] === 'finish-step'
+      );
+  };
+  await expect.poll(stepEnded).toBe(true);
   const events = await requested();
+  expect(events).toHaveLength(2);
   const approval = (toolId: string): Requested => {
     const found = events.find((event) => event.toolId === toolId);
     if (!found) {
@@ -105,6 +121,7 @@ async function waitingRun() {
   return {
     command: approval('execute_command'),
     connect: (origin: HostClientOrigin) => connect(core, origin),
+    idle: () => core.idle(threadId),
     rows: async () => (await core.read(threadId, 0)).length,
     run: { runId, threadId },
     write: approval('write_file'),
@@ -145,6 +162,13 @@ test("the desktop sees the change a waiting call's own tool would make, and noth
     client.request('interaction/preview', { ...run, interactionId: write.interactionId })
   ).resolves.toEqual({ after: 'new\n', before: 'old\n', path: 'notes.md' });
   expect(previewed).toEqual([{ content: 'new\n', path: 'notes.md' }]);
+  expect(await rows()).toBe(before);
+});
+
+test('a run waiting on a person is idle: nothing runs until they answer', async () => {
+  const { idle, rows } = await waitingRun();
+  const before = await rows();
+  await idle();
   expect(await rows()).toBe(before);
 });
 

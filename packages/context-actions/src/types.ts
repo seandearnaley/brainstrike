@@ -55,12 +55,25 @@ export type ContextTarget =
       readonly url: string;
     }
   /**
+   * A canvas card in the Artifacts gallery. `threadId` is the thread that
+   * holds the canvas (a subagent's own thread for a delegated canvas);
+   * `rootThreadId` is the top-level thread it opens in.
+   */
+  | {
+      readonly canvasId: string;
+      readonly kind: 'artifact';
+      readonly rootThreadId: string;
+      readonly threadId: string;
+      readonly title: string;
+    }
+  /**
    * The empty background of a tab strip (BST-1836 §6.4). Strip-level local
    * actions (New, Close All) claim it; `stripId` names the owning strip.
    */
   | { readonly kind: 'tab-strip'; readonly stripId: string }
   /**
-   * A row in the Changes surface's changed-files tree (BST-1114). Field
+   * A file in the Changes surface: a changed-files tree row (BST-1114) or a
+   * diff file header. Field
    * shapes are inlined from `@brainstrike/types`'s `ChangedFileEntry` rather
    * than imported — this package stays dependency-light (React-free,
    * Electron-free, and today free of `@brainstrike/types` too), and the
@@ -71,6 +84,8 @@ export type ContextTarget =
    */
   | {
       readonly kind: 'changed-file';
+      /** Git's diff of the file as the view drew it, or null when the view sent none. */
+      readonly patch: string | null;
       readonly path: string;
       readonly repositoryRoot: string | null;
       readonly rootId: string | null;
@@ -170,7 +185,8 @@ export interface ActionServices {
 /** Menu group; determines ordering and separator placement. */
 export type ActionGroup = 'primary' | 'tree' | 'copy' | 'navigate' | 'inspect' | 'danger';
 
-export type ActionShortcutModifier = 'primary' | 'shift' | 'alt';
+/** `primary` is ⌘ on macOS and Ctrl elsewhere; `ctrl` is Control on every platform. */
+export type ActionShortcutModifier = 'primary' | 'ctrl' | 'shift' | 'alt';
 
 /**
  * Semantic shortcut metadata. Renderers translate `primary` to the platform's

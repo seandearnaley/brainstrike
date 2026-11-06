@@ -11,8 +11,21 @@
  * Comments are drafts the caller owns: a + on a line, or a drag down the
  * gutter, opens one box at a time under the last line, and the saved comment
  * stays on the diff until the caller removes it.
+ *
+ * Each file's own actions show on its header, and, unless they take only the
+ * whole file, on each hunk of a modified file whose whole patch the diff
+ * holds, under the hunk's last change (@pierre/diffs' accept/reject pattern).
+ * A hunk action hands back the hunk exactly as git's patch has it.
+ *
+ * With `onOpenLine`, a click on a line number of a file's new version opens
+ * the file at that line.
  */
-import type { ChangedFileStatus, StructuredFileDiff } from '@brainstrike/types';
+import {
+  actionHunks,
+  type ChangedFileStatus,
+  type ChangesAction,
+  type StructuredFileDiff,
+} from '@brainstrike/types';
 import type {
   CodeViewDiffItem,
   CodeViewItem,
@@ -26,8 +39,9 @@ import {
   type CodeViewAnnotationArgs,
   type CodeViewHandle,
   type CodeViewReactOptions,
+  useStableCallback,
 } from '@pierre/diffs/react';
-import { ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronRight, Loader2, type LucideIcon, Minus, Plus, Undo2 } from 'lucide-react';
 import {
   type ReactElement,
   type Ref,
@@ -38,12 +52,17 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Button } from '../button';
+import { Checkbox } from '../checkbox';
 import { cn } from '../lib/utils';
+import { TooltipIconButton } from '../tooltip-icon-button';
 import { toast } from '../use-toast';
+import { CHANGES_ACTION_LABEL, CHANGES_ACTIONS } from './changes-actions';
 import { useDiffAppearance } from './diff-appearance';
 import {
   type DiffSide,
   emptyFileDiff,
+  lastChangedLine,
   loadedFileDiff,
   parseFilePatch,
   sideLines,
@@ -57,6 +76,8 @@ import {
 } from './diff-review-comment';
 
 export interface DiffReviewFile {
+  /** What the caller applies to this file. Without `onAction` the diff offers none. */
+  readonly actions: readonly ChangesAction[];
   /** Null when git counts no lines: a binary file. */
   readonly additions: number | null;
   readonly deletions: number | null;
@@ -66,32 +87,66 @@ export interface DiffReviewFile {
   /** Git's diff of the file, or null when the view sent none. */
   readonly patch: string | null;
   readonly path: string;
+  /** Identity of what the caller drew; a diff loaded at another revision is not shown. */
+  readonly revision: string;
   readonly status: ChangedFileStatus;
+  /** Set when its actions take only the whole file: no hunk offers them. */
+  readonly wholeFile?: true | undefined;
 }
 
 export interface DiffReviewHandle {
   scrollToFile(id: string): void;
 }
 
+const CHANGES_ACTION_ICON: Readonly<Record<ChangesAction, LucideIcon>> = {
+  revert: Undo2,
+  stage: Plus,
+  unstage: Minus,
+};
+
 export interface DiffReviewProps {
+  /** True while an action runs: every action control is disabled. */
+  readonly actionsDisabled?: boolean | undefined;
   /** Sizes the scroll region; it fills its parent otherwise. */
   readonly className?: string | undefined;
   readonly comments?: readonly DiffComment[] | undefined;
   /** Every file starts folded to its header. */
   readonly defaultCollapsed?: boolean | undefined;
   readonly diffStyle: 'split' | 'unified';
+  /**
+   * Wraps a file's header, as in the menu its right-click opens. Only the
+   * header takes it, so a right-click on the lines stays the page's own.
+   */
+  readonly fileMenu?: ((file: DiffReviewFile, header: ReactElement) => ReactElement) | undefined;
   readonly files: readonly DiffReviewFile[];
   /** One file's diff with both sides; rejects with why it could not load. */
   readonly loadFile: (id: string) => Promise<StructuredFileDiff>;
+  /** Applies an action to the whole file (`hunks` null) or to hunks quoted from its patch. */
+  readonly onAction?:
+    | ((action: ChangesAction, file: DiffReviewFile, hunks: readonly string[] | null) => void)
+    | undefined;
   /** Saves a new or edited comment. Without it the diff takes none. */
   readonly onComment?: ((comment: DiffComment) => void) | undefined;
   readonly onDeleteComment?: ((id: string) => void) | undefined;
+  /**
+   * Opens a file at a line of its new version, from a click on that line's
+   * number. Without it line numbers do nothing.
+   */
+  readonly onOpenLine?: ((file: DiffReviewFile, line: number) => void) | undefined;
+  /** Marks a file viewed or not. Without it the diff offers no viewed marks. */
+  readonly onViewed?: ((file: DiffReviewFile, viewed: boolean) => void) | undefined;
   readonly ref?: Ref<DiffReviewHandle> | undefined;
+  /**
+   * The revision each viewed file was marked at, by id. A viewed file starts
+   * folded, and a file whose revision moved on is no longer viewed.
+   */
+  readonly viewed?: ReadonlyMap<string, string> | undefined;
 }
 
 type Note =
   | { readonly comment: DiffComment; readonly kind: 'comment' }
-  | { readonly kind: 'draft' };
+  | { readonly kind: 'draft' }
+  | { readonly actions: readonly ChangesAction[]; readonly hunk: number; readonly kind: 'hunk' };
 
 interface Draft {
   /** The comment being edited, or null for a new one. */
@@ -105,11 +160,18 @@ interface LoadedFile {
   readonly additions: number | null;
   readonly deletions: number | null;
   readonly fileDiff: FileDiffMetadata | null;
+  /** Its patch's hunks, or null without a whole patch or when no hunk stands alone. */
+  readonly hunks: readonly string[] | null;
+  /** The file's revision when the read started. */
+  readonly revision: string;
   readonly truncated: boolean;
 }
 
+const NO_ACTIONS: readonly ChangesAction[] = [];
 const NO_COMMENTS: readonly DiffComment[] = [];
+const NO_FOLDS: ReadonlyMap<string, boolean> = new Map();
 const NO_IDS: ReadonlySet<string> = new Set();
+const NO_VIEWED: ReadonlyMap<string, string> = new Map();
 const NO_LOADED: ReadonlyMap<string, LoadedFile> = new Map();
 
 /**
@@ -124,14 +186,21 @@ function isBinary(file: DiffReviewFile, loaded: LoadedFile | undefined): boolean
 }
 
 /**
- * The file's loaded diff while the view sends the file without its patch.
- * Once the view carries a patch, that patch is the newer version.
+ * The file's loaded diff while the view sends the file without its patch, at
+ * the revision it was loaded for. Once the view carries a patch, or the file
+ * reads differently, the loaded diff is an older version.
  */
 function loadedOf(
   file: DiffReviewFile,
   loaded: ReadonlyMap<string, LoadedFile>
 ): LoadedFile | undefined {
-  return file.patch === null ? loaded.get(file.id) : undefined;
+  const entry = file.patch === null ? loaded.get(file.id) : undefined;
+  return entry?.revision === file.revision ? entry : undefined;
+}
+
+/** The file's actions, in the order their controls show. */
+function offeredActions(file: DiffReviewFile): readonly ChangesAction[] {
+  return CHANGES_ACTIONS.filter((action) => file.actions.includes(action));
 }
 
 /** A text file the view sent without its patch, not loaded yet. */
@@ -177,6 +246,8 @@ function toggled(
  */
 interface Parsed {
   readonly fileDiff: FileDiffMetadata;
+  /** The patch's hunks, quoted, or null without a patch or when no hunk stands alone. */
+  readonly hunks: readonly string[] | null;
   /** The patch it was parsed from, or the file's identity when it has none. */
   readonly source: string;
 }
@@ -190,6 +261,7 @@ interface Versioned {
 
 class ReviewItems {
   readonly #ids = new WeakMap<FileDiffMetadata, string>();
+  #hunks = new Map<string, readonly string[] | null>();
   #parsed = new Map<string, Parsed>();
   #versions = new Map<string, Versioned>();
 
@@ -197,19 +269,32 @@ class ReviewItems {
     return this.#ids.get(fileDiff);
   }
 
+  /** The hunks of the patch a file's diff draws, quoted. */
+  hunksOf(id: string): readonly string[] | null {
+    return this.#hunks.get(id) ?? null;
+  }
+
   build(
     files: readonly DiffReviewFile[],
     loaded: ReadonlyMap<string, LoadedFile>,
-    isFolded: (id: string) => boolean,
-    notesOf: (file: DiffReviewFile) => DiffLineAnnotation<Note>[]
+    isFolded: (file: DiffReviewFile) => boolean,
+    notesOf: (
+      file: DiffReviewFile,
+      fileDiff: FileDiffMetadata,
+      hunks: readonly string[] | null
+    ) => DiffLineAnnotation<Note>[]
   ): CodeViewDiffItem<Note>[] {
+    const hunksById = new Map<string, readonly string[] | null>();
     const parsed = new Map<string, Parsed>();
     const versions = new Map<string, Versioned>();
     const items = files.map((file) => {
       const load = loadedOf(file, loaded);
-      const fileDiff = load?.fileDiff ?? this.#parse(file, load, parsed);
-      const collapsed = isFolded(file.id) || isUnloaded(file, load);
-      const annotations = notesOf(file);
+      const { fileDiff, hunks } = load?.fileDiff
+        ? { fileDiff: load.fileDiff, hunks: load.hunks }
+        : this.#parse(file, load, parsed);
+      hunksById.set(file.id, hunks);
+      const collapsed = isFolded(file) || isUnloaded(file, load);
+      const annotations = notesOf(file, fileDiff, hunks);
       const notes = JSON.stringify(annotations);
       const previous = this.#versions.get(file.id);
       const version =
@@ -223,29 +308,24 @@ class ReviewItems {
       this.#ids.set(fileDiff, file.id);
       return { annotations, collapsed, fileDiff, id: file.id, type: 'diff', version } as const;
     });
+    this.#hunks = hunksById;
     this.#parsed = parsed;
     this.#versions = versions;
     return items;
   }
 
-  #parse(
-    file: DiffReviewFile,
-    load: LoadedFile | undefined,
-    parsed: Map<string, Parsed>
-  ): FileDiffMetadata {
-    const source =
-      load === undefined && file.patch !== null
-        ? file.patch
-        : `\u0000${file.status}\u0000${file.oldPath ?? ''}\u0000${file.path}`;
+  #parse(file: DiffReviewFile, load: LoadedFile | undefined, parsed: Map<string, Parsed>): Parsed {
+    const patch = load === undefined ? file.patch : null;
+    const source = patch ?? `\u0000${file.status}\u0000${file.oldPath ?? ''}\u0000${file.path}`;
     const previous = this.#parsed.get(file.id);
-    const fileDiff =
+    const next =
       previous?.source === source
-        ? previous.fileDiff
-        : load === undefined && file.patch !== null
-          ? parseFilePatch(file.patch)
-          : emptyFileDiff(file.path, file.oldPath, file.status);
-    parsed.set(file.id, { fileDiff, source });
-    return fileDiff;
+        ? previous
+        : patch === null
+          ? { fileDiff: emptyFileDiff(file.path, file.oldPath, file.status), hunks: null, source }
+          : { fileDiff: parseFilePatch(patch), hunks: actionHunks(patch), source };
+    parsed.set(file.id, next);
+    return next;
   }
 }
 
@@ -280,22 +360,60 @@ function FileStats({
   );
 }
 
+/** A hunk's actions, under its last change. */
+function HunkActions({
+  actions,
+  disabled,
+  onAction,
+}: {
+  readonly actions: readonly ChangesAction[];
+  readonly disabled: boolean;
+  readonly onAction: (action: ChangesAction) => void;
+}): ReactElement {
+  return (
+    <div className="flex flex-wrap justify-end gap-1 px-3 py-1 font-sans">
+      {actions.map((action) => (
+        <Button
+          disabled={disabled}
+          key={action}
+          onClick={() => onAction(action)}
+          size="xs"
+          type="button"
+          variant="outline"
+        >
+          {CHANGES_ACTION_LABEL[action]}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function FileHeader({
+  actions,
+  actionsDisabled,
   binary,
   expandable,
   file,
   loadedFile,
   loading,
+  onAction,
   onToggle,
+  onViewed,
   open,
+  viewed,
 }: {
+  readonly actions: readonly ChangesAction[];
+  readonly actionsDisabled: boolean;
   readonly binary: boolean;
   readonly expandable: boolean;
   readonly file: DiffReviewFile;
   readonly loadedFile: LoadedFile | undefined;
   readonly loading: boolean;
+  readonly onAction: (action: ChangesAction) => void;
   readonly onToggle: () => void;
+  readonly onViewed: ((viewed: boolean) => void) | undefined;
   readonly open: boolean;
+  readonly viewed: boolean;
 }): ReactElement {
   const counts = loadedFile ?? file;
   const name = (
@@ -335,26 +453,63 @@ function FileHeader({
         deletions={counts.deletions}
         truncated={loadedFile?.truncated ?? false}
       />
+      {onViewed ? (
+        <label className="text-muted-foreground hover:text-foreground flex h-7 shrink-0 cursor-pointer items-center gap-1.5 px-1">
+          <Checkbox
+            aria-label={`Viewed ${file.path}`}
+            checked={viewed}
+            onCheckedChange={(checked) => onViewed(checked === true)}
+          />
+          Viewed
+        </label>
+      ) : null}
+      {actions.length > 0 ? (
+        <div className="flex shrink-0 items-center gap-0.5">
+          {actions.map((action) => {
+            const Icon = CHANGES_ACTION_ICON[action];
+            return (
+              <TooltipIconButton
+                aria-label={`${CHANGES_ACTION_LABEL[action]} ${file.path}`}
+                disabled={actionsDisabled}
+                key={action}
+                onClick={() => onAction(action)}
+                tooltip={CHANGES_ACTION_LABEL[action]}
+              >
+                <Icon aria-hidden="true" />
+              </TooltipIconButton>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export function DiffReview({
+  actionsDisabled = false,
   className,
   comments = NO_COMMENTS,
   defaultCollapsed = false,
   diffStyle,
+  fileMenu,
   files,
   loadFile,
+  onAction,
   onComment,
   onDeleteComment,
+  onOpenLine,
+  onViewed,
   ref,
+  viewed = NO_VIEWED,
 }: DiffReviewProps): ReactElement {
   const appearance = useDiffAppearance();
   const viewer = useRef<CodeViewHandle<Note, undefined> | null>(null);
   const [cache] = useState(() => new ReviewItems());
-  /** Files a person opened or folded away from where they start. */
-  const [toggledIds, setToggledIds] = useState(NO_IDS);
+  /**
+   * Whether a person folded (true) or opened each file they toggled. The rest
+   * sit where they start, so a refresh never flips a file a person chose.
+   */
+  const [folds, setFolds] = useState(NO_FOLDS);
   const [loadingIds, setLoadingIds] = useState(NO_IDS);
   const [loaded, setLoaded] = useState(NO_LOADED);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -372,17 +527,30 @@ export function DiffReview({
   const fileById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const draftTarget = draft?.target;
   const draftCommentId = draft?.commentId;
+  const actionable = onAction !== undefined;
 
-  const fold = (id: string, folded: boolean): void =>
-    setToggledIds((current) => toggled(current, id, folded !== defaultCollapsed));
+  const isViewed = (file: DiffReviewFile): boolean => viewed.get(file.id) === file.revision;
+  const fold = (file: DiffReviewFile, folded: boolean): void =>
+    setFolds((current) => new Map(current).set(file.id, folded));
+  const markViewed = (file: DiffReviewFile, marked: boolean): void => {
+    // Marking folds the file and unmarking opens it: it goes back to where it starts.
+    setFolds((current) => {
+      const next = new Map(current);
+      next.delete(file.id);
+      return next;
+    });
+    onViewed?.(file, marked);
+  };
 
   const items = useMemo(
     () =>
       cache.build(
         files,
         loaded,
-        (id) => toggledIds.has(id) !== defaultCollapsed,
-        (file) => {
+        // A person's choice, or where the file starts: folded when every file
+        // does, or when it is viewed.
+        (file) => folds.get(file.id) ?? (defaultCollapsed || viewed.get(file.id) === file.revision),
+        (file, fileDiff, hunks) => {
           const notes: DiffLineAnnotation<Note>[] = comments
             .filter((comment) => comment.fileId === file.id && comment.id !== draftCommentId)
             .map((comment) => ({
@@ -397,10 +565,31 @@ export function DiffReview({
               side: draftTarget.side,
             });
           }
+          const actions = actionable ? offeredActions(file) : NO_ACTIONS;
+          if (actions.length > 0 && file.status === 'modified' && !file.wholeFile && hunks) {
+            fileDiff.hunks.forEach((hunk, index) => {
+              const end = lastChangedLine(hunk, diffStyle);
+              if (end && hunks[index] !== undefined) {
+                notes.push({ ...end, metadata: { actions, hunk: index, kind: 'hunk' } });
+              }
+            });
+          }
           return notes;
         }
       ),
-    [cache, comments, defaultCollapsed, draftCommentId, draftTarget, files, loaded, toggledIds]
+    [
+      actionable,
+      cache,
+      comments,
+      defaultCollapsed,
+      diffStyle,
+      draftCommentId,
+      draftTarget,
+      files,
+      folds,
+      loaded,
+      viewed,
+    ]
   );
 
   /**
@@ -413,12 +602,16 @@ export function DiffReview({
     const newest = () => reads.current.get(file.id) === read;
     try {
       const diff = await loadFile(file.id);
+      const { content } = diff;
+      const truncated = content.kind === 'hunks-only' && content.patchTruncated;
       return newest()
         ? {
             additions: diff.additions,
             deletions: diff.deletions,
             fileDiff: loadedFileDiff(diff),
-            truncated: diff.content.kind === 'hunks-only' && diff.content.patchTruncated,
+            hunks: content.kind === 'binary' || truncated ? null : actionHunks(content.patch),
+            revision: file.revision,
+            truncated,
           }
         : null;
     } catch (error) {
@@ -447,7 +640,8 @@ export function DiffReview({
 
   // A refresh never leaves an opened file on an older version: a file the
   // view still sends without its patch, opened or opening, loads again
-  // (`loadedOf` covers the rest). It keeps what it showed until the new diff arrives.
+  // (`loadedOf` covers the rest). At the same revision it keeps what it
+  // showed until the new diff arrives; at a new one it folds until then.
   const openedWithoutPatch = useEffectEvent((current: readonly DiffReviewFile[]) =>
     current.filter(
       (file) => file.patch === null && (loaded.has(file.id) || loadingIds.has(file.id))
@@ -462,48 +656,66 @@ export function DiffReview({
     }
   }, [files]);
 
-  const loadDiffFiles = async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
-    const id = cache.idOf(fileDiff);
-    const path = (id && fileById.get(id)?.path) ?? fileDiff.name;
-    try {
-      if (id === undefined) {
-        throw new Error('The file is no longer in this view.');
+  // CodeView redraws every line when an option changes, and functions match
+  // only by identity, so its callbacks stay one function across renders.
+  const loadDiffFiles = useStableCallback(
+    async (fileDiff: FileDiffMetadata): Promise<FileDiffLoadedFiles> => {
+      const id = cache.idOf(fileDiff);
+      const path = (id && fileById.get(id)?.path) ?? fileDiff.name;
+      try {
+        if (id === undefined) {
+          throw new Error('The file is no longer in this view.');
+        }
+        const sides = sidesOf(await loadFile(id));
+        if (!sides) {
+          throw new Error('The file is too large to show in full.');
+        }
+        return sides;
+      } catch (error) {
+        toast({
+          description: messageOf(error),
+          title: `Couldn't expand ${path}`,
+          variant: 'destructive',
+        });
+        throw error;
       }
-      const sides = sidesOf(await loadFile(id));
-      if (!sides) {
-        throw new Error('The file is too large to show in full.');
-      }
-      return sides;
-    } catch (error) {
-      toast({
-        description: messageOf(error),
-        title: `Couldn't expand ${path}`,
-        variant: 'destructive',
-      });
-      throw error;
     }
-  };
+  );
 
-  const openComment = (range: SelectedLineRange, item: CodeViewItem<Note>): void => {
-    if (item.type !== 'diff') {
-      return;
+  const openComment = useStableCallback(
+    (range: SelectedLineRange, { item }: { readonly item: CodeViewItem<Note> }): void => {
+      if (item.type !== 'diff') {
+        return;
+      }
+      const side: DiffSide = range.endSide ?? range.side ?? 'additions';
+      const oneSide = (range.side ?? side) === side;
+      const startLine = oneSide ? Math.min(range.start, range.end) : range.end;
+      const endLine = oneSide ? Math.max(range.start, range.end) : range.end;
+      setDraft({
+        commentId: null,
+        target: {
+          endLine,
+          fileId: item.id,
+          lines: sideLines(item.fileDiff, side, startLine, endLine),
+          side,
+          startLine,
+        },
+        text: '',
+      });
     }
-    const side: DiffSide = range.endSide ?? range.side ?? 'additions';
-    const oneSide = (range.side ?? side) === side;
-    const startLine = oneSide ? Math.min(range.start, range.end) : range.end;
-    const endLine = oneSide ? Math.max(range.start, range.end) : range.end;
-    setDraft({
-      commentId: null,
-      target: {
-        endLine,
-        fileId: item.id,
-        lines: sideLines(item.fileDiff, side, startLine, endLine),
-        side,
-        startLine,
-      },
-      text: '',
-    });
-  };
+  );
+
+  const openLine = useStableCallback(
+    (
+      line: { readonly annotationSide?: DiffSide; readonly lineNumber: number },
+      { item }: { readonly item: CodeViewItem<Note> }
+    ): void => {
+      const file = fileById.get(item.id);
+      if (file && line.annotationSide === 'additions') {
+        onOpenLine?.(file, line.lineNumber);
+      }
+    }
+  );
 
   const saveDraft = (): void => {
     const text = draft?.text.trim();
@@ -519,10 +731,9 @@ export function DiffReview({
     diffStyle,
     enableGutterUtility: onComment !== undefined,
     loadDiffFiles,
-    onGutterUtilityClick: (
-      range: SelectedLineRange,
-      context: { readonly item: CodeViewItem<Note> }
-    ) => openComment(range, context.item),
+    onGutterUtilityClick: openComment,
+    // Only the new version is the file as it is now, so only its numbers open it.
+    ...(onOpenLine && { onLineNumberClick: openLine }),
     stickyHeaders: true,
   };
 
@@ -534,29 +745,48 @@ export function DiffReview({
     const loadedFile = loadedOf(file, loaded);
     const binary = isBinary(file, loadedFile);
     const unloaded = isUnloaded(file, loadedFile);
-    return (
+    const header = (
       <FileHeader
+        actions={actionable ? offeredActions(file) : NO_ACTIONS}
+        actionsDisabled={actionsDisabled}
         binary={binary}
         expandable={!binary && (unloaded || item.fileDiff.hunks.length > 0)}
         file={file}
         loadedFile={loadedFile}
         loading={loadingIds.has(file.id)}
+        onAction={(action) => onAction?.(action, file, null)}
         onToggle={() => {
           if (unloaded) {
             // Opens once it loads, whichever way the files start.
-            fold(file.id, false);
+            fold(file, false);
             void load(file);
           } else {
-            fold(file.id, !item.collapsed);
+            fold(file, !item.collapsed);
           }
         }}
+        onViewed={onViewed && ((marked) => markViewed(file, marked))}
         open={!item.collapsed}
+        viewed={isViewed(file)}
       />
     );
+    return fileMenu ? fileMenu(file, header) : header;
   };
 
-  const renderAnnotation = (...[annotation]: CodeViewAnnotationArgs<Note>): ReactElement | null => {
+  const renderAnnotation = (
+    ...[annotation, , item]: CodeViewAnnotationArgs<Note>
+  ): ReactElement | null => {
     const note = annotation.metadata;
+    if (note.kind === 'hunk') {
+      const file = fileById.get(item.id);
+      const hunk = cache.hunksOf(item.id)?.[note.hunk];
+      return file && hunk !== undefined ? (
+        <HunkActions
+          actions={note.actions}
+          disabled={actionsDisabled}
+          onAction={(action) => onAction?.(action, file, [hunk])}
+        />
+      ) : null;
+    }
     if (note.kind === 'draft') {
       return draft ? (
         <DiffCommentComposer

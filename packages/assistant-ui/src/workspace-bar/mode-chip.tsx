@@ -33,15 +33,13 @@ const WorktreeInfo = ({
 }): ReactElement => (
   <div className="px-2 py-1.5 text-xs">
     <span className="block truncate font-medium">{worktree.name}</span>
-    <span className="text-muted-foreground block truncate font-mono text-[10px]">
-      {worktree.path}
-    </span>
-    <span className="text-muted-foreground mt-0.5 block text-[10px]">
+    <span className="text-muted-foreground text-2xs block truncate font-mono">{worktree.path}</span>
+    <span className="text-muted-foreground text-2xs mt-0.5 block">
       {worktree.detached ? 'Detached HEAD' : (worktree.branch ?? 'Detached HEAD')}
     </span>
     {worktree.setupReason ? (
       <span
-        className="text-warning mt-1 block text-[10px] leading-snug"
+        className="text-warning text-2xs mt-1 block leading-snug"
         data-testid="workspace-bar-mode-setup-reason"
       >
         {worktree.setupReason}
@@ -162,7 +160,7 @@ const DiagnosticOnlyModeChip = ({
     <DropdownMenuContent align="start" className="w-80">
       <DropdownMenuLabel>Checkout mode unavailable</DropdownMenuLabel>
       <div
-        className="text-muted-foreground px-2 pb-2 text-[11px]"
+        className="text-muted-foreground text-2xs px-2 pb-2"
         data-testid="workspace-bar-mode-diagnostic"
       >
         {reason}
@@ -223,7 +221,7 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
             Where this thread works
           </DropdownMenuLabel>
           {mode.pending ? (
-            <span className="text-muted-foreground block px-3 py-1 text-[10px]">
+            <span className="text-muted-foreground text-2xs block px-3 py-1">
               Worktree operation in progress.
             </span>
           ) : null}
@@ -254,7 +252,7 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
               <span className="block">New worktree…</span>
               {mode.createDisabledReason ? (
                 <span
-                  className="text-muted-foreground block text-[10px] whitespace-normal"
+                  className="text-muted-foreground text-2xs block whitespace-normal"
                   data-testid="workspace-bar-mode-create-disabled-reason"
                 >
                   {mode.createDisabledReason}

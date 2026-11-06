@@ -8,8 +8,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  BoundaryFailureError,
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
@@ -143,6 +145,8 @@ export interface ChildRunFixture {
   /** What `read_file` does; it returns the fixture notes at once by default. */
   readonly readFile?: () => Promise<unknown>;
   readonly settings?: Partial<RuntimeSubagentSettings>;
+  /** Tools the host admits beside the fixture's own. */
+  readonly tools?: Readonly<Record<string, HostTool>>;
 }
 
 /** A canonical question tool: answered by `interaction/resume`, then it returns the answer. */
@@ -152,6 +156,7 @@ const askUserTool: HostTool = {
   identity: 'native-ask-user-generation-1',
   inputSchema: z.object({ question: z.string() }),
   interaction: { kind: 'question', resumeSchema: z.object({ answer: z.string() }) },
+  permissionToolId: NATIVE_TOOL_ID.askUser,
   risk: 'read',
 };
 
@@ -205,6 +210,7 @@ function fixturePlatform(
         inputSchema: z.object({ path: z.string() }),
         risk: 'edit',
       },
+      ...fixture.tools,
     },
   };
 }
@@ -251,6 +257,9 @@ export function crashableStorePort(
       return store.append(items, durability);
     },
     deleteSetting: (key) => store.deleteSetting(key),
+    // Core's deletion order is what these tests cover; the store's purge needs the
+    // indexer and is state-store's own (state-deletion tests), so it erases nothing here.
+    deleteThread: async () => [],
     getSetting: (key) => store.getSetting(key),
     health: () => store.health(),
     holdBlobGc: () => store.holdBlobGc(),
@@ -356,7 +365,26 @@ export async function rowsUntil(
 export const finished = (runId: string) => (row: HostLogRow) =>
   row.event.type === 'run.finished' && row.event.runId === runId;
 
-/** Every child thread committed so far, in commit order of their origins. */
+/**
+ * Every child thread the host reads so far, in commit order of their origins.
+ * The store lists a child as soon as its rows are written, a moment before the host knows it.
+ */
 export async function childThreads(harness: ChildRunHarness): Promise<string[]> {
-  return (await harness.store.threads()).filter((id) => id !== harness.threadId);
+  const ids = (await harness.store.threads()).filter((id) => id !== harness.threadId);
+  const known = await Promise.all(ids.map((id) => hostReads(harness, id)));
+  return ids.filter((_, index) => known[index]);
 }
+
+const hostReads = (harness: ChildRunHarness, threadId: string): Promise<boolean> =>
+  harness
+    .core()
+    .read(threadId, 0)
+    .then(
+      () => true,
+      (cause: unknown) => {
+        if (cause instanceof BoundaryFailureError && cause.code === 'thread.unknown') {
+          return false;
+        }
+        throw cause;
+      }
+    );

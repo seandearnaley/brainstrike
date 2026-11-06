@@ -1,12 +1,13 @@
 import './diff-review.browser.css';
-import type { StructuredFileDiff } from '@brainstrike/types';
+import type { ChangesAction, StructuredFileDiff } from '@brainstrike/types';
 import { cleanup, render } from '@testing-library/react';
-import { useState } from 'react';
+import { type ReactElement, useState } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { type DiffComment, DiffReview, type DiffReviewFile } from '../diff-view';
 import { ThemeProvider } from '../theme-provider';
 import { Toaster } from '../toaster';
+import { TooltipProvider } from '../tooltip';
 
 afterEach(cleanup);
 beforeEach(async () => {
@@ -36,22 +37,35 @@ function patchOf(path: string): string {
 
 const FILES: DiffReviewFile[] = [
   {
+    actions: [],
     additions: 1,
     deletions: 1,
     id: 'sum',
     patch: patchOf('src/sum.ts'),
     path: 'src/sum.ts',
+    revision: 'sum-1',
     status: 'modified',
   },
   {
+    actions: [],
     additions: null,
     deletions: null,
     id: 'logo',
     patch: null,
     path: 'assets/logo.png',
+    revision: 'logo-1',
     status: 'added',
   },
-  { additions: 1, deletions: 1, id: 'big', patch: null, path: 'src/big.ts', status: 'modified' },
+  {
+    actions: [],
+    additions: 1,
+    deletions: 1,
+    id: 'big',
+    patch: null,
+    path: 'src/big.ts',
+    revision: 'big-1',
+    status: 'modified',
+  },
 ];
 
 function loaded(path: string): StructuredFileDiff {
@@ -66,34 +80,54 @@ function loaded(path: string): StructuredFileDiff {
 
 const loadById = async (id: string) => loaded(FILES.find((file) => file.id === id)?.path ?? id);
 
+type OnAction = (
+  action: ChangesAction,
+  file: DiffReviewFile,
+  hunks: readonly string[] | null
+) => void;
+
 function Review({
+  actionsDisabled,
   diffStyle = 'unified',
   files = FILES,
   loadFile = loadById,
+  onAction,
   onComment = () => {},
+  fileMenu,
+  onOpenLine,
 }: {
+  readonly actionsDisabled?: boolean;
   readonly diffStyle?: 'split' | 'unified';
   readonly files?: readonly DiffReviewFile[];
   readonly loadFile?: (id: string) => Promise<StructuredFileDiff>;
+  readonly onAction?: OnAction;
   readonly onComment?: (comment: DiffComment) => void;
+  readonly fileMenu?: (file: DiffReviewFile, header: ReactElement) => ReactElement;
+  readonly onOpenLine?: (file: DiffReviewFile, line: number) => void;
 }) {
   const [comments, setComments] = useState<DiffComment[]>([]);
   return (
     <ThemeProvider defaultMode="light">
-      <div style={{ height: 560, width: 900 }}>
-        <DiffReview
-          comments={comments}
-          diffStyle={diffStyle}
-          files={files}
-          loadFile={loadFile}
-          onComment={(comment) => {
-            onComment(comment);
-            setComments((current) => [...current.filter((c) => c.id !== comment.id), comment]);
-          }}
-          onDeleteComment={(id) => setComments((current) => current.filter((c) => c.id !== id))}
-        />
-      </div>
-      <Toaster />
+      <TooltipProvider>
+        <div style={{ height: 560, width: 900 }}>
+          <DiffReview
+            actionsDisabled={actionsDisabled}
+            comments={comments}
+            diffStyle={diffStyle}
+            fileMenu={fileMenu}
+            files={files}
+            loadFile={loadFile}
+            onAction={onAction}
+            onComment={(comment) => {
+              onComment(comment);
+              setComments((current) => [...current.filter((c) => c.id !== comment.id), comment]);
+            }}
+            onDeleteComment={(id) => setComments((current) => current.filter((c) => c.id !== id))}
+            onOpenLine={onOpenLine}
+          />
+        </div>
+        <Toaster />
+      </TooltipProvider>
     </ThemeProvider>
   );
 }
@@ -108,6 +142,53 @@ function commentButton(): HTMLElement {
   }
   throw new Error('No comment button is showing.');
 }
+
+/** The number beside a line of one side, as the split diff draws it. */
+function lineNumber(side: 'additions' | 'deletions', line: number): HTMLElement {
+  for (const host of document.querySelectorAll('diffs-container')) {
+    const cell = host.shadowRoot?.querySelector<HTMLElement>(
+      `[data-${side}] [data-column-number="${line}"]`
+    );
+    if (cell) {
+      return cell;
+    }
+  }
+  throw new Error(`No ${side} line ${line} is showing.`);
+}
+
+test('a line number of the new version opens the file at that line', async () => {
+  const onOpenLine = vi.fn();
+  render(<Review diffStyle="split" onOpenLine={onOpenLine} />);
+  await expect.element(page.getByText('return x + y;').first()).toBeVisible();
+
+  await userEvent.click(lineNumber('additions', 3));
+  expect(onOpenLine).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'sum' }), 3);
+  await userEvent.click(lineNumber('additions', 4));
+  expect(onOpenLine).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'sum' }), 4);
+
+  // The old version is not the file any more, so its numbers open nothing.
+  onOpenLine.mockClear();
+  await userEvent.click(lineNumber('deletions', 3));
+  await userEvent.click(lineNumber('deletions', 4));
+  expect(onOpenLine).not.toHaveBeenCalled();
+});
+
+test('a file menu takes right-clicks on its header, never on its lines', async () => {
+  const menuOf = vi.fn();
+  render(
+    <Review
+      fileMenu={(file, header) => (
+        <div className="contents" onContextMenuCapture={() => menuOf(file.id)}>
+          {header}
+        </div>
+      )}
+    />
+  );
+  await userEvent.click(page.getByText('return x + y;'), { button: 'right' });
+  expect(menuOf).not.toHaveBeenCalled();
+  await userEvent.click(page.getByText('src/sum.ts'), { button: 'right' });
+  expect(menuOf).toHaveBeenCalledWith('sum');
+});
 
 test('every file shows in one scroll with its counts', async () => {
   render(<Review />);
@@ -191,11 +272,13 @@ test('a new file the view did not diff opens with its counts', async () => {
     <Review
       files={[
         {
+          actions: [],
           additions: null,
           deletions: null,
           id: 'new',
           patch: null,
           path: 'src/new.ts',
+          revision: 'new-1',
           status: 'untracked',
         },
       ]}
@@ -329,7 +412,18 @@ test('side by side, a file replaced by a symlink shows both versions', async () 
   render(
     <Review
       diffStyle="split"
-      files={[{ additions: 1, deletions: 2, id: 'link', patch, path: 'link', status: 'modified' }]}
+      files={[
+        {
+          actions: [],
+          additions: 1,
+          deletions: 2,
+          id: 'link',
+          patch,
+          path: 'link',
+          revision: 'link-1',
+          status: 'modified',
+        },
+      ]}
     />
   );
   await expect.element(page.getByText('second old line')).toBeVisible();
@@ -363,11 +457,13 @@ function bigVersion(line: string): StructuredFileDiff {
 test('an opened file shows its newest version after the view refreshes', async () => {
   let current = bigVersion('first version');
   const big: DiffReviewFile = {
+    actions: [],
     additions: 1,
     deletions: 1,
     id: 'big',
     patch: null,
     path: 'src/big.ts',
+    revision: 'big-1',
     status: 'modified',
   };
   const { rerender } = render(<Review files={[big]} loadFile={async () => current} />);
@@ -397,11 +493,13 @@ test('a read that finishes after a newer one never replaces it', async () => {
   });
   let loadFile = (): Promise<StructuredFileDiff> => first;
   const big: DiffReviewFile = {
+    actions: [],
     additions: 1,
     deletions: 1,
     id: 'big',
     patch: null,
     path: 'src/big.ts',
+    revision: 'big-1',
     status: 'modified',
   };
   const { rerender } = render(<Review files={[big]} loadFile={() => loadFile()} />);
@@ -419,4 +517,312 @@ test('a read that finishes after a newer one never replaces it', async () => {
   await expect.element(header).toBeEnabled();
   await expect.element(page.getByText('newer version')).toBeVisible();
   await expect.element(page.getByText('older version')).not.toBeInTheDocument();
+});
+
+const FIRST_HUNK = [
+  '@@ -1,4 +1,4 @@',
+  '-const a = 1;',
+  '+const a = 2;',
+  ' const b = 1;',
+  ' const c = 1;',
+  ' const d = 1;',
+  '',
+].join('\n');
+const SECOND_HUNK = [
+  '@@ -10,4 +10,3 @@ export function f() {',
+  ' const j = 1;',
+  ' const k = 1;',
+  '-const l = 1;',
+  '-const m = 1;',
+  '+const m = 2;',
+  '',
+].join('\n');
+const TWO_HUNKS: DiffReviewFile = {
+  actions: [],
+  additions: 2,
+  deletions: 3,
+  id: 'two',
+  patch: [
+    'diff --git a/src/two.ts b/src/two.ts',
+    'index 1111111..2222222 100644',
+    '--- a/src/two.ts',
+    '+++ b/src/two.ts',
+    FIRST_HUNK + SECOND_HUNK,
+  ].join('\n'),
+  path: 'src/two.ts',
+  revision: 'two-1',
+  status: 'modified',
+};
+
+function offering(file: DiffReviewFile, actions: readonly ChangesAction[]): DiffReviewFile {
+  return { ...file, actions };
+}
+
+function hunkButtons(name: string) {
+  return page.getByRole('button', { exact: true, name });
+}
+
+test('a file marked viewed folds, and opens again once it changes', async () => {
+  const marks: [string, boolean][] = [];
+  function Viewed({ files }: { readonly files: readonly DiffReviewFile[] }) {
+    const [viewed, setViewed] = useState<ReadonlyMap<string, string>>(new Map());
+    return (
+      <ThemeProvider defaultMode="light">
+        <TooltipProvider>
+          <div style={{ height: 560, width: 900 }}>
+            <DiffReview
+              diffStyle="unified"
+              files={files}
+              loadFile={loadById}
+              onViewed={(file, marked) => {
+                marks.push([file.id, marked]);
+                setViewed((current) => {
+                  const next = new Map(current);
+                  if (marked) {
+                    next.set(file.id, file.revision);
+                  } else {
+                    next.delete(file.id);
+                  }
+                  return next;
+                });
+              }}
+              viewed={viewed}
+            />
+          </div>
+        </TooltipProvider>
+      </ThemeProvider>
+    );
+  }
+  const [sum] = FILES;
+  if (!sum) {
+    throw new Error('The fixture has no files.');
+  }
+  const view = render(<Viewed files={[sum]} />);
+  const header = page.getByRole('button', { name: 'src/sum.ts' });
+  const mark = page.getByRole('checkbox', { name: 'Viewed src/sum.ts' });
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+
+  await mark.click();
+  await expect.element(mark).toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  // A viewed file still opens to read it again.
+  await header.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+  await mark.click();
+  await expect.element(mark).not.toBeChecked();
+  expect(marks).toEqual([
+    ['sum', true],
+    ['sum', false],
+  ]);
+
+  await mark.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  view.rerender(<Viewed files={[{ ...sum, revision: 'sum-2' }]} />);
+  await expect.element(mark).not.toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+
+  // A viewed file opened to read again stays open once it changes.
+  await mark.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'false');
+  await header.click();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+  view.rerender(<Viewed files={[{ ...sum, revision: 'sum-3' }]} />);
+  await expect.element(mark).not.toBeChecked();
+  await expect.element(header).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('each hunk of a modified file offers its actions and hands back its own hunk', async () => {
+  const onAction = vi.fn<OnAction>();
+  const file = offering(TWO_HUNKS, ['stage', 'revert']);
+  render(<Review files={[file]} onAction={onAction} />);
+  await expect.element(hunkButtons('Stage').nth(1)).toBeVisible();
+  expect(hunkButtons('Stage').elements()).toHaveLength(2);
+  expect(hunkButtons('Revert').elements()).toHaveLength(2);
+
+  await hunkButtons('Stage').nth(1).click();
+  expect(onAction).toHaveBeenLastCalledWith('stage', file, [SECOND_HUNK]);
+  await hunkButtons('Revert').first().click();
+  expect(onAction).toHaveBeenLastCalledWith('revert', file, [FIRST_HUNK]);
+});
+
+test('side by side, a hunk that removes more than it adds keeps its actions under its end', async () => {
+  const onAction = vi.fn<OnAction>();
+  const file = offering(TWO_HUNKS, ['unstage']);
+  render(<Review diffStyle="split" files={[file]} onAction={onAction} />);
+  const unstage = hunkButtons('Unstage').nth(1);
+  await expect.element(unstage).toBeVisible();
+  const removed = page.getByText('const m = 1;').element().getBoundingClientRect();
+  expect(unstage.element().getBoundingClientRect().top).toBeGreaterThan(removed.bottom);
+  await unstage.click();
+  expect(onAction).toHaveBeenLastCalledWith('unstage', file, [SECOND_HUNK]);
+});
+
+test('each file header offers its own actions; only a modified file offers them per hunk', async () => {
+  const onAction = vi.fn<OnAction>();
+  const added: DiffReviewFile = {
+    actions: ['stage', 'revert'],
+    additions: 1,
+    deletions: 0,
+    id: 'added',
+    patch: [
+      'diff --git a/src/added.ts b/src/added.ts',
+      'new file mode 100644',
+      'index 0000000..2222222',
+      '--- /dev/null',
+      '+++ b/src/added.ts',
+      '@@ -0,0 +1 @@',
+      '+export const added = 1;',
+      '',
+    ].join('\n'),
+    path: 'src/added.ts',
+    revision: 'added-1',
+    status: 'untracked',
+  };
+  const binary: DiffReviewFile = {
+    actions: ['stage'],
+    additions: null,
+    deletions: null,
+    id: 'logo',
+    patch: null,
+    path: 'assets/logo.png',
+    revision: 'logo-1',
+    status: 'modified',
+  };
+  render(<Review files={[added, binary, offering(TWO_HUNKS, ['revert'])]} onAction={onAction} />);
+  await expect.element(page.getByText('export const added = 1;')).toBeVisible();
+  for (const name of [
+    'Stage src/added.ts',
+    'Revert src/added.ts',
+    'Stage assets/logo.png',
+    'Revert src/two.ts',
+  ]) {
+    await expect.element(page.getByRole('button', { name })).toBeVisible();
+  }
+  for (const name of ['Revert assets/logo.png', 'Stage src/two.ts']) {
+    expect(page.getByRole('button', { name }).elements()).toHaveLength(0);
+  }
+  await expect.element(hunkButtons('Revert').nth(1)).toBeVisible();
+  expect(hunkButtons('Revert').elements()).toHaveLength(2);
+  expect(hunkButtons('Stage').elements()).toHaveLength(0);
+
+  const stageBinary = page.getByRole('button', { name: 'Stage assets/logo.png' });
+  await userEvent.hover(stageBinary);
+  await expect.element(page.getByRole('tooltip', { name: 'Stage' })).toBeInTheDocument();
+  await stageBinary.click();
+  expect(onAction).toHaveBeenLastCalledWith('stage', binary, null);
+});
+
+test('a file whose hunks cannot be taken one at a time offers its actions on its header only', async () => {
+  const undecoded = offering(
+    {
+      ...TWO_HUNKS,
+      patch: (TWO_HUNKS.patch ?? '').replace('const a = 2;', 'const a = "\uFFFD";'),
+    },
+    ['stage']
+  );
+  render(<Review files={[undecoded]} onAction={() => {}} />);
+  await expect.element(page.getByText('const m = 2;')).toBeVisible();
+  await expect.element(page.getByRole('button', { name: 'Stage src/two.ts' })).toBeVisible();
+  expect(hunkButtons('Stage').elements()).toHaveLength(0);
+});
+
+test('a file whose actions take only the whole file offers them on its header only', async () => {
+  const onAction = vi.fn<OnAction>();
+  const file: DiffReviewFile = { ...offering(TWO_HUNKS, ['revert']), wholeFile: true };
+  render(<Review files={[file]} onAction={onAction} />);
+  await expect.element(page.getByText('const m = 2;')).toBeVisible();
+  await page.getByRole('button', { name: 'Revert src/two.ts' }).click();
+  expect(onAction).toHaveBeenLastCalledWith('revert', file, null);
+  expect(hunkButtons('Revert').elements()).toHaveLength(0);
+});
+
+test('the + beside the hovered line still opens a comment after the view refreshes', async () => {
+  // A turn view refreshes as its run settles: first the same files, then
+  // with Revert on each file's header.
+  const settled = (actions: readonly ChangesAction[]): DiffReviewFile[] => [
+    {
+      actions,
+      additions: 1,
+      deletions: 1,
+      id: 'sum',
+      patch: patchOf('src/sum.ts'),
+      path: 'src/sum.ts',
+      revision: 'sum-1',
+      status: 'modified',
+      wholeFile: true,
+    },
+  ];
+  const { rerender } = render(<Review files={settled([])} onAction={() => {}} />);
+  await userEvent.hover(page.getByText('return x + y;'));
+  const plus = commentButton();
+
+  rerender(<Review files={settled([])} onAction={() => {}} />);
+  rerender(<Review files={settled(['revert'])} onAction={() => {}} />);
+  await expect.element(page.getByRole('button', { name: 'Revert src/sum.ts' })).toBeVisible();
+
+  expect(plus.isConnected).toBe(true);
+  await userEvent.click(plus);
+  await expect.element(page.getByRole('textbox', { name: 'Comment on line 4' })).toHaveFocus();
+});
+
+test('while an action runs, no action can start', async () => {
+  render(<Review actionsDisabled files={[offering(TWO_HUNKS, ['stage'])]} onAction={() => {}} />);
+  await expect.element(hunkButtons('Stage').nth(1)).toBeDisabled();
+  await expect.element(hunkButtons('Stage').first()).toBeDisabled();
+  await expect.element(page.getByRole('button', { name: 'Stage src/two.ts' })).toBeDisabled();
+});
+
+test('a comment on a hunk’s last change sits above the hunk’s actions', async () => {
+  render(<Review files={[offering(TWO_HUNKS, ['stage'])]} onAction={() => {}} />);
+  await userEvent.hover(page.getByText('const a = 2;'));
+  await userEvent.click(commentButton());
+  const box = page.getByRole('textbox', { name: 'Comment on line 1' });
+  await userEvent.type(box, 'Why 2?');
+  await userEvent.keyboard('{Control>}{Enter}{/Control}');
+  const note = page.getByRole('button', { name: 'Why 2?' });
+  await expect.element(note).toBeVisible();
+  const stage = hunkButtons('Stage').first();
+  await expect.element(stage).toBeVisible();
+  expect(stage.element().getBoundingClientRect().top).toBeGreaterThan(
+    note.element().getBoundingClientRect().bottom
+  );
+});
+
+test('a file that changed after it loaded never offers its old hunks, and reads itself again', async () => {
+  const onAction = vi.fn<OnAction>();
+  let loadFile = async (): Promise<StructuredFileDiff> => bigVersion('first version');
+  const big: DiffReviewFile = {
+    actions: ['stage'],
+    additions: 1,
+    deletions: 1,
+    id: 'big',
+    patch: null,
+    path: 'src/big.ts',
+    revision: 'big-1',
+    status: 'modified',
+  };
+  const { rerender } = render(
+    <Review files={[big]} loadFile={() => loadFile()} onAction={onAction} />
+  );
+  await page.getByRole('button', { name: 'src/big.ts' }).click();
+  await expect.element(page.getByText('first version')).toBeVisible();
+  await expect.element(hunkButtons('Stage')).toBeVisible();
+
+  // Staging its hunk changed the file; its next read is still out.
+  let finish: (diff: StructuredFileDiff) => void = () => {};
+  loadFile = () =>
+    new Promise((resolve) => {
+      finish = resolve;
+    });
+  const changed = { ...big, revision: 'big-2' };
+  rerender(<Review files={[changed]} loadFile={() => loadFile()} onAction={onAction} />);
+  await expect.element(page.getByText('first version')).not.toBeInTheDocument();
+  expect(hunkButtons('Stage').elements()).toHaveLength(0);
+
+  finish(bigVersion('second version'));
+  await expect.element(page.getByText('second version')).toBeVisible();
+  await hunkButtons('Stage').click();
+  expect(onAction).toHaveBeenLastCalledWith('stage', changed, [
+    '@@ -1 +1 @@\n-old\n+second version\n',
+  ]);
 });

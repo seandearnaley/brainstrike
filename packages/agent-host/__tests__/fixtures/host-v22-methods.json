@@ -1,11 +1,13 @@
 {
-  "version": 20,
+  "version": 22,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
     "auth/login",
     "canvas/list",
     "canvas/read",
+    "changes/apply",
+    "changes/commits",
     "changes/file-diff",
     "changes/inventory",
     "changes/resolve-view",
@@ -73,7 +75,6 @@
     "run/input",
     "run/regenerate",
     "run/start",
-    "run/steer",
     "run/stop",
     "run/verdict",
     "state/health/read",

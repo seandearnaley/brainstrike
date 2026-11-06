@@ -206,7 +206,7 @@ function DesktopStartupFailure({
 }) {
   return (
     <div
-      className="relative flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
+      className="bg-background text-foreground relative flex min-h-screen items-center justify-center px-6 py-10"
       data-testid="desktop-startup-failure"
     >
       {/* No app shell here, so this strip is the macOS title bar: it moves the window. */}
@@ -214,16 +214,16 @@ function DesktopStartupFailure({
         aria-hidden="true"
         className="app-window-drag absolute inset-x-0 top-0 h-[env(titlebar-area-height,0px)]"
       />
-      <div className="w-full max-w-3xl rounded-xl border border-red-400/30 bg-[#111827] p-6 shadow-2xl">
+      <div className="border-destructive/40 bg-card text-card-foreground w-full max-w-3xl rounded-xl border p-6 shadow-2xl">
         <h1 className="text-2xl font-semibold">Desktop startup failed</h1>
-        <p className="mt-3 text-sm text-slate-200">{validation.message}</p>
-        <p className="mt-3 text-sm text-slate-300">
+        <p className="mt-3 text-sm">{validation.message}</p>
+        <p className="text-muted-foreground mt-3 text-sm">
           Check the Electron startup logs. If this happens in development, the preload script or a
           required preload dependency failed before the renderer mounted.
         </p>
         <div className="mt-4">
-          <h2 className="text-sm font-medium text-slate-200">Missing bridges</h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-red-200">
+          <h2 className="text-sm font-medium">Missing bridges</h2>
+          <ul className="text-destructive mt-2 list-disc space-y-1 pl-5 font-mono text-sm">
             {validation.missing.map((entry) => (
               <li key={entry}>{entry}</li>
             ))}
@@ -237,16 +237,16 @@ function DesktopStartupFailure({
 function DesktopRendererOutsideElectron() {
   return (
     <div
-      className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
+      className="bg-background text-foreground flex min-h-screen items-center justify-center px-6 py-10"
       data-testid="desktop-renderer-outside-electron"
     >
-      <div className="w-full max-w-3xl rounded-xl border border-amber-400/30 bg-[#111827] p-6 shadow-2xl">
+      <div className="border-warning/40 bg-card text-card-foreground w-full max-w-3xl rounded-xl border p-6 shadow-2xl">
         <h1 className="text-2xl font-semibold">Desktop renderer opened outside Electron</h1>
-        <p className="mt-3 text-sm text-slate-200">
+        <p className="mt-3 text-sm">
           This page is the Brainstrike desktop renderer. It relies on Electron preload bridges that
           do not exist in a regular browser, so it cannot run here.
         </p>
-        <p className="mt-3 text-sm text-slate-300">
+        <p className="text-muted-foreground mt-3 text-sm">
           This is not a desktop app failure — the Electron windows attached to this dev server are
           unaffected. Close this tab and use the Electron app window.
         </p>

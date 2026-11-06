@@ -24,12 +24,14 @@ function fileId(entry: ChangedFileEntry): string {
 
 function toReviewFile(entry: ChangedFileEntry): DiffReviewFile {
   return {
+    actions: entry.actions,
     additions: entry.additions,
     deletions: entry.deletions,
     id: fileId(entry),
     oldPath: entry.oldPath,
     patch: entry.patch,
     path: entry.path,
+    revision: entry.revision,
     status: entry.status,
   };
 }

@@ -1,5 +1,6 @@
 import {
   ThreadPrimitive,
+  useAuiState,
   // Aliased to a `use`-prefixed name for the same Fast Refresh reason as the
   // panel's slash-command adapter: Vite's Fast Refresh builds a component's
   // hook signature by matching `use…` call sites, and a bare `unstable_use…`
@@ -20,6 +21,7 @@ import {
   useState,
 } from 'react';
 import { AssistantThreadStateProvider } from './assistant-thread-state-context';
+import { ThreadHistorySkeleton } from './thread-history-skeleton';
 import { useThreadFollowIsAtBottom, useThreadScrollFollow } from './thread-scroll-follow';
 import { useThreadMessageNavigation } from './use-thread-message-navigation';
 
@@ -243,6 +245,8 @@ export const ThreadMessagesRegion = ({
 }: ThreadMessagesRegionProps) => {
   const messageIds = useThreadMessageIds();
   const messageCount = messageIds.length;
+  // True until the thread's log replay arrives; the transcript is empty until then.
+  const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const tier: ThreadRenderTier =
     messageCount >= THREAD_VIRTUALIZATION_THRESHOLD ? 'virtual' : 'static';
 
@@ -445,6 +449,7 @@ export const ThreadMessagesRegion = ({
     <ThreadScrollRegion>
       <div
         aria-atomic="false"
+        aria-busy={isHistoryLoading || undefined}
         // Every insertion into a live region is an announcement. On the static
         // tier the only insertions are new messages, so "polite" reads them out
         // as they arrive. On the virtual tier the virtualizer mounts and
@@ -469,6 +474,7 @@ export const ThreadMessagesRegion = ({
             {disabledReason}
           </p>
         )}
+        {isHistoryLoading && messageCount === 0 ? <ThreadHistorySkeleton /> : null}
         <AssistantThreadStateProvider>
           {tier === 'virtual' ? (
             /**

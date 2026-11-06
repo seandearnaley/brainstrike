@@ -30,16 +30,24 @@ vi.mock('../../electron-e2e-test-mode', () => ({ isElectronE2ETestMode: () => fa
 const { checkForUpdatesFromMenu, describeUpdateCheck, offerMoveToApplicationsFolder } =
   await import('../../app-update-dialogs');
 
-function fakeUpdates(found: AppUpdateStatus): AppUpdates & { restarts: number } {
+/** Answers each check with the next status in `found`, then keeps the last one. */
+function fakeUpdates(
+  ...found: [AppUpdateStatus, ...AppUpdateStatus[]]
+): AppUpdates & { checks: number; restarts: number } {
+  const current = () => found[Math.min(updates.checks, found.length) - 1] ?? found[0];
   const updates = {
-    check: () => Promise.resolve(found),
+    check: () => {
+      updates.checks += 1;
+      return Promise.resolve(current());
+    },
+    checks: 0,
     clearForReset: () => Promise.resolve(),
     restarts: 0,
     restartToInstall: () => {
       updates.restarts += 1;
     },
     start: () => undefined,
-    status: () => found,
+    status: () => current(),
   };
   return updates;
 }
@@ -79,7 +87,7 @@ it('Check for Updates… restarts into a downloaded update when the user picks R
   await checkForUpdatesFromMenu(updates, undefined);
 
   expect(shownDialog()).toEqual({
-    buttons: ['Restart to Update', 'Later'],
+    buttons: ['Restart to update', 'Later'],
     message: 'Brainstrike 1.1.0 is ready to install',
   });
   expect(updates.restarts).toBe(1);
@@ -111,7 +119,8 @@ it('Check for Updates… says when the app is up to date, downloading or could n
       '1.0.0'
     )
   ).toMatchObject({
-    detail: 'HttpError: 404',
+    buttons: ['Try again', 'OK'],
+    detail: expect.stringContaining('HttpError: 404'),
     message: "Couldn't check for updates",
     type: 'error',
   });
@@ -125,6 +134,32 @@ it('Check for Updates… says when the app is up to date, downloading or could n
   expect(
     describeUpdateCheck({ reason: 'not-installed', state: 'off' }, 'Brainstrike', '1.0.0').message
   ).toBe('Updates come only to an installed copy of Brainstrike');
+});
+
+it('Check for Updates… runs the check again when a failed check is retried', async () => {
+  const updates = fakeUpdates(
+    { message: 'net::ERR_INTERNET_DISCONNECTED', state: 'failed', step: 'check' },
+    { state: 'up-to-date' }
+  );
+  electron.showMessageBox.mockResolvedValue({ response: 0 });
+
+  await checkForUpdatesFromMenu(updates, undefined);
+
+  expect(updates.checks).toBe(2);
+  expect(electron.showMessageBox.mock.calls.map(([options]) => options.message)).toEqual([
+    "Couldn't check for updates",
+    'Brainstrike is up to date',
+  ]);
+});
+
+it('Check for Updates… stops after a failed check when the user picks OK', async () => {
+  const updates = fakeUpdates({ message: 'HttpError: 404', state: 'failed', step: 'check' });
+  electron.showMessageBox.mockResolvedValue({ response: 1 });
+
+  await checkForUpdatesFromMenu(updates, undefined);
+
+  expect(updates.checks).toBe(1);
+  expect(shownDialog().buttons).toEqual(['Try again', 'OK']);
 });
 
 it('a macOS copy in Applications is never asked to move', async () => {

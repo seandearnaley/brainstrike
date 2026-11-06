@@ -179,7 +179,10 @@ describe('MCP Apps host surface', () => {
     });
     const dialog = await screen.findByRole('alertdialog');
     expect(dialog).toHaveAccessibleName('Allow Linear issue editor to use create_issue?');
-    expect(dialog).toHaveTextContent('This execute action requires your approval.');
+    expect(dialog).toHaveTextContent('Linear issue editor wants to run create_issue');
+    expect(dialog).toHaveTextContent(
+      'It can run commands or take actions with effects outside this app.'
+    );
     expect(dialog).not.toHaveTextContent('must-not-render');
     expect(dialog).not.toHaveTextContent('Secret issue');
     const denyButton = screen.getByRole('button', { name: 'Deny create_issue' });
@@ -205,5 +208,25 @@ describe('MCP Apps host surface', () => {
     await expect(allowed).resolves.toEqual({ content: [] });
     await waitFor(() => expect(recoveryRef.current).toHaveFocus());
     expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it('offers to reopen an app whose session closed', async () => {
+    const user = userEvent.setup();
+    const reopen = vi.fn();
+    const { authority } = createAuthority();
+    await authority.close();
+    render(
+      <McpAppHostSurface
+        appName="Linear issue editor"
+        authority={authority}
+        onRetry={reopen}
+        recoveryFocusRef={createRef<HTMLElement>()}
+        state={{ phase: 'ready' }}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The app session is closed.');
+    await user.click(screen.getByRole('button', { name: 'Reopen Linear issue editor' }));
+    expect(reopen).toHaveBeenCalledOnce();
   });
 });

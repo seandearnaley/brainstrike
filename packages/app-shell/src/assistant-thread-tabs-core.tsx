@@ -17,7 +17,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import {
   Button,
-  TAB_STRIP_ICON_BUTTON_CLASS_NAME,
+  TAB_STRIP_LABELED_BUTTON_CLASS_NAME,
   TabPanelBoundary,
   TabStrip,
   type TabStripContextMenu,
@@ -91,6 +91,11 @@ function getThreadTabMark(
   const mark = <ThreadIdentityMark status={status} thread={thread} />;
   marksByStatus.set(key, mark);
   return mark;
+}
+
+/** A tab's label before its thread is in the catalog: never the raw thread id. */
+function getMissingThreadLabel(catalogLoaded: boolean, loadFailed: boolean): string {
+  return catalogLoaded || loadFailed ? 'Untitled thread' : 'Loading…';
 }
 
 function getNewThreadAction(retryCatalog: boolean): { label: string; text: string } {
@@ -223,6 +228,8 @@ export function AssistantThreadTabsCore({
     .filter((message) => message !== null)
     .join('. ');
 
+  const missingThreadLabel = getMissingThreadLabel(catalogLoaded, loadState.status === 'error');
+
   const items = useMemo<readonly TabStripItem[]>(
     () =>
       openThreadIds.map((threadId) => {
@@ -243,7 +250,7 @@ export function AssistantThreadTabsCore({
           closable: true,
           dataAttributes: { 'data-thread-color': colorId ?? 'unassigned' },
           id: threadId,
-          label: thread?.title ?? threadId,
+          label: thread?.title ?? missingThreadLabel,
           mark: thread ? getThreadTabMark(thread, status) : undefined,
           panelDomId: getTabPanelId(threadId),
           statusLabel: status ? THREAD_TAB_STATUS_LABELS[status] : undefined,
@@ -252,6 +259,7 @@ export function AssistantThreadTabsCore({
       }),
     [
       activeThreads.threadIds,
+      missingThreadLabel,
       openThreadIds,
       threadById,
       threadsAwaitingApproval.threadIds,
@@ -259,13 +267,21 @@ export function AssistantThreadTabsCore({
     ]
   );
 
+  const retryCatalogLoad = (): Promise<void> => ensureResourceThreads(repository, resourceId);
+
   // New opens the new-thread screen; nothing is created until its first send.
   const createNewThread = async (): Promise<void> => {
     if (retryCatalog) {
-      await ensureResourceThreads(repository, resourceId);
+      await retryCatalogLoad();
       return;
     }
     startNewThread(resourceId);
+  };
+
+  const handleRetryCatalogClick = (): void => {
+    retryCatalogLoad().catch(() => {
+      // The store records the explicit error state; the card stays up with its Retry.
+    });
   };
 
   const handleNewThreadClick = (): void => {
@@ -403,7 +419,7 @@ export function AssistantThreadTabsCore({
               ) : null}
               <Button
                 aria-label={newThreadAction.label}
-                className={TAB_STRIP_ICON_BUTTON_CLASS_NAME}
+                className={TAB_STRIP_LABELED_BUTTON_CLASS_NAME}
                 data-testid="assistant-new-thread-button"
                 disabled={newThreadDisabled}
                 onClick={handleNewThreadClick}
@@ -426,13 +442,14 @@ export function AssistantThreadTabsCore({
 
       {unavailableSavedThread ? (
         <div className="text-muted-foreground p-3 text-sm" role="status">
-          Your saved conversation is unavailable. Start a new chat using New.
+          This thread is no longer available. Start a new thread with New.
         </div>
       ) : null}
       <div className="min-h-0 flex-1">
         {loadState.status === 'error' && !showWelcome ? (
           <ThreadWorkspaceState
             description={loadState.error}
+            onRetry={handleRetryCatalogClick}
             title="Assistant threads failed to load"
             variant="error"
           />
@@ -508,7 +525,7 @@ function ThreadPanels({
             key={threadId}
           >
             {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
-            <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
+            <TabPanelBoundary label={threadById.get(threadId)?.title ?? 'Untitled thread'}>
               {renderThread({
                 isVisible: isOpen && threadId === activeThreadId,
                 ...(fixedProviderModels ? { fixedProviderModels } : {}),
@@ -528,10 +545,12 @@ function ThreadPanels({
 
 function ThreadWorkspaceState({
   description,
+  onRetry,
   title,
   variant = 'muted',
 }: {
   readonly description: string;
+  readonly onRetry?: () => void;
   readonly title: string;
   readonly variant?: 'error' | 'muted';
 }): ReactElement {
@@ -544,6 +563,17 @@ function ThreadWorkspaceState({
     >
       <div className="text-sm font-medium">{title}</div>
       <div className="mt-1">{description}</div>
+      {onRetry ? (
+        <Button
+          className="text-foreground mt-2"
+          onClick={onRetry}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Retry
+        </Button>
+      ) : null}
     </div>
   );
 }

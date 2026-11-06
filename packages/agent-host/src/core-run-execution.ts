@@ -26,6 +26,8 @@ import { healInterruptedRunHistory } from './interrupted-history.ts';
 import { jsonValue } from './json-value.ts';
 import type { HostMcpInputState } from './mcp-input-state.ts';
 import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.ts';
+import type { HostIntake } from './notices.ts';
+import { hostReadPersonInput } from './person-input.ts';
 import type {
   HostEnteredWorktree,
   HostPlatform,
@@ -53,12 +55,13 @@ import {
 } from './run-admission.ts';
 import { hostRunAttemptEvent } from './run-attempts.ts';
 import { hostRunAncestors, hostRunContext } from './run-branch.ts';
-import { resolveHostApprovalInput } from './run-continuation.ts';
+import { commitHostModelMessages, resolveHostApprovalInput } from './run-continuation.ts';
 import { HostRunOutcome } from './run-outcome.ts';
 import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.ts';
 import { hostTelemetry } from './telemetry/host-telemetry.ts';
 import { hostArtifactReader } from './tool-artifacts.ts';
 import type { HostToolRecords } from './tool-records.ts';
+import { isHostTurnInput } from './turn-input.ts';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
 
@@ -105,6 +108,8 @@ export interface HostRunExecutionPorts {
   ): Promise<void>;
   fold(row: HostLogRow): void;
   foldRows(rows: readonly HostLogRow[]): void;
+  /** ADR-0028 step 3b: the notices the running `run` takes at its next step, one message each commit. */
+  intake(run: Run): readonly HostIntake[];
   readonly mcpInputs: HostMcpInputState;
   openRun(run: Run): Promise<HostRunOwner | undefined>;
   /** BST-1178: the answers saved for browser origins, in Core's own StateStore. */
@@ -440,23 +445,38 @@ export async function runHostSdkLoop(
   run: Run,
   model: LanguageModel
 ): Promise<void> {
+  // BST-1932: a child's execution deadline bounds each leg, across its attempts.
+  const deadline = ports.armDeadline(run);
+  const ended = await runHostSdkAttempts(ports, run, model).finally(() => clearTimeout(deadline));
+  await finishHostSdkLoop(
+    run,
+    ports.closing(),
+    ended.outcome.detail(),
+    ended.interrupted,
+    (joined, detail) => ports.finish(run, joined, detail)
+  );
+}
+
+/** The leg's attempts, until one ends it. */
+async function runHostSdkAttempts(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  model: LanguageModel
+): Promise<HostSdkAttempt> {
   // An empty reply is judged per attempt: a failed attempt's text never
   // entered the transcript, so only a leg that began with committed steps
   // counts as the model having contributed.
   const resumed = run.steps > 0;
-  // BST-1932: a child's execution deadline bounds each leg, across its attempts.
-  const deadline = ports.armDeadline(run);
   for (let attempt = 1; ; attempt += 1) {
     const ended = await runHostSdkAttempt(ports, run, model, resumed);
     if (ended.checkpointFailure !== undefined) {
-      clearTimeout(deadline);
       throw ended.checkpointFailure;
     }
-    // A stopped, closing, steered or timed-out run ends here: none asked for another attempt.
+    // A stopped, closing, worktree-bound or timed-out run ends here: none asked for another attempt.
     const record =
       ended.maxAttempts === undefined ||
       run.stopped ||
-      run.steered ||
+      run.enteredWorktree !== undefined ||
       run.deadline !== undefined ||
       ports.closing()
         ? undefined
@@ -484,16 +504,51 @@ export async function runHostSdkLoop(
         ended.outcome.fail(cause);
       }
     }
-    clearTimeout(deadline);
-    await finishHostSdkLoop(
-      run,
-      ports.closing(),
-      ended.outcome.detail(),
-      ended.interrupted,
-      (joined, detail) => ports.finish(run, joined, detail)
-    );
-    return;
+    return ended;
   }
+}
+
+/**
+ * ADR-0028 step 3b: commits what the thread was told while `run` worked, one
+ * message each, and returns the step's messages with them. A person's input
+ * is read first (`hostReadPersonInput`); one whose read fails stops the intake.
+ */
+async function takeHostIntake(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  admission: HostRunAdmission,
+  input: ModelMessage[]
+): Promise<{ readonly failure?: unknown; readonly messages: ModelMessage[] }> {
+  let messages = input;
+  for (const intake of ports.intake(run)) {
+    // A message sent to an earlier run, read at this run's first step, precedes the turn's own.
+    const earlier = 'input' in intake && intake.input.runId !== run.id && run.steps === 0;
+    const read =
+      'input' in intake
+        ? await hostReadPersonInput(admission, run.id, intake.input, earlier)
+        : { events: [], message: intake.message };
+    if (read.events.length > 0) {
+      await ports.append(run.threadId, read.events, 'normal', ports.foldRows);
+    }
+    await commitHostModelMessages(
+      run,
+      [read.message],
+      (event) => ports.append(run.threadId, [event]).then((rows) => rows[0]),
+      () => ports.syncBoundary(run.threadId),
+      (row) => ports.fold(row),
+      intake.delivery
+    );
+    // A blocked message is taken, never read: the run ends before its model sees it.
+    if ('failure' in read) {
+      return { failure: read.failure, messages };
+    }
+    const at = earlier ? messages.findLastIndex(isHostTurnInput) : -1;
+    messages =
+      at < 0
+        ? [...messages, read.message]
+        : [...messages.slice(0, at), read.message, ...messages.slice(at)];
+  }
+  return { messages };
 }
 
 /** One public SDK attempt over the run's committed branch; every step commits before it is observed. */
@@ -596,12 +651,27 @@ async function runHostSdkAttempt(
       },
       onToolExecutionEnd: ({ toolCall }) => toolExecutions.end(toolCall.toolCallId),
       onToolExecutionStart: ({ toolCall }) => toolExecutions.start(toolCall.toolCallId),
-      prepareStep: async ({ messages }) => {
+      prepareStep: async ({ messages: input }) => {
+        let messages = input;
         // Resolved approval tool results precede the first model call in the SDK.
         // Commit those public SDK messages before the provider sees them.
         if (messages.length > recordedInputLength) {
           await ports.commitMessages(run, messages.slice(recordedInputLength));
           recordedInputLength = messages.length;
+        }
+        // ADR-0028 step 3b: what the thread was told while this run worked
+        // (a worker's report, a command's exit, the person's message) reaches
+        // its model at this step. The SDK carries the returned messages into
+        // the next steps.
+        const taken = await takeHostIntake(ports, run, admission, messages);
+        messages = taken.messages;
+        recordedInputLength = messages.length;
+        // A hook's block ends the run with its reason; the message stays taken.
+        if ('failure' in taken) {
+          run.controller.abort(taken.failure);
+          ownerStepFailure = taken.failure;
+          outcome.fail(taken.failure);
+          return { messages, toolChoice: 'none' };
         }
         let prepared: ModelMessage[];
         let memory: HostPreparedStep | undefined;
@@ -663,8 +733,11 @@ async function runHostSdkAttempt(
           ...gated,
         };
       },
-      // A committed run/steer ends the run after the step in flight (BST-588).
-      stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],
+      // ADR-0028 step 3: a run that entered a worktree ends after that step.
+      stopWhen: [
+        stepCountIs(admission.snapshot.maxSteps - run.steps),
+        () => run.enteredWorktree !== undefined,
+      ],
       toolApproval: ({ toolCall }) =>
         decideHostSdkApproval(run, ports.platform, ports.origins, toolCall, ports.runs),
       tools: createAdmittedHostSdkTools(run, (action, input) => ports.dispatch(run, action, input)),

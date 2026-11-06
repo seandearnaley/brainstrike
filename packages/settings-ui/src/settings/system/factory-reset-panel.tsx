@@ -1,6 +1,14 @@
 import { prepareFactoryReset } from '@brainstrike/app-state/factory-reset';
 import { createLogger } from '@brainstrike/logging';
-import { Button } from '@brainstrike/ui';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@brainstrike/ui';
 import { useState } from 'react';
 import { reloadThroughLifecycle } from './reload-through-lifecycle';
 
@@ -44,25 +52,18 @@ async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): P
 }
 
 export function FactoryResetPanel() {
+  const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const desktopResetAvailable = getDesktopResetBridge() !== null;
   const unavailableReason = getDesktopResetCapability()?.unavailableReason;
   const resetAvailable = !unavailableReason && desktopResetAvailable;
 
-  const handleClick = async () => {
+  const runReset = async () => {
     if (getDesktopResetCapability()?.unavailableReason) {
       return;
     }
     const desktopResetBridge = getDesktopResetBridge();
     if (!desktopResetBridge) {
-      return;
-    }
-
-    // biome-ignore lint/suspicious/noAlert: Intentional use of confirm for destructive action
-    const ok = window.confirm(
-      'Factory Reset will irreversibly delete local threads, stored folders, API keys, tool settings, runtime caches, and UI state from this device. Diagnostic logs may be preserved. Continue?'
-    );
-    if (!ok) {
       return;
     }
 
@@ -83,28 +84,62 @@ export function FactoryResetPanel() {
   };
 
   return (
-    <div className="bg-destructive/5 space-y-1 rounded-md border p-3">
-      <p className="text-destructive text-xs leading-none font-medium">Factory Reset</p>
-      <p className="text-muted-foreground text-[11px]">
+    <div className="border-destructive/40 space-y-2 rounded-md border p-4">
+      <h4 className="text-sm font-medium">Factory reset</h4>
+      <p className="text-muted-foreground text-sm">
         Irreversibly deletes local data, stored folders, API keys, tool settings, runtime caches,
         and UI state from this device. Diagnostic logs may be preserved.
       </p>
       <Button
-        className="mt-1 h-6"
         data-testid="factory-reset-button"
         disabled={running || !resetAvailable}
-        onClick={handleClick}
-        size="sm"
-        variant="destructive"
+        onClick={() => setOpen(true)}
+        type="button"
+        variant="outline"
       >
-        Factory Reset Brainstrike
+        Factory reset…
       </Button>
       {resetAvailable ? null : (
-        <p className="text-muted-foreground mt-1 text-xs">
+        <p className="text-muted-foreground text-sm">
           {unavailableReason ??
             'Factory reset is unavailable until the database is ready. Restart the app if this does not clear.'}
         </p>
       )}
+      {/* Once the reset starts this window's stores are retiring and it reloads either
+          way, so the dialog cannot be dismissed while it runs. */}
+      <Dialog onOpenChange={(next) => setOpen(next || running)} open={open || running}>
+        <DialogContent hideCloseButton={running}>
+          <DialogHeader>
+            <DialogTitle>Factory reset</DialogTitle>
+            <DialogDescription>
+              This permanently deletes local threads, stored folders, API keys, tool settings,
+              runtime caches and UI state from this device, then reloads Brainstrike. Diagnostic
+              logs may be preserved. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              disabled={running}
+              onClick={() => setOpen(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              data-testid="factory-reset-confirm"
+              disabled={running}
+              onClick={() => {
+                void runReset();
+              }}
+              type="button"
+              variant="destructive"
+            >
+              {running ? 'Resetting…' : 'Factory reset'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

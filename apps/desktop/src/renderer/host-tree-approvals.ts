@@ -65,7 +65,7 @@ export interface HostTreeApproval {
   readonly threadId: string;
 }
 
-/** A question or plan waiting in a thread delegated beneath the viewed one; its own thread answers it. */
+/** A network consent waiting in a thread delegated beneath the viewed one; its own thread answers it. */
 export interface HostTreeInteraction {
   readonly interaction: PendingHostApproval;
   /** The delegated thread's call sign. */
@@ -309,13 +309,14 @@ export class HostTreeApprovals implements SubagentChildRunSource {
       NO_APPROVALS,
       approvalKey
     );
-    // BST-1932 (AT-08): a child's question or plan is answered in the child; the
-    // viewed thread's own are inline in its tool cards.
+    // A child's network consent is answered in the child, as the viewed thread's
+    // own is inline in its tool cards. Questions and plans never reach a child:
+    // they stay the parent's (PARENT_ONLY_TOOL_IDS).
     this.interactions = keep(
       this.interactions,
       delegated.flatMap(({ callSign, origin, pending, threadId }) =>
         pending
-          .filter((interaction) => interaction.kind !== 'approval')
+          .filter((interaction) => interaction.kind === 'network')
           .map((interaction) => ({
             interaction,
             owner: callSign,

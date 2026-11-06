@@ -1,6 +1,7 @@
 import type { ModelMessage } from 'ai';
 import type { HostPlatform, HostProjectionRewrite, HostToolInvocation } from './ports.ts';
 import type { HostEvent, HostLogRow } from './protocol.ts';
+import { isHostTurnInput } from './turn-input.ts';
 
 type Rewritten = Extract<HostEvent, { type: 'tool.projection.rewritten' }>;
 
@@ -58,7 +59,7 @@ function branchInvocations(
   readonly currentTurnToolCallIds: Set<string>;
   readonly invocations: HostToolInvocation[];
 } {
-  const lastUser = messages.findLastIndex((message) => message.role === 'user');
+  const lastUser = messages.findLastIndex(isHostTurnInput);
   const calls = new Map<string, { args: unknown; toolName: string }>();
   const invocations: HostToolInvocation[] = [];
   const currentTurnToolCallIds = new Set<string>();

@@ -496,7 +496,7 @@ describe('summarizeActivity', () => {
   // `resting` is the HEADLINE (placeholder included); `verbs` is the verb
   // summary or nothing at all. The header demotes the verb summary to a
   // `· <verbs>` meta segment when `Stopped`/`Activity failed` takes the
-  // headline, and demoting the placeholder read "Stopped after 4.0s · Worked"
+  // headline, and demoting the placeholder read "Stopped after 4s · Worked"
   // (review finding 1) — so the two must stay distinguishable.
   it('reports verbs as null when no tool step settled, and as the resting headline when one did', () => {
     const unsettled = summarizeActivity(

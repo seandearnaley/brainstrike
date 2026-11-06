@@ -106,8 +106,8 @@ describe('ActivityTrace', () => {
     // The meta segments carry their own separator (there is no whitespace
     // between the spans — the gap is CSS), so the done meta reads
     // "· Worked for Ns" like every other segment. Cancelled is the one
-    // exception: "Stopped after 4.0s" is one phrase, pinned below.
-    expect(summary).toHaveTextContent('· Worked for 12.0s');
+    // exception: "Stopped after 4s" is one phrase, pinned below.
+    expect(summary).toHaveTextContent('· Worked for 12s');
     expect(summary).toHaveTextContent('· 3 steps');
     expect(document.querySelectorAll('[data-live="true"]')).toHaveLength(0);
     expect(screen.queryByText('foo')).not.toBeInTheDocument();
@@ -169,9 +169,7 @@ describe('ActivityTrace', () => {
         tail={[]}
       />
     );
-    expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent(
-      'Stopped after 4.0s'
-    );
+    expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent('Stopped after 4s');
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'false');
     rerender(
       <ActivityTrace
@@ -183,13 +181,15 @@ describe('ActivityTrace', () => {
         tail={[]}
       />
     );
-    expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent('Activity failed');
+    expect(screen.getByTestId('assistant-activity-summary')).toHaveTextContent(
+      'Activity failed after 4s'
+    );
     expect(screen.getByTestId('assistant-activity-group')).toHaveAttribute('data-failed', 'true');
   });
 
   // A cancelled/failed group whose only step never settled has NO verb
   // summary — `summary.resting` is then the placeholder ("Worked"/"Thought"),
-  // and demoting that into the meta read "Stopped after 4.0s · Worked · 1
+  // and demoting that into the meta read "Stopped after 4s · Worked · 1
   // step" (review finding 1). The model reports `verbs: null` for exactly
   // this case and the meta segment disappears with it.
   it('omits the verb meta when a cancelled group has no settled step', () => {
@@ -212,7 +212,7 @@ describe('ActivityTrace', () => {
     const row = screen
       .getByTestId('assistant-activity-summary')
       .querySelector('.bs-activity-summary-row');
-    expect(row?.textContent).toBe('Stopped after 4.0s· 1 step');
+    expect(row?.textContent).toBe('Stopped after 4s· 1 step');
   });
 
   // `button` children are presentational per ARIA (several screen readers
@@ -315,7 +315,7 @@ describe('ActivityTrace', () => {
 
     it('seeds the live timer from the elapsed fallback (no flash back to 0)', () => {
       // The trace mounts 2s into the turn — the clock must continue from
-      // ~2.0s, not reset to 0 (which flashed 1.8s → 0.2s; BST-1677).
+      // ~2s, not reset to 0 (which flashed 1.8s → 0.2s; BST-1677).
       vi.useFakeTimers();
       try {
         render(
@@ -328,12 +328,12 @@ describe('ActivityTrace', () => {
             tail={[]}
           />
         );
-        expect(screen.getByText('2.0s')).toBeInTheDocument();
+        expect(screen.getByText('2s')).toBeInTheDocument();
 
         act(() => {
           vi.advanceTimersByTime(1000);
         });
-        expect(screen.getByText('3.0s')).toBeInTheDocument();
+        expect(screen.getByText('3s')).toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -426,11 +426,11 @@ describe('ActivityTrace', () => {
         act(() => {
           vi.advanceTimersByTime(1000);
         });
-        expect(screen.getByText('1.0s')).toBeInTheDocument();
+        expect(screen.getByText('1s')).toBeInTheDocument();
         act(() => {
           vi.advanceTimersByTime(2000);
         });
-        expect(screen.getByText('3.0s')).toBeInTheDocument();
+        expect(screen.getByText('3s')).toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -466,7 +466,7 @@ describe('ActivityTrace', () => {
         act(() => {
           vi.advanceTimersByTime(1000);
         });
-        expect(screen.getByText('1.0s')).toBeInTheDocument();
+        expect(screen.getByText('1s')).toBeInTheDocument();
 
         rerender(
           <ActivityTrace
@@ -481,7 +481,7 @@ describe('ActivityTrace', () => {
         act(() => {
           vi.advanceTimersByTime(5000);
         });
-        expect(screen.getByText('1.0s')).toBeInTheDocument();
+        expect(screen.getByText('1s')).toBeInTheDocument();
 
         rerender(
           <ActivityTrace

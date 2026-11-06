@@ -268,7 +268,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
       expect(await readFile(path.join(workspace, 'started-second.txt'), 'utf8')).toBe('started');
       const toolCard = second.getByTestId('tool-fallback').last();
       await toolCard.getByRole('button').first().click();
-      await expect(toolCard.getByText('Result:', { exact: true })).toBeVisible();
+      await expect(toolCard.getByText('Result', { exact: true })).toBeVisible();
       await expect(toolCard.locator('pre').last()).toContainText('STREAM_STDOUT_SECOND');
       await expect(toolCard.locator('pre').last()).toContainText('STREAM_STDERR_SECOND');
       await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();

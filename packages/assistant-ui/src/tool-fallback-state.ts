@@ -73,6 +73,15 @@ const isIncompleteStatus = (
 ): status is ToolStatus & { type: 'incomplete'; error?: unknown; reason?: unknown } =>
   status.type === 'incomplete';
 
+/** An error object's own non-empty `message`, so the line reads its words rather than its JSON. */
+function readErrorMessageField(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) {
+    return;
+  }
+  const message: unknown = (error as { message?: unknown }).message;
+  return typeof message === 'string' && message.length > 0 ? message : undefined;
+}
+
 /**
  * The card's error LINE, from the same reader the state machine uses.
  *
@@ -101,6 +110,11 @@ export const resolveErrorMessage = (
   const delegatedTerminal = readDelegatedTaskTerminalError(status.error);
   if (delegatedTerminal) {
     return delegatedTerminal.message;
+  }
+
+  const statedMessage = readErrorMessageField(status.error);
+  if (statedMessage) {
+    return statedMessage;
   }
 
   if (status.error !== undefined) {

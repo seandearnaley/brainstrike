@@ -43,7 +43,12 @@ function run(
     THREAD,
     id,
     'model',
-    { parentMessageId: parent, prompt: `prompt for ${id}`, userMessageId: messageId },
+    {
+      author: 'person',
+      parentMessageId: parent,
+      prompt: `prompt for ${id}`,
+      userMessageId: messageId,
+    },
     { sessionGrants: [] } as never
   );
   state.terminal = true;
@@ -58,6 +63,8 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
   const runs = new Map<string, HostRunState>();
   const committed: HostEvent[] = [];
   const order: string[] = [];
+  /** Where each rewind forked: the turns below it end first; undefined ends none. */
+  const forks: (string | null | undefined)[] = [];
   let seq = 0;
   const files: HostRewindFiles = {
     apply: vi.fn(async () => {
@@ -93,7 +100,10 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
   const rewinds: HostThreadRewinds = new HostThreadRewinds({
     accept: async (_threadId, _method, _params, _result, events) => commit(events),
     append: async (_threadId, events) => commit(events),
-    command: (_method, _params, perform) => perform(),
+    command: async (_method, _params, perform, fork) => {
+      forks.push(await fork?.());
+      return perform();
+    },
     owner: () => ({ pending: new Map(), platform, runs }),
   });
   const add = (state: HostRunState): void => {
@@ -112,7 +122,7 @@ function harness(options: { readonly files?: Partial<HostRewindFiles> | false } 
       })
     );
   };
-  return { add, committed, files, order, rewinds, runs };
+  return { add, committed, files, forks, order, rewinds, runs };
 }
 /** Three runs in a row; the second message's turn starts with root A, the third adds root B. */
 function threeTurns(h: ReturnType<typeof harness>): void {
@@ -169,7 +179,7 @@ describe('restore to before a message', () => {
       parentMessageId: 'run-3',
     });
   });
-  it('answers conflicts without committing anything until they are acknowledged', async () => {
+  it('answers conflicts without committing or ending any turn until they are acknowledged', async () => {
     const h = harness({ files: { drift: async () => [{ path: 'a.txt', rootId: 'root-a' }] } });
     threeTurns(h);
     const params = {
@@ -186,6 +196,7 @@ describe('restore to before a message', () => {
     expect(h.committed).toEqual([]);
     await h.rewinds.rewind({ ...params, acknowledgeConflicts: true });
     expect(h.order).toEqual(['thread.rewind.started', 'apply', 'thread.rewound']);
+    expect(h.forks).toEqual([undefined, 'run-1']);
   });
   it('commits a failed restore as interrupted, and keeps the rewind redoable', async () => {
     const h = harness({

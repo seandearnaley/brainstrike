@@ -35,9 +35,9 @@ const CONNECTION_LABELS: Record<ProviderConnectionState, string> = {
 };
 
 const CONNECTION_DOT_CLASSES: Record<ProviderConnectionState, string> = {
-  connected: 'bg-emerald-500',
+  connected: 'bg-success',
   disconnected: 'bg-muted-foreground/40',
-  unknown: 'bg-amber-500/70',
+  unknown: 'bg-warning/70',
 };
 
 /** Verb on the expand control, so the card states what it is FOR. */
@@ -146,10 +146,10 @@ function VerdictChip({
   return (
     <Badge
       className={cn(
-        'h-5 px-1.5 text-[10px]',
+        'text-2xs h-5 px-1.5',
         presentation.tone === 'danger' && 'border-destructive/40 text-destructive',
-        presentation.tone === 'warning' && 'text-warning border-amber-500/40',
-        presentation.tone === 'success' && 'text-success border-emerald-500/40'
+        presentation.tone === 'warning' && 'text-warning border-warning/40',
+        presentation.tone === 'success' && 'text-success border-success/40'
       )}
       data-status={status}
       data-testid={`provider-verdict-chip-${providerId}`}
@@ -268,7 +268,7 @@ export function ProviderCard({
     <Card
       className={cn(
         'overflow-hidden transition-colors',
-        card.connection === 'connected' && !rejected && 'border-emerald-500/30'
+        card.connection === 'connected' && !rejected && 'border-success/30'
       )}
       data-testid={`provider-card-${providerId}`}
     >

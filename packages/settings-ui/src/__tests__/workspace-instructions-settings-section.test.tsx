@@ -190,7 +190,7 @@ describe('WorkspaceInstructionsSettingsSection', () => {
     await waitFor(() => {
       expect(screen.getByTestId('context-files-scan-error')).not.toBeNull();
     });
-    fireEvent.click(screen.getByTestId('context-files-scan-retry'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     await waitFor(() => {
       expect(screen.queryByTestId('context-files-scan-error')).toBeNull();

@@ -319,7 +319,7 @@ function renderTableHeader<T>({
                       sortState
                     )}
                     className={cn(
-                      'focus-visible:ring-ring flex cursor-pointer items-center gap-1 rounded-xs focus-visible:ring-1 focus-visible:outline-none',
+                      'focus-visible:ring-ring flex cursor-pointer items-center gap-1 rounded-xs focus-visible:ring-1 focus-visible:outline-hidden',
                       column.headerContentClassName
                     )}
                     onClick={(event) => {

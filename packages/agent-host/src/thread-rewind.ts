@@ -27,6 +27,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
+import type { HostForkPoint } from './abandoned-turns.ts';
 import type { HostRunState } from './core-state.ts';
 import type { Json } from './json-value.ts';
 import type { HostPlatform } from './ports.ts';
@@ -65,10 +66,12 @@ export interface HostThreadRewindPorts {
     events: readonly HostEvent[]
   ): Promise<void>;
   append(threadId: string, events: readonly HostEvent[]): Promise<unknown>;
+  /** `fork`: where a rewind branches; the turns it leaves end first (`abandoned-turns.ts`). */
   command<T extends Json>(
     method: string,
     params: { commandId: string; threadId: string },
-    perform: () => Promise<T>
+    perform: () => Promise<T>,
+    fork?: HostForkPoint
   ): Promise<T>;
   owner(): {
     readonly pending: Map<AbortController, string>;
@@ -200,6 +203,13 @@ export class HostThreadRewinds {
     }
   }
 
+  /** A live run's committed start, folded as a host start folds it. */
+  readonly foldRows = (rows: readonly HostLogRow[]): void => {
+    for (const row of rows) {
+      this.fold(row);
+    }
+  };
+
   forgetThread(threadId: string): void {
     this.latest.delete(threadId);
   }
@@ -259,57 +269,66 @@ export class HostThreadRewinds {
     return { files, headId: target.headId, runIds: target.runIds };
   }
 
-  rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
+  async rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
     const method = 'thread/rewind';
-    return this.ports.command(method, params, async () => {
-      const target = this.target(params.threadId, params.messageId);
-      const rewindId = randomUUID();
-      const started: Started = {
-        commandId: params.commandId,
-        headId: target.headId,
-        messageId: params.messageId,
-        mode: params.mode,
-        rewindId,
-        runId: target.runId,
-        type: 'thread.rewind.started',
-      };
-      if (params.mode === 'conversation-only') {
-        const result: Rewound = { outcomes: [], rewindId, status: 'rewound' };
-        await this.ports.accept(params.threadId, method, params, result, [
-          started,
-          { outcomes: [], rewindId, type: 'thread.rewound' },
-        ]);
-        return result;
-      }
-      const { rewindFiles, targets } = this.fileTargets(target);
-      if (params.previewId === undefined) {
-        throw refusalError('input', 'rewind.preview-required', 'A files rewind needs its preview');
-      }
-      const request = { previewId: params.previewId, threadId: params.threadId };
-      const conflicts = await rewindFiles.drift(request);
-      if (conflicts.length > 0 && params.acknowledgeConflicts !== true) {
-        const result: RewindResult = { conflicts: [...conflicts], status: 'conflicts' };
-        return result;
-      }
-      await this.ports.append(params.threadId, [started]);
-      return await this.restoring(params.threadId, async () => {
-        try {
-          const outcomes = [...(await rewindFiles.apply({ ...request, rewindId, targets }))];
-          const result: Rewound = { outcomes, rewindId, status: 'rewound' };
+    return await this.ports.command(
+      method,
+      params,
+      async () => {
+        const target = this.target(params.threadId, params.messageId);
+        const rewindId = randomUUID();
+        const started: Started = {
+          commandId: params.commandId,
+          headId: target.headId,
+          messageId: params.messageId,
+          mode: params.mode,
+          rewindId,
+          runId: target.runId,
+          type: 'thread.rewind.started',
+        };
+        if (params.mode === 'conversation-only') {
+          const result: Rewound = { outcomes: [], rewindId, status: 'rewound' };
           await this.ports.accept(params.threadId, method, params, result, [
-            { outcomes, rewindId, type: 'thread.rewound' },
-          ]);
-          return result;
-        } catch (cause) {
-          const detail = failureDetail(cause);
-          const result: RewindResult = { detail, rewindId, status: 'interrupted' };
-          await this.ports.accept(params.threadId, method, params, result, [
-            { detail, phase: 'rewind', rewindId, type: 'thread.rewind.interrupted' },
+            started,
+            { outcomes: [], rewindId, type: 'thread.rewound' },
           ]);
           return result;
         }
-      });
-    });
+        const { rewindFiles, targets } = this.fileTargets(target);
+        if (params.previewId === undefined) {
+          throw refusalError(
+            'input',
+            'rewind.preview-required',
+            'A files rewind needs its preview'
+          );
+        }
+        const request = { previewId: params.previewId, threadId: params.threadId };
+        const conflicts = await rewindFiles.drift(request);
+        if (conflicts.length > 0 && params.acknowledgeConflicts !== true) {
+          const result: RewindResult = { conflicts: [...conflicts], status: 'conflicts' };
+          return result;
+        }
+        await this.ports.append(params.threadId, [started]);
+        return await this.restoring(params.threadId, async () => {
+          try {
+            const outcomes = [...(await rewindFiles.apply({ ...request, rewindId, targets }))];
+            const result: Rewound = { outcomes, rewindId, status: 'rewound' };
+            await this.ports.accept(params.threadId, method, params, result, [
+              { outcomes, rewindId, type: 'thread.rewound' },
+            ]);
+            return result;
+          } catch (cause) {
+            const detail = failureDetail(cause);
+            const result: RewindResult = { detail, rewindId, status: 'interrupted' };
+            await this.ports.accept(params.threadId, method, params, result, [
+              { detail, phase: 'rewind', rewindId, type: 'thread.rewind.interrupted' },
+            ]);
+            return result;
+          }
+        });
+      },
+      () => this.forkPoint(params)
+    );
   }
 
   redo(params: HostParams<'thread/rewind/redo'>): Promise<HostResults['thread/rewind/redo']> {
@@ -368,6 +387,28 @@ export class HostThreadRewinds {
         }
       });
     });
+  }
+
+  /**
+   * Where this rewind forks, when it would go ahead now: only then does it end
+   * the turns it leaves (audit TW-3). One it would refuse, or a files rewind
+   * whose drift the person has not acknowledged, ends nothing. Its own command
+   * then reports that refusal or those conflicts.
+   */
+  private async forkPoint(params: HostParams<'thread/rewind'>): Promise<string | null | undefined> {
+    const { headId } = this.target(params.threadId, params.messageId);
+    if (params.mode === 'conversation-only') {
+      return headId;
+    }
+    const rewindFiles = this.ports.owner().platform.rewindFiles;
+    if (!rewindFiles || params.previewId === undefined) {
+      return undefined;
+    }
+    if (params.acknowledgeConflicts === true) {
+      return headId;
+    }
+    const request = { previewId: params.previewId, threadId: params.threadId };
+    return (await rewindFiles.drift(request)).length === 0 ? headId : undefined;
   }
 
   private assertIdle(threadId: string): void {

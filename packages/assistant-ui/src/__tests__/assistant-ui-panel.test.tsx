@@ -744,7 +744,27 @@ describe('assistant thread surface', () => {
     expect(trigger).toBeInTheDocument();
   });
 
-  it('disables the model picker when no models are enabled', () => {
+  it('hints at the "/" menu in the idle placeholder only when there are commands', () => {
+    const { unmount } = render(<Panel {...baseProps} />);
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toHaveAttribute(
+      'placeholder',
+      'Ask Brainstrike anything…'
+    );
+    unmount();
+
+    render(
+      <Panel
+        {...baseProps}
+        slashCommands={[{ execute: () => {}, id: 'thread.new', label: 'New thread' }]}
+      />
+    );
+    expect(screen.getByRole('textbox', { name: 'Message input' })).toHaveAttribute(
+      'placeholder',
+      'Ask anything, or type / for commands'
+    );
+  });
+
+  it('keeps the model picker openable when no models are enabled, so it can lead to a fix', () => {
     const noModelsGroups: ProviderGroupConfig[] = providerGroups.map((group) => ({
       ...group,
       providers: group.providers.map((provider) => ({
@@ -753,13 +773,17 @@ describe('assistant thread surface', () => {
       })),
     }));
 
-    // Provide empty pickerModels - the picker should be disabled
-    render(<Panel pickerModels={[]} providerGroups={noModelsGroups} />);
+    render(
+      <Panel
+        onManageModels={() => {}}
+        onModelChange={() => {}}
+        pickerModels={[]}
+        providerGroups={noModelsGroups}
+      />
+    );
 
     expect(screen.getByText('No models enabled')).toBeInTheDocument();
-    // The menu trigger should be disabled when no models are available
-    const trigger = screen.getByTestId('composer-model-menu-trigger');
-    expect(trigger).toBeDisabled();
+    expect(screen.getByTestId('composer-model-menu-trigger')).toBeEnabled();
   });
 
   it('omits context summary and context controls while keeping tool controls visible', () => {

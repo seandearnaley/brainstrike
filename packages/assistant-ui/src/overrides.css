@@ -1854,7 +1854,16 @@ span.bs-composer-chip {
   width: 100%;
 }
 
-.assistant-ui-panel :is(.bs-activity-failed-jump, .bs-run-strip, .bs-activity-filter-chip, .bs-activity-filter-action):focus-visible {
+.assistant-ui-panel
+  :is(
+    .bs-activity-failed-jump,
+    .bs-run-strip,
+    .bs-activity-filter-chip,
+    .bs-activity-filter-action,
+    .bs-step-row,
+    .bs-approval-row-line,
+    .bs-approval-strip-grant
+  ):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
@@ -2672,17 +2681,12 @@ span.bs-composer-chip {
  * components: Tailwind classes on packages/ui/src/code-block/* and element
  * rules in globals.css @layer base (`.bs-code-block-body pre/.shiki`,
  * `html.dark .shiki`). This file only owns chat-specific prose rhythm: the
- * chat markdown library renders CodeBlockHeader and CodeBlockBody as SIBLINGS
- * (no shared wrapper element), so the vertical spacing around the box is split
- * across the two halves here. The header's zero bottom margin also overrides
- * the renderer root's `space-y-4`, which would open a gap inside the box.
+ * vertical spacing around the whole `.bs-code-block` box (the chat renders the
+ * composed box from its SyntaxHighlighter slot). Unlayered, so it beats the
+ * box's `my-4` and the renderer root's `space-y-4`.
  */
-.assistant-ui-panel .aui-md .bs-code-block-header {
+.assistant-ui-panel .aui-md .bs-code-block {
   margin-top: 0.9em;
-  margin-bottom: 0;
-}
-
-.assistant-ui-panel .aui-md .bs-code-block-body {
   margin-bottom: 0.9em;
 }
 

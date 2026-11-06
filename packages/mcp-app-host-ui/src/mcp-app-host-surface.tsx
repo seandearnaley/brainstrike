@@ -1,4 +1,4 @@
-import type { McpAppToolCallAuthority } from '@brainstrike/mcp-app-host';
+import type { McpAppToolCallAuthority, McpAppToolRiskCategory } from '@brainstrike/mcp-app-host';
 import { Button } from '@brainstrike/ui';
 import {
   type KeyboardEvent,
@@ -16,10 +16,18 @@ export type McpAppHostState =
   | Readonly<{ code: McpAppHostErrorCode; phase: 'error' }>;
 
 export interface McpAppHostSurfaceProps {
+  /**
+   * The app's last reported content height in CSS pixels, from its
+   * `ui/notifications/size-changed`. The frame follows it within
+   * {@link MCP_APP_MIN_HEIGHT_PX}..{@link MCP_APP_MAX_HEIGHT_PX}; past the
+   * maximum the app scrolls inside its own frame.
+   */
+  readonly appHeight?: number | undefined;
   readonly appName: string;
   readonly authority: McpAppToolCallAuthority;
   readonly children?: ReactNode;
   readonly onCancel?: () => void;
+  /** Restarts the app from a fresh session; offered when it failed or closed. */
   readonly onRetry?: () => void;
   readonly recoveryFocusRef: RefObject<HTMLElement | null>;
   readonly state: McpAppHostState;
@@ -31,16 +39,62 @@ const ERROR_MESSAGES: Readonly<Record<McpAppHostErrorCode, string>> = Object.fre
   'protocol-failed': 'The app could not start safely.',
 });
 
+/** What allowing the call lets the app do, in plain words. */
+const RISK_SENTENCE: Readonly<Record<McpAppToolRiskCategory, string>> = Object.freeze({
+  edit: 'It can change files or data on your behalf.',
+  execute: 'It can run commands or take actions with effects outside this app.',
+  mcp: 'It runs a tool on the app’s server, which can act on your behalf.',
+  read: 'It can read files or data and pass them to the app.',
+});
+
 function focus(element: HTMLElement | null): void {
   element?.focus();
 }
 
 /**
- * The app's box, the same while it loads and once its frame is live, so a
- * result does not grow when the app appears. The frame does not follow the
- * app's `size-changed` notifications, so this is the frame's whole height.
+ * The frame's height before the app reports its own, and while it loads, so a
+ * result does not jump when the app appears. Also the least room a consent
+ * prompt is given over the app.
  */
-const APP_BOX_CLASS_NAME = 'h-64';
+const MCP_APP_DEFAULT_HEIGHT_PX = 256;
+/** The smallest frame an app can ask for. */
+const MCP_APP_MIN_HEIGHT_PX = 96;
+/** The tallest frame an app can ask for; a taller app scrolls inside it. */
+const MCP_APP_MAX_HEIGHT_PX = 640;
+
+/**
+ * The frame follows the app's reported height within the bounds; a pending
+ * consent prompt keeps at least the default room, however small the app is.
+ */
+function frameHeight(appHeight: number | undefined, consentPending: boolean): number {
+  const floor = consentPending ? MCP_APP_DEFAULT_HEIGHT_PX : MCP_APP_MIN_HEIGHT_PX;
+  if (appHeight === undefined || !Number.isFinite(appHeight)) {
+    return Math.max(floor, MCP_APP_DEFAULT_HEIGHT_PX);
+  }
+  return Math.min(MCP_APP_MAX_HEIGHT_PX, Math.max(floor, Math.ceil(appHeight)));
+}
+
+interface AppNameProps {
+  readonly appName: string;
+}
+
+/** The header row above the app: its name and, when the host can stop it, Cancel. */
+function AppHeader({
+  appName,
+  onCancel,
+}: AppNameProps & { readonly onCancel?: (() => void) | undefined }) {
+  if (!onCancel) {
+    return null;
+  }
+  return (
+    <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-1.5">
+      <span className="text-muted-foreground min-w-0 truncate text-xs font-medium">{appName}</span>
+      <Button aria-label={`Cancel ${appName}`} onClick={onCancel} size="xs" variant="outline">
+        Cancel
+      </Button>
+    </div>
+  );
+}
 
 /** The loading box; also what a result shows before its app session exists. */
 export function McpAppLoadingState({
@@ -50,17 +104,20 @@ export function McpAppLoadingState({
   return (
     <section
       aria-label={appName}
-      className={`border-border bg-card rounded-lg border p-4 ${APP_BOX_CLASS_NAME}`}
+      className="border-border bg-card overflow-hidden rounded-lg border"
     >
-      <div className="flex items-center justify-between gap-3">
+      <AppHeader appName={appName} onCancel={onCancel} />
+      <div
+        className="text-muted-foreground flex items-center justify-center gap-2 text-sm"
+        style={{ height: MCP_APP_DEFAULT_HEIGHT_PX }}
+      >
+        <span
+          aria-hidden="true"
+          className="border-muted-foreground/30 border-t-muted-foreground size-4 shrink-0 animate-spin rounded-full border-2 motion-reduce:animate-none"
+        />
         <span aria-live="polite" role="status">
           Loading {appName}…
         </span>
-        {onCancel ? (
-          <Button aria-label={`Cancel ${appName}`} onClick={onCancel} size="sm" variant="outline">
-            Cancel
-          </Button>
-        ) : null}
       </div>
     </section>
   );
@@ -97,6 +154,46 @@ function ErrorState({
   );
 }
 
+/** Keeps Tab and Shift+Tab cycling between the consent prompt's two buttons. */
+function trapConsentTab(event: KeyboardEvent<HTMLButtonElement>): void {
+  if (event.key !== 'Tab') {
+    return;
+  }
+  const buttons = event.currentTarget.parentElement?.querySelectorAll('button');
+  const first = buttons?.item(0);
+  const last = buttons?.item(1);
+  if (!(first && last)) {
+    return;
+  }
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function ClosedState({
+  appName,
+  onRetry,
+}: AppNameProps & { readonly onRetry?: (() => void) | undefined }) {
+  return (
+    <section aria-label={appName} className="border-destructive/40 bg-card rounded-lg border p-4">
+      <div className="flex flex-col items-start gap-3">
+        <p role="alert">The app session is closed.</p>
+        {onRetry ? (
+          <Button aria-label={`Reopen ${appName}`} onClick={onRetry} size="sm" variant="outline">
+            Reopen
+          </Button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function TerminalState({
   appName,
   phase,
@@ -123,6 +220,7 @@ function TerminalState({
 }
 
 export function McpAppHostSurface({
+  appHeight,
   appName,
   authority,
   children,
@@ -176,24 +274,7 @@ export function McpAppHostSurface({
       deny();
       return;
     }
-    if (event.key !== 'Tab') {
-      return;
-    }
-    const buttons = event.currentTarget.parentElement?.querySelectorAll('button');
-    const first = buttons?.item(0);
-    const last = buttons?.item(1);
-    if (!(first && last)) {
-      return;
-    }
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-    if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapConsentTab(event);
   };
 
   if (state.phase === 'loading') {
@@ -211,48 +292,31 @@ export function McpAppHostSurface({
   }
 
   if (authoritySnapshot.phase === 'closed') {
-    return (
-      <section aria-label={appName} className="border-destructive/40 bg-card rounded-lg border p-4">
-        <p role="alert">The app session is closed.</p>
-      </section>
-    );
+    return <ClosedState appName={appName} onRetry={onRetry} />;
   }
 
   return (
     <section
       aria-label={appName}
-      className={`border-border bg-card relative rounded-lg border ${APP_BOX_CLASS_NAME}`}
+      className="border-border bg-card relative overflow-hidden rounded-lg border"
     >
-      <div
-        aria-hidden={approval ? true : undefined}
-        className="h-full"
-        inert={approval ? true : undefined}
-      >
-        {children}
-        {onCancel ? (
-          <Button
-            aria-label={`Cancel ${appName}`}
-            className="absolute top-2 right-2"
-            onClick={onCancel}
-            size="sm"
-            variant="outline"
-          >
-            Cancel
-          </Button>
-        ) : null}
+      <div aria-hidden={approval ? true : undefined} inert={approval ? true : undefined}>
+        <AppHeader appName={appName} onCancel={onCancel} />
+        <div style={{ height: frameHeight(appHeight, approval !== undefined) }}>{children}</div>
       </div>
       {approval ? (
         <div
           aria-label={`Allow ${appName} to use ${approval.toolName}?`}
           aria-modal="true"
-          className="bg-background/90 absolute inset-0 flex items-center justify-center p-4"
+          className="bg-background/90 absolute inset-0 flex overflow-y-auto p-4"
           role="alertdialog"
         >
-          <div className="border-border bg-card flex max-w-sm flex-col gap-3 rounded-lg border p-4 shadow-lg">
-            <p className="font-medium">Allow {approval.toolName}?</p>
-            <p className="text-muted-foreground text-sm">
-              This {approval.riskCategory} action requires your approval.
+          {/* m-auto centres the prompt while it fits and lets the overlay scroll to its top when it doesn't. */}
+          <div className="border-border bg-card m-auto flex max-w-sm flex-col gap-3 rounded-lg border p-4 shadow-lg">
+            <p className="font-medium">
+              {appName} wants to run {approval.toolName}
             </p>
+            <p className="text-muted-foreground text-sm">{RISK_SENTENCE[approval.riskCategory]}</p>
             {authoritySnapshot.pendingApprovals.length > 1 ? (
               <p className="text-muted-foreground text-xs">
                 {authoritySnapshot.pendingApprovals.length - 1} more request

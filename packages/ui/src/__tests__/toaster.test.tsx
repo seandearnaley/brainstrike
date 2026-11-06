@@ -52,7 +52,7 @@ describe('Toaster', () => {
     expect(screen.getByText('Second description')).toBeInTheDocument();
 
     // Verify close buttons are present for each toast
-    const closeButtons = screen.getAllByRole('button', { name: '' });
+    const closeButtons = screen.getAllByRole('button', { name: 'Dismiss notification' });
     expect(closeButtons).toHaveLength(2);
     for (const button of closeButtons) {
       expect(button).toHaveAttribute('toast-close');

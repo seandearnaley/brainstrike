@@ -1,10 +1,19 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { ChangedFileEntry, StructuredFileDiff } from '@brainstrike/types';
-import { resetToastStore, Toaster } from '@brainstrike/ui';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { createTestActionRegistry } from '@brainstrike/context-actions';
+import type {
+  ChangedFileEntry,
+  ChangesAction,
+  ChangesActionTarget,
+  ChangesApplyResult,
+  StructuredFileDiff,
+} from '@brainstrike/types';
+import { ActionRegistryProvider, resetToastStore, Toaster, TooltipProvider } from '@brainstrike/ui';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { gitFailure } from '../../__tests__/helpers/git-failure';
+import { changesActions } from '../changes-context-actions';
 import { changedFileKey, type DraftComment, useChangesStore } from '../changes-store';
 import { ChangesetDiffPane } from '../ui/changeset-diff-pane';
 
@@ -13,6 +22,11 @@ type LoadFileDiff = (
   rootId: string | null
 ) => Promise<BoundaryResult<StructuredFileDiff>>;
 type SendComments = (drafts: readonly DraftComment[]) => boolean;
+type ApplyAction = (
+  action: ChangesAction,
+  target: ChangesActionTarget,
+  rootId: string | null
+) => Promise<BoundaryResult<ChangesApplyResult>>;
 
 function patchOf(path: string): string {
   return [
@@ -29,12 +43,13 @@ function patchOf(path: string): string {
 
 /** `src/a.ts` arrives with its patch; `src/b.ts`, in another root, without. */
 const WITH_PATCH: ChangedFileEntry = {
+  actions: [],
   additions: 1,
   deletions: 1,
   patch: patchOf('src/a.ts'),
   path: 'src/a.ts',
   repositoryRoot: '/repo',
-  revertible: true,
+  revision: 'a-1',
   rootId: 'root-1',
   status: 'modified',
   worktreePath: '/repo',
@@ -44,6 +59,7 @@ const WITHOUT_PATCH: ChangedFileEntry = {
   patch: null,
   path: 'src/b.ts',
   repositoryRoot: '/other',
+  revision: 'b-1',
   rootId: 'root-2',
   worktreePath: '/other',
 };
@@ -240,5 +256,355 @@ describe('ChangesetDiffPane', () => {
 
     expect(screen.getByTestId('changeset-diff-pane-send-comments')).toBeVisible();
     expect(useChangesStore.getState().commentsByChangeset.get('cs-1')).toEqual([first]);
+  });
+});
+
+describe('ChangesetDiffPane file menu and lines', () => {
+  const ROOTS: ReadonlyMap<string, string> = new Map([
+    ['root-1', '/repo'],
+    ['root-2', '/other'],
+  ]);
+
+  function withMenu(node: ReactElement) {
+    const { registry } = createTestActionRegistry({ actions: [...changesActions] });
+    return <ActionRegistryProvider registry={registry}>{node}</ActionRegistryProvider>;
+  }
+
+  /** The number of a line of the file's new version. */
+  async function newLineNumber(line: number): Promise<HTMLElement> {
+    await screen.findByRole('button', { name: /src\/a\.ts/u });
+    for (const host of document.querySelectorAll('diffs-container')) {
+      const cell = host.shadowRoot?.querySelector<HTMLElement>(
+        `[data-additions] [data-column-number="${line}"]`
+      );
+      if (cell) {
+        return cell;
+      }
+    }
+    throw new Error(`No new line ${line} is showing.`);
+  }
+
+  it("offers a file's header the menu its tree row has, with its patch to copy", async () => {
+    const user = userEvent.setup();
+    const { registry, writtenTexts } = createTestActionRegistry({ actions: [...changesActions] });
+    render(
+      <ActionRegistryProvider registry={registry}>
+        <ChangesetDiffPane
+          changesetKey="cs-1"
+          files={FILES}
+          loadFileDiff={unusedLoad}
+          rootPathById={ROOTS}
+        />
+      </ActionRegistryProvider>
+    );
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: await screen.findByRole('button', { name: /src\/a\.ts/u }),
+    });
+    expect(await screen.findByRole('menuitem', { name: 'Reveal in Explorer' })).toBeVisible();
+    await user.click(screen.getByRole('menuitem', { name: 'Copy Patch' }));
+    expect(writtenTexts).toEqual([patchOf('src/a.ts')]);
+
+    // A file the view sent without its patch has none to copy.
+    await user.pointer({ keys: '[MouseRight]', target: await unloadedHeader() });
+    expect(await screen.findByRole('menuitem', { name: 'Copy Relative Path' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'Copy Patch' })).not.toBeInTheDocument();
+  });
+
+  it("opens a line in its file's root, from a worktree inside that root", async () => {
+    const user = userEvent.setup();
+    const openFileInTab = vi.fn();
+    render(
+      withMenu(
+        <ChangesetDiffPane
+          changesetKey="cs-1"
+          files={[{ ...WITH_PATCH, worktreePath: '/repo/wt' }]}
+          loadFileDiff={unusedLoad}
+          openFileInTab={openFileInTab}
+          rootPathById={ROOTS}
+        />
+      )
+    );
+    await user.click(await newLineNumber(1));
+    expect(openFileInTab).toHaveBeenCalledWith('root-1|@|wt/src/a.ts', { line: 1 });
+  });
+
+  it('says a file in a worktree outside every open folder cannot open', async () => {
+    const user = userEvent.setup();
+    const openFileInTab = vi.fn();
+    render(
+      withMenu(
+        <>
+          <ChangesetDiffPane
+            changesetKey="cs-1"
+            files={[{ ...WITH_PATCH, worktreePath: '/elsewhere/wt' }]}
+            loadFileDiff={unusedLoad}
+            openFileInTab={openFileInTab}
+            rootPathById={ROOTS}
+          />
+          <Toaster />
+        </>
+      )
+    );
+    await user.click(await newLineNumber(1));
+    expect(await screen.findByText("Couldn't open src/a.ts")).toBeVisible();
+    expect(openFileInTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChangesetDiffPane viewed marks', () => {
+  it('keeps a file viewed when the view switches away and back, until the file changes', async () => {
+    const user = userEvent.setup();
+    const pane = (changesetKey: string, files: readonly ChangedFileEntry[]) => (
+      <TooltipProvider>
+        <ChangesetDiffPane changesetKey={changesetKey} files={files} loadFileDiff={unusedLoad} />
+      </TooltipProvider>
+    );
+    const view = render(pane('cs-1', [WITH_PATCH]));
+    await user.click(await screen.findByRole('checkbox', { name: 'Viewed src/a.ts' }));
+    expect(screen.getByRole('checkbox', { name: 'Viewed src/a.ts' })).toBeChecked();
+
+    view.rerender(pane('cs-2', [WITH_PATCH]));
+    expect(await screen.findByRole('checkbox', { name: 'Viewed src/a.ts' })).not.toBeChecked();
+    view.rerender(pane('cs-1', [WITH_PATCH]));
+    expect(await screen.findByRole('checkbox', { name: 'Viewed src/a.ts' })).toBeChecked();
+
+    view.rerender(pane('cs-1', [{ ...WITH_PATCH, revision: 'a-2' }]));
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'Viewed src/a.ts' })).not.toBeChecked()
+    );
+  });
+});
+
+describe('ChangesetDiffPane actions', () => {
+  const HUNK = '@@ -1 +1 @@\n-old\n+new\n';
+  const applied = vi.fn<ApplyAction>(async (_action, target) => ({
+    ok: true,
+    value: {
+      paths: target.kind === 'files' ? target.files.map((file) => file.path) : [target.path],
+    },
+  }));
+
+  function offering(
+    actions: readonly ChangesAction[],
+    files: readonly ChangedFileEntry[] = FILES
+  ): ChangedFileEntry[] {
+    return files.map((entry) => ({ ...entry, actions }));
+  }
+
+  function renderActions(
+    applyAction: ApplyAction = applied,
+    files: readonly ChangedFileEntry[] = offering(['stage', 'revert'])
+  ) {
+    return render(
+      <TooltipProvider>
+        <ChangesetDiffPane
+          applyAction={applyAction}
+          changesetKey="cs-1"
+          files={files}
+          loadFileDiff={unusedLoad}
+        />
+        <Toaster />
+      </TooltipProvider>
+    );
+  }
+
+  /** A hunk's own button, named by its action alone. */
+  function hunkButton(name: string): Promise<HTMLElement> {
+    return screen.findByRole('button', { name });
+  }
+
+  beforeEach(() => {
+    applied.mockClear();
+  });
+
+  it('offers nothing when no file offers an action, or nothing applies them', async () => {
+    const { rerender } = render(
+      <ChangesetDiffPane
+        applyAction={applied}
+        changesetKey="cs-1"
+        files={FILES}
+        loadFileDiff={unusedLoad}
+      />
+    );
+    await screen.findByRole('button', { name: /src\/a\.ts/u });
+    expect(
+      screen.queryByRole('button', { name: /^(Stage|Unstage|Revert)/u })
+    ).not.toBeInTheDocument();
+
+    // The rewind preview draws the same pane with nothing to apply.
+    rerender(
+      <ChangesetDiffPane
+        changesetKey="cs-1"
+        files={offering(['stage', 'revert'])}
+        loadFileDiff={unusedLoad}
+      />
+    );
+    await screen.findByRole('button', { name: /src\/a\.ts/u });
+    expect(
+      screen.queryByRole('button', { name: /^(Stage|Unstage|Revert)/u })
+    ).not.toBeInTheDocument();
+  });
+
+  it('stages and reverts a hunk at once, quoting it exactly', async () => {
+    const user = userEvent.setup();
+    renderActions();
+
+    await user.click(await hunkButton('Stage'));
+    expect(applied).toHaveBeenLastCalledWith(
+      'stage',
+      { hunks: [HUNK], kind: 'hunks', path: 'src/a.ts' },
+      'root-1'
+    );
+
+    await user.click(await hunkButton('Revert'));
+    expect(applied).toHaveBeenLastCalledWith(
+      'revert',
+      { hunks: [HUNK], kind: 'hunks', path: 'src/a.ts' },
+      'root-1'
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('applies a file’s action from its header, naming the file as the view drew it', async () => {
+    const user = userEvent.setup();
+    renderActions(applied, offering(['unstage']));
+
+    await user.click(await screen.findByRole('button', { name: 'Unstage src/b.ts' }));
+
+    expect(applied).toHaveBeenCalledWith(
+      'unstage',
+      { files: [{ path: 'src/b.ts', revision: 'b-1' }], kind: 'files' },
+      'root-2'
+    );
+  });
+
+  it('reverts a file only once Revert is chosen in the question', async () => {
+    const user = userEvent.setup();
+    renderActions();
+    const revertFile = await screen.findByRole('button', { name: 'Revert src/a.ts' });
+
+    await user.click(revertFile);
+    const question = await screen.findByRole('alertdialog', { name: 'Revert src/a.ts?' });
+    await user.click(within(question).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(applied).not.toHaveBeenCalled();
+
+    await user.click(revertFile);
+    await user.click(
+      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Revert' })
+    );
+    expect(applied).toHaveBeenCalledWith(
+      'revert',
+      { files: [{ path: 'src/a.ts', revision: 'a-1' }], kind: 'files' },
+      'root-1'
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('applies each toolbar action to exactly the files that offer it, asking before it reverts them', async () => {
+    const user = userEvent.setup();
+    const file = (path: string, actions: readonly ChangesAction[]): ChangedFileEntry => ({
+      ...WITHOUT_PATCH,
+      actions,
+      path,
+      revision: `${path}@1`,
+    });
+    renderActions(applied, [
+      file('src/c.ts', ['stage', 'revert']),
+      file('src/d.ts', ['revert']),
+      file('src/e.ts', []),
+      file('src/f.ts', ['revert']),
+    ]);
+
+    await user.click(await screen.findByRole('button', { name: 'Stage all' }));
+    expect(applied).toHaveBeenLastCalledWith(
+      'stage',
+      { files: [{ path: 'src/c.ts', revision: 'src/c.ts@1' }], kind: 'files' },
+      'root-2'
+    );
+    expect(screen.queryByRole('button', { name: 'Unstage all' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Revert all' }));
+    const question = await screen.findByRole('alertdialog', { name: 'Revert 3 files?' });
+    expect(applied).toHaveBeenCalledTimes(1);
+    await user.click(within(question).getByRole('button', { name: 'Revert' }));
+    expect(applied).toHaveBeenLastCalledWith(
+      'revert',
+      {
+        files: [
+          { path: 'src/c.ts', revision: 'src/c.ts@1' },
+          { path: 'src/d.ts', revision: 'src/d.ts@1' },
+          { path: 'src/f.ts', revision: 'src/f.ts@1' },
+        ],
+        kind: 'files',
+      },
+      'root-2'
+    );
+  });
+
+  it("reverts a turn's files whole, once for each folder they lie in", async () => {
+    const user = userEvent.setup();
+    const turnFile = (entry: ChangedFileEntry): ChangedFileEntry => ({
+      ...entry,
+      actions: ['revert'],
+      wholeFile: true,
+    });
+    renderActions(applied, [turnFile(WITH_PATCH), turnFile(WITHOUT_PATCH)]);
+
+    await screen.findByRole('button', { name: 'Revert src/a.ts' });
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Revert all' }));
+    await user.click(
+      within(await screen.findByRole('alertdialog', { name: 'Revert 2 files?' })).getByRole(
+        'button',
+        { name: 'Revert' }
+      )
+    );
+    expect(applied.mock.calls).toEqual([
+      ['revert', { files: [{ path: 'src/a.ts', revision: 'a-1' }], kind: 'files' }, 'root-1'],
+      ['revert', { files: [{ path: 'src/b.ts', revision: 'b-1' }], kind: 'files' }, 'root-2'],
+    ]);
+  });
+
+  it("says why git refused, in the host's words", async () => {
+    const user = userEvent.setup();
+    renderActions(async () => gitFailure('src/a.ts changed since this view was drawn.'));
+
+    await user.click(await hunkButton('Stage'));
+
+    const title = await screen.findByText("Couldn't stage src/a.ts");
+    expect(title.parentElement).toHaveTextContent('src/a.ts changed since this view was drawn.');
+  });
+
+  it('holds every action while one runs', async () => {
+    const user = userEvent.setup();
+    let finish: (result: BoundaryResult<ChangesApplyResult>) => void = () => {};
+    renderActions(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const controls = async () => [
+      await screen.findByRole('button', { name: 'Stage all' }),
+      screen.getByRole('button', { name: 'Revert all' }),
+      screen.getByRole('button', { name: 'Stage src/a.ts' }),
+      screen.getByRole('button', { name: 'Revert src/b.ts' }),
+      await hunkButton('Stage'),
+      await hunkButton('Revert'),
+    ];
+
+    await user.click(screen.getByRole('button', { name: 'Stage src/a.ts' }));
+    for (const control of await controls()) {
+      expect(control).toBeDisabled();
+    }
+
+    await act(async () => {
+      finish({ ok: true, value: { paths: ['src/a.ts'] } });
+    });
+    for (const control of await controls()) {
+      expect(control).toBeEnabled();
+    }
   });
 });

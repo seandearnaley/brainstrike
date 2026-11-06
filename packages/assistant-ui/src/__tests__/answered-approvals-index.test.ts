@@ -66,10 +66,10 @@ describe('advanceAnsweredApprovalsIndex', () => {
     expect(index.prompts.get('delegate-1')).toBe('Survey the renderer');
     expect(pass1.cursor).toEqual({ keys: ['m1'], scanned: [1] });
 
-    // A thousand child envelopes land; nothing indexable, nothing changes.
+    // A thousand host event parts land; nothing indexable, nothing changes.
     const envelopes = Array.from({ length: 1000 }, () => ({
       data: {},
-      name: 'brainstrike.delegated-conversation',
+      name: 'brainstrike.host-event',
       type: 'data',
     }));
     const second = [{ ...first[0], content: [...(first[0]?.content ?? []), ...envelopes] }];

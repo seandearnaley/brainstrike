@@ -104,7 +104,7 @@ test.describe('Model Catalog settings (desktop)', () => {
         snapshot: MODEL_REGISTRY_SNAPSHOT,
       },
     });
-    await window.getByTestId('model-registry-retry').click();
+    await window.getByTestId('model-registry-error').getByRole('button', { name: 'Retry' }).click();
 
     await expect(window.getByTestId('model-registry-refresh')).toBeVisible();
     await expect(window.locator('[data-testid^="model-row-"]').first()).toBeVisible();

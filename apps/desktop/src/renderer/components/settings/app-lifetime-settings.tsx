@@ -6,6 +6,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ErrorNotice,
   Label,
   Switch,
 } from '@brainstrike/ui';
@@ -122,7 +123,7 @@ export function DesktopAppLifetimeSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Startup</CardTitle>
+        <CardTitle>Login and tray</CardTitle>
         <CardDescription>
           Runs belong to Brainstrike, not to its window: they keep going until you quit.
         </CardDescription>
@@ -146,11 +147,7 @@ export function DesktopAppLifetimeSettings() {
           onChange={(enabled) => write((target) => target.setOpenAtLogin(enabled))}
           value={settings?.openAtLogin}
         />
-        {state.status !== 'loading' && state.error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {state.error}
-          </p>
-        ) : null}
+        {state.status !== 'loading' && state.error ? <ErrorNotice message={state.error} /> : null}
       </CardContent>
     </Card>
   );

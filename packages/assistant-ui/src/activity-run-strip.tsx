@@ -13,10 +13,13 @@ export function ActivityRunStrip({
   failed,
   marks,
   onPick,
+  steps,
 }: {
   readonly failed: number;
   readonly marks: readonly RunStripMark[];
   readonly onPick: (stepId: string) => void;
+  /** The group's step count, which a bucketed strip's mark count undercounts. */
+  readonly steps: number;
 }): ReactNode {
   if (marks.length === 0) {
     return null;
@@ -38,16 +41,21 @@ export function ActivityRunStrip({
       onPick(mark.stepId);
     }
   };
+  // Steps, not marks: a long run buckets several steps into one mark.
+  const stepCount = `${steps} ${steps === 1 ? 'step' : 'steps'}`;
+  const action = failed > 0 ? 'opens the first failed step' : 'opens the newest step';
   return (
     <button
       aria-label={
         failed > 0
-          ? `Run strip, ${marks.length} marks. Open the first failed step`
-          : `Run strip, ${marks.length} marks. Open the newest step`
+          ? `${stepCount}, ${failed} failed. Open the first failed step`
+          : `${stepCount}. Open the newest step`
       }
       className="bs-run-strip"
       data-testid="assistant-activity-run-strip"
       onClick={pick}
+      // The pointer opens the step under it; the keyboard has no pointer.
+      title={`Click a mark to open its step; Enter ${action}`}
       type="button"
     >
       <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${marks.length} 10`}>

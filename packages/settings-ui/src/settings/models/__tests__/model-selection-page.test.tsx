@@ -101,7 +101,7 @@ describe('ModelSelectionPage', () => {
       useModelRegistryStore.setState({ error: 'boom', fetchRegistry });
     });
     render(<ModelSelectionPage />);
-    fireEvent.click(screen.getByTestId('model-registry-retry'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(fetchRegistry).toHaveBeenCalledWith(db);
   });
 
@@ -111,7 +111,7 @@ describe('ModelSelectionPage', () => {
       useModelRegistryStore.setState({ error: 'boom', fetchRegistry });
     });
     render(<ModelSelectionPage />);
-    fireEvent.click(screen.getByTestId('model-registry-retry'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(fetchRegistry).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(DATABASE_NOT_READY_TOAST);
   });
@@ -136,7 +136,7 @@ describe('ModelSelectionPage', () => {
     render(<ModelSelectionPage />);
 
     expect(screen.getByTestId('model-registry-error')).toHaveTextContent('boom');
-    expect(screen.getByTestId('model-registry-retry')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     expect(screen.queryByTestId('model-catalog-mock')).not.toBeInTheDocument();
   });
 });

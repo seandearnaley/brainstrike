@@ -6,7 +6,8 @@ import {
   useAuiState,
 } from '@assistant-ui/react';
 import { XIcon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { SUPPORTED_IMAGE_TYPES_LABEL } from './attachment-adapter';
 import { useAttachmentPreviewUrl } from './use-attachment-preview-url';
 
 const ComposerAttachmentChip = () => {
@@ -38,7 +39,7 @@ const ComposerAttachmentChip = () => {
         // a visible named fallback, never the browser's broken-image glyph
         // (no-silent-fallbacks). Failure is distinguishable via the title.
         <span
-          className="text-muted-foreground flex size-14 items-center justify-center overflow-hidden px-1 text-center text-[10px]"
+          className="text-muted-foreground text-2xs flex size-14 items-center justify-center overflow-hidden px-1 text-center"
           data-testid="assistant-composer-attachment-fallback"
           title={failed ? `Preview unavailable for ${attachment.name}` : attachment.name}
         >
@@ -56,45 +57,101 @@ const ComposerAttachmentChip = () => {
   );
 };
 
-const ATTACHMENT_ERROR_DISMISS_MS = 6000;
+interface AttachmentRejection {
+  readonly id: number;
+  readonly message: string;
+}
+
+/**
+ * assistant-ui refuses a type outside the adapter's `accept` itself, with a
+ * message that lists every MIME type; that refusal is restated briefly. The
+ * adapter's own refusals (size, count, a type it rejects) already read well.
+ */
+function rejectionMessage(event: {
+  readonly contentType?: string | undefined;
+  readonly message: string;
+  readonly reason: string;
+}): string {
+  if (event.reason !== 'not-accepted') {
+    return event.message;
+  }
+  const type = event.contentType || 'unknown type';
+  return `A file (${type}) is not a supported image. Use ${SUPPORTED_IMAGE_TYPES_LABEL}.`;
+}
 
 /**
  * Surfaces attachment add failures (unsupported type, over the size cap, no
- * adapter) as a visible, self-dismissing alert above the composer — the
- * adapter THROWS on validation failure and assistant-ui re-emits it as the
+ * adapter) as a visible alert above the composer — the adapter THROWS on
+ * validation failure and assistant-ui re-emits it as the
  * `composer.attachmentAddError` scoped event consumed here. Errors are never
  * silently swallowed.
+ *
+ * One paste, drop or pick adds its files together, so its rejections arrive
+ * before the note renders again and show as one message. The note stays
+ * until it is dismissed or a later add succeeds; a later batch's rejections
+ * replace it. "Later" is whatever arrives after the note was last shown, so a
+ * success in the same batch never hides that batch's own rejections.
  */
 const ComposerAttachmentErrorNote = () => {
-  const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
-
-  useAuiEvent('composer.attachmentAddError', ({ message }) => {
-    setErrorMessage(message);
-  });
+  const [rejections, setRejections] = useState<readonly AttachmentRejection[]>([]);
+  const nextId = useRef(0);
+  const shownThrough = useRef(-1);
 
   useEffect(() => {
-    if (!errorMessage) {
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setErrorMessage(undefined);
-    }, ATTACHMENT_ERROR_DISMISS_MS);
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [errorMessage]);
+    shownThrough.current = rejections.at(-1)?.id ?? shownThrough.current;
+  }, [rejections]);
 
-  if (!errorMessage) {
+  useAuiEvent('composer.attachmentAddError', (event) => {
+    const rejection = { id: nextId.current++, message: rejectionMessage(event) };
+    const shown = shownThrough.current;
+    setRejections((current) => [...current.filter((entry) => entry.id > shown), rejection]);
+  });
+
+  useAuiEvent('composer.attachmentAdd', () => {
+    const shown = shownThrough.current;
+    setRejections((current) => current.filter((entry) => entry.id > shown));
+  });
+
+  if (rejections.length === 0) {
     return null;
   }
   return (
-    <p
-      className="bs-composer-attachment-error text-destructive px-1 pb-1 text-xs"
+    <div
+      className="bs-composer-attachment-error text-destructive flex items-start gap-1 px-1 pb-1 text-xs"
       data-testid="assistant-composer-attachment-error"
       role="alert"
     >
-      {errorMessage}
-    </p>
+      <AttachmentRejectionText rejections={rejections} />
+      <button
+        aria-label="Dismiss attachment error"
+        className="hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 rounded-sm p-0.5"
+        onClick={() => setRejections([])}
+        type="button"
+      >
+        <XIcon aria-hidden="true" className="size-3" />
+      </button>
+    </div>
+  );
+};
+
+const AttachmentRejectionText = ({
+  rejections,
+}: {
+  readonly rejections: readonly AttachmentRejection[];
+}) => {
+  const [only] = rejections;
+  if (only && rejections.length === 1) {
+    return <p className="min-w-0 flex-1">{only.message}</p>;
+  }
+  return (
+    <div className="min-w-0 flex-1">
+      <p className="font-medium">{rejections.length} files skipped:</p>
+      <ul className="list-disc pl-4">
+        {rejections.map((entry) => (
+          <li key={entry.id}>{entry.message}</li>
+        ))}
+      </ul>
+    </div>
   );
 };
 

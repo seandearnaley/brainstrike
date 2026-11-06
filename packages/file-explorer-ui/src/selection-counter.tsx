@@ -167,7 +167,7 @@ export function SelectionCounter({
       aria-label={accessibleLabel}
       className={`flex h-8 items-center gap-1 rounded-md border @[300px]:h-9 @[300px]:gap-1.5 @[300px]:px-2.5 ${
         compact ? 'px-1 text-xs @[72px]:px-1.5 @[72px]:text-sm @[96px]:px-2' : 'px-2 text-sm'
-      } focus-visible:ring-ring py-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none ${statusStyles} ${
+      } focus-visible:ring-ring py-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-hidden ${statusStyles} ${
         isEditable ? 'cursor-pointer' : 'cursor-default'
       }`}
       disabled={!isEditable}
@@ -276,14 +276,14 @@ export function SelectionCounter({
                 </Button>
               </div>
               {error && (
-                <p aria-live="polite" className="text-destructive text-[11px]" role="alert">
+                <p aria-live="polite" className="text-destructive text-2xs" role="alert">
                   {error}
                 </p>
               )}
             </div>
 
             <div className="space-y-1.5">
-              <span className="text-muted-foreground text-[11px]">Quick presets</span>
+              <span className="text-muted-foreground text-2xs">Quick presets</span>
               <div className="flex flex-wrap gap-1.5">
                 {SELECTION_PRESETS.map((preset) => (
                   <Button
@@ -303,7 +303,7 @@ export function SelectionCounter({
               </div>
             </div>
 
-            <p className="text-muted-foreground text-[10px]">
+            <p className="text-muted-foreground text-2xs">
               Maximum number of files that can be selected at once
             </p>
           </div>

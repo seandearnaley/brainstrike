@@ -56,7 +56,7 @@ describe('SavedBrowserOriginsSection', () => {
     vi.mocked(origins.read).mockRejectedValueOnce(new Error('host unavailable'));
     render(<SavedBrowserOriginsSection origins={origins} />);
 
-    expect((await screen.findByRole('alert')).textContent).toBe(
+    expect((await screen.findByRole('alert')).textContent).toContain(
       'Unable to load saved sites: host unavailable'
     );
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));

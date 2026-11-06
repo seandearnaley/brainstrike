@@ -766,7 +766,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       fileNodeIndex,
       filteredPathSet,
       normalizedTreeContext,
-      normalizedTreeContext?.version,
       visibleAggregates,
       rowReuseCache,
       sortOptions,

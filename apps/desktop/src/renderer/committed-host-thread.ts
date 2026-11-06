@@ -33,11 +33,17 @@ const logger = createLogger('CommittedHostConversation');
  * AI SDK's documented `useChat` `experimental_throttle` example.
  */
 const DELIVERY_THROTTLE_MS = 50;
-/** A committed run.started the host admitted to deliver child results (a wake). */
-const HostWakeStartSchema = Schema.Struct({
-  delivery: Schema.Struct({ via: Schema.Literal('wake') }),
-  type: Schema.Literal('run.started'),
-});
+/**
+ * A committed run.started whose prompt the host wrote, not the person: a wake
+ * that delivers child results, or the run that carries a task on in a worktree.
+ */
+const HostWrittenStartSchema = Schema.Union([
+  Schema.Struct({
+    delivery: Schema.Struct({ via: Schema.Literal('wake') }),
+    type: Schema.Literal('run.started'),
+  }),
+  Schema.Struct({ hostPrompt: Schema.Literal(true), type: Schema.Literal('run.started') }),
+]);
 /** A composer image as the host's user-message attachment; anything else is refused. */
 function hostImageAttachment(
   attachment: NonNullable<AppendMessage['attachments']>[number]
@@ -56,6 +62,19 @@ function hostImageAttachment(
     type: 'image',
   });
 }
+/** A composer message as the host's user message: its text and its images. */
+export function hostUserMessage(
+  message: AppendMessage
+): Pick<HostParams<'run/start'>, 'attachments' | 'prompt'> {
+  if (message.content.some((part) => part.type !== 'text')) {
+    throw new Error('This host command requires text input');
+  }
+  const attachments = (message.attachments ?? []).map(hostImageAttachment);
+  return {
+    ...(attachments.length > 0 ? { attachments } : {}),
+    prompt: message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+  };
+}
 /** The view's message identities for a committed run, from its host's own identities. */
 export function committedConversationIdentity(
   rows: readonly HostLogRow[],
@@ -70,13 +89,15 @@ export function committedConversationIdentity(
     ...committedRunIdentity(rows, runId),
     metadata: { custom: { hostRunId: runId } },
   };
-  // BST-1932: a wake answers the host's child delivery, not a person; its
-  // ledger is model input, so the answer follows the run it woke behind.
+  // BST-1932: a prompt the host wrote (a wake's ledger, a worktree
+  // continuation) is model input, never a message the person typed, so the
+  // answer follows the run it carries on behind.
   if (
-    Schema.decodeUnknownResult(HostWakeStartSchema, { errors: 'all' })(row.event)._tag === 'Success'
+    Schema.decodeUnknownResult(HostWrittenStartSchema, { errors: 'all' })(row.event)._tag ===
+    'Success'
   ) {
-    const { userMessageId: _ledger, ...wake } = identity;
-    return wake;
+    const { userMessageId: _prompt, ...carried } = identity;
+    return carried;
   }
   return identity;
 }
@@ -148,11 +169,7 @@ export async function startCommittedTurn(
   commandId: string = crypto.randomUUID()
 ): Promise<void> {
   const { client, settleLost, threadId } = options;
-  if (message.content.some((part) => part.type !== 'text')) {
-    throw new Error('This host command requires text input');
-  }
-  const attachments = (message.attachments ?? []).map(hostImageAttachment);
-  const prompt = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+  const user = hostUserMessage(message);
   // BST-2004: a send whose host was lost before it answered, or before the
   // send left, is settled from the replacement's committed log; nothing is resent.
   try {
@@ -165,11 +182,10 @@ export async function startCommittedTurn(
   }
   try {
     await client.request('run/start', {
-      ...(attachments.length > 0 ? { attachments } : {}),
+      ...user,
       commandId,
       ...options.runSettings(),
       parentMessageId: message.parentId,
-      prompt,
       threadId,
     });
   } catch (cause) {

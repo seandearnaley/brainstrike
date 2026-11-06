@@ -40,6 +40,8 @@ export function getAbnormalFinishMessage(
       return getKimiK3OutputLimitMessage(outputLimitContext) ?? GENERIC_OUTPUT_LIMIT_MESSAGE;
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
+    case 'interrupted':
+      return 'Assistant stopped because the provider cut off the response before it finished.';
     case 'other':
       return 'Assistant stream ended without a normal stop signal.';
     case 'unrecognized':

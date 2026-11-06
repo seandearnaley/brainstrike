@@ -189,7 +189,6 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // 'keeps run.stalled and run.resumed visible in the timeline' below.
     'run.resumed',
     'run.stalled',
-    'run.steered',
     'run.step.finished',
     'subagent.failed',
     'subagent.finished',

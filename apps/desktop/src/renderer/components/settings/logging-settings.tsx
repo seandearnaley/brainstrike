@@ -6,7 +6,14 @@ import {
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import type { LoggingPreferencesPatch } from '@brainstrike/logging';
 import { LoggingSettingsSection } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  ErrorNotice,
+} from '@brainstrike/ui';
 import { useCallback, useEffect, useState } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
 
@@ -89,11 +96,13 @@ export function DesktopLoggingSettings() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Logging & Diagnostics</CardTitle>
+          <CardTitle>Logging</CardTitle>
           <CardDescription>Loading logging preferences…</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-muted-foreground text-sm">Fetching saved logging preferences…</div>
+          <div className="text-muted-foreground text-sm" role="status">
+            Fetching saved logging preferences…
+          </div>
         </CardContent>
       </Card>
     );
@@ -103,11 +112,11 @@ export function DesktopLoggingSettings() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Logging & Diagnostics</CardTitle>
+          <CardTitle>Logging</CardTitle>
           <CardDescription>Logging configuration is unavailable.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-destructive text-sm">{state.error}</div>
+          <ErrorNotice message={state.error} />
         </CardContent>
       </Card>
     );

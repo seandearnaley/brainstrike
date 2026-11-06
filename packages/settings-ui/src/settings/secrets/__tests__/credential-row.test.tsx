@@ -25,6 +25,7 @@ vi.mock('@brainstrike/ui', () => ({
   ),
   getProviderColor: () => 'hsl(0, 0%, 50%)',
   ProviderIcon: () => <span />,
+  smoothScrollBehavior: () => 'smooth',
   TableCell: ({ children }: { children?: React.ReactNode }) => <td>{children}</td>,
   TableRow: ({
     children,

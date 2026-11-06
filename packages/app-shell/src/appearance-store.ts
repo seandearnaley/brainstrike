@@ -25,7 +25,8 @@ export const APPEARANCE_STORAGE_KEY = 'brainstrike:ui-appearance';
 const VALIDATORS: { readonly [Key in keyof SavedAppearance]-?: (value: unknown) => boolean } = {
   codeFont: isCodeFontId,
   codeFontSize: isCodeFontSize,
-  codeTheme: isCodeThemeId,
+  codeThemeDark: isCodeThemeId,
+  codeThemeLight: isCodeThemeId,
   customCodeFont: isCustomFontName,
   font: isFontId,
   mode: isThemeMode,

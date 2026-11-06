@@ -218,7 +218,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
                   }`}
                 />
               </span>
-              <span className="text-muted-foreground mt-1 block truncate font-mono text-[11px]">
+              <span className="text-muted-foreground text-2xs mt-1 block truncate font-mono">
                 {shortSessionId(session.id)} · PID {session.pid}
               </span>
             </button>
@@ -232,7 +232,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
             <header className="border-border flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{sessionTitle(selected)}</p>
-                <p className="text-muted-foreground truncate font-mono text-[11px]">
+                <p className="text-muted-foreground text-2xs truncate font-mono">
                   {selected.id} · root {selected.rootId} · {selected.status}
                   {selected.status === 'exited' ? ` · exit ${selected.exitCode}` : ''}
                 </p>
@@ -270,7 +270,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
             ) : null}
             <pre
               aria-label="Command session output"
-              className="min-h-0 flex-1 overflow-auto bg-black/95 p-3 font-mono text-[12px] leading-5 break-words whitespace-pre-wrap text-zinc-100"
+              className="bg-muted text-foreground min-h-0 flex-1 overflow-auto p-3 font-mono text-[12px] leading-5 break-words whitespace-pre-wrap"
               role="log"
             >
               {output || 'Waiting for output…'}
@@ -290,7 +290,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
               <form className="border-border flex gap-2 border-t p-2" onSubmit={sendInput}>
                 <input
                   aria-label="Command session input"
-                  className="border-input bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:ring-2"
+                  className="border-input bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2.5 py-1.5 font-mono text-xs outline-hidden focus-visible:ring-2"
                   onChange={(event) => setInput(event.target.value)}
                   placeholder="Send input"
                   value={input}

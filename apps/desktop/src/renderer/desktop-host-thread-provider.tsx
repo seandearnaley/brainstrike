@@ -17,6 +17,7 @@ import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstr
 import {
   ApprovalChangeProvider,
   BudgetGuardrailProvider,
+  ChangesReviewProvider,
   CommittedAssistantConversation,
   DebugBundleProvider,
   EditCheckpointProvider,
@@ -219,6 +220,21 @@ function workspaceSlots(
       };
 }
 
+/**
+ * Core brackets only a top-level thread's runs with turn snapshots, so a
+ * delegated child's turn has no changes of its own to review: its view offers
+ * no Changes review, as it offers no rewind.
+ */
+function ChildChangesGate({
+  child,
+  children,
+}: {
+  readonly child: boolean;
+  readonly children: ReactNode;
+}): ReactNode {
+  return child ? <ChangesReviewProvider value={null}>{children}</ChangesReviewProvider> : children;
+}
+
 function HostThread({
   agentColor,
   canvases,
@@ -344,14 +360,6 @@ function HostThread({
     () => (conversation ? hostApprovalChange(client, conversation) : null),
     [client, conversation]
   );
-  // Steer (BST-588): the queue holds the message at its front while Core ends
-  // the run after its step in flight; the message then starts the next turn.
-  const [steeredRunId, setSteeredRunId] = useState<string>();
-  const steer = async (): Promise<boolean> => {
-    const runId = await conversation?.steer();
-    setSteeredRunId(runId);
-    return runId !== undefined;
-  };
   return conversation ? (
     <McpAppBridgeProvider bridge={appBridge}>
       <div className="flex h-full min-h-0 flex-col">
@@ -366,28 +374,30 @@ function HostThread({
                     <SubagentChildRunContext value={conversation.approvals}>
                       <ApprovalChangeProvider value={readApprovalChange}>
                         <HostChildConversations revision={effects} threadId={threadId}>
-                          <CommittedAssistantConversation
-                            {...withFoldersGate(withMemoryGate(presentation, memory), reopening)}
-                            {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
-                            agentColor={conversationColor}
-                            approvalStrip={
-                              <HostApprovalStrip
-                                client={client}
-                                self={child ? label : undefined}
-                                tree={conversation.approvals}
-                              />
-                            }
-                            commands={conversation.commands}
-                            {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                            label={label}
-                            onRunningChange={onRunningChange}
-                            onSendActiveInput={child ? conversation.sendInput : undefined}
-                            onSteerActiveRun={steer}
-                            {...(reconnect === undefined ? {} : { reconnect })}
-                            rewind={child ? null : rewind}
-                            store={conversation.store}
-                            {...workspaceSlots(child, threadId)}
-                          />
+                          <ChildChangesGate child={child}>
+                            <CommittedAssistantConversation
+                              {...withFoldersGate(withMemoryGate(presentation, memory), reopening)}
+                              {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
+                              agentColor={conversationColor}
+                              approvalStrip={
+                                <HostApprovalStrip
+                                  client={client}
+                                  self={child ? label : undefined}
+                                  tree={conversation.approvals}
+                                />
+                              }
+                              commands={conversation.commands}
+                              {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                              label={label}
+                              onRunningChange={onRunningChange}
+                              onSendActiveInput={child ? conversation.sendInput : undefined}
+                              onSteer={conversation.steer}
+                              {...(reconnect === undefined ? {} : { reconnect })}
+                              rewind={child ? null : rewind}
+                              store={conversation.store}
+                              {...workspaceSlots(child, threadId)}
+                            />
+                          </ChildChangesGate>
                         </HostChildConversations>
                       </ApprovalChangeProvider>
                     </SubagentChildRunContext>
@@ -397,7 +407,6 @@ function HostThread({
             </CommittedVerdicts>
           </CommittedCheckpoints>
         </div>
-        {steeredRunId ? <SteeringStatus runId={steeredRunId} store={conversation.store} /> : null}
         {/* Core-owned MCP input: the dialog portals; status and alerts sit under the conversation. */}
         <CommittedHostMcpInputView input={conversation.mcpInput} />
       </div>
@@ -445,25 +454,6 @@ function reconnectFor(
     return connection.reconnect;
   }
   return state.kind === 'connecting' && state.automatic ? 'automatic' : undefined;
-}
-
-/** Visible while the steered run is still the thread's active run. */
-function SteeringStatus({
-  runId,
-  store,
-}: {
-  readonly runId: string;
-  readonly store: CommittedHostConversation['store'];
-}): ReactElement | null {
-  const activeRunId = useSyncExternalStore(
-    store.subscribe,
-    () => store.getCommittedView().activeRunId
-  );
-  return activeRunId === runId ? (
-    <div aria-live="polite" className="text-muted-foreground px-3 py-1 text-xs" role="status">
-      Steering: stopping after this step, then sending your message…
-    </div>
-  ) : null;
 }
 
 // One lazy client capability per actual renderer frame, independent of React replay.

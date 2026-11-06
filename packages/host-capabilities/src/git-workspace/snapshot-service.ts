@@ -55,7 +55,6 @@ import {
   parseLsTreeZ,
   parseRawDiffZ,
   pruneEmptyAncestorDirectories,
-  type RawDiffEntry,
   type RestorePlan,
 } from './snapshot-restore-plan.ts';
 import {
@@ -65,7 +64,7 @@ import {
   pinnedDiffArgs,
   pinnedPatchArgs,
 } from './structured-diff-content.ts';
-import { parseNumstatZ } from './structured-diff-parsers.ts';
+import { parseNumstatZ, parseRawZ, type RawDiffRecord } from './structured-diff-parsers.ts';
 
 /** Opaque per-root handle; obtain via `ensureShadowRepo`, never construct. */
 export interface ShadowRepoHandle {
@@ -110,6 +109,22 @@ export interface ApplyRestorePlanOptions {
   readonly expectedPreRevertHashes: ReadonlyMap<string, string>;
 }
 
+/** A settled turn: its start and end snapshot commits. */
+export interface TurnEndpoints {
+  readonly fromOid: string;
+  readonly toOid: string;
+}
+
+/**
+ * A turn revert. `busy`: the thread was not idle. `changed`: these paths are
+ * no longer as the turn left them. Either way nothing was written; otherwise
+ * one outcome per path.
+ */
+export type TurnRevertResult =
+  | { readonly kind: 'busy' }
+  | { readonly kind: 'changed'; readonly paths: readonly string[] }
+  | { readonly kind: 'written'; readonly outcomes: readonly PerFileOutcome[] };
+
 export interface SweepOrphansResult {
   readonly kept: readonly string[];
   readonly removed: readonly string[];
@@ -140,6 +155,8 @@ interface RootEntry {
 }
 
 const GITLINK_MODE = '160000';
+/** A scanned path's entry when it cannot be read as a file: equal to no tree entry. */
+const UNREADABLE_PATH = 'unreadable';
 const ALL_ZERO_OID_PATTERN = /^0+$/u;
 
 /**
@@ -157,14 +174,28 @@ const RAW_DIFF_ARGS = [
   '--no-renames',
   '--ignore-submodules=dirty',
 ] as const;
+/**
+ * A view pairs a moved file with where it came from, as the git-scope views
+ * do. Restore plans keep `--no-renames`: a revert writes and deletes paths.
+ */
+const VIEW_RAW_DIFF_ARGS = [
+  'diff',
+  '--raw',
+  '-z',
+  '--no-abbrev',
+  '--find-renames',
+  '--ignore-submodules=dirty',
+] as const;
 const NUMSTAT_DIFF_ARGS = pinnedDiffArgs([
   '--numstat',
   '-z',
-  '--no-renames',
+  '--find-renames',
   '--ignore-submodules=dirty',
 ]);
 
-function statusForRawEntry(entry: RawDiffEntry): 'added' | 'deleted' | 'modified' {
+type ViewStatus = 'added' | 'deleted' | 'modified' | 'renamed';
+
+function statusForRawEntry(entry: RawDiffRecord): ViewStatus {
   if (entry.status === 'A') {
     return 'added';
   }
@@ -173,6 +204,9 @@ function statusForRawEntry(entry: RawDiffEntry): 'added' | 'deleted' | 'modified
   }
   if (entry.status === 'M' || entry.status === 'T') {
     return 'modified';
+  }
+  if (entry.status === 'R') {
+    return 'renamed';
   }
   throw new SnapshotGitError(
     'inconsistent-diff',
@@ -339,22 +373,22 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
   /** Gitlink "content" is the commit pointer git itself renders — the
    * commit object is not (and need not be) present in the shadow store. */
   function gitlinkSides(
-    entry: RawDiffEntry,
-    status: 'added' | 'deleted' | 'modified'
+    entry: RawDiffRecord,
+    status: ViewStatus
   ): { newSide: DiffSide; oldSide: DiffSide } {
     return {
       newSide:
         status === 'deleted'
           ? { kind: 'absent' }
           : {
-              content: Buffer.from(gitlinkContent(entry.newOid, entry.path), 'utf8'),
+              content: Buffer.from(gitlinkContent(entry.newId, entry.path), 'utf8'),
               kind: 'present',
             },
       oldSide:
         status === 'added'
           ? { kind: 'absent' }
           : {
-              content: Buffer.from(gitlinkContent(entry.oldOid, entry.path), 'utf8'),
+              content: Buffer.from(gitlinkContent(entry.oldId, entry.path), 'utf8'),
               kind: 'present',
             },
     };
@@ -362,13 +396,13 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
 
   async function readBlobSides(
     plumbing: ShadowGitPlumbing,
-    entry: RawDiffEntry,
-    status: 'added' | 'deleted' | 'modified',
+    entry: RawDiffRecord,
+    status: ViewStatus,
     from: string,
     toOid: string | null,
     env: Readonly<Record<string, string>> | undefined
   ): Promise<{ newSide: DiffSide; oldSide: DiffSide }> {
-    const oldSpec = status === 'added' ? null : `${from}:${entry.path}`;
+    const oldSpec = status === 'added' ? null : `${from}:${entry.oldPath ?? entry.path}`;
     let newSpec: string | null;
     if (status === 'deleted') {
       newSpec = null;
@@ -381,21 +415,23 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     };
   }
 
-  /** Git's patch for one file, in the pinned output format. */
+  /** Git's patch for one file, in the pinned output format; a moved file's names both paths. */
   async function runUnifiedFileDiff(
     plumbing: ShadowGitPlumbing,
-    entryPath: string,
+    entry: RawDiffRecord,
     from: string,
     toOid: string | null,
     env: Readonly<Record<string, string>> | undefined
   ): Promise<PatchCapture> {
+    const entryPath = entry.path;
     const diffRun = await plumbing.invoke(
       pinnedPatchArgs([
-        '--no-renames',
+        '--find-renames',
         '--ignore-submodules=dirty',
         from,
         ...(toOid === null ? [] : [toOid]),
         '--',
+        ...(entry.oldPath === null ? [] : [entry.oldPath]),
         entryPath,
       ]),
       env === undefined ? undefined : { env }
@@ -412,7 +448,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
 
   async function assembleContent(
     plumbing: ShadowGitPlumbing,
-    entry: RawDiffEntry,
+    entry: RawDiffRecord,
     from: string,
     toOid: string | null,
     env: Readonly<Record<string, string>> | undefined
@@ -422,7 +458,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     const { newSide, oldSide } = isGitlink
       ? gitlinkSides(entry, status)
       : await readBlobSides(plumbing, entry, status, from, toOid, env);
-    const patch = await runUnifiedFileDiff(plumbing, entry.path, from, toOid, env);
+    const patch = await runUnifiedFileDiff(plumbing, entry, from, toOid, env);
     return fileDiffContent(oldSide, newSide, patch);
   }
 
@@ -430,7 +466,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
    * Structured diffs between two snapshot commits, or between a snapshot and
    * the live work-tree (`{ worktree: true }` — staged into a private index
    * via `add -A`, so ignore semantics match `snapshot()` exactly and no
-   * second snapshot commit is required).
+   * second snapshot commit is required). A moved file lists once, renamed.
    */
   async function diffRefs(
     handle: ShadowRepoHandle,
@@ -450,10 +486,10 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
       const invokeOptions = env === undefined ? undefined : { env };
       const targetArgs = toOid === null ? [from] : [from, toOid];
       const rawRun = await entry.plumbing.runOrThrow(
-        [...RAW_DIFF_ARGS, ...targetArgs],
+        [...VIEW_RAW_DIFF_ARGS, ...targetArgs],
         invokeOptions
       );
-      const rawEntries = parseRawDiffZ(rawRun.stdout);
+      const rawEntries = parseRawZ(rawRun.stdout);
       if (rawEntries.length === 0) {
         return [];
       }
@@ -477,6 +513,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
           additions: numstat.additions,
           content: await assembleContent(entry.plumbing, rawEntry, from, toOid, env),
           deletions: numstat.deletions,
+          ...(rawEntry.oldPath === null ? {} : { oldPath: rawEntry.oldPath }),
           path: rawEntry.path,
           status: statusForRawEntry(rawEntry),
         });
@@ -566,12 +603,12 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     return await entry.mutex(() => readWorktreeHashes(entry));
   }
 
-  /** Reject restore/delete targets whose EXISTING ancestor dirs include a
-   * symlink — writing or unlinking through one would escape the root. A
-   * missing ancestor is fine (checkout-index creates real directories). */
-  async function findSymlinkedAncestor(
+  /** The first EXISTING ancestor of `relativePath` that `stops` matches, or
+   * null. A missing ancestor ends the walk. */
+  async function findAncestor(
     rootPath: string,
-    relativePath: string
+    relativePath: string,
+    stops: (stats: Awaited<ReturnType<typeof fsPromises.lstat>>) => boolean
   ): Promise<string | null> {
     const segments = relativePath.split('/').slice(0, -1);
     let current = rootPath;
@@ -583,11 +620,18 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
       } catch {
         return null;
       }
-      if (stats.isSymbolicLink()) {
+      if (stops(stats)) {
         return current;
       }
     }
     return null;
+  }
+
+  /** Reject restore/delete targets whose EXISTING ancestor dirs include a
+   * symlink — writing or unlinking through one would escape the root. A
+   * missing ancestor is fine (checkout-index creates real directories). */
+  function findSymlinkedAncestor(rootPath: string, relativePath: string): Promise<string | null> {
+    return findAncestor(rootPath, relativePath, (stats) => stats.isSymbolicLink());
   }
 
   async function applyOneAction(
@@ -703,6 +747,158 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
           );
         }
         return outcomes;
+      });
+    });
+  }
+
+  /**
+   * The live mode and blob oid of each of `paths` (`<mode> <oid>`), hashed
+   * into a private index the way `update-index --add` writes it: only these
+   * paths, whatever the ignore rules say. An absent path is left out. A path
+   * that is now a directory, lies under a file, or lies past a symlinked
+   * directory maps to {@link UNREADABLE_PATH}, which no tree entry equals.
+   */
+  async function readPathHashes(
+    entry: RootEntry,
+    git: ShadowGitCommands,
+    paths: readonly string[]
+  ): Promise<Map<string, string>> {
+    const hashes = new Map<string, string>();
+    const present: string[] = [];
+    for (const relativePath of paths) {
+      // The walk, not lstat's error, says a path lies under a file: Windows
+      // answers ENOENT for it where POSIX answers ENOTDIR.
+      const blocked = await findAncestor(
+        entry.handle.rootPath,
+        relativePath,
+        (stats) => !stats.isDirectory()
+      );
+      if (blocked !== null) {
+        hashes.set(relativePath, UNREADABLE_PATH);
+        continue;
+      }
+      const stats = await fsPromises
+        .lstat(path.join(entry.handle.rootPath, relativePath))
+        .catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return null;
+          }
+          throw error;
+        });
+      if (stats?.isDirectory()) {
+        hashes.set(relativePath, UNREADABLE_PATH);
+      } else if (stats) {
+        present.push(relativePath);
+      }
+    }
+    if (present.length === 0) {
+      return hashes;
+    }
+    return await entry.plumbing.withTempIndex(async (env) => {
+      await git.runOrThrow(['update-index', '--add', '-z', '--stdin'], {
+        env,
+        input: `${present.join('\0')}\0`,
+      });
+      const treeRun = await git.runOrThrow(['write-tree'], { env });
+      const treeOid = treeRun.stdout.trim();
+      assertValidOid(treeOid, 'path-scan write-tree result');
+      const lsRun = await git.runOrThrow(['ls-tree', '-r', '-z', treeOid], { env });
+      for (const treeEntry of parseLsTreeZ(lsRun.stdout)) {
+        hashes.set(treeEntry.path, `${treeEntry.mode} ${treeEntry.oid}`);
+      }
+      return hashes;
+    });
+  }
+
+  /**
+   * A turn `fromOid` → `toOid` as a restore plan back to `fromOid`, without
+   * gitlinks and cut to `paths` when given, with each path's mode and blob
+   * at `toOid` (from the turn's own diff) and on disk now. A path is
+   * unchanged since the turn while the two agree; one the turn deleted must
+   * still be absent.
+   */
+  async function turnPlan(
+    entry: RootEntry,
+    git: ShadowGitCommands,
+    turn: TurnEndpoints,
+    paths?: ReadonlySet<string>
+  ) {
+    const rawRun = await git.runOrThrow([...RAW_DIFF_ARGS, turn.fromOid, turn.toOid]);
+    const records = parseRawDiffZ(rawRun.stdout);
+    const actions = computeRestorePlanActions(records).filter(
+      (action) => action.kind !== 'nested-repo' && (paths === undefined || paths.has(action.path))
+    );
+    const atEnd = new Map(
+      records
+        .filter((record) => record.status !== 'D')
+        .map((record) => [record.path, `${record.newMode} ${record.newOid}`])
+    );
+    const now = await readPathHashes(
+      entry,
+      git,
+      actions.map((action) => action.path)
+    );
+    const unchanged = new Set(
+      actions
+        .filter((action) => now.get(action.path) === atEnd.get(action.path))
+        .map(({ path: changed }) => changed)
+    );
+    return { actions, atEnd, now, unchanged };
+  }
+
+  function turnEntry(handle: ShadowRepoHandle, turn: TurnEndpoints): RootEntry {
+    const entry = requireEntry(handle);
+    assertValidOid(turn.fromOid, 'turn "fromOid"');
+    assertValidOid(turn.toOid, 'turn "toOid"');
+    return entry;
+  }
+
+  /**
+   * The paths a turn changed that the live work-tree still holds exactly as
+   * the turn left them: what {@link revertTurnPaths} would take now.
+   */
+  async function unchangedSinceTurn(
+    handle: ShadowRepoHandle,
+    turn: TurnEndpoints
+  ): Promise<ReadonlySet<string>> {
+    const entry = turnEntry(handle, turn);
+    const git = await entry.plumbing.hookFreeCommands();
+    return (await turnPlan(entry, git, turn)).unchanged;
+  }
+
+  /**
+   * Put `paths` back as they were at the turn's start, as one change: only
+   * while `idle` says the thread is idle and every path is a change of the
+   * turn that the live work-tree still holds as the turn left it. The root's
+   * lock is held from `idle` to the last write, and a run's turn-start
+   * snapshot takes the same lock, so a run that starts meanwhile starts from
+   * the reverted files.
+   */
+  async function revertTurnPaths(
+    handle: ShadowRepoHandle,
+    turn: TurnEndpoints,
+    paths: readonly string[],
+    idle: () => Promise<boolean>
+  ): Promise<TurnRevertResult> {
+    const entry = turnEntry(handle, turn);
+    return await entry.mutex(async () => {
+      if (!(await idle())) {
+        return { kind: 'busy' };
+      }
+      const git = await entry.plumbing.hookFreeCommands();
+      const wanted = new Set(paths);
+      const plan = await turnPlan(entry, git, turn, wanted);
+      const changed = [...wanted].filter((wantedPath) => !plan.unchanged.has(wantedPath));
+      if (changed.length > 0) {
+        return { kind: 'changed', paths: changed };
+      }
+      return await entry.plumbing.withTempIndex(async (targetIndexEnv) => {
+        await git.runOrThrow(['read-tree', turn.fromOid], { env: targetIndexEnv });
+        const outcomes: PerFileOutcome[] = [];
+        for (const action of plan.actions) {
+          outcomes.push(await applyOneAction(entry, action, plan.now, plan.atEnd, targetIndexEnv));
+        }
+        return { kind: 'written', outcomes };
       });
     });
   }
@@ -832,9 +1028,11 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     listSnapshotThreadIds,
     pruneHistory,
     pruneThread,
+    revertTurnPaths,
     snapshot,
     snapshotFileHashes,
     sweepOrphans,
+    unchangedSinceTurn,
     worktreeFileHashes,
   };
 }

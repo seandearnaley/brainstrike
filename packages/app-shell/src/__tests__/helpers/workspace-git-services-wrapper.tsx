@@ -25,6 +25,8 @@ export function workspaceGitWrapper(
 /** A Changes bridge whose methods are spies, with `overrides` replacing any. */
 export function stubChangesBridge(overrides: Partial<ChangesBridge> = {}): ChangesBridge {
   return {
+    apply: vi.fn(),
+    commits: vi.fn(),
     fileDiff: vi.fn(),
     inventory: vi.fn(),
     onInvalidated: vi.fn(() => () => undefined),

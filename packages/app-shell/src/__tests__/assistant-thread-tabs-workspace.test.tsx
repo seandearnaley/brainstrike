@@ -7,7 +7,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { act } from '@brainstrike/test-utils/react-act';
-import { TAB_STRIP_ICON_BUTTON_CLASS_NAME } from '@brainstrike/ui';
+import { TAB_STRIP_LABELED_BUTTON_CLASS_NAME } from '@brainstrike/ui';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -50,7 +50,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       selectedThreadByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'retired-thread' },
     });
     renderWorkspace({}, host);
-    expect(await screen.findByText(/Your saved conversation is unavailable/u)).toBeVisible();
+    expect(await screen.findByText(/This thread is no longer available/u)).toBeVisible();
     // An empty catalog is the new-thread composer: nothing is created for it.
     expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
     expect(screen.queryByTestId('host-thread')).not.toBeInTheDocument();
@@ -225,7 +225,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     // BST-1836 D2: overflow has no chevrons; the All-tabs menu is the affordance.
     expect(screen.queryByRole('button', { name: /Scroll assistant tabs/u })).toBeNull();
     expect(within(tabStrip).getByRole('button', { name: 'All tabs' })).toBeInTheDocument();
-    expect(newThreadButton).toHaveClass(...TAB_STRIP_ICON_BUTTON_CLASS_NAME.split(' '));
+    expect(newThreadButton).toHaveClass(...TAB_STRIP_LABELED_BUTTON_CLASS_NAME.split(' '));
     expect(newThreadButton).toHaveAttribute('data-size', 'xs');
     expect(screen.getByTestId('assistant-new-thread-label')).toHaveClass(
       'hidden',

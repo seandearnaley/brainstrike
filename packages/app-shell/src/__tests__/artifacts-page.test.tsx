@@ -5,8 +5,9 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
+import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { act } from '@brainstrike/test-utils/react-act';
-import { resetToastStore, ThemeProvider, Toaster } from '@brainstrike/ui';
+import { ActionRegistryProvider, resetToastStore, ThemeProvider, Toaster } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPage } from '../artifacts/artifacts-page';
@@ -92,9 +93,11 @@ function artifacts(list: AssistantThreadHostArtifacts['list']): AssistantThreadH
 function renderPage(host: AssistantThreadHostCapability) {
   return render(
     <ThemeProvider defaultMode="light">
-      <AssistantThreadHostContext.Provider value={host}>
-        <ArtifactsPage shellSrc={SHELL} />
-      </AssistantThreadHostContext.Provider>
+      <ActionRegistryProvider registry={createTestActionRegistry().registry}>
+        <AssistantThreadHostContext.Provider value={host}>
+          <ArtifactsPage shellSrc={SHELL} />
+        </AssistantThreadHostContext.Provider>
+      </ActionRegistryProvider>
     </ThemeProvider>
   );
 }
@@ -170,6 +173,34 @@ describe('ArtifactsPage', () => {
     expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
   });
 
+  it('offers Open, Open thread and Download HTML on right-click', async () => {
+    const open = vi.spyOn(threadWorkspaceNavigation, 'open').mockImplementation(() => undefined);
+    renderPage(createHost({ artifacts: artifacts(async () => LISTED) }));
+    await screen.findByRole('list', { name: 'Artifacts' });
+    const card = screen.getByRole('button', { name: /^Lisbon itinerary/u });
+
+    fireEvent.contextMenu(card);
+    expect((await screen.findAllByRole('menuitem')).map((item) => item.textContent)).toEqual([
+      'Open',
+      'Open thread',
+      'Download HTML',
+    ]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open thread' }));
+    expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
+    expect(
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-trip');
+    expect(open).not.toHaveBeenCalled();
+
+    fireEvent.contextMenu(card);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Open' }));
+    expect(open).toHaveBeenCalledWith(
+      WORKSPACE_MEMORY_RESOURCE_ID,
+      'thread-trip',
+      canvasWorkspaceTabId({ canvasId: 'itinerary', threadId: 'child-1' })
+    );
+  });
+
   it('downloads the latest version as a standalone HTML file', async () => {
     const saveToDownloads = vi.fn(async (_file: { bytes: Uint8Array; filename: string }) => ({
       ok: true as const,
@@ -208,6 +239,27 @@ describe('ArtifactsPage', () => {
       'Artifacts could not be listed: host closed'
     );
     expect(screen.queryByText('No artifacts yet')).not.toBeInTheDocument();
+  });
+
+  it('lists the artifacts again when Retry is pressed after a failed list', async () => {
+    let calls = 0;
+    renderPage(
+      createHost({
+        artifacts: artifacts(async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error('host closed');
+          }
+          return [artifact('chart', 'Revenue chart', 'thread-sales')];
+        }),
+      })
+    );
+
+    const error = await screen.findByTestId('artifacts-error');
+    fireEvent.click(within(error).getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(cardTitles()).toEqual(['Revenue chart']));
+    expect(screen.queryByTestId('artifacts-error')).not.toBeInTheDocument();
   });
 
   it('says when there are no artifacts yet', async () => {

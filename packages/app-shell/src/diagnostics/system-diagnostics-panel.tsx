@@ -89,7 +89,7 @@ interface StatusBadgeProps {
 function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
   return (
     <Badge
-      className="h-5 px-2 text-[10px]"
+      className="text-2xs h-5 px-2"
       data-status={status}
       variant={STATUS_BADGE_VARIANTS[status]}
     >
@@ -123,9 +123,7 @@ function DiagnosticCard({
             {icon}
             <div>
               <CardTitle className="text-sm">{title}</CardTitle>
-              {description && (
-                <CardDescription className="text-[10px]">{description}</CardDescription>
-              )}
+              {description && <CardDescription className="text-2xs">{description}</CardDescription>}
             </div>
           </div>
           <StatusBadge label={statusLabel} status={status} />
@@ -175,7 +173,7 @@ function DatabaseStatusSection(): ReactElement {
         {testResult && (
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Test Result</span>
-            <span className="font-mono text-[10px]">{testResult}</span>
+            <span className="text-2xs font-mono">{testResult}</span>
           </div>
         )}
         <div className="flex items-center gap-1.5 pt-1">
@@ -184,7 +182,7 @@ function DatabaseStatusSection(): ReactElement {
           ) : (
             <XCircle className="text-destructive h-3.5 w-3.5" />
           )}
-          <span className="text-muted-foreground text-[10px]">
+          <span className="text-muted-foreground text-2xs">
             {connected ? 'Database is operational' : 'Database connection failed'}
           </span>
         </div>
@@ -244,11 +242,11 @@ function WorkerStatusSection({
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Mode</span>
-          <Badge className="h-4 px-1.5 text-[9px]" variant="secondary">
+          <Badge className="text-2xs h-4 px-1.5" variant="secondary">
             {persistenceMode}
           </Badge>
         </div>
-        <div className="text-muted-foreground pt-1 text-[10px]">
+        <div className="text-muted-foreground text-2xs pt-1">
           {modeDescriptions[persistenceMode]}
         </div>
       </div>
@@ -304,7 +302,7 @@ function TokenIndexerTelemetrySection({
       <div className="space-y-2 text-xs">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Latency</span>
-          <span className="font-mono text-[10px]" data-testid="token-indexer-latency">
+          <span className="text-2xs font-mono" data-testid="token-indexer-latency">
             avg {formatLatency(snapshot.averageLatencyMs)} · p50{' '}
             {formatLatency(snapshot.latencyP50Ms)} · p95 {formatLatency(snapshot.latencyP95Ms)}
           </span>
@@ -396,7 +394,7 @@ function DesktopPlatformStatusSection({
             <span className="font-medium">{snapshot.reset.status}</span>
           </div>
         )}
-        <div className="text-muted-foreground truncate pt-1 text-[10px]">
+        <div className="text-muted-foreground text-2xs truncate pt-1">
           {snapshot.reset.userDataPath}
         </div>
       </div>
@@ -466,32 +464,32 @@ function RendererLongTaskStatusSection({
       <div className="space-y-2 text-xs">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">P50</span>
-          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP50Ms)}</span>
+          <span className="text-2xs font-mono">{formatDuration(snapshot.durationP50Ms)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">P95</span>
-          <span className="font-mono text-[10px]">{formatDuration(snapshot.durationP95Ms)}</span>
+          <span className="text-2xs font-mono">{formatDuration(snapshot.durationP95Ms)}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Maximum</span>
-          <span className="font-mono text-[10px]">{formatDuration(snapshot.maxDurationMs)}</span>
+          <span className="text-2xs font-mono">{formatDuration(snapshot.maxDurationMs)}</span>
         </div>
         {snapshot.routes.length > 0 && (
           <div className="flex items-start justify-between gap-3">
             <span className="text-muted-foreground">Delivery-time routes</span>
-            <span className="text-right font-mono text-[10px]">
+            <span className="text-2xs text-right font-mono">
               {snapshot.routes.map((route) => `${route.route} (${route.count})`).join(', ')}
             </span>
           </div>
         )}
         <div className="flex items-start justify-between gap-3">
           <span className="text-muted-foreground">Delivery-time feature flags</span>
-          <span className="text-right font-mono text-[10px]">
+          <span className="text-2xs text-right font-mono">
             {formatRendererLongTaskFeatureFlags(snapshot)}
           </span>
         </div>
         {snapshot.unavailableReason && (
-          <div className="text-muted-foreground pt-1 text-[10px]">{snapshot.unavailableReason}</div>
+          <div className="text-muted-foreground text-2xs pt-1">{snapshot.unavailableReason}</div>
         )}
       </div>
     </DiagnosticCard>

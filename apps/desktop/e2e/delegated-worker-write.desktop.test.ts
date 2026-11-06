@@ -9,6 +9,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { deliveredEntries } from './utils/conversation-invariants';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   ensureActivityExpanded,
@@ -83,7 +84,10 @@ async function rootRuns(userDataDir: string) {
               rows.flatMap(({ event: later }) =>
                 later.type === 'run.finished' && later.runId === event.runId ? [later.outcome] : []
               )[0] ?? 'running',
-            states: event.delivery?.entries.map(({ state }) => state) ?? [],
+            states: deliveredEntries(
+              rows.map((row) => row.event),
+              event.runId
+            ).map(({ state }) => state),
             via: event.delivery?.via ?? 'command',
           },
         ]
@@ -490,6 +494,12 @@ async function assertWorkerWrite(
           await expect(child.getByTestId('workspace-bar-folder-chip')).toHaveCount(0);
           await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
+        }
+        if (decision === 'Approve') {
+          // Core brackets only a top-level thread's runs with turn snapshots, so the
+          // child's finished turn offers its edit's revert but no changes of its own.
+          await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
+          await expect(child.getByTestId('turn-changes')).toHaveCount(0);
         }
         const completedRequests = modelCalls();
         let writtenMtime: number | undefined;

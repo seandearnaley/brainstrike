@@ -13,6 +13,7 @@ import {
 import { useId, useMemo, useState } from 'react';
 import type { AssistantRunEventDisplayStatus } from './assistant-run-event-derivation';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
+import { formatActivityDuration } from './tool-durations';
 import { categoryTintClasses, classifyRunEvent } from './tool-visual-classification';
 
 interface AssistantRunTimelineProps {
@@ -73,14 +74,9 @@ function formatTimestamp(value: string): string {
   }).format(date);
 }
 
+/** The thread's one duration format, so a row and its trace read the same time. */
 function formatDuration(durationMs: number | undefined): string | undefined {
-  if (durationMs === undefined) {
-    return;
-  }
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  }
-  return `${(durationMs / 1000).toFixed(1)}s`;
+  return durationMs === undefined ? undefined : formatActivityDuration(durationMs);
 }
 
 function AssistantRunTimelineDetails({
@@ -180,14 +176,14 @@ export function AssistantRunTimeline({
           </span>
           {repeatCount !== undefined && repeatCount > 1 ? (
             <span
-              className="bg-muted text-muted-foreground shrink-0 rounded-full px-1.5 text-[10px] tabular-nums"
+              className="bg-muted text-muted-foreground text-2xs shrink-0 rounded-full px-1.5 tabular-nums"
               title={`Repeated ${repeatCount} times`}
             >
               ×{repeatCount}
             </span>
           ) : null}
           {event.detail ? (
-            <span className="text-muted-foreground truncate text-[11px]" title={event.detail}>
+            <span className="text-muted-foreground text-2xs truncate" title={event.detail}>
               {event.detail}
             </span>
           ) : null}
@@ -200,11 +196,11 @@ export function AssistantRunTimeline({
           />
         ) : null}
         {durationLabel ? (
-          <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
+          <span className="text-muted-foreground text-2xs shrink-0 tabular-nums">
             {durationLabel}
           </span>
         ) : null}
-        <span className="text-muted-foreground/70 shrink-0 text-[11px] tabular-nums">
+        <span className="text-muted-foreground text-2xs shrink-0 tabular-nums">
           {formatTimestamp(event.timestamp)}
         </span>
         <Button
@@ -213,11 +209,11 @@ export function AssistantRunTimeline({
           aria-label={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
           className="text-muted-foreground size-6 shrink-0"
           onClick={() => setIsExpanded((current) => !current)}
-          size="icon"
+          size="icon-xs"
           title={isExpanded ? 'Collapse run activity' : 'Expand run activity'}
           variant="ghost"
         >
-          {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+          {isExpanded ? <ChevronUp /> : <ChevronDown />}
         </Button>
       </div>
       {isExpanded ? (

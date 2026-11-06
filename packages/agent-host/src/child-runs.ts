@@ -5,13 +5,13 @@
  * admission, and the result the parent's model reads.
  */
 import { createHash } from 'node:crypto';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { standardInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
   type AssistantPersonaDefinition,
   delegationDescriptionForPersona,
   delegationToolNameForPersona,
   effectiveChildStepBudget,
+  PARENT_ONLY_TOOL_IDS,
   personaMode,
 } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
@@ -133,8 +133,9 @@ export function withHostDelegationTools(
  * The child's authority: the parent's admitted executors narrowed by the
  * persona (the shipped selectCandidateTools rule). A read-only persona keeps
  * only its declared read-risk tools; a worker keeps its declared tools, or with
- * a sole `*` every parent tool. Task-list state stays the parent's, and
- * delegation tools are granted by depth, never inherited.
+ * a sole `*` every parent tool. The task list, questions and plans stay the
+ * parent's (ADR-0028 rule 1), and delegation tools are granted by depth, never
+ * inherited.
  */
 function narrowHostChildTools(
   parent: Readonly<Record<string, HostTool>>,
@@ -146,7 +147,7 @@ function narrowHostChildTools(
   return Object.fromEntries(
     Object.entries(parent).filter(([id, tool]) => {
       const canonical = tool.permissionToolId ?? id;
-      if (tool.delegation || canonical === NATIVE_TOOL_ID.manageTaskList) {
+      if (tool.delegation || PARENT_ONLY_TOOL_IDS.has(canonical)) {
         return false;
       }
       return worker
@@ -233,6 +234,8 @@ export function deriveHostChildAdmission(
     // thread; a read-only persona's run never reads or writes working memory.
     ...(parent.openRun ? { openRun: parent.openRun } : {}),
     ...(personaMode(persona) === 'worker' ? {} : { workingMemory: false as const }),
+    // A person's message to the child reads its mentioned files as the parent's would.
+    ...(parent.readPromptContext ? { readPromptContext: parent.readPromptContext } : {}),
     ...(parent.reviewModel ? { reviewModel: parent.reviewModel } : {}),
     provider: {
       prepare: async (request) => {

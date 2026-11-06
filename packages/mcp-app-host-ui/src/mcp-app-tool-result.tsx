@@ -190,6 +190,7 @@ function LiveMcpApp({
   app,
   hostVersion = DEFAULT_HOST_VERSION,
   bridge,
+  onRetry,
   onSessionChange,
   ports,
   threadId,
@@ -197,6 +198,8 @@ function LiveMcpApp({
   readonly app: McpAppOrigin;
   readonly bridge: McpAppBridge;
   readonly hostVersion?: string;
+  /** Remounts this app from a fresh session: the host restarts it, the app does not. */
+  readonly onRetry: () => void;
   readonly onSessionChange?: (session: McpAppMountedSession | undefined) => void;
   readonly ports?: McpAppRuntimePorts;
   readonly threadId: string;
@@ -207,6 +210,8 @@ function LiveMcpApp({
   const { mimeType, resourceUri, serverId, toolName } = app;
   // `undefined` only between commit and the mount effect's first run.
   const [view, setView] = useState<McpAppView | undefined>(undefined);
+  // The app's last `ui/notifications/size-changed` height; the surface clamps it.
+  const [appHeight, setAppHeight] = useState<number | undefined>(undefined);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const recoveryRef = useRef<HTMLDivElement | null>(null);
   const sessionChangeRef = useRef(onSessionChange);
@@ -259,7 +264,15 @@ function LiveMcpApp({
       const connected = new McpAppFrameBridge({
         eventTarget: runtimePorts.eventTarget,
         isGenerationLive: (value) => !disposed && value === session.generation.generation,
-        onNotification: () => undefined,
+        onNotification: (message) => {
+          if (disposed || message.method !== 'ui/notifications/size-changed') {
+            return;
+          }
+          const height = message.params?.['height'];
+          if (typeof height === 'number' && Number.isFinite(height) && height > 0) {
+            setAppHeight(height);
+          }
+        },
         onProtocolError: (error) => {
           if (disposed) {
             return;
@@ -335,8 +348,10 @@ function LiveMcpApp({
   return (
     <div className="my-1 max-w-xl" ref={recoveryRef} tabIndex={-1}>
       <McpAppHostSurface
+        appHeight={appHeight}
         appName={toolName}
         authority={view.session.authority}
+        onRetry={onRetry}
         recoveryFocusRef={recoveryRef}
         state={view.state}
       >
@@ -344,7 +359,7 @@ function LiveMcpApp({
           // biome-ignore lint/security/useIframeSandbox: the host-authored shell needs its own origin for header-delivered CSP; it sandboxes the untrusted app frame itself (apps-session-policy.ts).
           <iframe
             aria-label={`${toolName} app`}
-            className="h-full w-full rounded-lg border-0"
+            className="block h-full w-full border-0"
             data-mcp-app-sandbox="true"
             key={view.shellUrl}
             ref={frameRef}
@@ -375,6 +390,9 @@ export function McpAppToolResult({
   // Hooks run before the marker guard so the enablement subscription is
   // unconditional; a non-app result still short-circuits below.
   const appsEnabled = useMcpAppsEnabled(marker?.app.serverId ?? '');
+  // Each Retry is a new mount: the old session is torn down and a fresh one
+  // reads the resource and opens a new sandbox.
+  const [attempt, setAttempt] = useState(0);
   if (marker === undefined) {
     return <ToolFallback {...toolCall} />;
   }
@@ -397,13 +415,14 @@ export function McpAppToolResult({
       </div>
     );
   }
-  // A different app origin, or a different owning thread, is a different
-  // mount: nothing carries over.
+  // A different app origin, a different owning thread, or a Retry is a
+  // different mount: nothing carries over.
   return (
     <LiveMcpApp
       app={app}
       bridge={bridge}
-      key={`${threadId} ${app.serverId} ${app.toolName} ${app.resourceUri}`}
+      key={`${threadId} ${app.serverId} ${app.toolName} ${app.resourceUri} ${attempt}`}
+      onRetry={() => setAttempt((count) => count + 1)}
       threadId={threadId}
       {...(hostVersion === undefined ? {} : { hostVersion })}
       {...(onSessionChange === undefined ? {} : { onSessionChange })}

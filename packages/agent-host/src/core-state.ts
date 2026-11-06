@@ -8,7 +8,6 @@ import type { HostMcpInputPersistenceError } from './mcp-input-state.ts';
 import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.ts';
 import {
   HOST_METHOD_SCHEMAS,
-  HOST_RESULT_SCHEMAS,
   type HostChildDelivery,
   type HostChildOrigin,
   type HostEvent,
@@ -18,6 +17,7 @@ import {
   HostPromptBreakdownSchema,
   HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
+  type HostStepDelivery,
 } from './protocol.ts';
 /**
  * HostCore alone folds and writes accepted command records. The committed
@@ -245,8 +245,14 @@ export function foldHostRunEffect(
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
-  /** BST-1932: the user message is a delegation's task, which the parent's model wrote. */
-  readonly delegated?: true;
+  /**
+   * Who wrote the user message (ADR-0028 rule 2), from its committed command
+   * and `run.started` `hostPrompt`: the person (their own `run/start`), an
+   * agent (a delegation's task, which the parent's model wrote) or the host (a
+   * wake's delivery, or the run it starts to carry a task on in a worktree).
+   * Only the person's words are a request.
+   */
+  readonly author: 'agent' | 'host' | 'person';
   /** BST-1932: background child results delivered with this run's user message. */
   readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
@@ -271,8 +277,6 @@ export interface HostRunState {
   readonly artifactSettled: Set<string>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
-  /** BST-1932: human input a running child takes; it starts the run after this one. */
-  childInput?: HostParams<'run/start'> | undefined;
   /** BST-2360: whether each call that asks the person would run in the OS sandbox. */
   readonly commandSandboxes: Map<string, boolean>;
   completion?: Promise<void>;
@@ -288,7 +292,7 @@ export interface HostRunState {
   readonly effectTools: Map<string, string>;
   /**
    * ADR-0028 step 3: the worktree a call bound the thread to. The run ends
-   * after that step (`steered`); the thread's next run works there.
+   * after that step; the thread's next run works there.
    */
   enteredWorktree?: { readonly branch: string | null; readonly path: string } | undefined;
   /** Its thread's grants for this host process, shared with the thread's other runs. */
@@ -299,20 +303,8 @@ export interface HostRunState {
    * approved: the admitting configuration, and the live client's origin.
    */
   input?: HostRunInput;
-  /**
-   * BST-1932: a committed run/input names this run, so the child's next run
-   * takes its human input and carries its report: that run's run/start
-   * command ID, derived from the run/input's (`deriveHostInputRunCommandId`).
-   * A legacy run/steer only ends the run (`steered`); it hands nothing on.
-   */
-  inputCommandId?: string;
-  /**
-   * BST-2178: the run that took this run's accepted input, the one the
-   * `inputCommandId` run/start started, live (core-run-end.ts) and on replay.
-   * A regenerate or edit of that input's message branches from this run too,
-   * but is never this run.
-   */
-  inputRun?: string;
+  /** ADR-0028 step 3b: the notices this run took at its step boundaries, in commit order. */
+  readonly intake: HostStepDelivery[];
   readonly liveInputs: Map<
     string,
     {
@@ -372,11 +364,11 @@ export interface HostRunState {
   settlement?: Promise<void> | undefined;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
-  /** A committed run/steer: the run ends after its step in flight. */
-  steered: boolean;
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
+  /** A user Stop of this run, from its commit to its joined cleanup: the thread's next run waits for it. */
+  stopping?: Promise<void> | undefined;
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
@@ -482,6 +474,7 @@ export function createHostRunState(
     effects: new Set(),
     grants,
     id,
+    intake: [],
     liveInputs: new Map(),
     messageIndexes: new Set(),
     messages: [],
@@ -495,44 +488,12 @@ export function createHostRunState(
     rawInputs: new Map(),
     responses: new Set(),
     started: new Set(),
-    steered: false,
     steps: 0,
     stopped: false,
     terminal: false,
     threadId,
     toolContexts: new Map(),
   };
-}
-/** The branch parent a committed run/start names, whatever its recorded attachments. */
-const HostStartParentSchema = Schema.Struct({
-  parentMessageId: Schema.optional(Schema.NullOr(Schema.String)),
-});
-/**
- * BST-2178: the command ID of the run/start that takes a child's human input,
- * derived from the committed run/input's own command ID (any non-empty string
- * is a protocol command ID), so a replay names the same run/start the live
- * host committed. It is unique per run/input, as that command's ID is.
- */
-export function deriveHostInputRunCommandId(inputCommandId: string): string {
-  return `${inputCommandId}-input`;
-}
-/**
- * BST-2178: the run/start whose command ID is a run's `inputCommandId` started
- * the run that took its input (or committed that input's refusal). A person's
- * edit naming the same parent is another command, never the input's run.
- */
-function foldHostInputRun(
-  runs: ReadonlyMap<string, HostRunState>,
-  event: Extract<HostEvent, { type: 'command.accepted' }>
-): void {
-  const { parentMessageId } = Schema.decodeUnknownSync(HostStartParentSchema)(event.payload);
-  const accepted = parentMessageId ? runs.get(parentMessageId) : undefined;
-  if (accepted?.inputCommandId !== event.commandId) {
-    return;
-  }
-  accepted.inputRun = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'])(
-    event.result
-  ).runId;
 }
 export function foldHostAcceptedCommand(
   commands: HostCommandLedger,
@@ -551,11 +512,7 @@ export function foldHostAcceptedCommand(
     result: event.result,
     threadId,
   });
-  if (event.method === 'run/start') {
-    foldHostInputRun(runs, event);
-    return;
-  }
-  if (event.method !== 'run/stop' && event.method !== 'run/steer' && event.method !== 'run/input') {
+  if (event.method !== 'run/stop') {
     return;
   }
   const params = Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS[event.method], {
@@ -566,14 +523,7 @@ export function foldHostAcceptedCommand(
   if (!run) {
     return;
   }
-  if (event.method === 'run/stop') {
-    run.stopped = true;
-    return;
-  }
-  run.steered = true;
-  if (event.method === 'run/input') {
-    run.inputCommandId = deriveHostInputRunCommandId(event.commandId);
-  }
+  run.stopped = true;
 }
 /** HostCore supplies already-validated committed messages; no independent fold or writer. */
 export function foldHostRunMessages(

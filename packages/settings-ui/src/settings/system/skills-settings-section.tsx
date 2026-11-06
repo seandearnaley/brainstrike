@@ -29,6 +29,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ErrorNotice,
   Label,
   Switch,
 } from '@brainstrike/ui';
@@ -185,7 +186,7 @@ export function SkillsSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Agent Skills</CardTitle>
+        <CardTitle>Available skills</CardTitle>
         <CardDescription>
           Skills teach the assistant specialized workflows (following the Agent Skills spec). Add a
           skill as a <code>&lt;name&gt;/SKILL.md</code> folder under{' '}
@@ -234,18 +235,11 @@ export function SkillsSettingsSection({
             ) : null}
 
             {scanState.kind === 'error' ? (
-              <div
-                className="border-destructive/50 flex items-center justify-between gap-4 rounded-md border p-3"
+              <ErrorNotice
                 data-testid="skills-scan-error"
-              >
-                <p className="text-destructive flex items-center gap-1 text-sm">
-                  <AlertTriangle className="size-3.5 shrink-0" />
-                  Skills scan failed: {scanState.message}
-                </p>
-                <Button onClick={retry} size="sm" type="button" variant="outline">
-                  Retry
-                </Button>
-              </div>
+                message={`Skills scan failed: ${scanState.message}`}
+                onRetry={retry}
+              />
             ) : null}
 
             {scanState.kind === 'ready' && groups.length === 0 ? (

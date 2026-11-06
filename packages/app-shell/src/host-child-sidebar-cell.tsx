@@ -12,7 +12,7 @@ import { ThreadMarkChip } from './thread-identity-mark';
 import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
 
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
-const STATUS_LABEL = { idle: 'Child', 'needs-input': 'Needs input', working: 'Working' } as const;
+const STATUS_LABEL = { idle: 'Idle', 'needs-input': 'Needs input', working: 'Working' } as const;
 
 /**
  * BST-1932 (F19–F21): an agent host child's row: its mark, call sign, parent's
@@ -34,7 +34,7 @@ export function HostChildSidebarCell({
   const tint = getThreadTint(child.color);
   return (
     <button
-      className={`${THREAD_PANEL_ROW_CLASS_NAME} focus-visible:ring-ring w-full items-center gap-2 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset ${tint.washClassName}`}
+      className={`${THREAD_PANEL_ROW_CLASS_NAME} focus-visible:ring-ring w-full items-center gap-2 text-left text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-inset ${tint.washClassName}`}
       data-agent-color={child.color}
       onClick={() =>
         threadWorkspaceNavigation.open(
@@ -49,7 +49,9 @@ export function HostChildSidebarCell({
       <ThreadMarkChip color={child.color}>
         <Icon aria-hidden="true" className="size-3" />
       </ThreadMarkChip>
-      <span className={THREAD_CONTROL_TITLE_CLASS_NAME}>{child.callSign}</span>
+      <span className={THREAD_CONTROL_TITLE_CLASS_NAME} title={child.callSign}>
+        {child.callSign}
+      </span>
       {row.parentColor ? (
         <span
           aria-hidden="true"
@@ -65,7 +67,7 @@ export function HostChildSidebarCell({
           role="img"
         />
       ) : null}
-      <span className="text-muted-foreground ml-auto shrink-0 pr-1 text-[11px]">
+      <span className="text-muted-foreground text-2xs ml-auto shrink-0 pr-1">
         {STATUS_LABEL[child.status]}
       </span>
     </button>

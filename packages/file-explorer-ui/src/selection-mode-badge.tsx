@@ -66,7 +66,7 @@ const SelectionSettingsPanel = ({
       <div className="space-y-3 border-t pt-3">
         <div className="space-y-1">
           <p className="text-xs font-medium">Selection Cap</p>
-          <p className="text-muted-foreground text-[11px]">
+          <p className="text-muted-foreground text-2xs">
             Limit how many files bulk actions can select at once.
           </p>
         </div>
@@ -112,13 +112,13 @@ const SelectionSettingsPanel = ({
         </div>
 
         {error && (
-          <p aria-live="polite" className="text-destructive text-[11px]" role="alert">
+          <p aria-live="polite" className="text-destructive text-2xs" role="alert">
             {error}
           </p>
         )}
 
         <div className="space-y-1.5">
-          <span className="text-muted-foreground text-[11px]">Quick presets</span>
+          <span className="text-muted-foreground text-2xs">Quick presets</span>
           <div className="grid grid-cols-4 gap-1.5">
             {SELECTION_PRESETS.map((preset) => (
               <Button
@@ -231,7 +231,7 @@ export function SelectionModeBadge({
                       ? `Selection settings. ${compactValue.accessibleLabel}`
                       : 'Selection settings'
                   }
-                  className={cn(compactValue && 'text-[10px] tabular-nums')}
+                  className={cn(compactValue && 'text-2xs tabular-nums')}
                   data-testid="selection-settings-button"
                   size="icon-xs"
                   variant="outline"

@@ -244,7 +244,7 @@ describe('MCP config document validation', () => {
     fireEvent.change(editor, { target: { value: invalidContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Discard and Reload' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and reload' }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -365,7 +365,7 @@ describe('MCP config document validation', () => {
     fireEvent.change(editor, { target: { value: validContent } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Discard and Reload' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and reload' }));
     await act(async () => {
       await Promise.resolve();
     });
@@ -530,7 +530,7 @@ describe('MCP config compare-and-swap saves', () => {
       expect(onConfigChanged).not.toHaveBeenCalled();
 
       fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Discard and Reload' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Discard and reload' }));
       await waitFor(() => expect(editor).toHaveValue(validContent));
       expect(screen.queryByTestId('mcp-config-error')).not.toBeInTheDocument();
       fireEvent.change(editor, { target: { value: '{ "servers": [] }' } });
@@ -629,7 +629,7 @@ describe('MCP catalog in the config panel', () => {
     );
     expect(ops.readMcpConfigText).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Discard and Reload' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard and reload' }));
     await waitFor(() => expect(editor).toHaveValue(validContent));
     expect(ops.readMcpConfigText).toHaveBeenCalledTimes(2);
   });

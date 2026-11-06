@@ -14,9 +14,14 @@ import {
 import {
   ActionContextMenu,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Popover,
+  PopoverAnchor,
   PopoverContent,
-  PopoverTrigger,
   toast,
   useContextMenuTarget,
 } from '@brainstrike/ui';
@@ -37,7 +42,7 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
@@ -604,7 +609,7 @@ function ThreadRenameForm({
       <input
         aria-label="Thread title"
         autoFocus
-        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-none focus-visible:ring-2"
+        className="border-border bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2 py-1 text-xs outline-hidden focus-visible:ring-2"
         onChange={(event) => {
           onDraftTitleChange(event.target.value);
         }}
@@ -618,7 +623,7 @@ function ThreadRenameForm({
         }}
         value={draftTitle}
       />
-      {renameError ? <span className="text-destructive text-[11px]">{renameError}</span> : null}
+      {renameError ? <span className="text-destructive text-2xs">{renameError}</span> : null}
       <Button
         aria-label="Save thread title"
         className={THREAD_CONTROL_ACTION_CLASS_NAME}
@@ -627,7 +632,7 @@ function ThreadRenameForm({
         type="submit"
         variant="ghost"
       >
-        <Check className="size-3" />
+        <Check className="size-3.5" />
       </Button>
       <Button
         aria-label="Cancel rename"
@@ -637,7 +642,7 @@ function ThreadRenameForm({
         type="button"
         variant="ghost"
       >
-        <X className="size-3" />
+        <X className="size-3.5" />
       </Button>
     </form>
   );
@@ -691,11 +696,11 @@ function ThreadRowDisplay({
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
-  const [actionsOpen, setActionsOpen] = useState(false);
-
-  const closeActions = (): void => {
-    setActionsOpen(false);
-  };
+  const actionsButtonRef = useRef<HTMLButtonElement>(null);
+  // Customize and Rename run only once the menu has closed. Run from the item
+  // itself, the menu's closing focus return to "…" lands outside the new
+  // panel (dismissing it) or pulls focus out of the rename field.
+  const afterMenuCloseRef = useRef<(() => void) | null>(null);
 
   return (
     <>
@@ -703,7 +708,7 @@ function ThreadRowDisplay({
         <button
           aria-current={selected ? 'true' : undefined}
           aria-label={getThreadRowAccessibleName(status, thread.title)}
-          className="min-w-0 flex-1 text-left outline-none"
+          className="focus-visible:ring-ring min-w-0 flex-1 rounded-sm text-left outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
           onClick={(event) => {
             // Handled here, not by the row: preventDefault keeps the click
             // visible to the page, so an open popover closes on it.
@@ -719,7 +724,9 @@ function ThreadRowDisplay({
             <div
               className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
             >
-              <div className={THREAD_CONTROL_TITLE_CLASS_NAME}>{thread.title}</div>
+              <div className={THREAD_CONTROL_TITLE_CLASS_NAME} title={thread.title}>
+                {thread.title}
+              </div>
               <ThreadMetadataBadges branch={branch} thread={thread} />
             </div>
           </div>
@@ -745,118 +752,147 @@ function ThreadRowDisplay({
             type="button"
             variant="ghost"
           >
-            {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+            {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
           </Button>
+          {/* The "…" button opens a menu; its Customize item opens the
+              appearance panel, which anchors to the same button. */}
           <Popover
             onOpenChange={(open) => {
-              setActionsOpen(open);
-              if (open || !customizing) {
-                return;
+              if (!open && customizing) {
+                onCustomizeThreadToggle();
               }
-              onCustomizeThreadToggle();
             }}
-            open={actionsOpen || customizing}
+            open={customizing}
           >
-            <PopoverTrigger asChild>
-              <Button
-                aria-label={`Thread actions ${thread.title}`}
-                className={THREAD_CONTROL_ACTION_CLASS_NAME}
+            <DropdownMenu>
+              <PopoverAnchor asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    aria-label={`Thread actions ${thread.title}`}
+                    className={THREAD_CONTROL_ACTION_CLASS_NAME}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (customizing) {
+                        onCustomizeThreadToggle();
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      // Enter and Space on "…" close the open panel too, without
+                      // opening the menu.
+                      if (customizing && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onCustomizeThreadToggle();
+                      }
+                    }}
+                    onPointerDown={(event) => {
+                      // While the panel is open, "…" closes it (onClick) and
+                      // does not also open the menu.
+                      if (customizing) {
+                        event.preventDefault();
+                      }
+                    }}
+                    ref={actionsButtonRef}
+                    size="icon-xs"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </PopoverAnchor>
+              <DropdownMenuContent
+                align="end"
+                className="w-48"
+                collisionPadding={8}
                 onClick={(event) => event.stopPropagation()}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
+                onCloseAutoFocus={(event) => {
+                  const afterMenuClose = afterMenuCloseRef.current;
+                  if (afterMenuClose) {
+                    afterMenuCloseRef.current = null;
+                    // The panel or field takes focus itself; don't hand it back to "…".
+                    event.preventDefault();
+                    afterMenuClose();
+                  }
+                }}
               >
-                <MoreHorizontal className="size-3" />
-              </Button>
-            </PopoverTrigger>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    afterMenuCloseRef.current = onCustomizeThreadToggle;
+                  }}
+                >
+                  <SwatchBook />
+                  Customize
+                </DropdownMenuItem>
+                {onSetThreadPinned ? (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      onSetThreadPinned(thread.id, !pinned).catch((error: unknown) => {
+                        toast({
+                          description: error instanceof Error ? error.message : String(error),
+                          title: pinned ? 'Couldn’t unpin the thread' : 'Couldn’t pin the thread',
+                          variant: 'destructive',
+                        });
+                      });
+                    }}
+                  >
+                    {pinned ? <PinOff /> : <Pin />}
+                    {pinned ? 'Unpin' : 'Pin'}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem
+                  onSelect={() => {
+                    afterMenuCloseRef.current = onRenameThreadStart;
+                  }}
+                >
+                  <Pencil />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onDeleteThreadStart} variant="destructive">
+                  <Trash2 />
+                  Delete…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <PopoverContent
               align="end"
-              className={
-                customizing
-                  ? 'max-h-[calc(var(--radix-popover-content-available-height)-1rem)] w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] overflow-y-auto p-3'
-                  : 'w-48 p-1.5'
-              }
+              className="max-h-[calc(var(--radix-popover-content-available-height)-1rem)] w-64 max-w-[calc(var(--radix-popover-content-available-width)-0.5rem)] overflow-y-auto p-3"
               collisionPadding={8}
               onClick={(event) => event.stopPropagation()}
+              onCloseAutoFocus={(event) => {
+                // An anchored panel has no trigger for Radix to refocus, so a
+                // close that dropped focus (Escape) puts it back on "…".
+                const focused = document.activeElement;
+                if (focused === null || focused === document.body || !focused.isConnected) {
+                  event.preventDefault();
+                  actionsButtonRef.current?.focus();
+                }
+              }}
+              onInteractOutside={(event) => {
+                // "…" toggles the panel itself, as a Radix trigger would.
+                const target = event.target;
+                if (target instanceof Node && actionsButtonRef.current?.contains(target)) {
+                  event.preventDefault();
+                }
+              }}
             >
-              {customizing ? (
-                <ThreadCustomizationPanel
-                  metadataError={metadataError}
-                  onMetadataError={onMetadataError}
-                  onUpdateThreadAppearance={onUpdateThreadAppearance}
-                  thread={thread}
-                />
-              ) : (
-                <div className="grid gap-0.5">
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={onCustomizeThreadToggle}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <SwatchBook className="size-3.5" />
-                    Customize
-                  </Button>
-                  {onSetThreadPinned ? (
-                    <Button
-                      className="h-8 justify-start gap-2 px-2 text-xs"
-                      onClick={() => {
-                        closeActions();
-                        onSetThreadPinned(thread.id, !pinned).catch((error: unknown) => {
-                          toast({
-                            description: error instanceof Error ? error.message : String(error),
-                            title: pinned ? 'Couldn’t unpin the thread' : 'Couldn’t pin the thread',
-                            variant: 'destructive',
-                          });
-                        });
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-                      {pinned ? 'Unpin' : 'Pin'}
-                    </Button>
-                  ) : null}
-                  <Button
-                    className="h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={() => {
-                      closeActions();
-                      onRenameThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Pencil className="size-3.5" />
-                    Rename
-                  </Button>
-                  <Button
-                    className="text-destructive hover:text-destructive h-8 justify-start gap-2 px-2 text-xs"
-                    onClick={() => {
-                      closeActions();
-                      onDeleteThreadStart();
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 className="size-3.5" />
-                    Delete…
-                  </Button>
-                </div>
-              )}
+              <ThreadCustomizationPanel
+                metadataError={metadataError}
+                onMetadataError={onMetadataError}
+                onUpdateThreadAppearance={onUpdateThreadAppearance}
+                thread={thread}
+              />
             </PopoverContent>
           </Popover>
         </div>
       </div>
       {pendingDelete ? (
         <div className="border-destructive/30 bg-destructive/5 mt-2 mb-2 rounded-md border p-2">
-          <p className="text-destructive text-[11px]">
+          <p className="text-destructive text-2xs">
             Delete this thread, its delegated children, and saved conversation data permanently?
           </p>
-          {deleteError ? <p className="text-destructive mt-1 text-[11px]">{deleteError}</p> : null}
+          {deleteError ? <p className="text-destructive text-2xs mt-1">{deleteError}</p> : null}
           <div className="mt-2 flex justify-end gap-2">
             <Button
               aria-label={`Cancel delete thread ${thread.title}`}
@@ -923,11 +959,11 @@ function ThreadCustomizationPanel({
     <div className="grid gap-3" data-testid="thread-customization-panel">
       <div>
         <div className="text-xs font-medium">Thread appearance</div>
-        <p className="text-muted-foreground mt-0.5 text-[11px]">Choose an icon and color.</p>
+        <p className="text-muted-foreground text-2xs mt-0.5">Choose an icon and color.</p>
       </div>
       <div className="grid gap-3">
         <div>
-          <div className="text-muted-foreground mb-1.5 text-[11px]">Icon</div>
+          <div className="text-muted-foreground text-2xs mb-1.5">Icon</div>
           <div className="grid grid-cols-6 gap-1">
             {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
               const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
@@ -955,7 +991,7 @@ function ThreadCustomizationPanel({
           </div>
         </div>
         <div>
-          <div className="text-muted-foreground mb-1.5 text-[11px]">Color palette</div>
+          <div className="text-muted-foreground text-2xs mb-1.5">Color palette</div>
           <div className="grid gap-2.5">
             {ASSISTANT_THREAD_COLOR_PALETTES.map((palette) => (
               <div key={palette.label}>
@@ -996,7 +1032,7 @@ function ThreadCustomizationPanel({
           <ThreadColorFamilyPreview rootColor={getThreadColorId(thread)} />
         </div>
       </div>
-      {metadataError ? <p className="text-destructive text-[11px]">{metadataError}</p> : null}
+      {metadataError ? <p className="text-destructive text-2xs">{metadataError}</p> : null}
     </div>
   );
 }

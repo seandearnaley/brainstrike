@@ -87,7 +87,7 @@ export function ThreadExpandedDetails({
       className="border-border bg-background/70 mt-1 mb-1 rounded-md border p-2"
       data-testid="thread-expanded-details"
     >
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
+      <div className="text-2xs grid grid-cols-2 gap-x-3 gap-y-2">
         {providerLabel ? <ThreadDetail label="Provider" value={providerLabel} /> : null}
         {modelLabel ? <ThreadDetail label="Model" value={modelLabel} /> : null}
         {thread.latestRun?.runtimeKind ? (
@@ -109,10 +109,8 @@ export function ThreadExpandedDetails({
         <ThreadDetail label="Updated" value={formatThreadDate(thread.updatedAt)} />
       </div>
       <div className="border-border mt-2 border-t pt-2">
-        <div className="text-muted-foreground text-[11px] font-medium">Diagnostics</div>
-        <div className="text-muted-foreground mt-1 font-mono text-[11px] break-all">
-          {thread.id}
-        </div>
+        <div className="text-muted-foreground text-2xs font-medium">Diagnostics</div>
+        <div className="text-muted-foreground text-2xs mt-1 font-mono break-all">{thread.id}</div>
       </div>
     </div>
   );
@@ -227,7 +225,7 @@ function ThreadBadge({
 }): ReactElement {
   return (
     <span
-      className={`${wideOnly ? 'hidden @[560px]/threads:inline-flex' : 'inline-flex'} border-border/70 bg-background/70 text-muted-foreground shrink-0 items-center gap-0.5 rounded-full border px-1.5 py-0 text-[9px] leading-4`}
+      className={`${wideOnly ? 'hidden @[560px]/threads:inline-flex' : 'inline-flex'} border-border/70 bg-background/70 text-muted-foreground text-2xs shrink-0 items-center gap-0.5 rounded-full border px-1.5 py-0 leading-4`}
     >
       {Icon ? <Icon aria-hidden="true" className="size-2.5" /> : null}
       {children}
@@ -255,7 +253,7 @@ export function ThreadReadFailureMarker({
         {/* A button only so a keyboard can reach the reason; it does nothing else. */}
         <button
           aria-label={`${title}: its history cannot be read. ${reason}`}
-          className="text-destructive focus-visible:ring-ring inline-flex size-6 items-center justify-center rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+          className="text-destructive focus-visible:ring-ring inline-flex size-6 items-center justify-center rounded-sm focus-visible:ring-2 focus-visible:outline-hidden"
           data-testid="thread-read-failure"
           // Like the row's other controls, a click here never opens the row.
           onClick={(event) => event.stopPropagation()}

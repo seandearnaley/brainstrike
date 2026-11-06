@@ -171,7 +171,6 @@ export interface CommandSessionManager {
   remove: (rootId: string, sessionId: string) => Promise<void>;
   start: (input: StartCommandSessionInput) => Promise<RunningCommandSession>;
   stop: (rootId: string, sessionId: string) => Promise<void>;
-  stopDelegatedThreads: (threadIds: readonly string[]) => Promise<void>;
   write: (rootId: string, sessionId: string, data: string) => void;
 }
 
@@ -878,28 +877,6 @@ export function createCommandSessionManager({
     await waitForExit(entry);
   }
 
-  async function stopDelegatedThreads(threadIds: readonly string[]): Promise<void> {
-    const selected = new Set(threadIds);
-    const owned = [...sessions.values()].filter(
-      (entry) =>
-        entry.delegatedThreadId &&
-        selected.has(entry.delegatedThreadId) &&
-        entry.info.status === 'running'
-    );
-    const results = await Promise.allSettled(
-      owned.map(async (entry) => {
-        await reap(entry);
-        await waitForExit(entry);
-      })
-    );
-    const errors = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
-    );
-    if (errors.length) {
-      throw new AggregateError(errors, 'Delegated command sessions did not finish Stop.');
-    }
-  }
-
   async function remove(rootId: string, sessionId: string): Promise<void> {
     const entry = resolveOwned(rootId, sessionId);
     entry.removed = true;
@@ -997,7 +974,6 @@ export function createCommandSessionManager({
     remove,
     start,
     stop,
-    stopDelegatedThreads,
     write,
   };
 }

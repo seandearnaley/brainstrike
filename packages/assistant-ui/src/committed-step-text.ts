@@ -288,3 +288,13 @@ export function withIndexedPart(
   next.splice(at, 0, part);
   return next;
 }
+
+/** The parts before `first` (the reply's first unread input), or all of them. */
+export function partsBefore(
+  content: readonly Part[],
+  indexes: ReadonlyMap<string, number>,
+  first: string | undefined
+): readonly Part[] {
+  const at = first === undefined ? undefined : indexes.get(first);
+  return at === undefined ? content : content.slice(0, at);
+}

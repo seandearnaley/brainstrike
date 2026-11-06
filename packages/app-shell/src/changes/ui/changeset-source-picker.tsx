@@ -44,6 +44,7 @@ import {
 import { AlertTriangle, Check, GitBranch } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { describeGitScopeKind } from './git-scope-label';
+import { WorktreeCommitsMenu } from './worktree-commits-menu';
 
 export interface ChangesetSourcePickerProps {
   readonly changeset: Changeset | null;
@@ -63,7 +64,7 @@ export interface ChangesetSourcePickerProps {
   readonly threadId: string | null;
 }
 
-/** The `GitScope` kinds this picker offers (excludes `commit`, a history-view concept). */
+/** The `GitScope` kinds each worktree offers; a `commit` comes from its Commits menu. */
 const OFFERED_GIT_SCOPE_KINDS = ['uncommitted', 'staged', 'unstaged', 'branch-vs-base'] as const;
 type OfferedGitScopeKind = (typeof OFFERED_GIT_SCOPE_KINDS)[number];
 
@@ -203,7 +204,7 @@ export function ChangesetSourcePicker({
           >
             {inventory.errors.map((message) => (
               <span
-                className="text-destructive flex items-start gap-1.5 text-[11px]"
+                className="text-destructive text-2xs flex items-start gap-1.5"
                 data-testid="changeset-source-inventory-error"
                 key={message}
               >
@@ -223,7 +224,7 @@ export function ChangesetSourcePicker({
         ) : null}
         {inventory?.repositories.map((repository) => (
           <div className="py-1" key={repository.identity.repositoryRoot}>
-            <div className="text-muted-foreground truncate px-2 pb-1 text-[11px] font-medium tracking-wide uppercase">
+            <div className="text-muted-foreground text-2xs truncate px-2 pb-1 font-medium tracking-wide uppercase">
               {repository.identity.repositoryRoot}
             </div>
             {repository.worktrees.map((worktree) => {
@@ -233,7 +234,9 @@ export function ChangesetSourcePicker({
               // it, so its scopes can never resolve. Disable the trigger
               // itself (never a submenu of items that all fail) rather than
               // offering a dead menu.
-              const isResolvable = worktree.containment !== 'outside-roots';
+              const rootId =
+                worktree.containment === 'outside-roots' ? null : (worktree.containment[0] ?? null);
+              const isResolvable = rootId !== null;
               const unresolvableReason =
                 "This worktree isn't inside any workspace root and can't be opened here.";
               return (
@@ -248,7 +251,7 @@ export function ChangesetSourcePicker({
                           <span className="truncate text-sm font-medium">{worktree.name}</span>
                           {worktree.trust === 'unvalidated' ? (
                             <Badge
-                              className="text-warning gap-1 border-amber-500/40"
+                              className="text-warning border-warning/40 gap-1"
                               data-testid="worktree-trust-badge"
                               variant="outline"
                             >
@@ -257,12 +260,12 @@ export function ChangesetSourcePicker({
                             </Badge>
                           ) : null}
                         </span>
-                        <span className="text-muted-foreground truncate text-[10px]">
+                        <span className="text-muted-foreground text-2xs truncate">
                           {worktree.path}
                         </span>
                         {worktree.trust === 'unvalidated' && worktree.trustReason ? (
                           <span
-                            className="text-warning text-[10px]"
+                            className="text-warning text-2xs"
                             data-testid="worktree-trust-reason"
                           >
                             {worktree.trustReason}
@@ -270,7 +273,7 @@ export function ChangesetSourcePicker({
                         ) : null}
                         {isResolvable ? null : (
                           <span
-                            className="text-muted-foreground text-[10px]"
+                            className="text-muted-foreground text-2xs"
                             data-testid="worktree-unresolvable-reason"
                           >
                             Outside every workspace root
@@ -297,6 +300,18 @@ export function ChangesetSourcePicker({
                         </DropdownMenuItem>
                       );
                     })}
+                    {rootId === null ? null : (
+                      <>
+                        <DropdownMenuSeparator />
+                        <WorktreeCommitsMenu
+                          isActive={(candidate) => activeKey === changesetKey(candidate)}
+                          onSelectChangeset={onSelectChangeset}
+                          repositoryRoot={repository.identity.repositoryRoot}
+                          rootId={rootId}
+                          worktreePath={worktree.path}
+                        />
+                      </>
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               );

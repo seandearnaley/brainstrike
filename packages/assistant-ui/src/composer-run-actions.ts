@@ -1,8 +1,5 @@
 import { useAui, useAuiState } from '@assistant-ui/react';
-import { createLogger } from '@brainstrike/logging';
 import { isMacPlatform } from '@brainstrike/ui';
-
-const logger = createLogger('FollowUpQueue');
 
 /**
  * The steer chord, matching assistant-ui's own composer binding
@@ -12,12 +9,10 @@ export const steerShortcutLabel = (): string => (isMacPlatform() ? '⇧⌘↵' :
 
 /**
  * What the composer can do with a draft while a run is active, through
- * assistant-ui's own send: queue it for after the run, and steer it (first in
- * line, and the run is asked to end at its next step) when the app shell
- * supplied a steering transport (BST-588). The vendor send takes the draft
- * and its images and clears the composer, so a double click or a held key
- * sends once. A failed steer request never loses the message; it stays first
- * in line and sends when the run ends.
+ * assistant-ui's own send: queue it for after the run, and steer it into the
+ * running run, which reads it at its next step, when the thread can steer
+ * (`thread-message-queue.ts`). The vendor send takes the draft and its images
+ * and clears the composer, so a double click or a held key sends once.
  */
 export interface ComposerRunActions {
   readonly queue: () => void;
@@ -25,9 +20,9 @@ export interface ComposerRunActions {
 }
 
 export function useComposerRunActions({
-  onSteerActiveRun,
+  canSteer,
 }: {
-  readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
+  readonly canSteer?: boolean | undefined;
 }): ComposerRunActions | undefined {
   const aui = useAui();
   const hasQueue = useAuiState((state) => state.thread.capabilities.queue);
@@ -44,27 +39,12 @@ export function useComposerRunActions({
         aui.composer().send({ steer: false });
       }
     },
-    steer: onSteerActiveRun
+    steer: canSteer
       ? () => {
           if (sendable()) {
             aui.composer().send({ steer: true });
-            requestSteer(onSteerActiveRun);
           }
         }
       : undefined,
   };
-}
-
-export function requestSteer(onSteerRequest: () => Promise<boolean>): void {
-  onSteerRequest()
-    .then((accepted) => {
-      if (!accepted) {
-        // The run already finished (404 from the control endpoint) — the
-        // queue sends the message at that run end.
-        logger.info('Steer control found no active run; message stays queued');
-      }
-    })
-    .catch((error: unknown) => {
-      logger.warn('Steer control request failed; message stays queued', { error });
-    });
 }

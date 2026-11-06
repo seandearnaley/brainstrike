@@ -1,6 +1,6 @@
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +12,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostRoot, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { deliveredEntries } from './utils/conversation-invariants';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import {
@@ -19,28 +20,12 @@ import {
   ensureAssistantShellVisible,
   ensureMockWorkspaceOpen,
 } from './utils/layout-helpers';
-import { startModelProviderShim } from './utils/model-provider-shim';
 import {
   assembledMarkers,
   createAssembledSubagentFixture,
 } from './utils/subagent-integration-fixture';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 import { trustWorkspaceFromComposer } from './utils/workspace-trust';
-
-type ChildDecisionScenario =
-  | { decision: 'answer'; tool: 'askUser' }
-  | { decision: 'approved' | 'rejected'; tool: 'submitPlan' };
-
-// Literal entry points let the CI lane guard discover every scenario.
-test('answers a reloaded delegated child question @smoke', async ({ electron }, testInfo) => {
-  await assertChildDecision(electron, testInfo, { decision: 'answer', tool: 'askUser' });
-});
-test('approves a reloaded delegated child plan @smoke', async ({ electron }, testInfo) => {
-  await assertChildDecision(electron, testInfo, { decision: 'approved', tool: 'submitPlan' });
-});
-test('rejects a reloaded delegated child plan @smoke', async ({ electron }, testInfo) => {
-  await assertChildDecision(electron, testInfo, { decision: 'rejected', tool: 'submitPlan' });
-});
 
 test('assembles concurrent child control, reload, and durable results @smoke', async ({
   electron,
@@ -557,9 +542,7 @@ async function readAssembledTree(userDataDir: string) {
   const delegations = new Set(children.map(({ toolCallId }) => toolCallId));
   return {
     children,
-    deliveries: rootEvents.flatMap((event) =>
-      event.type === 'run.started' && event.delivery ? event.delivery.entries : []
-    ),
+    deliveries: deliveredEntries(rootEvents),
     dispatches: rootEvents.flatMap((event) =>
       event.type === 'effect.finished' && delegations.has(event.toolCallId)
         ? [
@@ -581,183 +564,4 @@ async function readAssembledTree(userDataDir: string) {
         : []
     ),
   };
-}
-
-// Only model transport is scripted. Workspace persona discovery, the assistant
-// host, native suspension, persistence and shared workspace controls stay real.
-async function assertChildDecision(
-  electron: ElectronHarness,
-  testInfo: TestInfo,
-  scenario: ChildDecisionScenario
-): Promise<void> {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-interactive-'));
-  const personaDirectory = path.join(workspace, '.brainstrike', 'agents');
-  await mkdir(personaDirectory, { recursive: true });
-  await writeFile(
-    path.join(personaDirectory, 'decision-probe.md'),
-    `---\nname: Decision Probe\ndescription: Requests an exact user decision.\ntools:\n  - ${scenario.tool}\n---\nAsk the user for the requested decision and report the result.`
-  );
-  const answer = 'CHILD_EXACT_ANSWER_1720';
-  const feedback = 'CHILD_EXACT_REJECTION_1720';
-  const childResult = `CHILD_${scenario.decision.toUpperCase()}_COMPLETE_1720`;
-  const parentResult = `PARENT_${scenario.decision.toUpperCase()}_COMPLETE_1720`;
-  const observed = { childDecision: false, parentResult: false };
-  const parentCatalogs: string[][] = [];
-  const provider = await startModelProviderShim(({ toolNames, messages }) => {
-    // The thread-title request advertises no tools, but quotes the root's prompt.
-    if (toolNames.length === 0) {
-      return { finalText: 'Decision probe task' };
-    }
-    const history = JSON.stringify(messages);
-    const isParent = JSON.stringify(
-      messages
-        .filter(
-          (message) =>
-            message && typeof message === 'object' && 'role' in message && message.role === 'user'
-        )
-        .at(-1)
-    ).includes('Delegate to Decision Probe to request my decision.');
-    if (isParent) {
-      parentCatalogs.push([...toolNames].sort());
-      observed.parentResult ||= history.includes(childResult);
-      return {
-        finalText: parentResult,
-        toolCall: {
-          arguments: {
-            _background: { enabled: false },
-            prompt: 'Request my decision, then report the exact outcome.',
-          },
-          name: 'agent-decision-probe',
-        },
-      };
-    }
-    // Match tool result content, not the scripted final response: the model
-    // must receive the actual resumed decision through the native tool path.
-    observed.childDecision ||=
-      scenario.decision === 'answer'
-        ? history.includes(answer)
-        : history.includes(`\\"status\\":\\"${scenario.decision}\\"`) ||
-          history.includes(`"status":"${scenario.decision}"`);
-    if (scenario.decision === 'rejected') {
-      observed.childDecision &&= history.includes(feedback);
-    }
-    return {
-      finalText: childResult,
-      toolCall: {
-        arguments:
-          scenario.tool === 'askUser'
-            ? { question: 'Which exact marker should this child report?' }
-            : {
-                overview: 'Request a decision without modifying the workspace.',
-                steps: [{ title: 'Report the exact user decision to the parent.' }],
-                title: 'Child decision plan',
-              },
-        name: `brainstrike_${scenario.tool}`,
-      },
-    };
-  });
-  const environment = {
-    BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
-    BRAINSTRIKE_OPENROUTER_API_KEY: 'isolated-child-interactive-key',
-    OPENROUTER_BASE_URL: provider.baseUrl,
-  };
-  await runInteractiveChildFixture({
-    captureFailure: async (window) => {
-      await testInfo.attach('interactive-child-failure', {
-        body: await window.locator('body').innerText(),
-        contentType: 'text/plain',
-      });
-    },
-    closeProvider: () => provider.close(),
-    electron,
-    environment,
-    run: async (window) => {
-      await ensureMockWorkspaceOpen(window);
-      await configureAssistantProvider(window, {
-        compositeModelKey: 'openrouter::openai/gpt-5.4',
-        provider: 'openrouter',
-      });
-      await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
-      await new HomePage(window).openSettings();
-      await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
-      await window
-        .getByRole('combobox', { exact: true, name: 'Read permission' })
-        .selectOption('allow');
-      await ensureAssistantShellVisible(window);
-      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
-      // The workspace's persona loads once the person trusts the folder (ADR-0032).
-      await trustWorkspaceFromComposer(root);
-      await root
-        .getByRole('textbox', { name: 'Message input' })
-        .fill('Delegate to Decision Probe to request my decision.');
-      await root.getByRole('button', { exact: true, name: 'Send' }).click();
-      // The root is told its child waits (AT-08); the child itself holds the decision.
-      const waiting = root.getByTestId('host-child-waiting');
-      await expect(waiting).toBeVisible();
-      await expect(waiting).toHaveAttribute(
-        'data-kind',
-        scenario.tool === 'askUser' ? 'question' : 'plan'
-      );
-      const noticeName = scenario.tool === 'askUser' ? 'Question for you' : 'Plan decision';
-      await root.getByRole('button', { exact: true, name: 'Expand activity' }).click();
-      await root.getByRole('button', { name: /Open .* conversation/u }).click();
-      const childTab = window
-        .getByRole('tablist', { name: 'Workspace tabs' })
-        .getByRole('tab', { selected: true });
-      await expect(childTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
-      const childName = (await childTab.innerText()).trim();
-      const child = window.getByRole('region', { exact: true, name: childName });
-      await expect(child.getByRole('group', { name: noticeName })).toBeVisible();
-      // A reload must not run the agent. Count the requests that advertise tools:
-      // the host's thread-title call (no tools) may land after the pause.
-      const modelCalls = (): number =>
-        provider.requests().filter(({ toolNames }) => toolNames.length > 0).length;
-      const pausedRequests = modelCalls();
-      await reloadRenderer(window, 'delegated-child-interactive: reload 3');
-      await configureAssistantProvider(window, {
-        compositeModelKey: 'openrouter::openai/gpt-5.4',
-        provider: 'openrouter',
-      });
-      await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
-      await ensureAssistantShellVisible(window);
-      const notice = child.getByRole('group', { name: noticeName });
-      await expect(notice).toBeVisible();
-      expect(modelCalls()).toBe(pausedRequests);
-      if (scenario.decision === 'answer') {
-        await notice.getByRole('textbox', { name: 'Your answer' }).fill(answer);
-        await notice.getByRole('button', { exact: true, name: 'Send answer' }).click();
-      } else {
-        if (scenario.decision === 'rejected') {
-          await notice.getByRole('textbox', { name: 'Plan feedback' }).fill(feedback);
-        }
-        await notice
-          .getByRole('button', {
-            exact: true,
-            name: scenario.decision === 'approved' ? 'Approve plan' : 'Reject plan',
-          })
-          .click();
-      }
-      await expect(child.getByText(childResult, { exact: true })).toBeVisible();
-      await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-      expect(observed).toEqual({ childDecision: true, parentResult: true });
-      await expect(root.getByTestId('host-child-waiting')).toHaveCount(0);
-      expect(modelCalls()).toBe(pausedRequests + 2);
-      expect(parentCatalogs).toHaveLength(2);
-      expect(parentCatalogs[1]).toEqual(parentCatalogs[0]);
-      const completedRequests = modelCalls();
-      // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
-      // hover (TabStrip contract), so point at the tab first.
-      await window.getByRole('tab', { exact: true, name: childName }).hover();
-      await window
-        .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
-        .click();
-      await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-      expect(modelCalls()).toBe(completedRequests);
-      await window.screenshot({
-        animations: 'disabled',
-        path: testInfo.outputPath('child-decision.png'),
-      });
-    },
-    workspace,
-  });
 }

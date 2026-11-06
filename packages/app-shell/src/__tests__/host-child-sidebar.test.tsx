@@ -126,7 +126,7 @@ it('a child’s row opens it in its own root’s workspace, whichever root is op
     expect(screen.getByRole('button', { name: 'Expand Plan the release' })).toBeEnabled()
   );
   await userEvent.click(screen.getByRole('button', { name: 'Expand Plan the release' }));
-  await userEvent.click(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Child$/u }));
+  await userEvent.click(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Idle$/u }));
   // The child's root opens first; its tab opens once that root's workspace is ready.
   expect(useAssistantThreadStore.getState().activeThreadIdByResourceId['workspace']).toBe('root-1');
   expect(useWorkspaceTabSelectionStore.getState().openAppIds).not.toContain(CHILD_TAB);
@@ -176,7 +176,7 @@ it('a host thread’s child row follows the host’s notices and is unread until
   status = 'idle';
   act(() => notify?.('root-1'));
   // The selected child's change is seen as it happens.
-  expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Child$/u })).toBeVisible();
+  expect(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Idle$/u })).toBeVisible();
 });
 
 it('keeps leaves quiet and discovers children added while the parent is collapsed', async () => {

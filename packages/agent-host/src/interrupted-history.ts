@@ -16,11 +16,12 @@ export function healInterruptedRunHistory(
       const indexes = [...run.messageIndexes].sort((left, right) => left - right);
       const first = indexes[0];
       const last = indexes.at(-1);
-      return first === undefined || last === undefined ? [] : [{ first, last }];
+      const cause = run.stopped ? ('stopped' as const) : ('interrupted' as const);
+      return first === undefined || last === undefined ? [] : [{ cause, first, last }];
     })
     .sort((left, right) => right.first - left.first);
   const prepared = [...messages];
-  for (const { first, last } of spans) {
+  for (const { cause, first, last } of spans) {
     const occurrence = prepared.slice(first, last + 1);
     const calls = new Set(
       occurrence.flatMap((message) =>
@@ -29,7 +30,11 @@ export function healInterruptedRunHistory(
           : []
       )
     );
-    prepared.splice(first, occurrence.length, ...healInterruptedModelMessages(occurrence, calls));
+    prepared.splice(
+      first,
+      occurrence.length,
+      ...healInterruptedModelMessages(occurrence, calls, cause)
+    );
   }
   return prepared;
 }

@@ -129,13 +129,13 @@ const InlineScanningIndicator = React.memo(
             <TooltipTrigger asChild>
               <Button
                 aria-label={isCancelling ? 'Cancelling' : 'Cancel operation'}
-                className="h-5 w-5 shrink-0"
+                className="relative size-5 shrink-0 after:absolute after:-inset-1 after:content-['']"
                 disabled={isCancelling}
                 onClick={onCancel}
-                size="icon"
+                size="icon-xs"
                 variant="ghost"
               >
-                <X className="h-3 w-3" />
+                <X />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -195,10 +195,10 @@ export const TreeActionButtons = React.memo(
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}
-              size="icon"
+              size="icon-xs"
               variant="ghost"
             >
-              <RefreshCw className={cn('h-4 w-4', { 'animate-spin': isRefreshing })} />
+              <RefreshCw className={cn('size-4', { 'animate-spin': isRefreshing })} />
             </Button>
           </TooltipTrigger>
           <TooltipContent>

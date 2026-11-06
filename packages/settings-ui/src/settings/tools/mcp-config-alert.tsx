@@ -59,7 +59,7 @@ export function McpConfigAlert({
         <p className="text-muted-foreground mt-0.5 text-xs">
           MCP servers are read from
           {configInfo.path ? (
-            <code className="bg-muted mx-1 rounded px-1 py-0.5 font-mono text-[11px] break-all">
+            <code className="bg-muted text-2xs mx-1 rounded px-1 py-0.5 font-mono break-all">
               {configInfo.path}
             </code>
           ) : (
@@ -77,7 +77,7 @@ export function McpConfigAlert({
             variant="outline"
           >
             <FolderOpen className="h-3 w-3" />
-            Select Config File
+            Select config file
           </Button>
           <Button
             className="h-7 gap-1.5 px-2.5 text-xs"
@@ -87,7 +87,7 @@ export function McpConfigAlert({
             variant="ghost"
           >
             <RotateCcw className="h-3 w-3" />
-            Reset to Default
+            Reset to default
           </Button>
           {onCreateSample && (
             <Button
@@ -98,7 +98,7 @@ export function McpConfigAlert({
               variant="ghost"
             >
               <FileJson className="h-3 w-3" />
-              Create Sample Config
+              Create sample config
             </Button>
           )}
         </div>

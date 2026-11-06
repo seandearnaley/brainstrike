@@ -179,6 +179,7 @@ function runGitProcess({
   binaryStdout,
   cwd,
   env,
+  input,
   signal,
   timeoutMs,
 }: {
@@ -186,6 +187,7 @@ function runGitProcess({
   readonly binaryStdout?: boolean | undefined;
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly input?: string | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }): Promise<GitCommandRun> {
@@ -196,6 +198,12 @@ function runGitProcess({
       signal,
       timeoutMs,
     });
+    if (input !== undefined) {
+      // A git that exits before reading all of it closes the pipe (EPIPE); its
+      // exit code and stderr report why.
+      child.stdin.on('error', () => undefined);
+      child.stdin.end(input);
+    }
     const stdout = captureBounded(child.stdout);
     const stderr = captureBounded(child.stderr);
     let spawnError: NodeJS.ErrnoException | undefined;

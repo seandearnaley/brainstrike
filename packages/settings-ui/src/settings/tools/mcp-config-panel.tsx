@@ -658,25 +658,25 @@ function McpEditorCard({
         />
         {reloadConfirm && (
           <div
-            className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs"
+            className="border-warning/40 bg-warning/10 flex flex-wrap items-center gap-2 rounded-md border p-2 text-xs"
             data-testid="mcp-config-reload-confirm"
           >
             <span>{reloadConfirmText(reloadConfirm)}</span>
-            <Button
-              data-testid="mcp-config-reload-confirm-discard"
-              onClick={onConfirmReload}
-              size="sm"
-              variant="outline"
-            >
-              Discard and Reload
-            </Button>
             <Button
               data-testid="mcp-config-reload-confirm-cancel"
               onClick={onCancelReload}
               size="sm"
               variant="ghost"
             >
-              Keep Editing
+              Keep editing
+            </Button>
+            <Button
+              data-testid="mcp-config-reload-confirm-discard"
+              onClick={onConfirmReload}
+              size="sm"
+              variant="outline"
+            >
+              Discard and reload
             </Button>
           </div>
         )}
@@ -687,7 +687,7 @@ function McpEditorCard({
             className={
               statusTone === 'warning'
                 ? 'border-warning/40 bg-warning/10 text-warning rounded-md border p-2 text-xs'
-                : 'rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-xs text-emerald-900 dark:text-emerald-200'
+                : 'border-success/40 bg-success/10 text-success rounded-md border p-2 text-xs'
             }
             data-testid="mcp-config-status"
             data-tone={statusTone}
@@ -723,7 +723,7 @@ function McpHelpCard() {
           a server whose tools work longer than that in silence, set `toolTimeoutMs` (milliseconds,
           1000 to 600000), for example `"toolTimeoutMs": 180000`.
         </div>
-        <pre className="bg-muted/30 overflow-x-auto rounded-md border p-3 text-[11px]">
+        <pre className="bg-muted/30 text-2xs overflow-x-auto rounded-md border p-3">
           {`// stdio example
 {
   "transport": "stdio",

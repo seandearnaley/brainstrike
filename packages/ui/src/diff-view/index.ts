@@ -1,3 +1,4 @@
+export { CHANGES_ACTION_LABEL, CHANGES_ACTIONS } from './changes-actions';
 export type { DiffSide } from './diff-metadata';
 export {
   DiffReview,

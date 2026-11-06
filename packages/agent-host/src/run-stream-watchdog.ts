@@ -37,7 +37,7 @@ const SCAFFOLDING_PARTS: ReadonlySet<Part['type']> = new Set([
  * typed error and reports it to `onTimeout` first, so the caller can abort the
  * provider before the stream unwinds.
  *
- * `streamText`'s `timeout` (ai 7.0.143) covers none of these windows as the
+ * `streamText`'s `timeout` (ai 7.0.160) covers none of these windows as the
  * host needs them, so none is handed to it:
  * - `firstChunkMs` starts only once the provider call has returned its
  *   response headers, so it never ends a provider that holds them.

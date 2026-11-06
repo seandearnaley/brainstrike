@@ -49,7 +49,7 @@ export function ModelPickerItem({
           </span>
         )}
         {metadata.length > 0 && (
-          <span className="text-muted-foreground mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] leading-4">
+          <span className="text-muted-foreground text-2xs mt-1 flex min-w-0 flex-wrap items-center gap-1.5 leading-4">
             {metadata.map((label) => (
               <span
                 className="border-border/50 bg-background/55 rounded-md border px-1.5"

@@ -57,10 +57,7 @@ export function useSubagentDelegationAddress(
     )
   );
   const invocation = JSON.parse(invocationJson) as SubagentInvocationRun;
-  const addressJson = useAuiState((state) =>
-    JSON.stringify(readSubagentConversationAddress(state.message.parts, toolCallId, result))
-  );
-  const persistedAddress = JSON.parse(addressJson) as SubagentConversationAddress;
+  const persistedAddress = readSubagentConversationAddress(result);
   const getLiveThreadId = () =>
     invocation.kind === 'available'
       ? liveInvocations?.getThreadId({

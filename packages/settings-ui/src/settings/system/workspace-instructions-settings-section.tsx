@@ -24,6 +24,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ErrorNotice,
   Label,
   Switch,
 } from '@brainstrike/ui';
@@ -123,7 +124,7 @@ export function WorkspaceInstructionsSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Workspace instructions</CardTitle>
+        <CardTitle>Instruction files</CardTitle>
         <CardDescription>
           Automatically add each open workspace folder’s <code>AGENTS.md</code>,{' '}
           <code>AGENT.md</code>, or <code>CLAUDE.md</code> to the assistant’s context every turn. A
@@ -166,22 +167,11 @@ export function WorkspaceInstructionsSettingsSection({
             ) : null}
           </div>
           {scanError ? (
-            <div
-              className="border-destructive/50 space-y-2 rounded-md border p-3"
+            <ErrorNotice
               data-testid="context-files-scan-error"
-            >
-              <p className="text-destructive text-sm">
-                Could not scan workspace folders: {scanError}
-              </p>
-              <Button
-                data-testid="context-files-scan-retry"
-                onClick={() => runScan()}
-                size="sm"
-                variant="outline"
-              >
-                Retry
-              </Button>
-            </div>
+              message={`Could not scan workspace folders: ${scanError}`}
+              onRetry={() => runScan()}
+            />
           ) : statuses.length === 0 ? (
             <p className="text-muted-foreground text-sm" data-testid="context-files-no-roots">
               No workspace folders with an instructions file are open.

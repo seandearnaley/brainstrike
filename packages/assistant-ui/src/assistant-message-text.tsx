@@ -59,7 +59,7 @@ function createLazyMarkdownText(displayName: string): MemoExoticComponent<() => 
       return <LoadedComponent />;
     }
 
-    return <div className="aui-md text-muted-foreground/70 animate-pulse">Loading message…</div>;
+    return <div className="aui-md text-muted-foreground animate-pulse">Loading message…</div>;
   });
   LazyMarkdownText.displayName = displayName;
 

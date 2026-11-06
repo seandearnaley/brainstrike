@@ -32,13 +32,13 @@ describe('ToolFallback browser behavior', () => {
       </TooltipProvider>
     );
 
-    expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
-    expect(screen.queryByText('Result:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Arguments')).not.toBeInTheDocument();
+    expect(screen.queryByText('Result')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /expand details/iu }));
 
-    expect(screen.getByText('Arguments:')).toBeVisible();
-    expect(screen.getByText('Result:')).toBeVisible();
+    expect(screen.getByText('Arguments')).toBeVisible();
+    expect(screen.getByText('Result')).toBeVisible();
     expect(screen.getByText(/echoed/u)).toBeVisible();
   });
 });

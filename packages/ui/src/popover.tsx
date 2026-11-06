@@ -8,6 +8,9 @@ const Popover = PopoverPrimitive.Root;
 
 const PopoverTrigger = PopoverPrimitive.Trigger;
 
+/** Positions the content against an element that is not its trigger. */
+const PopoverAnchor = PopoverPrimitive.Anchor;
+
 type PopoverContentProps = React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
   ref?: React.RefObject<HTMLDivElement | null>;
   /**
@@ -46,4 +49,4 @@ const PopoverContent = ({
 };
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
-export { Popover, PopoverContent, PopoverTrigger };
+export { Popover, PopoverAnchor, PopoverContent, PopoverTrigger };

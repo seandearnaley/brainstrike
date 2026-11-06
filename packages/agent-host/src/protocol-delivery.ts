@@ -14,7 +14,7 @@ export const HostChildDeliveryEntrySchema = Schema.Struct({
   toolCallId: Id,
 });
 export type HostChildDeliveryEntry = (typeof HostChildDeliveryEntrySchema)['Type'];
-/** A command session a run started that ended by itself, delivered with a wake. */
+/** A command session a run started that ended by itself, delivered with the thread's next run. */
 export const HostCommandSessionDeliverySchema = Schema.Struct({
   exitCode: Schema.Int,
   rootId: Id,
@@ -24,32 +24,96 @@ export const HostCommandSessionDeliverySchema = Schema.Struct({
 });
 export type HostCommandSessionDelivery = (typeof HostCommandSessionDeliverySchema)['Type'];
 /**
+ * ADR-0028 step 3b: what a thread is told that no person typed, posted once on
+ * that thread's log by the commit that settles it, and taken by the run whose
+ * `delivery` names it, along that run's own branch.
+ */
+export const HostNoticeSchema = Schema.Union(
+  [
+    /** A child run's report to the thread that delegated it: its parent's ledger outlives the child. */
+    Schema.Struct({
+      entry: HostChildDeliveryEntrySchema,
+      kind: Schema.Literal('child'),
+      persona: Id,
+      prompt: Schema.String,
+      reason: Schema.optional(Schema.String),
+      toolName: Id,
+      /** The parent turn that dispatched an invocation; a follow-up's report has none. */
+      turnId: Schema.optional(Id),
+    }),
+    /** A command session that ended by itself, told to the thread that hears it. */
+    Schema.Struct({
+      createdAt: Schema.Int,
+      exitedAt: Schema.Int,
+      /** The idle child thread it was first told to, which handed it on. */
+      handedOnFrom: Schema.optional(Id),
+      kind: Schema.Literal('command-session'),
+      outputCursor: Schema.Int,
+      session: HostCommandSessionDeliverySchema,
+    }),
+  ],
+  { mode: 'oneOf' }
+);
+export type HostNotice = (typeof HostNoticeSchema)['Type'];
+/**
  * The durable delivery watermark: these entries reached the parent's model
  * input on the run that records them, as an automated message that the user
  * did not write. A wake run's prompt is that message; a user turn carries it
  * ahead of its own message.
  */
+/** Ended command sessions; a delivery may carry only these, with no child entries. */
+const CommandSessions = Schema.optional(
+  Schema.mutable(Schema.Array(HostCommandSessionDeliverySchema)).check(Schema.isMinLength(1))
+);
+/** ADR-0028 step 3b: the person's inputs a run took, by their run/input command IDs. */
+const Inputs = Schema.optional(Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)));
+const delivers = (delivery: {
+  readonly commandSessions?: unknown;
+  readonly entries: readonly unknown[];
+  readonly inputs?: unknown;
+}): boolean =>
+  delivery.entries.length > 0 ||
+  delivery.commandSessions !== undefined ||
+  delivery.inputs !== undefined;
 export const HostChildDeliverySchema = Schema.Union(
   [
     Schema.Struct({
-      /** Ended command sessions; a wake may deliver only these, with no child entries. */
-      commandSessions: Schema.optional(
-        Schema.mutable(Schema.Array(HostCommandSessionDeliverySchema)).check(Schema.isMinLength(1))
-      ),
+      commandSessions: CommandSessions,
       entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
       messageId: Id,
       turnId: Id,
       via: Schema.Literal('wake'),
     }),
+    /** A run started by a person's input names it in `inputs`; `ledger` is the report it carries. */
     Schema.Struct({
-      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)).check(
-        Schema.isMinLength(1)
-      ),
-      ledger: Id,
+      commandSessions: CommandSessions,
+      entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
+      inputs: Inputs,
+      ledger: Schema.optional(Id),
       messageId: Id,
       via: Schema.Literal('next-turn'),
-    }),
+    }).check(
+      Schema.makeFilter((delivery) =>
+        delivers(delivery)
+          ? undefined
+          : { issue: 'A next-turn delivery delivers nothing', path: [] }
+      )
+    ),
   ],
   { mode: 'oneOf' }
 );
 export type HostChildDelivery = (typeof HostChildDeliverySchema)['Type'];
+/**
+ * ADR-0028 step 3b: the notices a running run took at a step boundary, on the
+ * `model.messages` that commits the message carrying them to its model.
+ */
+export const HostStepDeliverySchema = Schema.Struct({
+  commandSessions: CommandSessions,
+  entries: Schema.mutable(Schema.Array(HostChildDeliveryEntrySchema)),
+  inputs: Inputs,
+}).check(
+  Schema.makeFilter((delivery) =>
+    delivers(delivery) ? undefined : { issue: 'A step delivery delivers nothing', path: [] }
+  )
+);
+export type HostStepDelivery = (typeof HostStepDeliverySchema)['Type'];

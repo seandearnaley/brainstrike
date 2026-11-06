@@ -18,6 +18,7 @@ import {
 import type { ModelMessage, UserModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { withHostDeliveryLedger } from './child-delivery.ts';
+import { hostRootRunTurnId } from './committed-identities.ts';
 import {
   createHostRunState,
   foldHostInteraction,
@@ -40,6 +41,7 @@ import {
   type HostParams,
   type HostRunSnapshot,
 } from './protocol.ts';
+import { isHostEarlierInput } from './turn-input.ts';
 
 /** The configuration a committed run command carried; its other fields have their own readers. */
 const CommittedRunInputSchema = Schema.StructWithRest(
@@ -98,7 +100,7 @@ function foldHostRunBranch(
       throw new Error('A delegated child run must start its child thread');
     }
     return {
-      delegated: true,
+      author: 'agent',
       parentMessageId: null,
       prompt: event.prompt,
       userMessageId: admission.commandId,
@@ -114,6 +116,7 @@ function foldHostRunBranch(
   }
   return {
     ...(event.attachments ? { attachments: event.attachments } : {}),
+    author: event.hostPrompt ? 'host' : 'person',
     ...delivery,
     parentMessageId,
     prompt: event.prompt,
@@ -133,6 +136,7 @@ function wakeHostRunBranch(
     throw new Error('Committed branch parent is not an earlier run of this thread');
   }
   return {
+    author: 'host',
     delivery: event.delivery,
     parentMessageId: event.parentMessageId,
     prompt: event.prompt,
@@ -156,7 +160,7 @@ function hostUserMessage(branch: HostRunBranch): UserModelMessage {
   };
 }
 /** The shared attachment contract, checked before a user message is admitted. */
-function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
+export function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
   let total = 0;
   for (const attachment of attachments) {
     total += validateImageAttachmentPart(attachment);
@@ -178,9 +182,11 @@ export function hostRunContext(
   run: HostRunState
 ): ModelMessage[] {
   // BST-1932: a delivering turn's own message carries the outcomes it delivers.
+  // A message an earlier run left unread was written before the turn's own.
   return [...hostRunAncestors(runs, run), run].flatMap((turn) => [
+    ...turn.messages.filter(isHostEarlierInput),
     withHostDeliveryLedger(hostUserMessage(turn.branch), turn.branch.delivery),
-    ...turn.messages,
+    ...turn.messages.filter((message) => !isHostEarlierInput(message)),
   ]);
 }
 /** `run`'s ancestor runs on its committed branch, root first. */
@@ -263,8 +269,10 @@ export function startedHostRun(
   if (started.planMode) {
     run.planMode = true;
   }
-  if (started.turnId !== undefined) {
-    run.turnId = started.turnId;
+  // The one committed turn: a wake's or a carried-on run's; any other run starts its own.
+  const turnId = hostRootRunTurnId(started);
+  if (turnId !== started.runId) {
+    run.turnId = turnId;
   }
   if (admission.input) {
     run.input = admission.input;
@@ -298,6 +306,9 @@ function foldHostConversationMessages(
   const messages = committedModelMessages(event.messages);
   foldHostRunMessages(run, event, messages, hostRunContext(runs, run).length);
   run.messages.push(...messages);
+  if (event.type === 'model.messages' && event.delivery) {
+    run.intake.push(event.delivery);
+  }
 }
 /** Fold a committed run event that is neither a command nor a run start into its run. */
 export function foldHostRunEvent(
@@ -322,20 +333,24 @@ export function foldHostRunEvent(
       break;
   }
 }
+/** What a run the host starts to carry a run's task on records: the turn, and whether it wrote the prompt. */
+export interface HostRunCarry {
+  readonly hostPrompt?: true;
+  readonly turnId?: string;
+}
 /** Where a new run's user message goes, and the turn it continues when the host carries one on. */
-export type HostRunPosition = {
+export type HostRunPosition = HostRunCarry & {
   readonly attachments?: HostImageAttachment[];
   readonly delivery?: HostChildDelivery;
   readonly prompt: string;
-  readonly turnId?: string;
 } & (
-  | {
-      readonly parentMessageId: string | null;
-    }
-  | {
-      readonly userMessageId: string;
-    }
-);
+    | {
+        readonly parentMessageId: string | null;
+      }
+    | {
+        readonly userMessageId: string;
+      }
+  );
 /**
  * A start follows its requested parent (omitted: the current tip; null: the
  * root). A run the host starts to carry a run's task on continues that run's
@@ -344,13 +359,14 @@ export type HostRunPosition = {
 export function hostStartPosition(
   runs: Iterable<HostRunState>,
   params: HostParams<'run/start'>,
-  turnId?: string
+  { hostPrompt, turnId }: HostRunCarry = {}
 ): HostRunPosition {
   if (params.attachments) {
     assertHostAttachments(params.attachments);
   }
   return {
     ...(params.attachments ? { attachments: params.attachments } : {}),
+    ...(hostPrompt ? { hostPrompt } : {}),
     parentMessageId: resolveHostBranchParent(runs, params.threadId, params.parentMessageId),
     prompt: params.prompt,
     ...(turnId === undefined ? {} : { turnId }),

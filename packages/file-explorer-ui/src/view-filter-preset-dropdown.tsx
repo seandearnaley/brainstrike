@@ -171,18 +171,18 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
         <span className="text-muted-foreground text-xs font-semibold uppercase">New Preset</span>
         <Button
           aria-label="Cancel preset creation"
-          className="size-5"
+          className="relative size-5 after:absolute after:-inset-1 after:content-['']"
           onClick={onCancel}
-          size="icon"
+          size="icon-xs"
           title="Cancel preset creation"
           variant="ghost"
         >
-          <X className="size-3" />
+          <X />
         </Button>
       </div>
       <div className="space-y-2">
         <div className="space-y-1">
-          <label className="text-muted-foreground text-[10px] font-medium" htmlFor="preset-name">
+          <label className="text-muted-foreground text-2xs font-medium" htmlFor="preset-name">
             Name
           </label>
           <Input
@@ -194,17 +194,14 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
           />
         </div>
         <fieldset className="m-0 space-y-1 border-0 p-0">
-          <legend className="text-muted-foreground text-[10px] font-medium">Icon</legend>
+          <legend className="text-muted-foreground text-2xs font-medium">Icon</legend>
           <IconPicker
             onSelect={(name) => dispatch({ type: 'SET_ICON', value: name })}
             selectedIcon={form.icon}
           />
         </fieldset>
         <div className="space-y-1">
-          <label
-            className="text-muted-foreground text-[10px] font-medium"
-            htmlFor="preset-includes"
-          >
+          <label className="text-muted-foreground text-2xs font-medium" htmlFor="preset-includes">
             Include Patterns (comma sep)
           </label>
           <Input
@@ -217,10 +214,7 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
         </div>
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <label
-              className="text-muted-foreground text-[10px] font-medium"
-              htmlFor="preset-excludes"
-            >
+            <label className="text-muted-foreground text-2xs font-medium" htmlFor="preset-excludes">
               Exclude Patterns
             </label>
             <label className="flex cursor-pointer items-center gap-1.5">
@@ -239,7 +233,7 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
               >
                 {form.useRegex && <Check className="text-primary-foreground size-2" />}
               </div>
-              <span className="text-muted-foreground text-[10px]">Use Regex</span>
+              <span className="text-muted-foreground text-2xs">Use Regex</span>
             </label>
           </div>
           <Input
@@ -292,11 +286,11 @@ function PresetEditForm({
           aria-label="Cancel editing preset"
           className="size-6"
           onClick={onCancel}
-          size="icon"
+          size="icon-xs"
           title="Cancel editing preset"
           variant="ghost"
         >
-          <X className="size-3" />
+          <X />
         </Button>
       </div>
       <IconPicker
@@ -339,7 +333,7 @@ function PresetEditForm({
           >
             {form.useRegex && <Check className="text-primary-foreground size-2" />}
           </div>
-          <span className="text-muted-foreground text-[10px]">Regex</span>
+          <span className="text-muted-foreground text-2xs">Regex</span>
         </label>
       </div>
       <div className="flex gap-2 pt-1">
@@ -659,7 +653,7 @@ export function ViewFilterPresetDropdown({
                         <span className="truncate text-sm font-medium">
                           {shownThreadPreset.name}
                         </span>
-                        <span className="text-muted-foreground truncate text-[10px] opacity-80">
+                        <span className="text-muted-foreground text-2xs truncate opacity-80">
                           {shownThreadPreset.description}
                         </span>
                       </div>
@@ -709,7 +703,7 @@ export function ViewFilterPresetDropdown({
                       <PresetIcon className="size-4 shrink-0 opacity-70" />
                       <div className="flex flex-col truncate">
                         <span className="truncate text-sm font-medium">{preset.name}</span>
-                        <span className="text-muted-foreground truncate font-mono text-[10px] opacity-80">
+                        <span className="text-muted-foreground text-2xs truncate font-mono opacity-80">
                           {preset.includes.join(', ')}
                         </span>
                       </div>
@@ -725,11 +719,11 @@ export function ViewFilterPresetDropdown({
                           e.stopPropagation();
                           startEditing(preset);
                         }}
-                        size="icon"
+                        size="icon-xs"
                         title="Edit preset"
                         variant="ghost"
                       >
-                        <Settings2 className="size-3" />
+                        <Settings2 />
                       </Button>
                     </div>
                   </div>

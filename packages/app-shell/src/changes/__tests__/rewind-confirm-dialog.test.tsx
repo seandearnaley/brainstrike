@@ -62,12 +62,13 @@ const ROOT_PLAIN = 'root-plain-c';
 
 function file(rootId: string, path: string, repositoryRoot: string | null): ChangedFileEntry {
   return {
+    actions: [],
     additions: null,
     deletions: null,
     patch: null,
     path,
     repositoryRoot,
-    revertible: true,
+    revision: 'r1',
     rootId,
     status: 'modified',
     worktreePath: null,

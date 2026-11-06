@@ -30,29 +30,28 @@ export interface TokenCountingRuntimeSupport {
 
 const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
   accurate: {
-    description: 'Accurate token counts are applied to Explorer previews.',
+    description: 'Explorer previews show exact token counts.',
     icon: CheckCircle2,
-    label: 'Using WASM tokenizer',
+    label: 'Accurate counts',
     variant: 'secondary',
   },
   checking: {
-    description: 'Loading the WASM tokenizer to confirm availability.',
+    description: 'Loading the accurate counter.',
     icon: Loader2,
-    label: 'Checking runtime…',
+    label: 'Checking…',
     variant: 'outline',
   },
   disabled: {
-    description:
-      'Accurate counting is disabled by preference. Token counts use the 4 chars/token heuristic only because you explicitly selected it.',
+    description: 'Explorer previews show estimates, because you turned accurate counts off.',
     icon: MinusCircle,
-    label: 'Heuristic mode (explicit)',
+    label: 'Estimated counts',
     variant: 'outline',
   },
   unavailable: {
     description:
-      'Brainstrike is configured to require tiktoken. Requests that need token sizing will fail until the WASM tokenizer loads or you explicitly switch to heuristic mode.',
+      "The accurate counter didn't load, so anything that needs a token count fails. Restart Brainstrike, or turn accurate counts off to use estimates.",
     icon: AlertTriangle,
-    label: 'Accurate tokenizer unavailable',
+    label: 'Accurate counts unavailable',
     variant: 'destructive',
   },
 };
@@ -79,20 +78,19 @@ export function TokenCountingSettingsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Token Counting</CardTitle>
+        <CardTitle>Counting method</CardTitle>
         <CardDescription>
-          Choose how Brainstrike measures tokens for previews. The default is tiktoken in
-          WebAssembly; heuristic counting is only used when you explicitly disable accurate mode.
+          Choose how Brainstrike counts tokens in Explorer previews.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-center justify-between gap-4">
           <div>
             <Label className="text-sm font-medium" htmlFor={accurateToggleId}>
-              Use WASM tokenizer (recommended)
+              Accurate token counts (recommended)
             </Label>
             <p className="text-muted-foreground text-sm">
-              When enabled, Brainstrike loads tiktoken in WebAssembly for accurate token counting.
+              Counts tokens the way the model does. Turn this off to use estimated counts.
             </p>
           </div>
           <Switch
@@ -114,6 +112,10 @@ export function TokenCountingSettingsSection({
           </Badge>
           <p className="text-muted-foreground flex-1 text-sm">{status.description}</p>
         </div>
+        <p className="text-muted-foreground text-xs">
+          Accurate counts use the tiktoken tokenizer in WebAssembly. Estimates assume about four
+          characters per token.
+        </p>
       </CardContent>
     </Card>
   );

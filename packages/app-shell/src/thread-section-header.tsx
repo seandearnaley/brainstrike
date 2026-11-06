@@ -47,7 +47,7 @@ export function ThreadSectionHeader({
         label
       )}
       <span
-        className="text-muted-foreground shrink-0 text-[11px] tabular-nums"
+        className="text-muted-foreground text-2xs shrink-0 tabular-nums"
         data-testid={countTestId}
       >
         {count}

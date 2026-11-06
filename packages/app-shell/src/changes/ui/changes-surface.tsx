@@ -30,7 +30,7 @@
 import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { ChangedFileEntry, Changeset, GitInventory } from '@brainstrike/types';
-import type { DiffReviewHandle } from '@brainstrike/ui';
+import { type DiffReviewHandle, useIdeFileEditor } from '@brainstrike/ui';
 import { type ReactElement, useMemo, useRef } from 'react';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { changedFileKey } from '../changes-store';
@@ -101,6 +101,7 @@ export function ChangesSurface(): ReactElement {
     return map;
   }, [mountedRootHandles, rootIdByPath]);
 
+  const { openFileInTab } = useIdeFileEditor();
   const rootLabelById = useRootLabelById();
   const sendComments = useDiffCommentsToThread(rootLabelById);
   const review = useRef<DiffReviewHandle | null>(null);
@@ -136,7 +137,7 @@ export function ChangesSurface(): ReactElement {
     return rootId;
   }, [changeset, inventory, rootId]);
 
-  const { error, fileDiff, refresh, view } = useChangeset(resolutionRootId, changeset);
+  const { apply, error, fileDiff, refresh, view } = useChangeset(resolutionRootId, changeset);
 
   const handleRetry = () => {
     void refresh();
@@ -193,11 +194,14 @@ export function ChangesSurface(): ReactElement {
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <ChangesetDiffPane
+              applyAction={apply}
               changesetKey={changesetKey}
               files={renderedFiles}
               loadFileDiff={fileDiff}
               onSendComments={sendComments}
+              openFileInTab={openFileInTab}
               reviewRef={review}
+              rootPathById={rootPathById}
             />
           </div>
         </div>

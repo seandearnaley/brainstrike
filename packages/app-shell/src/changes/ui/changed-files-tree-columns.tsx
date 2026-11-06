@@ -34,7 +34,7 @@ export function lastPathSegment(path: string): string {
 
 function ChangeStatsCell({ entry }: { readonly entry: ChangedFileEntry }): ReactElement {
   return (
-    <span className="flex items-center justify-end gap-1.5 font-mono text-[11px] tabular-nums">
+    <span className="text-2xs flex items-center justify-end gap-1.5 font-mono tabular-nums">
       <span className={entry.additions === null ? 'text-muted-foreground' : 'text-success'}>
         {entry.additions === null ? '—' : `+${entry.additions}`}
       </span>
@@ -51,7 +51,7 @@ function FileNameCell({ entry }: { readonly entry: ChangedFileEntry }): ReactEle
     <span className="flex min-w-0 items-center gap-2">
       <span
         aria-label={presentation.label}
-        className={`w-4 shrink-0 text-center font-mono text-[10px] font-semibold ${presentation.className}`}
+        className={`text-2xs w-4 shrink-0 text-center font-mono font-semibold ${presentation.className}`}
         role="img"
       >
         {presentation.glyph}
@@ -70,7 +70,7 @@ function WorktreeTrustBadge({
     <Tooltip>
       <TooltipTrigger asChild>
         <Badge
-          className="text-warning gap-1 border-amber-500/40"
+          className="text-warning border-warning/40 gap-1"
           data-testid="changed-files-worktree-trust-badge"
           variant="outline"
         >
@@ -98,7 +98,7 @@ function WorktreeNameCell({ data }: { readonly data: ChangedFilesWorktreeNodeDat
         {label}
       </span>
       {descriptor?.branch ? (
-        <span className="text-muted-foreground truncate text-[10px]">{descriptor.branch}</span>
+        <span className="text-muted-foreground text-2xs truncate">{descriptor.branch}</span>
       ) : null}
       {descriptor?.trust === 'unvalidated' ? (
         <WorktreeTrustBadge trustReason={descriptor.trustReason} />
@@ -155,7 +155,7 @@ export const CHANGED_FILES_TREE_COLUMNS: TreeTableColumn<ChangedFilesTreeNodeDat
   {
     cell: NameCell,
     header: 'Name',
-    headerClassName: 'h-7 py-0 pr-2 pl-1.5 font-medium text-[11px]',
+    headerClassName: 'h-7 py-0 pr-2 pl-1.5 font-medium text-2xs',
     id: 'name',
     // Half the default step: the root, repository and worktree levels would
     // otherwise push every file a fifth of a narrow list to the right.
@@ -166,7 +166,7 @@ export const CHANGED_FILES_TREE_COLUMNS: TreeTableColumn<ChangedFilesTreeNodeDat
     cell: StatsCell,
     className: 'px-2 py-0 text-right',
     header: 'Changes',
-    headerClassName: 'h-7 px-2 py-0 font-medium text-[11px]',
+    headerClassName: 'h-7 px-2 py-0 font-medium text-2xs',
     headerContentClassName: 'justify-end',
     id: 'stats',
     resizable: false,

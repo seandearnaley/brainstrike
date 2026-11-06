@@ -1,4 +1,4 @@
-import type { ContextTarget } from '@brainstrike/context-actions';
+import type { ActionShortcut, ContextTarget } from '@brainstrike/context-actions';
 import {
   bridgeActionToCommand,
   type Command,
@@ -33,6 +33,8 @@ export interface AppCommandRegistryInput {
   readonly getTabStrip?: () => TabCommandStrip | undefined;
   readonly handlers: GlobalCommandHandlers;
   readonly parts: AppActionRegistryParts;
+  /** The bindings live in this window, by command id (`resolveCommandShortcuts`). */
+  readonly shortcuts?: ReadonlyMap<string, ActionShortcut>;
   readonly target: ContextTarget | null;
 }
 
@@ -51,13 +53,17 @@ export function createAppCommandRegistry({
   getTabStrip,
   parts,
   handlers,
+  shortcuts,
   target,
 }: AppCommandRegistryInput): CommandRegistry {
   const globals: Command[] = [
     ...createGlobalCommands(handlers),
     // Without a strip getter every tab command stays hidden (`isAvailable`).
     ...createTabCommands(getTabStrip ?? (() => undefined)),
-  ];
+  ].map((command) => {
+    const shortcut = shortcuts?.get(command.id);
+    return shortcut ? { ...command, shortcut } : command;
+  });
   const bridged: Command[] = [];
   for (const action of parts.actions) {
     const command = bridgeActionToCommand(action, () => target);

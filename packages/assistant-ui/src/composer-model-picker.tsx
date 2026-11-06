@@ -7,6 +7,7 @@
  * Effort/Thinking controls stay OUT of this picker (BST-948).
  */
 import {
+  Button,
   formatContextWindow,
   getProviderColor,
   type ModelPickerModel,
@@ -27,6 +28,8 @@ export interface ComposerModelPickerProps {
   disabled?: boolean | undefined;
   /** Enable a registry-backed model. Resolves true once committed; false after the host reported the failure. */
   onEnableModel?: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
+  /** Opens the host's model settings; absent, the empty state offers no link there. */
+  onManageModels?: (() => void) | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
   pickerModels: ModelPickerModel[];
   providerGroups: ProviderGroupConfig[];
@@ -120,7 +123,7 @@ function RecentRow({ entry, onPick, selected }: Omit<RowProps, 'showProvider'>):
           </span>
         ) : null}
       </span>
-      <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
+      <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
       <CapabilityIcons meta={entry.meta} />
       <SelectedMark selected={selected} />
     </Command.Item>
@@ -133,16 +136,57 @@ function ListRow({ entry, onPick, selected, showProvider }: RowProps): ReactNode
       {showProvider ? <ProviderDot providerId={entry.providerId} /> : null}
       <span className="min-w-0 flex-1 truncate leading-5">{entry.modelLabel}</span>
       {showProvider ? (
-        <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
+        <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
       ) : null}
       {entry.meta?.contextWindow ? (
-        <span className="border-border/50 bg-background/55 text-muted-foreground shrink-0 rounded-md border px-1 text-[10px]">
+        <span className="border-border/50 bg-background/55 text-muted-foreground text-2xs shrink-0 rounded-md border px-1">
           {formatContextWindow(entry.meta.contextWindow)}
         </span>
       ) : null}
       <CapabilityIcons meta={entry.meta} />
       <SelectedMark selected={selected} />
     </Command.Item>
+  );
+}
+
+/** A provider group's heading: its name, then its model count as a separate muted badge. */
+function GroupHeading({ count, label }: { count: number; label: string }): ReactNode {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="truncate">{label}</span>
+      <span className="bg-muted text-muted-foreground rounded-full px-1.5 leading-4 tabular-nums">
+        {count}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The open picker with nothing enabled: says so, points to search when models
+ * can be enabled from here, and offers the host's model settings when it has
+ * them.
+ */
+function NoEnabledModels({
+  canEnable,
+  onManageModels,
+}: {
+  canEnable: boolean;
+  onManageModels: (() => void) | undefined;
+}): ReactNode {
+  return (
+    <div className="flex flex-col items-center gap-2 px-3 py-6 text-center text-sm">
+      <p className="font-medium">No models are enabled</p>
+      <p className="text-muted-foreground text-xs">
+        {canEnable
+          ? 'Search to find a model and enable it here, or manage models in Settings.'
+          : 'Enable a model in Settings to start chatting.'}
+      </p>
+      {onManageModels ? (
+        <Button onClick={onManageModels} size="sm" type="button" variant="outline">
+          Manage models
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -167,7 +211,7 @@ function NotEnabledRow({
       <span className="text-muted-foreground min-w-0 flex-1 truncate leading-5">
         {entry.modelLabel}
       </span>
-      <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
+      <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
       <Plus aria-hidden className="text-muted-foreground size-3.5 shrink-0" />
     </Command.Item>
   );
@@ -176,6 +220,7 @@ function NotEnabledRow({
 export function ComposerModelPicker({
   disabled,
   onEnableModel,
+  onManageModels,
   onModelChange,
   pickerModels,
   providerGroups,
@@ -203,7 +248,8 @@ export function ComposerModelPicker({
 
   const selectedEntry = selectedModel ? sections.enabledByKey.get(selectedModel) : undefined;
   const hasOptions = sections.enabledByKey.size > 0;
-  const canSelect = Boolean(onModelChange) && hasOptions && !disabled;
+  // Open with nothing enabled too: the empty state leads to enabling a model.
+  const canSelect = Boolean(onModelChange) && !disabled;
   const triggerText = triggerLabel(selectedEntry, hasOptions);
 
   // An external change to `selectedModel` (another control, or the pick
@@ -285,9 +331,25 @@ export function ComposerModelPicker({
         <Command className="flex flex-col" label="Models" shouldFilter={false}>
           <ModelPickerSearch onValueChange={setQuery} placeholder="Search models…" value={query} />
           <Command.List className="max-h-[min(60vh,420px)] overflow-y-auto p-1">
-            <Command.Empty className="text-muted-foreground px-2 py-6 text-center text-sm">
-              No models match “{query.trim()}”.
-            </Command.Empty>
+            {isSearching || hasOptions ? (
+              <Command.Empty className="text-muted-foreground px-2 py-6 text-center text-sm">
+                No models match “{query.trim()}”.
+              </Command.Empty>
+            ) : (
+              <NoEnabledModels
+                canEnable={Boolean(onEnableModel)}
+                onManageModels={
+                  onManageModels
+                    ? () => {
+                        // Settings opens beside the chat, not over it: close
+                        // the picker first, as every other exit does.
+                        handleOpenChange(false);
+                        onManageModels();
+                      }
+                    : undefined
+                }
+              />
+            )}
             {isSearching ? null : (
               <>
                 {sections.recent.length > 0 ? (
@@ -305,7 +367,12 @@ export function ComposerModelPicker({
                 {sections.groups.map((group) => (
                   <Command.Group
                     className={GROUP_HEADING_CLASS}
-                    heading={`${group.runtimeLabel} · ${group.providerName} ${group.entries.length}`}
+                    heading={
+                      <GroupHeading
+                        count={group.entries.length}
+                        label={`${group.runtimeLabel} · ${group.providerName}`}
+                      />
+                    }
                     key={`${group.runtimeLabel}:${group.providerId}`}
                   >
                     {group.entries.map((entry) => (

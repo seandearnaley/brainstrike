@@ -25,7 +25,11 @@ import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
-import { HostChildDeliverySchema } from './protocol-delivery.ts';
+import {
+  HostChildDeliverySchema,
+  HostNoticeSchema,
+  HostStepDeliverySchema,
+} from './protocol-delivery.ts';
 import { FILE_SEARCH_METHOD_SCHEMAS, FILE_SEARCH_RESULT_SCHEMAS } from './protocol-file-search.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
@@ -291,6 +295,9 @@ export {
   HostChildDeliverySchema,
   type HostCommandSessionDelivery,
   HostCommandSessionDeliverySchema,
+  type HostNotice,
+  HostNoticeSchema,
+  type HostStepDelivery,
 } from './protocol-delivery.ts';
 /** Credentials and executable capabilities remain process-local. */
 export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
@@ -382,9 +389,10 @@ export const HOST_METHOD_SCHEMAS = {
   /** The cheapest authenticated probe of one provider's stored or env credential. */
   'providers/verify': Schema.Struct(Provider),
   /**
-   * BST-1932: human input for a running child. The active run ends after its
-   * step in flight, and the input starts the child's next run under these run
-   * settings; only that run's end reports to the parent.
+   * ADR-0028 step 3b: a person's message to a thread whose run `runId` they
+   * saw. The committed command is its notice: a working run reads it at its
+   * next step; an idle thread starts the person's turn with it, under these
+   * run settings. A stopped run leaves it for the thread's next run.
    */
   'run/input': Schema.Struct({
     ...Command,
@@ -421,11 +429,6 @@ export const HOST_METHOD_SCHEMAS = {
       hasMessage(value) ? undefined : { issue: NO_MESSAGE.message, path: NO_MESSAGE.path ?? [] }
     )
   ),
-  /**
-   * End the active run gracefully at its next step boundary, after the step in
-   * flight, so the user's steering message can start the next turn (BST-588).
-   */
-  'run/steer': Schema.Struct({ ...Command, ...Run }),
   'run/stop': Schema.Struct({ ...Command, ...Run }),
   /** A client verdict is always the user's; hook and revert labels are host-committed. */
   'run/verdict': Schema.Struct({
@@ -647,6 +650,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         result: json(),
         type: Schema.Literal('command.accepted'),
       }),
+      Schema.Struct({ notice: HostNoticeSchema, type: Schema.Literal('notice.posted') }),
       Schema.Struct({
         type: Schema.Literal('run.started'),
         ...RunFields,
@@ -656,6 +660,11 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         parentMessageId: Schema.optional(Schema.NullOr(Id)),
         parentRunId: Schema.optional(Id),
         ...PlanMode,
+        /**
+         * The host wrote this run's prompt, not the person: the run it starts
+         * to carry a task on in the worktree the previous run entered.
+         */
+        hostPrompt: Schema.optional(Schema.Literal(true)),
         prompt: Prompt,
         snapshot: Schema.optional(hostRunSnapshotSchema(json)),
         /**
@@ -677,6 +686,8 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('model.messages'),
         ...RunFields,
+        /** ADR-0028 step 3b: the notices these messages carry to a running run's model. */
+        delivery: Schema.optional(HostStepDeliverySchema),
         messages: Schema.mutable(Schema.Array(json())),
       }),
       Schema.Struct({
@@ -997,7 +1008,6 @@ export const HOST_RESULT_SCHEMAS = {
   'run/input': Schema.Struct({ accepted: Schema.Literal(true) }),
   'run/regenerate': Schema.Struct({ runId: Id }),
   'run/start': Schema.Struct({ runId: Id }),
-  'run/steer': Schema.Struct({ outcome: Schema.Literals(['steering', 'already-terminal']) }),
   'run/stop': Schema.Struct({ outcome: Schema.Literals(['stopped', 'already-terminal']) }),
   'run/verdict': Schema.Struct({ accepted: Schema.Literal(true) }),
   'state/health/read': HostStateHealthSchema,

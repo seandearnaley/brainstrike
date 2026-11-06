@@ -45,7 +45,7 @@ export function TurnScrubber({
               aria-pressed={turn === selected}
               className={cn(
                 'text-muted-foreground flex min-w-9 flex-col items-center gap-1 rounded px-1 pb-0.5',
-                'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
+                'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-hidden',
                 turn === selected && 'text-foreground'
               )}
               data-testid={`context-map-turn-${turn}`}
@@ -62,7 +62,7 @@ export function TurnScrubber({
               />
               <span
                 className={cn(
-                  'rounded px-1 font-mono text-[11px]',
+                  'text-2xs rounded px-1 font-mono',
                   turn === selected && 'bg-foreground text-background'
                 )}
               >

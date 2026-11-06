@@ -21,12 +21,13 @@ import {
 
 function makeEntry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
   return {
+    actions: [],
     additions: 3,
     deletions: 1,
     patch: null,
     path: 'src/a.ts',
     repositoryRoot: '/repo',
-    revertible: true,
+    revision: 'r1',
     rootId: 'root-1',
     status: 'modified',
     worktreePath: '/repo',

@@ -1,21 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPrepareFactoryReset = vi.fn<() => Promise<void>>(async () => {});
-
-// Mock dependencies
-vi.mock('@brainstrike/ui', () => ({
-  Button: ({ children, onClick, disabled, ...props }: React.ComponentProps<'button'>) => (
-    <button disabled={disabled} onClick={onClick} {...props}>
-      {children}
-    </button>
-  ),
-  Label: ({ children, className }: { children: React.ReactNode; className?: string }) => (
-    <div className={className}>{children}</div>
-  ),
-}));
 
 vi.mock('@brainstrike/app-state/factory-reset', () => ({
   prepareFactoryReset: mockPrepareFactoryReset,
@@ -36,9 +23,13 @@ function installDesktopReset(resetLocal: () => Promise<{ message?: string; succe
   });
 }
 
-describe('FactoryResetPanel', () => {
-  let mockConfirm: Mock<(message?: string) => boolean>;
+/** Opens the reset dialog and confirms it. */
+function confirmReset(): void {
+  fireEvent.click(screen.getByTestId('factory-reset-button'));
+  fireEvent.click(screen.getByTestId('factory-reset-confirm'));
+}
 
+describe('FactoryResetPanel', () => {
   beforeAll(() => {
     // Mock window.location with our custom reload function
     vi.stubGlobal('location', {
@@ -67,11 +58,6 @@ describe('FactoryResetPanel', () => {
 
     // Reset default mocks
     mockPrepareFactoryReset.mockResolvedValue(undefined);
-
-    // Setup window.confirm mock
-    mockConfirm = vi.fn<(message?: string) => boolean>();
-    window.confirm = mockConfirm;
-    mockConfirm.mockReturnValue(true);
   });
 
   it('disables an explicitly unavailable desktop reset', () => {
@@ -92,7 +78,7 @@ describe('FactoryResetPanel', () => {
     ).toBeVisible();
     expect(screen.getByTestId('factory-reset-button')).toBeDisabled();
     fireEvent.click(screen.getByTestId('factory-reset-button'));
-    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
     expect(resetLocal).not.toHaveBeenCalled();
   });
@@ -107,7 +93,7 @@ describe('FactoryResetPanel', () => {
       writable: true,
     });
     render(<FactoryResetPanel />);
-    fireEvent.click(screen.getByTestId('factory-reset-button'));
+    confirmReset();
     expect(resetLocal).not.toHaveBeenCalled();
     preparation.resolve();
     await waitFor(() => expect(resetLocal).toHaveBeenCalledOnce());
@@ -122,7 +108,7 @@ describe('FactoryResetPanel', () => {
       writable: true,
     });
     render(<FactoryResetPanel />);
-    fireEvent.click(screen.getByTestId('factory-reset-button'));
+    confirmReset();
     await waitFor(() => expect(mockReload).toHaveBeenCalledOnce());
     expect(resetLocal).not.toHaveBeenCalled();
   });
@@ -131,14 +117,14 @@ describe('FactoryResetPanel', () => {
     it('renders factory reset panel with button', () => {
       render(<FactoryResetPanel />);
 
-      expect(screen.getByText('Factory Reset')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Factory reset' })).toBeInTheDocument();
       expect(
         screen.getByText(
           /Irreversibly deletes local data, stored folders, API keys, tool settings, runtime caches, and UI state from this device\. Diagnostic logs may be preserved\./u
         )
       ).toBeInTheDocument();
       expect(screen.getByTestId('factory-reset-button')).toBeInTheDocument();
-      expect(screen.getByText('Factory Reset Brainstrike')).toBeInTheDocument();
+      expect(screen.getByTestId('factory-reset-button')).toHaveTextContent('Factory reset…');
     });
 
     it('shows warning when no desktop reset bridge is available', () => {
@@ -166,50 +152,55 @@ describe('FactoryResetPanel', () => {
   });
 
   describe('user interactions', () => {
-    it('shows confirmation dialog when button is clicked', () => {
-      mockConfirm.mockReturnValue(false);
-      installDesktopReset(vi.fn(async () => ({ success: true })));
+    it('asks for confirmation in a dialog before resetting', () => {
+      const resetLocal = vi.fn(async () => ({ success: true }));
+      installDesktopReset(resetLocal);
       render(<FactoryResetPanel />);
 
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
-      expect(mockConfirm).toHaveBeenCalledWith(
-        'Factory Reset will irreversibly delete local threads, stored folders, API keys, tool settings, runtime caches, and UI state from this device. Diagnostic logs may be preserved. Continue?'
+      expect(screen.getByRole('dialog', { name: 'Factory reset' })).toHaveTextContent(
+        'This cannot be undone.'
       );
+      expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
+      expect(resetLocal).not.toHaveBeenCalled();
     });
 
     it('does not proceed when user cancels confirmation', async () => {
-      mockConfirm.mockReturnValue(false);
       const resetLocal = vi.fn(async () => ({ success: true }));
       installDesktopReset(resetLocal);
 
       render(<FactoryResetPanel />);
 
       fireEvent.click(screen.getByTestId('factory-reset-button'));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
       await waitFor(() => {
-        expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
-        expect(resetLocal).not.toHaveBeenCalled();
-        expect(mockReload).not.toHaveBeenCalled();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       });
+      expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
+      expect(resetLocal).not.toHaveBeenCalled();
+      expect(mockReload).not.toHaveBeenCalled();
     });
   });
 
   describe('desktop reset flow', () => {
-    it('disables button while reset is running', async () => {
+    it('shows the reset running and keeps the dialog open', async () => {
       const reset = Promise.withResolvers<{ success: boolean }>();
       installDesktopReset(vi.fn(() => reset.promise));
 
       render(<FactoryResetPanel />);
 
-      const button = screen.getByTestId('factory-reset-button') as HTMLButtonElement;
-      expect(button.disabled).toBe(false);
+      confirmReset();
 
-      fireEvent.click(button);
-
+      const confirm = screen.getByTestId('factory-reset-confirm');
       await waitFor(() => {
-        expect(button.disabled).toBe(true);
+        expect(confirm).toBeDisabled();
       });
+      expect(confirm).toHaveTextContent('Resetting…');
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
       reset.resolve({ success: true });
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
@@ -226,7 +217,7 @@ describe('FactoryResetPanel', () => {
       installDesktopReset(resetLocal);
       render(<FactoryResetPanel />);
 
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
+      confirmReset();
 
       await waitFor(() => expect(resetLocal).toHaveBeenCalledOnce());
       expect(storedAtReset).toBeNull();
@@ -242,7 +233,7 @@ describe('FactoryResetPanel', () => {
 
       render(<FactoryResetPanel />);
 
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
+      confirmReset();
 
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
@@ -254,7 +245,7 @@ describe('FactoryResetPanel', () => {
 
       render(<FactoryResetPanel />);
 
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
+      confirmReset();
 
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
@@ -271,7 +262,7 @@ describe('FactoryResetPanel', () => {
 
       render(<FactoryResetPanel />);
 
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
+      confirmReset();
 
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
@@ -286,7 +277,7 @@ describe('FactoryResetPanel', () => {
 
       render(<FactoryResetPanel />);
 
-      fireEvent.click(screen.getByTestId('factory-reset-button'));
+      confirmReset();
 
       await waitFor(() => {
         expect(mockReload).toHaveBeenCalled();
@@ -298,9 +289,10 @@ describe('FactoryResetPanel', () => {
     it('does not offer a UI-only fallback', () => {
       render(<FactoryResetPanel />);
 
+      expect(screen.getByTestId('factory-reset-button')).toBeDisabled();
       fireEvent.click(screen.getByTestId('factory-reset-button'));
 
-      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       expect(mockReload).not.toHaveBeenCalled();
     });
   });

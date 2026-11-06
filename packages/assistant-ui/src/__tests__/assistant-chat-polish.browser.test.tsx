@@ -7,7 +7,7 @@ import {
 } from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
 import { TooltipProvider } from '@brainstrike/ui';
-import { CodeBlockBody, CodeBlockHeader } from '@brainstrike/ui/code-block';
+import { CodeBlock, CodeBlockBody } from '@brainstrike/ui/code-block';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
@@ -339,9 +339,8 @@ describe('shared code-block chrome (real browser)', () => {
       <TooltipProvider>
         <div className="assistant-ui-panel">
           <div className="aui-md">
-            {/* Chat pipeline contract: header and body render as SIBLINGS. */}
-            <CodeBlockHeader code={code} language={language} />
-            <CodeBlockBody code={code} language={language} />
+            {/* The chat renders the composed box from its SyntaxHighlighter slot. */}
+            <CodeBlock code={code} language={language} />
           </div>
         </div>
       </TooltipProvider>
@@ -519,7 +518,7 @@ describe('ActivityTrace (real browser)', () => {
     // animates its opacity, so there is nothing left to wait for and a wait
     // here would only hide a regression behind a 2s timeout.
     expect(screen.getByText('Read 2 files, searched')).toBeVisible();
-    expect(screen.getByText(/Worked for 12\.0s/u)).toBeVisible();
+    expect(screen.getByText(/Worked for 12s/u)).toBeVisible();
     expect(screen.getByText(/5 steps/u)).toBeVisible();
 
     // Auto-collapsed when done: the body is hidden (display:none via [hidden]).

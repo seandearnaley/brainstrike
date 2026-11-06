@@ -7,24 +7,36 @@ import type { HostEnteredWorktree } from './ports.ts';
 import type { HostEvent } from './protocol.ts';
 
 type HostBindingCommands = Pick<HostCore, 'readWorkspaceBinding' | 'updateWorkspaceBinding'>;
+type HostWorktreeChildren = Pick<HostChildRuns, 'isChild' | 'subtree'>;
+
+/** Rule 5 at the entry, when a parallel call of the same step dispatched a worker. */
+const workersLiveError = (worktree: HostEnteredWorktree) =>
+  new Error(
+    `The worktree was created at ${worktree.root.path}, but this conversation stays in its checkout: a background worker started in the same step still writes there.`
+  );
 
 /**
  * ADR-0028 step 3: a root run's call binds its thread to the worktree it
  * created, through the binding's own command path, naming the run; folding that
  * commit ends the run after this step. Its next run is admitted there
  * (ADR-0017: a run keeps its binding). A child never moves its parent's
- * thread, so it is offered no entry.
+ * thread, and a root never moves away from workers still writing its checkout
+ * (rule 5: one operating root), so neither is offered an entry.
  */
 export function hostWorktreeEntry(
   core: HostBindingCommands,
-  children: Pick<HostChildRuns, 'isChild'>,
+  children: HostWorktreeChildren,
+  runs: ReadonlyMap<string, HostRunState>,
   run: HostRunState,
   action: HostRunAction
 ): ((worktree: HostEnteredWorktree) => Promise<void>) | undefined {
-  if (children.isChild(run.threadId)) {
+  if (children.isChild(run.threadId) || workersLive(children, runs, run.threadId)) {
     return;
   }
   return async (worktree) => {
+    if (workersLive(children, runs, run.threadId)) {
+      throw workersLiveError(worktree);
+    }
     const { binding } = core.readWorkspaceBinding(run.threadId);
     await core.updateWorkspaceBinding(
       {
@@ -35,6 +47,15 @@ export function hostWorktreeEntry(
       { runId: run.id }
     );
   };
+}
+
+function workersLive(
+  children: HostWorktreeChildren,
+  runs: ReadonlyMap<string, HostRunState>,
+  threadId: string
+): boolean {
+  const workers = new Set(children.subtree(threadId).filter((id) => id !== threadId));
+  return [...runs.values()].some((other) => !other.terminal && workers.has(other.threadId));
 }
 
 /**
@@ -55,7 +76,6 @@ export function foldHostWorktreeEntry(
     throw new Error('A committed worktree entry names no operating root path.');
   }
   run.enteredWorktree = { branch: event.binding.checkoutBranch ?? null, path };
-  run.steered = true;
 }
 
 /**

@@ -186,7 +186,7 @@ function AssistantStatusCallout({
     >
       <div className="font-medium">{title}</div>
       <div className="mt-1">{description}</div>
-      {detail ? <div className="mt-1 text-[11px] opacity-80">{detail}</div> : null}
+      {detail ? <div className="text-2xs mt-1 opacity-80">{detail}</div> : null}
     </div>
   );
 }

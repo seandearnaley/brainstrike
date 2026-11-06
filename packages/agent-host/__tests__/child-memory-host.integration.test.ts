@@ -72,17 +72,23 @@ function productionMemory(store: StateStore, lastMessages = 10): HostPlatform['o
 
 type Streamed = Awaited<ReturnType<MockLanguageModelV4['doStream']>>;
 
-/** The parent delegates once; `child` answers the child's provider call. */
-function delegatingModel(child: (call: CallOptions) => Streamed) {
+/**
+ * The parent delegates once; `child` answers the child's provider call once the
+ * parent's last step has begun, so a wake, not that step, takes its report.
+ */
+function delegatingModel(child: (call: CallOptions) => Streamed | Promise<Streamed>) {
+  const lastStep = Promise.withResolvers<void>();
   return new MockLanguageModelV4({
     doStream: async (call) => {
       const user = userTexts(call).join('\n');
       if (!toolNames(call).includes('agent-explore')) {
+        await lastStep.promise;
         return child(call);
       }
       if (user.endsWith('Delegate.') && !call.prompt.some((message) => message.role === 'tool')) {
         return stream(toolCall('agent-explore', { prompt: TASK }, 'memory-1'));
       }
+      lastStep.resolve();
       return stream(text(user.includes(LEDGER) ? 'Parent read the child.' : 'Parent continues.'));
     },
   });
@@ -163,6 +169,8 @@ test('a later wake of the same turn still reads the conclusion an earlier wake d
   const slow = new Promise<void>((resolve) => {
     releaseSlow = resolve;
   });
+  // The fast child reports once the parent's last step has begun, so a wake takes it.
+  const lastStep = Promise.withResolvers<void>();
   const model = new MockLanguageModelV4({
     doStream: async (call) => {
       const user = userTexts(call).join('\n');
@@ -171,6 +179,7 @@ test('a later wake of the same turn still reads the conclusion an earlier wake d
           await slow;
           return stream(text('Slow outcome.'));
         }
+        await lastStep.promise;
         return stream(text(report));
       }
       if (user.endsWith('Delegate.') && !call.prompt.some((message) => message.role === 'tool')) {
@@ -181,6 +190,7 @@ test('a later wake of the same turn still reads the conclusion an earlier wake d
           ])
         );
       }
+      lastStep.resolve();
       return stream(text('Parent continues.'));
     },
   });
@@ -226,4 +236,55 @@ test('a next turn under Memory reads the interrupted child ledger once, and late
   await rowsUntil(harness, harness.threadId, finished(after), SETTLED);
   const afterInputs = userTexts(model.doStreamCalls.at(-1) as CallOptions).join('\n');
   expect(afterInputs.split(LEDGER)).toHaveLength(2);
+});
+
+test("under Memory, a running parent's next step reads a worker's report beside its own task", async () => {
+  const OUTCOME = 'MEMORY-STEP-OUTCOME-17';
+  let harness: Awaited<ReturnType<typeof setupChildRunHost>> | undefined;
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (!toolNames(call).includes('agent-explore')) {
+        return stream(text(OUTCOME));
+      }
+      const answered = toolResults(call).length;
+      if (answered === 0) {
+        return stream(toolCall('agent-explore', { prompt: 'Look.' }, 'call-look'));
+      }
+      if (answered === 1) {
+        return stream(toolCall('read_file', { path: 'notes.md' }, 'call-read'));
+      }
+      return stream(text('Done.'));
+    },
+  });
+  harness = await setupChildRunHost(model, cleanup, {
+    memory: productionMemory,
+    readFile: async () => {
+      if (!harness) {
+        throw new Error('The host is not set up');
+      }
+      await rowsUntil(
+        harness,
+        harness.threadId,
+        ({ event }) => event.type === 'notice.posted',
+        SETTLED
+      );
+      return { content: 'notes' };
+    },
+  });
+  await harness.start(TASK);
+  await harness.core().idle(harness.threadId);
+  const last = model.doStreamCalls
+    .filter((call) => toolNames(call).includes('agent-explore'))
+    .at(-1);
+  if (!last) {
+    throw new Error('The parent made no call');
+  }
+  // The step's request keeps the run's own task, its tool calls and the report.
+  expect(userTexts(last).join('\n')).toContain(TASK);
+  expect(userTexts(last).join('\n')).toContain(OUTCOME);
+  expect(toolResults(last)).toHaveLength(2);
+  // A later turn rebuilds that turn from the log, the report inside it.
+  await harness.start('What did it find?');
+  await harness.core().idle(harness.threadId);
+  expect(JSON.stringify(model.doStreamCalls.at(-1)?.prompt)).toContain(OUTCOME);
 });

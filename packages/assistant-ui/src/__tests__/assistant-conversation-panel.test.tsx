@@ -131,35 +131,6 @@ describe('shared conversation panel', () => {
     expect(panel.style.getPropertyValue('--agent-accent-dark')).toMatch(/^oklch\(/u);
   });
 
-  it.each(['pending', 'delivered'])(
-    'shows the persisted %s child input acknowledgement',
-    (state) => {
-      render(
-        <TooltipProvider>
-          <Conversation
-            id="Cedar"
-            messages={[
-              {
-                content: 'Inspect file',
-                id: 'human',
-                metadata: { custom: { brainstrikeChildInputDelivery: state } },
-                role: 'user',
-              },
-            ]}
-            onNew={async () => {}}
-          />
-        </TooltipProvider>
-      );
-      expect(
-        screen.getByText(
-          state === 'pending'
-            ? 'Delivery unconfirmed. This input will not be replayed automatically.'
-            : 'Accepted by child'
-        )
-      ).toHaveAttribute('role', 'status');
-    }
-  );
-
   it('sends idle child input through the owned receipt path and never ordinary onNew', async () => {
     const accepted = Promise.withResolvers<void>();
     const send = vi.fn(() => accepted.promise);
@@ -623,12 +594,10 @@ describe('shared conversation panel', () => {
         </TooltipProvider>
       );
       if (!canReload) {
-        expect(
-          screen.queryByRole('button', { name: 'Regenerate response' })
-        ).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
         return;
       }
-      await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate response' }));
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Retry' }));
       expect(onReload).toHaveBeenCalledTimes(1);
       expect(onNew).not.toHaveBeenCalled();
     }

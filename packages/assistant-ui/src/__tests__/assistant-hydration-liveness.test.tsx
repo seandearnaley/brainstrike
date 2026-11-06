@@ -246,7 +246,8 @@ describe('hydrated threads render no live indicator unless something is genuinel
         status: settled,
       },
     ]);
-    // The notice's actual heading copy is "Tool approval required" with a
+    // The notice's actual heading copy is "Allow brainstrike.executeCommand?" (the
+    // call carries no command to name) with a
     // "Pending" status chip (assistant-tool-approval-notice.tsx). The run-
     // timeline ROW below reads the raw event kind, 'tool.approval.requested',
     // only because this fixture's `runEventPart` sets `label` to the kind for
@@ -254,7 +255,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
     // label (e.g. "Awaiting your approval"); assert against this fixture's
     // actual, stable text rather than production copy this fixture never
     // sends.
-    expect(await screen.findByText('Tool approval required')).toBeInTheDocument();
+    expect(await screen.findByText('Allow brainstrike.executeCommand?')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.getByText('Approval requested')).toBeInTheDocument();
     expect(
@@ -353,7 +354,7 @@ describe('hydrated threads render no live indicator unless something is genuinel
       'developer'
     );
 
-    await screen.findByText('Tool approval required');
+    await screen.findByText('Allow brainstrike.executeCommand?');
     const timelines = screen.getAllByTestId('timeline');
     expect(timelines).toHaveLength(3);
     const [messageA, , messageB] = timelines;

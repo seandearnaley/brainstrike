@@ -81,8 +81,8 @@ export function getExplorerColumnResizeBounds(columnId: ExplorerMetadataColumnId
 
 /** Shared by the body cells and both header renderers so padding cannot drift. */
 const EXPLORER_METADATA_CELL_CLASS = 'px-2 py-0';
-export const EXPLORER_METADATA_HEADER_CLASS = 'h-7 px-2 py-0 font-medium text-[11px]';
-export const EXPLORER_NAME_HEADER_CLASS = 'h-7 py-0 pr-2 pl-1.5 font-medium text-[11px]';
+export const EXPLORER_METADATA_HEADER_CLASS = 'h-7 px-2 py-0 font-medium text-2xs';
+export const EXPLORER_NAME_HEADER_CLASS = 'h-7 py-0 pr-2 pl-1.5 font-medium text-2xs';
 
 function metadataCellClassName(align: ExplorerMetadataColumnConfig['align']): string {
   return align === 'right'

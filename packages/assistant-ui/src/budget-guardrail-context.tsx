@@ -17,6 +17,8 @@ export interface BudgetGuardrailStatus {
 }
 
 export interface BudgetGuardrailContextValue {
+  /** Opens the host's cap setting; absent, the over-cap notice offers no link there. */
+  readonly adjustCap?: (() => void) | undefined;
   /** Session-scoped "Send anyway" acknowledgment; resets with the panel. */
   readonly overridden: boolean;
   /** Flip the session override so sending proceeds despite the cap. */

@@ -83,6 +83,27 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
     expect(workspace.activate).not.toHaveBeenCalled();
   });
 
+  it('shows a tab chord beside its command only where the window owns the chord', async () => {
+    const web = render(<CommandPaletteHost />);
+    openPalette(document.body);
+    const webOption = await screen.findByRole('option', { name: /^Next Tab/u });
+    expect(webOption.querySelector('kbd')).toBeNull();
+    web.unmount();
+
+    vi.stubGlobal('desktopLifecycle', { noteReloadIntent: () => Promise.resolve() });
+    try {
+      render(<CommandPaletteHost />);
+      openPalette(document.body);
+      const option = await screen.findByRole('option', { name: /^Next Tab/u });
+      expect(option.querySelector('kbd')?.textContent).toBe('Ctrl+Tab');
+      expect(
+        screen.getByRole('option', { name: /^Previous Tab/u }).querySelector('kbd')?.textContent
+      ).toBe('Ctrl+Shift+Tab');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('offers Reopen Closed Tab only when the scoped strip has a closed tab', async () => {
     render(<CommandPaletteHost />);
 

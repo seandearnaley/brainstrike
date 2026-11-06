@@ -13,6 +13,9 @@
 import type { AssistantRewindMode } from '@brainstrike/assistant-contract';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
+  ChangesApplyParams,
+  ChangesApplyResult,
+  ChangesCommit,
   Changeset,
   ChangesetView,
   ChangesInvalidationEvent,
@@ -56,6 +59,13 @@ export interface RewindFinalizePayload {
 }
 
 export interface ChangesBridge {
+  /** Stage, unstage or revert what a view drew; the host refuses a stale target. */
+  apply: (params: ChangesApplyParams) => Promise<BoundaryResult<ChangesApplyResult>>;
+  /** A worktree's latest commits, newest first, each a `commit` git scope. */
+  commits: (
+    rootId: string,
+    worktreePath: string
+  ) => Promise<BoundaryResult<readonly ChangesCommit[]>>;
   fileDiff: (
     rootId: string,
     changeset: Changeset,

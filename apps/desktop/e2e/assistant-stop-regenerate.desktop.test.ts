@@ -89,7 +89,7 @@ test('stops the owned generation, regenerates the prompt and stops a long respon
     // pointer and only once the run has settled.
     const stoppedAnswer = panel.locator('[data-message-id]').filter({ hasText: PARTIAL }).last();
     await stoppedAnswer.hover();
-    await stoppedAnswer.getByRole('button', { exact: true, name: 'Regenerate response' }).click();
+    await stoppedAnswer.getByRole('button', { exact: true, name: 'Retry' }).click();
     await expect(panel.getByText(REGENERATED, { exact: true })).toBeVisible({ timeout: 60_000 });
     await expect(stop).toHaveCount(0);
     // The regenerate re-sent the same user prompt, read back off the wire.

@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
   cn,
+  ErrorNotice,
 } from '@brainstrike/ui';
 import { GitBranch, Loader2 } from 'lucide-react';
 
@@ -76,9 +77,10 @@ interface CostAggregationRowsProps {
 function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregationRowsProps) {
   if (error) {
     return (
-      <p className="text-destructive text-sm" data-testid="cost-aggregation-error">
-        Failed to load cross-root cost: {error.message}
-      </p>
+      <ErrorNotice
+        data-testid="cost-aggregation-error"
+        message={`Failed to load cross-root cost: ${error.message}`}
+      />
     );
   }
   if (loading && !hasRows) {

@@ -17,6 +17,7 @@ import {
   type HostBrowserOriginStore,
   saveHostBrowserOrigin,
 } from './browser-origin-answers.ts';
+import { hostTurnStopped } from './committed-identities.ts';
 import type { HostRunExecutionPorts } from './core-run-execution.ts';
 import {
   applyHostPermissionGrant,
@@ -35,6 +36,7 @@ import {
   HostNetworkConsentSchema,
   type HostParams,
   type HostPermissionGrant,
+  type HostStepDelivery,
 } from './protocol.ts';
 import {
   ensureHostRunAdmission,
@@ -43,7 +45,7 @@ import {
   hostRunTools,
   outsideSandboxGrantKey,
 } from './run-admission.ts';
-import { hostStartPosition } from './run-branch.ts';
+import { type HostRunCarry, type HostRunPosition, hostStartPosition } from './run-branch.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -129,12 +131,14 @@ export async function commitHostModelMessages(
   messages: readonly ModelMessage[],
   append: (event: HostEvent) => Promise<HostLogRow | undefined>,
   sync: () => Promise<void>,
-  fold: (row: HostLogRow) => void
+  fold: (row: HostLogRow) => void,
+  delivery?: HostStepDelivery
 ): Promise<void> {
   if (messages.length === 0) {
     return;
   }
   const row = await append({
+    ...(delivery ? { delivery } : {}),
     messages: messages.map((message) => jsonValue(modelMessageSchema.parse(message))),
     runId: run.id,
     type: 'model.messages',
@@ -355,7 +359,7 @@ function approvedHostPlanRunParams(
   };
 }
 /** ADR-0028 step 3: the `run/start` that carries a run's task on in the worktree it entered. */
-export function enteredWorktreeRunParams(
+function enteredWorktreeRunParams(
   run: Run,
   worktree: NonNullable<Run['enteredWorktree']>
 ): HostParams<'run/start'> {
@@ -375,10 +379,53 @@ export function enteredWorktreeRunParams(
  * carries on the turn of the run that entered it (`turnId`). `refused`
  * commits it as failed with that cause instead of starting it.
  */
-export interface HostNextRun {
+export interface HostNextRun extends HostRunCarry {
+  /**
+   * The turn of the run this one carries on. A Stop of that turn committed
+   * while this run waited to start refuses it at its admission, so it never
+   * starts (`hostCarriedStartPosition`).
+   */
+  readonly follows?: string;
   readonly params: HostParams<'run/start'>;
   readonly refused?: Error;
-  readonly turnId?: string;
+}
+/** A run carried on from a turn that a Stop ended while it waited: it starts nothing. */
+export class HostTurnStoppedError extends Error {
+  constructor(turnId: string) {
+    super(`Turn ${turnId} was stopped before its next run started`);
+    this.name = 'HostTurnStoppedError';
+  }
+}
+/** A run/start's position; a carried-on run is admitted only while the turn it follows is not stopped. */
+export function hostCarriedStartPosition(
+  runs: ReadonlyMap<string, Run>,
+  params: HostParams<'run/start'>,
+  carry?: Pick<HostNextRun, 'follows' | 'hostPrompt' | 'turnId'>
+): HostRunPosition {
+  if (carry?.follows !== undefined && hostTurnStopped(runs, carry.follows)) {
+    throw new HostTurnStoppedError(carry.follows);
+  }
+  return hostStartPosition(runs.values(), params, carry);
+}
+/**
+ * The run the host starts to carry a completed run's task on: its approved
+ * plan carried out, or the task in the worktree it entered, in the same turn
+ * (`turnId`, ADR-0028 step 3).
+ */
+export function hostContinuationRun(run: Run, turnId: string): HostNextRun | undefined {
+  const plan = approvedHostPlan(run);
+  if (plan) {
+    return { follows: turnId, params: approvedHostPlanRunParams(run, plan) };
+  }
+  return run.enteredWorktree
+    ? // The host wrote this prompt: it is model input, never the person's words.
+      {
+        follows: turnId,
+        hostPrompt: true,
+        params: enteredWorktreeRunParams(run, run.enteredWorktree),
+        turnId,
+      }
+    : undefined;
 }
 /**
  * Starts the thread's next run. A next run that cannot start is committed as
@@ -386,7 +433,7 @@ export interface HostNextRun {
  */
 export async function startHostNextRun(
   runs: Iterable<Run>,
-  { params, refused, turnId }: HostNextRun,
+  { follows: _follows, params, refused, ...carry }: HostNextRun,
   start: () => Promise<unknown>,
   commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>
 ): Promise<boolean> {
@@ -397,8 +444,12 @@ export async function startHostNextRun(
     await start();
     return true;
   } catch (cause) {
+    // The person stopped the turn: nothing follows it, and nothing failed.
+    if (cause instanceof HostTurnStoppedError) {
+      return false;
+    }
     const runId = randomUUID();
-    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, turnId));
+    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause, carry));
     return false;
   }
 }
@@ -408,11 +459,11 @@ export function failedHostStartEvents(
   params: HostParams<'run/start'>,
   runId: string,
   cause: unknown,
-  turnId?: string
+  carry?: HostRunCarry
 ): HostEvent[] {
   return [
     {
-      ...hostStartPosition(runs, params, turnId),
+      ...hostStartPosition(runs, params, carry),
       modelId: params.modelId,
       runId,
       type: 'run.started',
@@ -698,12 +749,11 @@ export interface HostRunContinuationPorts {
   readonly loop: (model: LanguageModel) => Promise<void>;
   readonly openRun: () => Promise<unknown>;
   readonly platform: HostPlatform;
-  readonly startNextRun: (next: HostNextRun) => Promise<boolean>;
 }
 /**
  * Continue a run once every decision it waits on is answered: commit the
- * approved calls' results, then start an approved plan's run, finish at the
- * step limit, or loop again.
+ * approved calls' results, then finish (an approved plan, the step limit) or
+ * loop again.
  */
 export async function continueHostRun(run: Run, ports: HostRunContinuationPorts): Promise<void> {
   if (run.terminal) {
@@ -722,10 +772,9 @@ export async function continueHostRun(run: Run, ports: HostRunContinuationPorts)
     // The SDK collects approvals from one final tool message, preserving parallel calls.
     const responses = await createHostApprovalResponses(run, ports.platform, ports.dispatch);
     await ports.commitMessages(responses.length > 0 ? [{ content: responses, role: 'tool' }] : []);
-    const plan = approvedHostPlan(run);
-    if (plan) {
+    // An approved plan's run starts from this run's end (core-run-end.ts).
+    if (approvedHostPlan(run)) {
       await ports.finish('completed');
-      await ports.startNextRun({ params: approvedHostPlanRunParams(run, plan) });
       return;
     }
     if (run.steps >= admission.snapshot.maxSteps) {

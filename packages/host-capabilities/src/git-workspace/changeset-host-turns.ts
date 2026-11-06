@@ -51,9 +51,16 @@ interface FoldedHostThread {
   seq: number;
 }
 
+/** A top-level host thread, as `thread/list` lists it. */
+export interface HostListedThread {
+  /** Whether its latest run is still running. */
+  readonly running: boolean;
+  readonly threadId: string;
+}
+
 export interface HostThreadTurnsSource {
-  /** The host's top-level thread ids (`thread/list`). */
-  readonly listThreads: () => Promise<ReadonlySet<string>>;
+  /** The host's top-level threads (`thread/list`). */
+  readonly listThreads: () => Promise<readonly HostListedThread[]>;
   /** A host thread's committed rows after `fromSeq` (`thread/read`). */
   readonly readRows: (threadId: string, fromSeq: number) => Promise<readonly HostLogRow[]>;
 }
@@ -68,6 +75,8 @@ export interface HostThreadTurns {
     threadId: string,
     fromRunId: string
   ) => Promise<BoundaryResult<ResolvedTurnTargets>>;
+  /** Whether the thread has a run in progress, as a rewind asks (`thread/list`). */
+  readonly running: (threadId: string) => Promise<boolean>;
   /** A host run's diff targets, from its thread's committed log. */
   readonly targetsOf: (
     threadId: string,
@@ -232,12 +241,14 @@ export function createHostThreadTurns(source: HostThreadTurnsSource): HostThread
     knows: (threadId) => owned.has(threadId),
     owns: async (threadId) => {
       for (const listed of await source.listThreads()) {
-        owned.add(listed);
+        owned.add(listed.threadId);
       }
       return owned.has(threadId);
     },
     rangeTargetsOf: async (threadId, fromRunId) =>
       rangeTargetsOfHostThread(threadId, fromRunId, await folded(threadId)),
+    running: async (threadId) =>
+      (await source.listThreads()).some((listed) => listed.threadId === threadId && listed.running),
     targetsOf: async (threadId, runId) =>
       targetsOfHostRun(threadId, runId, (await folded(threadId)).runs.get(runId)),
   };

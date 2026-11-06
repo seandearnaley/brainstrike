@@ -191,10 +191,10 @@ const ToolsControlsSection = ({
   return (
     <section aria-label="AI Tools" className="space-y-2 border-t pt-3">
       <div className="flex items-baseline justify-between gap-2 px-1">
-        <h3 className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
+        <h3 className="text-muted-foreground text-2xs font-medium tracking-wide uppercase">
           AI Tools
         </h3>
-        <span className="text-muted-foreground text-[11px]">{toolSummary}</span>
+        <span className="text-muted-foreground text-2xs">{toolSummary}</span>
       </div>
       <div className="relative">
         <Search
@@ -250,7 +250,7 @@ const ToolsControlsSection = ({
                 }}
               >
                 <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                <span className="text-muted-foreground text-[11px] tabular-nums">
+                <span className="text-muted-foreground text-2xs tabular-nums">
                   {enabledCount}/{group.items.length}
                 </span>
                 <span
