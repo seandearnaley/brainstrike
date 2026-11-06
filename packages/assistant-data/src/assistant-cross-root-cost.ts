@@ -14,8 +14,6 @@ export const UNATTRIBUTED_ROOT_LABEL = 'Unattributed';
 export interface CrossRootCostRow {
   /** The branch its runs had checked out, when one was recorded. */
   readonly branch: string | null;
-  /** Prompt-cache read share of `inputTokens`. */
-  readonly cacheReadTokens: number;
   readonly cost: CostEstimate;
   readonly displayName: string;
   readonly inputTokens: number;
@@ -34,7 +32,6 @@ export type ModelPricingResolver = (
 
 interface RootAggregate {
   branch: string | null;
-  cacheReadTokens: number;
   cost: number;
   displayName: string;
   hasUnpriced: boolean;
@@ -81,7 +78,6 @@ export function resolveCrossRootCostRows(rows: readonly CrossRootUsageRow[]): Cr
     if (!aggregate) {
       aggregate = {
         branch: null,
-        cacheReadTokens: 0,
         cost: 0,
         displayName: resolveDisplayName(row),
         hasUnpriced: false,
@@ -97,7 +93,6 @@ export function resolveCrossRootCostRows(rows: readonly CrossRootUsageRow[]): Cr
       order.push(key);
     }
     aggregate.branch ??= row.checkoutBranch;
-    aggregate.cacheReadTokens += row.estimatedCacheReadTokens ?? 0;
     aggregate.inputTokens += row.inputTokens;
     aggregate.outputTokens += row.outputTokens;
     aggregate.totalTokens += row.inputTokens + row.outputTokens;
@@ -135,7 +130,6 @@ export function resolveCrossRootCostRows(rows: readonly CrossRootUsageRow[]): Cr
           };
     return {
       branch: aggregate.branch,
-      cacheReadTokens: aggregate.cacheReadTokens,
       cost,
       displayName: aggregate.displayName,
       inputTokens: aggregate.inputTokens,

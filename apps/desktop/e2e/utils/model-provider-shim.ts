@@ -60,6 +60,8 @@ export interface ModelProviderScript {
   readonly beforeFinalText?: Promise<void>;
   /** Hold a streaming tool finish at a deterministic external-provider boundary. */
   readonly beforeToolFinish?: Promise<void>;
+  /** What OpenRouter's usage accounting reports the final streamed turn cost (`usage.cost`). */
+  readonly billedCost?: number;
   /**
    * Refuse the request as a provider refuses one that does not fit: HTTP 400
    * with OpenAI's `context_length_exceeded` error, before any stream opens.
@@ -553,7 +555,12 @@ async function writeStreamingFinalText(
       id,
       model: 'e2e-scripted-model',
       object: 'chat.completion.chunk',
-      usage: { ['completion_tokens']: 3, ['prompt_tokens']: 4, ['total_tokens']: 7 },
+      usage: {
+        ['completion_tokens']: 3,
+        ['prompt_tokens']: 4,
+        ['total_tokens']: 7,
+        ...(script.billedCost === undefined ? {} : { cost: script.billedCost }),
+      },
     })
   );
   response.end('data: [DONE]\n\n');

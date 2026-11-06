@@ -95,11 +95,11 @@ test('a committed log folds into ledger runs and per-call usage', () => {
     (row) => row.event.type === 'run.finished' && row.event.runId === runId
   );
   expect(runs.find((run) => run.runId === runId)).toEqual({
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: finished?.ts,
     durationMs: (finished?.ts ?? 0) - (first.ts ?? 0),
     editCount: 0,
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     estimatedCostUsd: usd(2, 50),
     estimatedInputTokens: 2,
     estimatedOutputTokens: 50,
@@ -187,8 +187,6 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
       {
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(4, 100),
         estimatedInputTokens: 4,
         estimatedOutputTokens: 100,
@@ -308,8 +306,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     expect(mergeRootUsage([rootUsage])).toEqual([
       {
         checkoutBranch: null,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
@@ -323,8 +319,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       },
       {
         checkoutBranch: null,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
@@ -518,6 +512,80 @@ describe('each provider call is priced on its own', () => {
     expect(runs.find((run) => run.runId === runId)?.estimatedCostUsd).toBeNull();
   });
 });
+describe('a call OpenRouter billed costs what it billed', () => {
+  // The recording's run commits two unbilled steps of 1 input / 25 output.
+  const stepBilled = (raw: Record<string, unknown>) =>
+    folded(
+      insertAfterStart({
+        messages: [],
+        model: {},
+        runId,
+        stepNumber: 9,
+        type: 'model.step',
+        usage: {
+          inputTokenDetails: { cacheReadTokens: 400 },
+          inputTokens: 1000,
+          outputTokens: 100,
+          raw,
+        },
+      })
+    );
+  test('only its unbilled calls are estimated, in every cost view', () => {
+    const { perModel, rootUsage, runs, usage } = stepBilled({ cost: 0.002, is_byok: false });
+    expect(runs.find((run) => run.runId === runId)).toMatchObject({
+      billedCostUsd: 0.002,
+      cacheReadTokens: 400,
+      estimatedCostUsd: usd(2, 50),
+      estimatedInputTokens: 2,
+      estimatedOutputTokens: 50,
+      inputTokens: 1002,
+      outputTokens: 150,
+    });
+    expect(perModel.find((entry) => entry.runKind === 'chat')).toMatchObject({
+      billedCostUsd: 0.002,
+      cacheReadTokens: 400,
+      estimatedInputTokens: 4,
+      inputTokens: 1004,
+    });
+    expect(mergeRootUsage([rootUsage])).toMatchObject([
+      { billedCostUsd: 0.002, estimatedInputTokens: 4, inputTokens: 1004 },
+    ]);
+    expect(usage.filter((entry) => entry.billedCostUsd !== undefined)).toEqual([
+      expect.objectContaining({ billedCostUsd: 0.002, inputTokens: 1000 }),
+    ]);
+  });
+  test("a BYOK call costs OpenRouter's fee and what the provider billed the key", () => {
+    const { runs } = stepBilled({
+      cost: 0.0125,
+      cost_details: { upstream_inference_cost: 0.25 },
+      is_byok: true,
+    });
+    expect(runs.find((run) => run.runId === runId)?.billedCostUsd).toBeCloseTo(0.2625, 12);
+  });
+  test.each([
+    ['reports no cost', { is_byok: false }],
+    ["is BYOK without the provider's charge", { cost: 0.0125, is_byok: true }],
+    ['reports a malformed cost', { cost: -1 }],
+  ])('a call that %s is estimated', (_case, raw) => {
+    const { runs } = stepBilled(raw);
+    const run = runs.find((entry) => entry.runId === runId);
+    expect(run).not.toHaveProperty('billedCostUsd');
+    expect(run).toMatchObject({ estimatedInputTokens: 1002, estimatedOutputTokens: 150 });
+  });
+  test("another provider's usage is never read as a bill", () => {
+    const { runs } = folded(
+      insertAfterStart({
+        kind: 'observation',
+        modelId: 'anthropic::claude-haiku-5-5',
+        runId,
+        type: 'memory.usage',
+        usage: { inputTokens: 10, outputTokens: 1, raw: { cost: 1 } },
+      })
+    );
+    expect(runs.find((run) => run.runId === runId)).not.toHaveProperty('billedCostUsd');
+  });
+});
+
 describe("a thread's latest root run", () => {
   const approved = approvedRecording.map((row) =>
     Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)

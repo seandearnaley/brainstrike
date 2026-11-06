@@ -195,10 +195,6 @@ export interface CrossRootUsageRow {
   readonly billedCostUsd?: number;
   /** The branch the thread had checked out at Send; null when unrecorded. */
   readonly checkoutBranch: string | null;
-  /** Anthropic cache-write share of the estimated (unbilled) input tokens. */
-  readonly estimatedCacheCreationTokens?: number;
-  /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
-  readonly estimatedCacheReadTokens?: number;
   /** The estimated tokens' list price, call by call; null when any call is unpriced. */
   readonly estimatedCostUsd: number | null;
   readonly estimatedInputTokens?: number;
@@ -242,6 +238,10 @@ export interface RunLedgerListOptions {
  */
 export interface RunLedgerRow {
   readonly billedCostUsd?: number;
+  /** Prompt-cache write tokens of every call, billed or estimated. Share of `inputTokens`. */
+  readonly cacheCreationTokens: number;
+  /** Prompt-cache read tokens of every call (same total-inclusive contract). */
+  readonly cacheReadTokens: number;
   readonly completedAt: Date | null;
   readonly durationMs: number | null;
   /**
@@ -249,10 +249,6 @@ export interface RunLedgerRow {
    * row without an edit record omits the count rather than claim zero.
    */
   readonly editCount?: number;
-  /** Anthropic cache-write share of `estimatedInputTokens` (0 elsewhere). */
-  readonly estimatedCacheCreationTokens: number;
-  /** Anthropic cache-read share of `estimatedInputTokens` (0 elsewhere). */
-  readonly estimatedCacheReadTokens: number;
   /**
    * The estimated tokens' list price, each call priced under its own model at
    * its own request's tier; null when any call is unpriced.
@@ -297,10 +293,6 @@ export interface ThreadModelUsageSubtotal {
   readonly cacheReadTokens: number;
   /** What caching saved, call by call; null when a cache-bearing call is unpriced. */
   readonly cacheSavingsUsd?: number | null;
-  /** Anthropic cache-write share of the estimated (unbilled) input tokens. */
-  readonly estimatedCacheCreationTokens?: number;
-  /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
-  readonly estimatedCacheReadTokens?: number;
   /** The estimated tokens' list price, call by call; null when any call is unpriced. */
   readonly estimatedCostUsd: number | null;
   readonly estimatedInputTokens?: number;
