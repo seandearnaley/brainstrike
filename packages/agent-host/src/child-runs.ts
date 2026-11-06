@@ -71,7 +71,7 @@ export function hostDelegationInputSchema(
     ...DelegationInputFields,
     effort: Schema.optional(Schema.Literals(CHILD_EFFORTS)).annotate({
       description: `Reasoning effort for the subagent's model; omit for the model's own. ${models
-        .map((model) => `${model.label} takes ${model.efforts.join(', ') || 'none'}`)
+        .map((model) => `${model.label} takes ${model.efforts.join(', ') || 'no effort (omit it)'}`)
         .join('; ')}.`,
     }),
     model: Schema.optional(Schema.Literals(models.map((model) => model.id))).annotate({

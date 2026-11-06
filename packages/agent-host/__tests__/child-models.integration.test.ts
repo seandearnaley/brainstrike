@@ -22,6 +22,7 @@ import {
   stream,
   text,
   toolCall,
+  toolNames,
   toolResults,
   userTexts,
 } from './fixtures/child-run-host.js';
@@ -184,6 +185,66 @@ test('a subagent whose model cannot be admitted is refused to the parent, and no
     `[Delegation Rejected] Reviewer cannot run on ${PINNED}: Claude Opus 5.5 (OpenRouter) takes effort low, medium, high.`
   );
   expect(await childThreads(harness)).toEqual([]);
+});
+
+test("a nested child on another model keeps its ancestors' tool ceiling", async () => {
+  // The root delegates to a worker that may only read; that worker delegates to
+  // a wildcard worker pinned to another model. The pinned child is admitted on
+  // the root thread's catalog, so only the ceiling keeps the reader's limits.
+  const reader: AssistantPersonaDefinition = {
+    allowedToolIds: ['read_file'],
+    description: 'Reads, then delegates.',
+    id: 'reader',
+    instructions: 'You are the Reader subagent.',
+    label: 'Reader',
+    maxSteps: 4,
+    mode: 'worker',
+  };
+  const pinned: AssistantPersonaDefinition = {
+    allowedToolIds: ['*'],
+    description: 'Works on Claude.',
+    id: 'pinned',
+    instructions: 'You are the Pinned subagent.',
+    label: 'Pinned',
+    maxSteps: 4,
+    mode: 'worker',
+    model: { modelId: 'anthropic/claude-opus-5.5', provider: 'openrouter' },
+  };
+  const parent = new MockLanguageModelV4({
+    doStream: async (call) => {
+      const tools = call.prompt.some((message) => message.role === 'tool');
+      if (userTexts(call).some((value) => value.startsWith('READER_TASK'))) {
+        return tools
+          ? stream(text('Reader done.'))
+          : stream(toolCall('agent-pinned', { prompt: TASK }, 'nested-delegation'));
+      }
+      return tools
+        ? stream(text('Parent continues.'))
+        : stream(
+            toolCall(
+              'agent-reader',
+              { _background: { enabled: false }, prompt: 'READER_TASK: delegate.' },
+              'reader-delegation'
+            )
+          );
+    },
+  });
+  const child = childModel();
+  const harness = await setupChildRunHost(parent, cleanup, {
+    childConfiguration: (_configuration, target) => ({ childModel: target.modelId }),
+    personas: [reader, pinned],
+    resolveModel: async (modelId) => (modelId === 'scripted' ? parent : child),
+  });
+  const runId = await harness.start('Delegate.');
+  await rowsUntil(harness, harness.threadId, finished(runId), 5000);
+
+  const offered = child.doStreamCalls.find((call) => userTexts(call).includes(TASK));
+  expect(offered).toBeDefined();
+  // The reader could only read: no tool it lacked came back with the model change.
+  // (A worker above the depth limit still gets the delegation tools, by depth.)
+  expect(toolNames(offered as CallOptions).filter((name) => !name.startsWith('agent-'))).toEqual([
+    'read_file',
+  ]);
 });
 
 test('a host that cannot carry another model refuses the pin instead of running it on the parent’s', async () => {

@@ -7,19 +7,17 @@ import {
   deriveAgentLoopInputTokenLimit,
   deriveEffectiveInputBudget,
   findLlmModelDefinition,
-  getLlmModelDefinition,
-  listProviderLlmModels,
+  findOpenRouterCatalogModel,
   mergeOpenRouterAutoProfileModel,
   type OpenRouterAutoProfileModel,
-  type OpenRouterModelMetadata,
   type OpenRouterModelMetadataLookup,
   openRouterReasoningEffortIssue,
   type ProviderKeySource,
   type RuntimeData,
   resolveOpenRouterAutoRuntimeProfile,
-  resolveOpenRouterCodingMaxOutputTokens,
   resolveOpenRouterOutputWindow,
   resolveOpenRouterReasoningActive,
+  type SelectedModelBudgetDef,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import {
@@ -360,64 +358,6 @@ export function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuI
 
 export type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
 
-function findOpenRouterCatalogModel(modelId: string): OpenRouterAutoProfileModel | undefined {
-  return listProviderLlmModels('openrouter').find(({ id }) => id === modelId);
-}
-
-/**
- * The model the output-window resolution reasons about: the live snapshot with
- * the catalog-only facts (`autoEffort`, `vendorDefaultOutputTokens`) merged
- * back in, or the static catalog entry while metadata is pending. The catalog
- * overlay only applies when the snapshot identity matches the selected model.
- */
-function resolveAutoProfileModel(
-  openRouterMetadata: OpenRouterModelMetadata | undefined,
-  modelName: string | undefined
-): OpenRouterAutoProfileModel | undefined {
-  if (openRouterMetadata) {
-    const catalogModel =
-      modelName !== undefined && openRouterMetadata.id === modelName
-        ? findOpenRouterCatalogModel(modelName)
-        : undefined;
-    return mergeOpenRouterAutoProfileModel(openRouterMetadata, catalogModel);
-  }
-  return modelName === undefined ? undefined : getLlmModelDefinition('openrouter', modelName);
-}
-
-export function buildEffectiveModelSettings(
-  providerId: string | null | undefined,
-  configuredSettings: RuntimeData['modelSettings'] | undefined,
-  selectedModelDef?: SelectedModelBudgetDef,
-  openRouterMetadata?: OpenRouterModelMetadata,
-  modelName?: string,
-  reasoningEffort?: AssistantProviderSettings['reasoningEffort']
-): RuntimeData['modelSettings'] | undefined {
-  if (providerId !== 'openrouter') {
-    return configuredSettings;
-  }
-  if (configuredSettings?.maxOutputTokens !== undefined) {
-    return configuredSettings;
-  }
-  const autoProfileModel = resolveAutoProfileModel(openRouterMetadata, modelName);
-  if (autoProfileModel) {
-    // Sized for the request's reasoning state (BST-1170): an active-reasoning
-    // request on a model with a vendor-documented completion window gets that
-    // window — the 32K coding ceiling starved thinking+answer and killed runs
-    // at `finishReason: length`.
-    return {
-      ...configuredSettings,
-      maxOutputTokens: resolveOpenRouterOutputWindow(
-        autoProfileModel,
-        resolveOpenRouterReasoningActive(autoProfileModel, reasoningEffort)
-      ),
-    };
-  }
-  return {
-    ...configuredSettings,
-    maxOutputTokens: resolveOpenRouterCodingMaxOutputTokens(selectedModelDef?.maxOutputTokens),
-  };
-}
-
 const openRouterLimitFormatter = new Intl.NumberFormat();
 
 /** The send's gate while an OpenRouter model's details load. */
@@ -568,10 +508,6 @@ function buildNonNegativeIntegerSetting(value: unknown): number | undefined {
  * Matches the required fields on LlmModelDefinition, so callers can pass a
  * registry definition without a re-lookup.
  */
-export interface SelectedModelBudgetDef {
-  contextWindow: number;
-  maxOutputTokens?: number;
-}
 
 export function buildAgentLoopSettings(
   settings: AssistantProviderSettings | undefined,

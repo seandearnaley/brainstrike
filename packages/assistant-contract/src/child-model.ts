@@ -6,10 +6,14 @@
  * into the request options the composer would send for that model.
  */
 import type { AssistantProviderSettings } from '@brainstrike/types';
-import { buildModelSettings, buildProviderOptions } from './generation-options.ts';
+import {
+  buildEffectiveModelSettings,
+  buildModelSettings,
+  buildProviderOptions,
+} from './generation-options.ts';
 import { resolveReasoningControlsAvailability } from './model-reasoning.ts';
 import { isSupportedProvider, type SupportedProvider } from './provider-metadata.ts';
-import { resolveModelLabel } from './provider-registry.ts';
+import { findLlmModelDefinition, resolveModelLabel } from './provider-registry.ts';
 import type { RuntimeData } from './runtime-data.ts';
 
 /** The effort scale a delegation speaks, weakest first. */
@@ -119,7 +123,14 @@ export function childModelConfiguration(
     }
   }
   const applied = effort === undefined ? base : withEffort(provider, model, base, effort);
-  const modelSettings = buildModelSettings(applied);
+  const modelSettings = buildEffectiveModelSettings(
+    provider,
+    buildModelSettings(applied),
+    findLlmModelDefinition(provider, model),
+    undefined,
+    model,
+    applied.reasoningEffort
+  );
   const providerOptions = buildProviderOptions(provider, model, applied);
   return {
     model,

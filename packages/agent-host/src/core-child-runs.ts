@@ -129,6 +129,27 @@ export interface HostPreparedChild {
   readonly settled: Promise<void>;
   readonly threadId: string;
 }
+/**
+ * A child's model admission within its parent's tool ceiling. The admission
+ * is the root thread's on the child's model, so it would otherwise offer tools
+ * an ancestor's persona narrowed away; changing models never restores them.
+ */
+function ceiled(
+  admitted: {
+    readonly admission: HostRunAdmission;
+    readonly configuration: HostRunSnapshot['configuration'];
+  },
+  parent: HostRunAdmission
+): {
+  readonly admission: HostRunAdmission;
+  readonly configuration: HostRunSnapshot['configuration'];
+} {
+  const ceiling = parent.childTools ?? parent.tools;
+  const tools = Object.fromEntries(
+    Object.entries(admitted.admission.tools).filter(([id]) => Object.hasOwn(ceiling, id))
+  );
+  return { ...admitted, admission: { ...admitted.admission, tools } };
+}
 /** The selection a child runs on: its parent's admission, or one admitted for its own model. */
 interface HostChildSelection {
   readonly admission: HostRunAdmission;
@@ -834,7 +855,11 @@ export class HostChildRuns {
     let selected: HostChildSelection;
     try {
       selected = target
-        ? { ...(await port.admitModel(target, runId)), modelId: target.modelId, owned: true }
+        ? {
+            ...ceiled(await port.admitModel(target, runId), admission),
+            modelId: target.modelId,
+            owned: true,
+          }
         : {
             admission,
             configuration: run.input?.configuration,
