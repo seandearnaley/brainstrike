@@ -17,6 +17,7 @@ export {
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
 } from './assistant-ui-panel-wrapper-runtime';
+export { capturedEffort } from './captured-effort';
 export * from './diagnostics';
 export * from './hooks/use-assistant-availability';
 export { useAssistantModelChange } from './hooks/use-assistant-model-change';

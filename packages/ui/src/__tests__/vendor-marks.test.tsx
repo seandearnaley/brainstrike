@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ModelMark, modelMarkLabel, ProviderIcon } from '../model-picker/utils/vendor-marks';
+import { modelMarkLabel } from '../model-picker/utils/model-mark-label';
+import { ModelMark, ProviderIcon } from '../model-picker/utils/vendor-marks';
 
 function markPath(container: HTMLElement): string | null | undefined {
   return container.querySelector('svg path')?.getAttribute('d');
