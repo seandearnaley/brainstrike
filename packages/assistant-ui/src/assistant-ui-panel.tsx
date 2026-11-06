@@ -32,6 +32,7 @@ import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
+import { AssistantGenerationMark } from './assistant-generation-mark';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText } from './assistant-message-text';
 import {
@@ -548,6 +549,8 @@ const AssistantMessage = () => {
       data-message-id={messageId}
       tabIndex={-1}
     >
+      {/* The maker mark of the model that wrote this message, with its run's details. */}
+      <AssistantGenerationMark className="col-start-1 row-start-1 mt-1.5 mr-2" />
       <div className="aui-assistant-message-content text-foreground col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl leading-6 break-words">
         {/* Grouped rendering (activity groups + text + data parts) lives in
             assistant-activity-parts.tsx; see its header for the grouping rule. */}

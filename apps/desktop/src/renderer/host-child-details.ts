@@ -17,7 +17,7 @@ const CommittedModelConfigurationSchema = Schema.Struct({
 });
 
 /** A run's admitted model settings: read, unreadable, or never recorded (a non-desktop client). */
-function admittedExecution(
+export function admittedExecution(
   configuration: unknown,
   planMode: boolean
 ): Pick<HostChildToolbarDetails, 'execution' | 'executionUnreadable'> {
