@@ -68,7 +68,8 @@ function AdmittedConfiguration({ details }: { readonly details: HostChildToolbar
 /**
  * BST-1932 (F15): a host child's toolbar. It names the persona the child was
  * admitted under and the steps its run has taken; its popover lists the
- * admitted configuration and the tokens the child has used. Every fact comes
+ * latest run's admitted configuration and the tokens that run has used, not
+ * earlier runs' or descendants'. Every fact comes
  * from the child's committed log; nothing is read from current settings.
  */
 export function HostChildToolbar({
@@ -119,18 +120,15 @@ export function HostChildToolbar({
         >
           <AdmittedConfiguration details={details} />
           <div className="space-y-1 border-t pt-2">
-            <p className="font-medium">Captured usage</p>
+            <p className="font-medium">Latest run usage</p>
             {used ? (
               <>
                 <p>Input {formatTokenCount(usage.inputTokens)}</p>
                 <p>Output {formatTokenCount(usage.outputTokens)}</p>
               </>
             ) : (
-              <p>No captured usage yet</p>
+              <p>None yet</p>
             )}
-            <p className="text-muted-foreground">
-              This child only; its descendants are not included.
-            </p>
           </div>
         </PopoverContent>
       </Popover>
