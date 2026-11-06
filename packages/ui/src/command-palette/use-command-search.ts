@@ -2,7 +2,7 @@ import type { Command } from '@brainstrike/context-actions/commands';
 
 /**
  * Case-insensitive substring matcher over a command's label and keywords. MVP
- * (no fuzzy dependency — mirrors the model-picker's `filterModels`). A blank
+ * (no fuzzy dependency, the same rule as `matchesModelQuery`). A blank
  * query matches everything; otherwise EVERY whitespace-delimited token in the
  * query must appear (as a substring) in the command's label or one of its
  * keywords. This is pure and synchronous so the palette can derive its filtered

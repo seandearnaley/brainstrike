@@ -37,7 +37,6 @@ export interface ComposerPickerEntry {
   providerId: string;
   providerName: string;
   runtime: ProviderRuntimeCategory;
-  runtimeLabel: string;
   /** The model's maker, which a gateway route doesn't name. */
   vendor: { readonly id: string; readonly name: string } | undefined;
 }
@@ -47,7 +46,6 @@ interface ComposerPickerProviderGroup {
   providerId: string;
   providerName: string;
   runtime: ProviderRuntimeCategory;
-  runtimeLabel: string;
 }
 
 export interface ComposerPickerSections {
@@ -86,7 +84,6 @@ function collectEntries(
           providerId: provider.id,
           providerName: provider.name,
           runtime: provider.runtime,
-          runtimeLabel: group.label,
           vendor: model.vendor,
         });
       }
@@ -146,7 +143,6 @@ function groupByProvider(entries: readonly ComposerPickerEntry[]): ComposerPicke
       providerId: entry.providerId,
       providerName: entry.providerName,
       runtime: entry.runtime,
-      runtimeLabel: entry.runtimeLabel,
     });
   }
   return groups;
@@ -159,7 +155,6 @@ function entryMatches(entry: ComposerPickerEntry, query: string): boolean {
       modelId: entry.modelId,
       providerId: entry.providerId,
       providerName: entry.providerName,
-      tagline: entry.meta?.description ?? null,
       vendorName: entry.vendor?.name ?? null,
     },
     query

@@ -11,11 +11,12 @@ import type {
 } from '@brainstrike/assistant-contract/memory-settings';
 import { OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET } from '@brainstrike/assistant-contract/memory-settings';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { Card, Label, Switch } from '@brainstrike/ui';
+import { Card, Label, ModelSelect, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { MemoryNumberField } from './assistant-memory-fields';
 import {
+  type AssistantMemoryModelOption,
   formatMemoryScopeLabel,
   listObservationalMemoryModelOptions,
 } from './assistant-memory-models';
@@ -42,19 +43,15 @@ export interface AssistantMemorySettingsSectionProps {
 }
 
 interface ObservationalMemoryModelFieldProps {
-  readonly hasObservationModel: boolean;
   readonly hasUnavailableObservationModel: boolean;
-  readonly isAutoObservationTarget: boolean;
   readonly modelTarget: string;
   readonly observationalMemoryEnabled: boolean;
-  readonly observationOptions: readonly { label: string; target: string }[];
+  readonly observationOptions: readonly AssistantMemoryModelOption[];
   readonly onModelTargetChange: (target: string) => void;
 }
 
 function ObservationalMemoryModelField({
-  hasObservationModel,
   hasUnavailableObservationModel,
-  isAutoObservationTarget,
   observationOptions,
   observationalMemoryEnabled,
   modelTarget,
@@ -63,44 +60,24 @@ function ObservationalMemoryModelField({
   return (
     <div className="space-y-2">
       <Label htmlFor="assistant-memory-observation-model">Observational memory model</Label>
-      <select
-        aria-label="Observational memory model"
-        className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
+      <ModelSelect
+        // The height of the section's other fields.
+        className="h-10"
         id="assistant-memory-observation-model"
-        onChange={(event) => onModelTargetChange(event.target.value)}
-        value={hasObservationModel ? modelTarget : ''}
-      >
-        {!hasObservationModel && <option value="">Select an enabled hosted LLM model</option>}
-        <option value={OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET}>
-          Auto — fastest eligible observer (recommended)
-        </option>
-        {observationOptions.map((option) => (
-          <option key={option.target} value={option.target}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      {isAutoObservationTarget ? (
-        <p
-          className="text-muted-foreground text-xs"
-          data-testid="assistant-memory-auto-observer-note"
-        >
-          Auto observes with a fast, recommended model from your active chat provider only (e.g.
-          Haiku for Anthropic chats) — the conversation never reaches a provider that is not already
-          receiving it.
-        </p>
-      ) : (
-        <p
-          className="text-muted-foreground text-xs"
-          data-testid="assistant-memory-manual-observer-note"
-        >
-          The target identifies a provider/model such as{' '}
-          <span className="font-mono">openai/gpt-5.4-mini</span>, and uses that provider's
-          credentials. Unlike Auto, a manual target is NOT tied to your chat provider: whenever
-          observations run on a chat using a different provider, that conversation reaches the
-          observer's provider as well.
-        </p>
-      )}
+        onValueChange={onModelTargetChange}
+        options={[
+          // Auto never sends the conversation to a provider the chat doesn't already use.
+          { label: 'Auto (chat’s provider)', value: OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET },
+          ...observationOptions.map((option) => ({
+            label: option.label,
+            markLabel: option.markLabel,
+            provider: option.providerId,
+            value: option.target,
+            vendor: option.vendor,
+          })),
+        ]}
+        value={modelTarget}
+      />
       {hasUnavailableObservationModel && (
         <p
           className={
@@ -170,14 +147,9 @@ export function AssistantMemorySettingsSection({
   return (
     <Card className="space-y-5 p-4" data-testid="assistant-memory-settings-section">
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <BrainCircuit className="text-muted-foreground h-4 w-4" />
-            <h3 className="text-sm font-medium">Observational memory</h3>
-          </div>
-          <p className="text-muted-foreground text-sm">
-            Choose the model the assistant uses for observations.
-          </p>
+        <div className="flex items-center gap-2">
+          <BrainCircuit className="text-muted-foreground h-4 w-4" />
+          <h3 className="text-sm font-medium">Observational memory</h3>
         </div>
         <div className="flex items-center gap-2">
           <Label htmlFor="assistant-memory-observational-enabled">Enable observations</Label>
@@ -193,9 +165,7 @@ export function AssistantMemorySettingsSection({
 
       <div className="grid gap-4 md:grid-cols-2">
         <ObservationalMemoryModelField
-          hasObservationModel={hasObservationModel}
           hasUnavailableObservationModel={hasUnavailableObservationModel}
-          isAutoObservationTarget={isAutoObservationTarget}
           modelTarget={observationalMemory.modelTarget}
           observationalMemoryEnabled={observationalMemory.enabled}
           observationOptions={observationOptions}
@@ -219,9 +189,6 @@ export function AssistantMemorySettingsSection({
               </option>
             ))}
           </select>
-          <p className="text-muted-foreground text-xs">
-            Thread scope is the safe default; workspace scope observes across all workspace threads.
-          </p>
         </div>
 
         <MemoryNumberField

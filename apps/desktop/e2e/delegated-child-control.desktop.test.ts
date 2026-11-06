@@ -130,7 +130,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     const modelDialog = window.getByRole('dialog', { name: 'Choose a model' });
     await modelDialog.getByRole('combobox').fill('GPT-5.6 Terra');
     const terra = modelDialog
-      .getByRole('option', { name: /^GPT-5\.6 Terra/u })
+      .getByRole('option', { name: /GPT-5\.6 Terra \(OpenRouter\)/u })
       .filter({ hasText: 'OpenRouter' });
     await expect(terra).toBeVisible();
     await terra.click();
