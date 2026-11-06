@@ -1,4 +1,12 @@
-import { Badge, Button, cn, formatTokenCount, Switch } from '@brainstrike/ui';
+import {
+  Badge,
+  Button,
+  cn,
+  formatTokenCount,
+  ModelMark,
+  modelMarkLabel,
+  Switch,
+} from '@brainstrike/ui';
 import { ChevronDown, Eye, Sun } from 'lucide-react';
 import { Fragment, type ReactNode } from 'react';
 import { highlightSegments, queryHitsIdOnly } from './catalog-filters';
@@ -63,17 +71,23 @@ export function EnabledCell({ row }: { readonly row: CatalogRow }) {
 }
 
 export function ModelCell({ row }: { readonly row: CatalogRow }) {
-  const { query, showTagline } = useCatalogRowActions();
-  const showId = queryHitsIdOnly(row, query);
-  let secondary: string | null = null;
-  if (showId) {
-    secondary = row.id;
-  } else if (showTagline) {
-    secondary = row.tagline;
-  }
+  const { query } = useCatalogRowActions();
+  // A search that matched only the ID shows the ID, so the row says why it matched.
+  const secondary = queryHitsIdOnly(row, query) ? row.id : null;
   return (
     // `model-row-<id>` is kept for E2E continuity; TreeTable owns the <tr>.
     <div className={cn(ROW_LINE, 'min-w-0 gap-2')} data-testid={`model-row-${row.id}`}>
+      <ModelMark
+        className="text-foreground/80"
+        label={modelMarkLabel({
+          providerId: row.providerId,
+          providerName: row.providerName,
+          vendorId: row.vendor?.id,
+          vendorName: row.vendor?.name,
+        })}
+        provider={row.providerId}
+        vendor={row.vendor?.id}
+      />
       <span className="truncate text-[13px] font-medium" title={row.id}>
         <HighlightedText query={query} text={row.name} />
       </span>
@@ -83,9 +97,7 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
         </Badge>
       ) : null}
       {secondary ? (
-        <span
-          className={cn('text-muted-foreground min-w-0 truncate text-xs', showId && 'font-mono')}
-        >
+        <span className="text-muted-foreground min-w-0 truncate font-mono text-xs">
           <HighlightedText query={query} text={secondary} />
         </span>
       ) : null}

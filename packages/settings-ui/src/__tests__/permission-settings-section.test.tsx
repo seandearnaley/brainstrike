@@ -37,8 +37,8 @@ describe('PermissionSettingsSection', () => {
       'true'
     );
     expect((screen.getByTestId('permission-access-mode') as HTMLSelectElement).value).toBe('ask');
-    expect((screen.getByTestId('permission-auto-review-model') as HTMLSelectElement).value).toBe(
-      'auto'
+    expect(screen.getByRole('combobox', { name: 'Auto-review model' }).textContent).toBe(
+      'Auto (chat’s provider)'
     );
 
     expect((screen.getByTestId('permission-policy-read') as HTMLSelectElement).value).toBe('allow');

@@ -84,50 +84,58 @@ function renderMemorySettings(
   );
 }
 
+/** The observer field: a combobox its label names. */
+function observerField(): HTMLElement {
+  return screen.getByRole('combobox', { name: /observational memory model/iu });
+}
+
+async function openObserverPicker(): Promise<HTMLElement> {
+  await userEvent.setup().click(observerField());
+  return screen.findByRole('dialog', { name: 'Choose a model' });
+}
+
 describe('AssistantMemorySettingsSection', () => {
   beforeEach(() => {
     seedRegistry();
   });
 
-  it('lists only enabled LLM models for observational memory', () => {
+  it('lists only enabled LLM models for observational memory, each with its maker mark', async () => {
     renderMemorySettings();
 
-    const select = screen.getByRole('combobox', { name: /observational memory model/iu });
-    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/iu })).toBeInTheDocument();
-    expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/iu })).toBeInTheDocument();
-    expect(within(select).queryByRole('option', { name: /OpenRouter/iu })).toBeNull();
+    const picker = await openObserverPicker();
+    expect(within(picker).getByRole('option', { name: /GPT-5.4 Mini/iu })).toBeInTheDocument();
+    const haiku = within(picker).getByRole('option', { name: /Claude Haiku 4.5/iu });
+    expect(within(haiku).getByRole('img', { name: 'Anthropic' })).toBeInTheDocument();
+    expect(within(picker).queryByRole('option', { name: /OpenRouter/iu })).toBeNull();
   });
 
-  it('filters observer models by key presence', () => {
+  it('filters observer models by key presence', async () => {
     renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
 
-    const select = screen.getByRole('combobox', { name: /observational memory model/iu });
-    expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/iu })).toBeInTheDocument();
-    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/iu })).toBeNull();
+    const picker = await openObserverPicker();
+    expect(within(picker).getByRole('option', { name: /GPT-5.4 Mini/iu })).toBeInTheDocument();
+    expect(within(picker).queryByRole('option', { name: /Claude Haiku 4.5/iu })).toBeNull();
   });
 
-  it('does not filter memory models when credential provenance is unavailable', () => {
+  it('does not filter memory models when credential provenance is unavailable', async () => {
     render(<AssistantMemorySettingsSection assistantMemoryBackendAvailable={true} />);
 
-    expect(
-      within(screen.getByRole('combobox', { name: /observational memory model/iu })).getByRole(
-        'option',
-        { name: /GPT-5.4 Mini/iu }
-      )
-    ).toBeInTheDocument();
+    const picker = await openObserverPicker();
+    expect(within(picker).getByRole('option', { name: /GPT-5.4 Mini/iu })).toBeInTheDocument();
   });
 
   // Observational memory needs the durable backend to record anything, so with
   // no backend there is no eligible observer AT ALL.
-  it('offers no observer model when the memory backend is unavailable', () => {
+  it('offers no observer model when the memory backend is unavailable', async () => {
     renderMemorySettings(hostedProviderKeySources, false);
 
-    const select = screen.getByRole('combobox', { name: /observational memory model/iu });
-    expect(within(select).queryByRole('option', { name: /GPT-5.4 Mini/iu })).toBeNull();
-    expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/iu })).toBeNull();
-    // The 'auto' sentinel still renders, and the section's own unresolved
-    // notice explains the wait: OM is never silently off.
-    expect(within(select).getByRole('option', { name: /Auto —/iu })).toBeInTheDocument();
+    const picker = await openObserverPicker();
+    // Only the 'auto' sentinel renders: OM is never silently off.
+    expect(
+      within(picker)
+        .getAllByRole('option')
+        .map((option) => option.textContent)
+    ).toEqual(['Auto (chat’s provider)']);
   });
 
   it('does not claim credentials are missing before the model registry loads', () => {
@@ -159,38 +167,31 @@ describe('AssistantMemorySettingsSection', () => {
     );
   });
 
-  it('keeps the toggle usable on the default auto target and explains the privacy rule (BST-940)', () => {
+  it('keeps the toggle usable on the default auto target, which names the chat provider (BST-940)', () => {
     renderMemorySettings([{ provider: 'anthropic', source: 'stored' }]);
 
     const toggle = screen.getByRole('switch', { name: 'Enable observational memory' });
     expect(toggle).toBeEnabled();
     expect(toggle).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('combobox', { name: /observational memory model/iu })).toHaveValue(
-      'auto'
-    );
-    const note = screen.getByTestId('assistant-memory-auto-observer-note');
-    // The privacy ruling: auto observes with the ACTIVE CHAT PROVIDER only,
-    // never a different keyed provider.
-    expect(note).toHaveTextContent(/active chat provider only/iu);
+    // The privacy ruling lives in the option: Auto observes on the chat's own provider.
+    expect(observerField()).toHaveTextContent('Auto (chat’s provider)');
   });
 
-  it('keeps the auto note and toggle stable for a profile with no keys (waiting, not broken)', () => {
+  it('keeps Auto and the toggle stable for a profile with no keys (waiting, not broken)', () => {
     renderMemorySettings([]);
 
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeEnabled();
-    expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
-      /active chat provider only/iu
-    );
+    expect(observerField()).toHaveTextContent('Auto (chat’s provider)');
   });
 
   it('persists selected observational memory settings', async () => {
     const user = userEvent.setup();
     renderMemorySettings();
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: /observational memory model/iu }),
-      'anthropic/claude-haiku-4-5'
-    );
+    await user.click(observerField());
+    const picker = await screen.findByRole('dialog', { name: 'Choose a model' });
+    await user.click(within(picker).getByRole('option', { name: /Claude Haiku 4.5/iu }));
+    expect(observerField()).toHaveTextContent('Claude Haiku 4.5');
     await user.clear(screen.getByRole('spinbutton', { name: /observe messages after/iu }));
     await user.type(screen.getByRole('spinbutton', { name: /observe messages after/iu }), '18000');
     await user.tab();
@@ -282,51 +283,14 @@ describe('AssistantMemorySettingsSection', () => {
     });
   });
 
-  describe('manual observer egress disclosure', () => {
-    const chooseObserver = (target: string) => {
-      useAssistantMemoryPreferencesStore.setState((state) => ({
-        observationalMemory: { ...state.observationalMemory, modelTarget: target },
-      }));
-    };
+  it('shows a chosen observer by its maker mark and name', () => {
+    useAssistantMemoryPreferencesStore.setState((state) => ({
+      observationalMemory: { ...state.observationalMemory, modelTarget: 'openai/gpt-5.4-mini' },
+    }));
+    renderMemorySettings();
 
-    it('states that a MANUAL target is not tied to the chat provider', () => {
-      // Auto carries an enforced guarantee in its own copy — "the conversation
-      // never reaches a provider that is not already receiving it" (BST-940).
-      // A manual target has no such constraint and said nothing about egress,
-      // so a reader of the auto note would assume it still held. Observed live
-      // across two debug bundles: chat on openrouter, observer on
-      // openai/gpt-5.6-luna.
-      chooseObserver('openai/gpt-5.4-mini');
-      renderMemorySettings();
-
-      const note = screen.getByTestId('assistant-memory-manual-observer-note');
-      expect(note).toHaveTextContent(/not tied to your chat provider/iu);
-      expect(note).toHaveTextContent(/reaches the observer's provider/iu);
-    });
-
-    it('does NOT claim it on Auto, which cannot cross by construction', () => {
-      chooseObserver('auto');
-      renderMemorySettings();
-
-      expect(screen.queryByTestId('assistant-memory-manual-observer-note')).toBeNull();
-      expect(screen.getByTestId('assistant-memory-auto-observer-note')).toHaveTextContent(
-        /never reaches a provider that is not already receiving it/iu
-      );
-    });
-
-    it('states it unconditionally, not per active thread', () => {
-      // The observer target is GLOBAL; the chat provider is per-thread
-      // (`draftRuntimeByThreadId` wins over the global `selectedModel` in
-      // assistant-ui-panel-wrapper). A disclosure keyed to whichever thread
-      // happened to be active would go silent for every OTHER thread — wrong
-      // in the direction that matters, since the setting governs all of them.
-      // So it describes the setting, and does not read any provider at all.
-      chooseObserver('anthropic/claude-haiku-4-5');
-      renderMemorySettings();
-
-      expect(screen.getByTestId('assistant-memory-manual-observer-note')).toHaveTextContent(
-        /not tied to your chat provider/iu
-      );
-    });
+    const field = observerField();
+    expect(field).toHaveTextContent('GPT-5.4 Mini');
+    expect(field.querySelector('[data-model-mark]')).toHaveAttribute('data-model-mark', 'openai');
   });
 });

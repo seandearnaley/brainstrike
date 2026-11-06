@@ -26,7 +26,7 @@ import type {
   AssistantProviderSettingsMap,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
-import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
+import type { ModelPickerModel } from '@brainstrike/ui';
 import { DiagramFullSizeContainerContext } from '@brainstrike/ui/diagram-full-size-container';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
@@ -55,7 +55,8 @@ import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './compose
 import { ComposerEffortControl } from './composer-effort-control';
 import { ComposerImageDropShell } from './composer-image-drop';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
-import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
+import { ComposerModelPicker } from './composer-model-picker';
+import { modelIdFromCompositeKey } from './composer-picker-sections';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
   type CumulativeUsageDisplay,
@@ -88,7 +89,7 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
 // Re-export types needed by consumers
-export type { ModelPickerModel, ModelPickerProvider };
+export type { ModelPickerModel };
 
 export interface ProviderConfig {
   defaultModel: string;
@@ -121,7 +122,6 @@ export interface ProviderOptionConfig {
 }
 
 export interface ProviderGroupConfig {
-  label: string;
   providers: ProviderOptionConfig[];
   runtime: ProviderRuntimeCategory;
 }

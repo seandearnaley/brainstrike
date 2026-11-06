@@ -329,7 +329,6 @@ beforeAll(() => {
 
 const providerGroups: ProviderGroupConfig[] = [
   {
-    label: 'Cloud',
     providers: [
       {
         capabilities: {
@@ -353,7 +352,6 @@ const providerGroups: ProviderGroupConfig[] = [
     runtime: 'hosted',
   },
   {
-    label: 'Gateway',
     providers: [
       {
         capabilities: {
@@ -380,17 +378,13 @@ const providerGroups: ProviderGroupConfig[] = [
 // ModelPicker-compatible models (only enabled models)
 const pickerModels: ModelPickerModel[] = [
   {
-    capabilities: { streaming: true, type: 'llm' },
-    description: null,
+    capabilities: {},
     id: 'gpt-5.2',
-    name: 'GPT-5.2',
     providerId: 'openai',
   },
   {
-    capabilities: { streaming: true, type: 'llm' },
-    description: null,
+    capabilities: {},
     id: 'claude-sonnet-4-6',
-    name: 'Claude Sonnet 4.6',
     providerId: 'anthropic',
   },
 ];

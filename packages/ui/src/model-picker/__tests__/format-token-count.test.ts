@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatContextWindow, formatTokenCount } from '../utils/format-context-window';
+import { formatTokenCount } from '../utils/format-context-window';
 
 describe('formatTokenCount', () => {
   it.each([
@@ -15,13 +15,5 @@ describe('formatTokenCount', () => {
     [2_000_000, '2M'],
   ])('%i → %s', (tokens, expected) => {
     expect(formatTokenCount(tokens)).toBe(expected);
-  });
-});
-
-describe('formatContextWindow', () => {
-  it('is formatTokenCount plus the "context" suffix', () => {
-    expect(formatContextWindow(1_050_000)).toBe('1.1M context');
-    expect(formatContextWindow(200_000)).toBe('200K context');
-    expect(formatContextWindow(512)).toBe('512 context');
   });
 });

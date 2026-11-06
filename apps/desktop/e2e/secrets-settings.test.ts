@@ -68,10 +68,10 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     const modelDialog = window.getByRole('dialog', { name: 'Choose a model' });
     await modelDialog.getByRole('combobox').fill('GPT');
     // The flattened search can surface GPT rows from several providers
-    // (OpenAI, OpenRouter): scope to the row whose provider label reads "OpenAI".
+    // (OpenAI, OpenRouter): scope to a row whose mark names OpenAI's own API.
     const openAiModel = modelDialog
       .getByRole('option', { name: /GPT/iu })
-      .filter({ hasText: /OpenAI/iu })
+      .filter({ has: window.getByRole('img', { exact: true, name: 'OpenAI' }) })
       .first();
     await expect(openAiModel).toBeVisible();
     await openAiModel.click();

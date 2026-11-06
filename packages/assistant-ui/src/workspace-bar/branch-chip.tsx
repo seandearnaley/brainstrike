@@ -1,4 +1,12 @@
-import { cn, ModelPickerSearch, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import {
+  cn,
+  ModelPickerSearch,
+  PICKER_GROUP_HEADING_CLASS,
+  PICKER_ROW_CLASS,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@brainstrike/ui';
 import { Command } from 'cmdk';
 import {
   Check,
@@ -10,7 +18,6 @@ import {
   SplitSquareHorizontal,
 } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
-import { GROUP_HEADING_CLASS, ROW_CLASS } from '../composer-model-picker';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarBranchRow,
@@ -41,7 +48,7 @@ const BranchGlyphs = ({
 );
 
 const BRANCH_ROW_CLASS = cn(
-  ROW_CLASS,
+  PICKER_ROW_CLASS,
   'data-[disabled=true]:text-muted-foreground items-start font-mono text-xs data-[disabled=true]:opacity-100'
 );
 
@@ -102,7 +109,7 @@ const BranchMenuRow = ({
       {showsWorktreeAction ? (
         // Follow-up: checkout-existing-branch create mode replaces this detached-at-tip stopgap.
         <Command.Item
-          className={cn(ROW_CLASS, 'pl-8 text-xs')}
+          className={cn(PICKER_ROW_CLASS, 'pl-8 text-xs')}
           data-testid={`workspace-bar-branch-worktree-${row.name}`}
           disabled={menu.pending}
           onSelect={() => {
@@ -194,14 +201,14 @@ const BranchSwitcher = ({
               No branches match.
             </Command.Empty>
             {free.length > 0 ? (
-              <Command.Group className={GROUP_HEADING_CLASS} heading="Local branches">
+              <Command.Group className={PICKER_GROUP_HEADING_CLASS} heading="Local branches">
                 {free.map((row) => (
                   <BranchMenuRow key={row.name} menu={branchMenu} onDone={onDone} row={row} />
                 ))}
               </Command.Group>
             ) : null}
             {elsewhere.length > 0 ? (
-              <Command.Group className={GROUP_HEADING_CLASS} heading="In other worktrees">
+              <Command.Group className={PICKER_GROUP_HEADING_CLASS} heading="In other worktrees">
                 {elsewhere.map((row) => (
                   <BranchMenuRow key={row.name} menu={branchMenu} onDone={onDone} row={row} />
                 ))}
@@ -210,10 +217,10 @@ const BranchSwitcher = ({
           </>
         )}
         {canCreate || branchMenu.onFetch ? (
-          <Command.Group className={cn(GROUP_HEADING_CLASS, 'border-border/60 border-t')}>
+          <Command.Group className={cn(PICKER_GROUP_HEADING_CLASS, 'border-border/60 border-t')}>
             {canCreate ? (
               <Command.Item
-                className={cn(ROW_CLASS, 'text-xs')}
+                className={cn(PICKER_ROW_CLASS, 'text-xs')}
                 data-testid="workspace-bar-branch-create"
                 disabled={branchMenu.pending}
                 onSelect={() => {
@@ -231,7 +238,7 @@ const BranchSwitcher = ({
             ) : null}
             {branchMenu.onFetch ? (
               <Command.Item
-                className={cn(ROW_CLASS, 'text-xs')}
+                className={cn(PICKER_ROW_CLASS, 'text-xs')}
                 data-testid="workspace-bar-branch-fetch"
                 disabled={branchMenu.pending}
                 onSelect={branchMenu.onFetch}
