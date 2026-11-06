@@ -95,6 +95,14 @@ const providerGroups: ProviderGroupConfig[] = [
             type: 'llm',
             vendor: { id: 'anthropic', name: 'Anthropic' },
           },
+          {
+            enabled: true,
+            id: 'x-ai/grok-4.7',
+            label: 'Grok 4.7 (OpenRouter)',
+            supportsStreaming: true,
+            type: 'llm',
+            vendor: { id: 'xai', name: 'xAI' },
+          },
         ],
         name: 'OpenRouter',
         runtime: 'gateway',
@@ -365,9 +373,10 @@ describe('ComposerModelPicker', () => {
     render(<ComposerModelPicker {...baseProps} onModelChange={vi.fn()} />);
 
     const picker = await openPicker(user);
-    await user.type(within(picker).getByRole('combobox'), 'moonshot');
-    expect(within(picker).getByRole('option', { name: /Kimi K3/u })).toBeInTheDocument();
-    expect(within(picker).queryByRole('option', { name: /Claude/u })).not.toBeInTheDocument();
+    // "xai" is in the maker's name only: not in the row's ID, label or route.
+    await user.type(within(picker).getByRole('combobox'), 'xai');
+    expect(within(picker).getByRole('option', { name: /Grok 4\.7/u })).toBeInTheDocument();
+    expect(within(picker).queryByRole('option', { name: /Kimi K3/u })).not.toBeInTheDocument();
   });
 
   it('shows a context-window badge on list rows', async () => {
