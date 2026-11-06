@@ -38,6 +38,8 @@ export interface ComposerPickerEntry {
   providerName: string;
   runtime: ProviderRuntimeCategory;
   runtimeLabel: string;
+  /** The model's maker, which a gateway route doesn't name. */
+  vendor: { readonly id: string; readonly name: string } | undefined;
 }
 
 interface ComposerPickerProviderGroup {
@@ -85,6 +87,7 @@ function collectEntries(
           providerName: provider.name,
           runtime: provider.runtime,
           runtimeLabel: group.label,
+          vendor: model.vendor,
         });
       }
     }
@@ -157,6 +160,7 @@ function entryMatches(entry: ComposerPickerEntry, query: string): boolean {
       providerId: entry.providerId,
       providerName: entry.providerName,
       tagline: entry.meta?.description ?? null,
+      vendorName: entry.vendor?.name ?? null,
     },
     query
   );

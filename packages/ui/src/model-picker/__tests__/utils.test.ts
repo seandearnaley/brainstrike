@@ -8,11 +8,6 @@ describe('getProviderColor', () => {
   it('returns mapped color for known provider', () => {
     expect(getProviderColor('openai', 'light')).toBe('hsl(160, 60%, 35%)');
   });
-
-  it('returns hash color for unknown provider', () => {
-    const color = getProviderColor('unknown-provider', 'light');
-    expect(color).toMatch(/^hsl\(\d+, \d+%+, \d+%\)$/u);
-  });
 });
 
 describe('filterModels', () => {

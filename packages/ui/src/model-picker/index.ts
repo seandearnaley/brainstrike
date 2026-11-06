@@ -4,4 +4,4 @@ export * from './types';
 export { formatContextWindow, formatTokenCount } from './utils/format-context-window';
 export { type ModelQueryFields, matchesModelQuery } from './utils/match-model-query';
 export * from './utils/provider-colors';
-export { ProviderIcon } from './utils/provider-icons';
+export { ModelMark, type ModelMarkProps, modelMarkLabel, ProviderIcon } from './utils/vendor-marks';

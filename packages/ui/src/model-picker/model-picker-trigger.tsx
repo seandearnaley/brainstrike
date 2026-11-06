@@ -5,7 +5,7 @@ import { useResolvedTheme } from '../hooks/use-resolved-theme';
 import { cn } from '../lib/utils';
 import type { TriggerRenderProps } from './types';
 import { getProviderColor } from './utils/provider-colors';
-import { ProviderIcon } from './utils/provider-icons';
+import { ProviderIcon } from './utils/vendor-marks';
 
 export const ModelPickerTrigger = ({
   value,

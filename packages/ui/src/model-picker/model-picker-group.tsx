@@ -1,7 +1,7 @@
 import { Command } from 'cmdk';
 import type { ModelPickerProvider } from './types';
 import { getProviderColor } from './utils/provider-colors';
-import { ProviderIcon } from './utils/provider-icons';
+import { ProviderIcon } from './utils/vendor-marks';
 
 interface ModelPickerGroupProps {
   children: React.ReactNode;

@@ -11,6 +11,7 @@ const openAiDefaultModel: LlmProviderModelDefinition = {
   supportsStreaming: true,
   tagline: 'Most capable for everyday work',
   type: 'llm',
+  vendor: 'openai',
   vision: 'supported',
 };
 
@@ -20,6 +21,7 @@ const openAiDisabledModel: LlmProviderModelDefinition = {
   label: 'Hosted Disabled',
   supportsStreaming: true,
   type: 'llm',
+  vendor: 'openai',
   vision: 'unsupported',
 };
 
@@ -29,6 +31,7 @@ const gatewayModel: LlmProviderModelDefinition = {
   label: 'Uncatalogued',
   supportsStreaming: true,
   type: 'llm',
+  vendor: 'qwen',
   vision: 'unsupported',
 };
 
@@ -69,6 +72,7 @@ describe('useAssistantModelPickerConfig', () => {
                 label: 'Hosted Default',
                 supportsStreaming: true,
                 type: 'llm',
+                vendor: { id: 'openai', name: 'OpenAI' },
               }),
               expect.objectContaining({
                 enabled: false,
@@ -97,6 +101,8 @@ describe('useAssistantModelPickerConfig', () => {
                 label: 'Uncatalogued',
                 supportsStreaming: true,
                 type: 'llm',
+                // The gateway's row names its maker, which its route doesn't.
+                vendor: { id: 'qwen', name: 'Qwen' },
               },
             ],
             name: 'OpenRouter',

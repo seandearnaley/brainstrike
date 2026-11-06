@@ -1,4 +1,5 @@
 import { resolveModelReasoningSupport } from '@brainstrike/assistant-contract/model-reasoning';
+import { modelVendor } from '@brainstrike/assistant-contract/model-vendors';
 import {
   getProviderDefinition,
   type ProviderRuntime,
@@ -61,6 +62,7 @@ export function useAssistantModelPickerConfig({
         label: model.label ?? model.id,
         supportsStreaming: Boolean(model.supportsStreaming),
         type: 'llm' as const,
+        vendor: modelVendor(model.vendor),
       }));
 
       const group = groups.get(runtime);
