@@ -41,6 +41,7 @@ export type {
 export { projectModelCatalog } from './model-catalog.ts';
 export * from './model-reasoning.ts';
 export * from './model-step.ts';
+export * from './model-vendors.ts';
 export * from './native-tool-catalog.ts';
 export * from './openrouter-coding-defaults.ts';
 export * from './openrouter-model-metadata.ts';

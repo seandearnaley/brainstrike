@@ -9,8 +9,9 @@ interface ProviderColorPair {
  * Every static registry provider has an explicit entry — pinned at COMPILE
  * time by the `satisfies Record<SupportedProvider, ...>` below (BST-1349,
  * PR #2513 review finding 6): adding a provider to the registry without a
- * color here is a type error. The hash fallback in `getProviderColor` covers
- * catalog provider ids outside the registry.
+ * color here is a type error. Any other id gets the muted text colour: a
+ * provider's colour is its identity, so none is derived from a hash
+ * (docs/agents/ui-conventions.md).
  */
 export const PROVIDER_COLOR_MAP: Record<string, ProviderColorPair> = {
   anthropic: { dark: 'hsl(25, 70%, 55%)', light: 'hsl(25, 70%, 45%)' },
@@ -27,8 +28,8 @@ export function getProviderColor(providerId: string, theme: 'light' | 'dark'): s
   if (PROVIDER_COLOR_MAP[providerId]) {
     return PROVIDER_COLOR_MAP[providerId][theme];
   }
-  // Fallback: hash-based color
-  const hash = providerId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const hue = hash % 360;
-  return theme === 'light' ? `hsl(${hue}, 55%, 40%)` : `hsl(${hue}, 55%, 55%)`;
+  return UNKNOWN_PROVIDER_COLOR;
 }
+
+/** The muted text colour of the active theme, for a provider without a registry colour. */
+export const UNKNOWN_PROVIDER_COLOR = 'var(--bs-muted-foreground)';

@@ -9,12 +9,14 @@
 import {
   Button,
   formatContextWindow,
-  getProviderColor,
+  ModelMark,
   type ModelPickerModel,
   ModelPickerSearch,
+  modelMarkLabel,
   Popover,
   PopoverContent,
   PopoverTrigger,
+  ProviderIcon,
 } from '@brainstrike/ui';
 import { Command } from 'cmdk';
 import { Brain, Check, ChevronDown, Eye, Plus } from 'lucide-react';
@@ -82,12 +84,32 @@ function CapabilityIcons({ meta }: { meta: ModelPickerModel | undefined }): Reac
   );
 }
 
-function ProviderDot({ providerId }: { providerId: string }): ReactNode {
+/**
+ * The entry's maker mark, with its gateway as a badge. Labelled, because a
+ * gateway row's text names the route, never the maker.
+ */
+function EntryMark({
+  entry,
+  labelled = true,
+}: {
+  entry: ComposerPickerEntry;
+  labelled?: boolean;
+}): ReactNode {
   return (
-    <span
-      aria-hidden
-      className="size-2 shrink-0 rounded-full"
-      style={{ backgroundColor: getProviderColor(providerId, 'light') }}
+    <ModelMark
+      className="text-foreground/80"
+      label={
+        labelled
+          ? modelMarkLabel({
+              providerId: entry.providerId,
+              providerName: entry.providerName,
+              vendorId: entry.vendor?.id,
+              vendorName: entry.vendor?.name,
+            })
+          : undefined
+      }
+      provider={entry.providerId}
+      vendor={entry.vendor?.id}
     />
   );
 }
@@ -114,7 +136,7 @@ function RecentRow({ entry, onPick, selected }: Omit<RowProps, 'showProvider'>):
       onSelect={() => onPick(entry)}
       value={`recent:${entry.compositeKey}`}
     >
-      <ProviderDot providerId={entry.providerId} />
+      <EntryMark entry={entry} />
       <span className="min-w-0 flex-1">
         <span className="block truncate leading-5 font-medium">{entry.modelLabel}</span>
         {entry.meta?.description ? (
@@ -133,7 +155,7 @@ function RecentRow({ entry, onPick, selected }: Omit<RowProps, 'showProvider'>):
 function ListRow({ entry, onPick, selected, showProvider }: RowProps): ReactNode {
   return (
     <Command.Item className={ROW_CLASS} onSelect={() => onPick(entry)} value={entry.compositeKey}>
-      {showProvider ? <ProviderDot providerId={entry.providerId} /> : null}
+      <EntryMark entry={entry} />
       <span className="min-w-0 flex-1 truncate leading-5">{entry.modelLabel}</span>
       {showProvider ? (
         <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
@@ -149,10 +171,19 @@ function ListRow({ entry, onPick, selected, showProvider }: RowProps): ReactNode
   );
 }
 
-/** A provider group's heading: its name, then its model count as a separate muted badge. */
-function GroupHeading({ count, label }: { count: number; label: string }): ReactNode {
+/** A provider group's heading: its mark and name, then its model count as a separate muted badge. */
+function GroupHeading({
+  count,
+  label,
+  providerId,
+}: {
+  count: number;
+  label: string;
+  providerId: string;
+}): ReactNode {
   return (
     <span className="flex items-center gap-1.5">
+      <ProviderIcon className="size-3 shrink-0" providerId={providerId} />
       <span className="truncate">{label}</span>
       <span className="bg-muted text-muted-foreground rounded-full px-1.5 leading-4 tabular-nums">
         {count}
@@ -207,7 +238,7 @@ function NotEnabledRow({
       onSelect={() => onEnable(entry)}
       value={`enable:${entry.compositeKey}`}
     >
-      <ProviderDot providerId={entry.providerId} />
+      <EntryMark entry={entry} />
       <span className="text-muted-foreground min-w-0 flex-1 truncate leading-5">
         {entry.modelLabel}
       </span>
@@ -317,7 +348,7 @@ export function ComposerModelPicker({
           disabled={!canSelect}
           type="button"
         >
-          {selectedEntry ? <ProviderDot providerId={selectedEntry.providerId} /> : null}
+          {selectedEntry ? <EntryMark entry={selectedEntry} labelled={false} /> : null}
           <span className="bs-composer-chip-label">{triggerText}</span>
           <ChevronDown aria-hidden />
         </button>
@@ -371,6 +402,7 @@ export function ComposerModelPicker({
                       <GroupHeading
                         count={group.entries.length}
                         label={`${group.runtimeLabel} · ${group.providerName}`}
+                        providerId={group.providerId}
                       />
                     }
                     key={`${group.runtimeLabel}:${group.providerId}`}

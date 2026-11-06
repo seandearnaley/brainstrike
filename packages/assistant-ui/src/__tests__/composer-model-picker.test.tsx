@@ -54,6 +54,7 @@ const providerGroups: ProviderGroupConfig[] = [
             label: 'Claude Sonnet 5',
             supportsStreaming: true,
             type: 'llm',
+            vendor: { id: 'anthropic', name: 'Anthropic' },
           },
           {
             enabled: true,
@@ -84,6 +85,23 @@ const providerGroups: ProviderGroupConfig[] = [
             label: 'Kimi K3 (OpenRouter)',
             supportsStreaming: true,
             type: 'llm',
+            vendor: { id: 'moonshot', name: 'Moonshot AI' },
+          },
+          {
+            enabled: true,
+            id: 'anthropic/claude-haiku-5.5',
+            label: 'Claude Haiku 5.5 (OpenRouter)',
+            supportsStreaming: true,
+            type: 'llm',
+            vendor: { id: 'anthropic', name: 'Anthropic' },
+          },
+          {
+            enabled: true,
+            id: 'x-ai/grok-4.7',
+            label: 'Grok 4.7 (OpenRouter)',
+            supportsStreaming: true,
+            type: 'llm',
+            vendor: { id: 'xai', name: 'xAI' },
           },
         ],
         name: 'OpenRouter',
@@ -327,6 +345,38 @@ describe('ComposerModelPicker', () => {
     // Duplicate bare id resolves through its own provider — never openai.
     expect(onModelChange).toHaveBeenCalledWith('anthropic::shared-model-id');
     expect(onModelChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks each row with its maker, and badges the gateway that serves another maker's model", async () => {
+    const user = setup();
+    render(<ComposerModelPicker {...baseProps} onModelChange={vi.fn()} />);
+
+    const picker = await openPicker(user);
+    const gateway = within(picker).getByRole('group', { name: /Gateway · OpenRouter/u });
+    const claude = within(gateway).getByRole('option', { name: /Claude Haiku 5\.5/u });
+    const claudeMark = within(claude).getByRole('img', { name: 'Anthropic via OpenRouter' });
+    expect(claudeMark).toHaveAttribute('data-model-mark', 'anthropic');
+    expect(claudeMark).toHaveAttribute('data-model-route', 'openrouter');
+    // A maker without a mark of its own shows its route's, and its name still reads.
+    const kimi = within(gateway).getByRole('option', { name: /Kimi K3/u });
+    const kimiMark = within(kimi).getByRole('img', { name: 'Moonshot AI via OpenRouter' });
+    expect(kimiMark).toHaveAttribute('data-model-mark', 'openrouter');
+    // On its maker's own API the mark carries no route badge.
+    const hosted = within(picker).getByRole('group', { name: /Hosted · Anthropic/u });
+    const direct = within(hosted).getByRole('option', { name: /^Anthropic Claude Sonnet 5/u });
+    const directMark = within(direct).getByRole('img', { name: 'Anthropic' });
+    expect(directMark).not.toHaveAttribute('data-model-route');
+  });
+
+  it('finds a gateway model by its maker', async () => {
+    const user = setup();
+    render(<ComposerModelPicker {...baseProps} onModelChange={vi.fn()} />);
+
+    const picker = await openPicker(user);
+    // "xai" is in the maker's name only: not in the row's ID, label or route.
+    await user.type(within(picker).getByRole('combobox'), 'xai');
+    expect(within(picker).getByRole('option', { name: /Grok 4\.7/u })).toBeInTheDocument();
+    expect(within(picker).queryByRole('option', { name: /Kimi K3/u })).not.toBeInTheDocument();
   });
 
   it('shows a context-window badge on list rows', async () => {

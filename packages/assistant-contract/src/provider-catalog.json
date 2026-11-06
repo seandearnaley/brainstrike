@@ -71,6 +71,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -116,6 +117,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -161,6 +163,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -208,6 +211,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -253,6 +257,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -298,6 +303,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -344,6 +350,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -389,6 +396,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -432,6 +440,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -467,6 +476,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -510,6 +520,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -545,6 +556,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -580,6 +592,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -616,6 +629,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -649,6 +663,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -683,6 +698,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -716,6 +732,7 @@
           "tokenizer": "o200k_base"
         },
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       }
     ],
@@ -776,6 +793,7 @@
         "supportsStreaming": true,
         "tagline": "For demanding reasoning and long-horizon agentic work",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -809,6 +827,7 @@
         "promptCaching": "anthropic",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -843,6 +862,7 @@
         "supportsStreaming": true,
         "tagline": "For long-running agentic coding and knowledge work",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -877,6 +897,7 @@
         "supportsStreaming": true,
         "tagline": "For complex agentic coding and enterprise work",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -911,6 +932,7 @@
         "supportsStreaming": true,
         "tagline": "For your toughest challenges",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -946,6 +968,7 @@
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -980,6 +1003,7 @@
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -1013,6 +1037,7 @@
         "promptCaching": "anthropic",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -1056,6 +1081,7 @@
         "supportsStreaming": true,
         "tagline": "For high-volume, latency-sensitive tasks",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -1085,6 +1111,7 @@
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       }
     ],
@@ -1133,6 +1160,7 @@
         "supportsStreaming": true,
         "tagline": "Google's most capable Gemini model",
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1164,6 +1192,7 @@
         "supportsStreaming": true,
         "tagline": "Long-horizon software engineering and autonomous agents at Flash speed",
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1194,6 +1223,7 @@
         "supportsStreaming": true,
         "tagline": "Frontier intelligence for code generation and agentic execution",
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1224,6 +1254,7 @@
         "supportsStreaming": true,
         "tagline": "Low-latency multimodal for high-throughput subagent tasks and document parsing",
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1258,6 +1289,7 @@
         "supportsStreaming": true,
         "tagline": "For your toughest challenges",
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1284,6 +1316,7 @@
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1317,6 +1350,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1342,6 +1376,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1368,6 +1403,7 @@
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       }
     ],
@@ -1430,6 +1466,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -1471,6 +1508,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -1512,6 +1550,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -1553,6 +1592,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -1599,6 +1639,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -1626,6 +1667,7 @@
         "promptCaching": "openrouter-breakpoints",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "supported"
       },
       {
@@ -1651,6 +1693,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -1694,6 +1737,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -1726,6 +1770,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -1756,6 +1801,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1782,6 +1828,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -1813,6 +1860,7 @@
         "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -1849,6 +1897,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -1876,6 +1925,7 @@
         "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -1903,6 +1953,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "cohere",
         "vision": "supported"
       },
       {
@@ -1932,6 +1983,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "bytedance-seed",
         "vision": "supported"
       },
       {
@@ -1967,6 +2019,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "supported"
       },
       {
@@ -1994,6 +2047,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "supported"
       },
       {
@@ -2025,6 +2079,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "zai",
         "vision": "unsupported"
       },
       {
@@ -2056,6 +2111,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "supported"
       },
       {
@@ -2093,6 +2149,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "unsupported"
       },
       {
@@ -2126,6 +2183,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "nvidia",
         "vision": "unsupported"
       },
       {
@@ -2155,6 +2213,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "nvidia",
         "vision": "unsupported"
       },
       {
@@ -2186,6 +2245,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -2215,6 +2275,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "poolside",
         "vision": "unsupported"
       },
       {
@@ -2240,6 +2301,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "poolside",
         "vision": "unsupported"
       },
       {
@@ -2270,6 +2332,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -2304,6 +2367,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -2329,6 +2393,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meituan",
         "vision": "unsupported"
       },
       {
@@ -2354,6 +2419,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "thinking-machines",
         "vision": "supported"
       },
       {
@@ -2394,6 +2460,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "thinking-machines",
         "vision": "supported"
       },
       {
@@ -2417,6 +2484,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "kwaipilot",
         "vision": "unsupported"
       },
       {
@@ -2461,6 +2529,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "xai",
         "vision": "supported"
       },
       {
@@ -2504,6 +2573,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "xai",
         "vision": "supported"
       },
       {
@@ -2542,6 +2612,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "xai",
         "vision": "supported"
       },
       {
@@ -2577,6 +2648,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -2607,6 +2679,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -2640,6 +2713,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "moonshot",
         "vision": "supported"
       },
       {
@@ -2673,6 +2747,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "moonshot",
         "vision": "supported"
       },
       {
@@ -2708,6 +2783,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -2745,6 +2821,7 @@
         "supportsStreaming": true,
         "tagline": "Most capable for everyday work",
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -2780,6 +2857,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -2807,6 +2885,7 @@
         "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -2835,6 +2914,7 @@
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -2863,6 +2943,7 @@
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -2894,6 +2975,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "zai",
         "vision": "unsupported"
       },
       {
@@ -2919,6 +3001,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "minimax",
         "vision": "supported"
       },
       {
@@ -2944,6 +3027,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "minimax",
         "vision": "supported"
       },
       {
@@ -2969,6 +3053,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "deepseek",
         "vision": "unsupported"
       },
       {
@@ -2992,6 +3077,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "deepseek",
         "vision": "unsupported"
       },
       {
@@ -3019,6 +3105,7 @@
         "promptCaching": "openrouter-breakpoints",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "unsupported"
       },
       {
@@ -3055,6 +3142,7 @@
         "promptCaching": "openrouter-breakpoints",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "unsupported"
       },
       {
@@ -3086,6 +3174,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "unsupported"
       },
       {
@@ -3111,6 +3200,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "unsupported"
       },
       {
@@ -3136,6 +3226,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "moonshot",
         "vision": "unsupported"
       },
       {
@@ -3159,6 +3250,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "moonshot",
         "vision": "unsupported"
       },
       {
@@ -3192,6 +3284,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -3225,6 +3318,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -3250,6 +3344,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -3275,6 +3370,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -3300,6 +3396,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "openai",
         "vision": "supported"
       },
       {
@@ -3327,6 +3424,7 @@
         "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -3354,6 +3452,7 @@
         "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -3382,6 +3481,7 @@
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -3408,6 +3508,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -3442,6 +3543,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -3468,6 +3570,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       },
       {
@@ -3495,6 +3598,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "tencent",
         "vision": "unsupported"
       },
       {
@@ -3522,6 +3626,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "zai",
         "vision": "supported"
       },
       {
@@ -3555,6 +3660,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "zai",
         "vision": "supported"
       },
       {
@@ -3582,6 +3688,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "tencent",
         "vision": "unsupported"
       },
       {
@@ -3609,6 +3716,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "xiaomi",
         "vision": "supported"
       },
       {
@@ -3636,6 +3744,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "xiaomi",
         "vision": "supported"
       },
       {
@@ -3666,6 +3775,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "xiaomi",
         "vision": "supported"
       },
       {
@@ -3697,6 +3807,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "upstage",
         "vision": "unsupported"
       },
       {
@@ -3724,6 +3835,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "deepseek",
         "vision": "unsupported"
       },
       {
@@ -3750,6 +3862,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "deepseek",
         "vision": "unsupported"
       },
       {
@@ -3776,6 +3889,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "deepseek",
         "vision": "supported"
       },
       {
@@ -3803,6 +3917,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "deepseek",
         "vision": "supported"
       },
       {
@@ -3828,6 +3943,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "inclusionai",
         "vision": "unsupported"
       },
       {
@@ -3864,6 +3980,7 @@
         "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -3889,6 +4006,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "mistral",
         "vision": "supported"
       },
       {
@@ -3913,6 +4031,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "mistral",
         "vision": "supported"
       },
       {
@@ -3938,6 +4057,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "mistral",
         "vision": "supported"
       },
       {
@@ -3963,6 +4083,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "mistral",
         "vision": "unsupported"
       },
       {
@@ -3988,6 +4109,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -4013,6 +4135,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "qwen",
         "vision": "supported"
       },
       {
@@ -4038,6 +4161,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "zai",
         "vision": "unsupported"
       },
       {
@@ -4063,6 +4187,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "google",
         "vision": "supported"
       }
     ],
@@ -4118,6 +4243,7 @@
         "supportsStreaming": true,
         "tagline": "For demanding reasoning and long-horizon agentic work",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4146,6 +4272,7 @@
         "promptCaching": "bedrock",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4176,6 +4303,7 @@
         "supportsStreaming": true,
         "tagline": "For long-running agentic coding and knowledge work",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4205,6 +4333,7 @@
         "supportsStreaming": true,
         "tagline": "For complex agentic coding and enterprise work",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4233,6 +4362,7 @@
         "supportsStreaming": true,
         "tagline": "For your toughest challenges",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4263,6 +4393,7 @@
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4293,6 +4424,7 @@
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4321,6 +4453,7 @@
         "promptCaching": "bedrock",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4359,6 +4492,7 @@
         "supportsStreaming": true,
         "tagline": "For high-volume, latency-sensitive tasks",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4388,6 +4522,7 @@
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
         "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -4414,6 +4549,7 @@
         "promptCaching": "bedrock",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "amazon",
         "vision": "supported"
       },
       {
@@ -4439,6 +4575,7 @@
         "promptCaching": "bedrock",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "amazon",
         "vision": "supported"
       },
       {
@@ -4464,6 +4601,7 @@
         "promptCaching": "bedrock",
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "amazon",
         "vision": "unsupported"
       },
       {
@@ -4489,6 +4627,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "amazon",
         "vision": "supported"
       },
       {
@@ -4512,6 +4651,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -4535,6 +4675,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "meta",
         "vision": "supported"
       },
       {
@@ -4558,6 +4699,7 @@
         },
         "supportsStreaming": true,
         "type": "llm",
+        "vendor": "deepseek",
         "vision": "unsupported"
       }
     ],

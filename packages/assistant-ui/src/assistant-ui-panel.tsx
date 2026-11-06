@@ -105,6 +105,8 @@ export interface ProviderModelOptionConfig {
   label: string;
   supportsStreaming?: boolean;
   type: 'llm';
+  /** The model's maker from its catalog row; absent for an uncatalogued model. */
+  vendor?: { readonly id: string; readonly name: string } | undefined;
 }
 
 export interface ProviderOptionConfig {
