@@ -68,6 +68,7 @@
     "./tool-output-artifact": "./src/tool-output-artifact.ts",
     "./tool-suspend": "./src/tool-suspend.ts",
     "./user-personas": "./src/user-personas.ts",
+    "./generation-options": "./src/generation-options.ts",
     "./model-reasoning": "./src/model-reasoning.ts",
     "./boundary-result": "./src/boundary-result.ts",
     "./boundary-failure": "./src/boundary-failure.ts",

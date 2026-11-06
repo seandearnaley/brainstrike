@@ -1,8 +1,6 @@
+import { buildProviderOptions } from '@brainstrike/assistant-contract/generation-options';
 import { describe, expect, it } from 'vitest';
-import {
-  buildProviderOptions,
-  reconcileProviderSettingsForModel,
-} from '../assistant-ui-panel-wrapper-runtime';
+import { reconcileProviderSettingsForModel } from '../assistant-ui-panel-wrapper-runtime';
 
 /**
  * BST-1354: Bedrock reasoning is mapped per the model's REGISTRY dialect, and
