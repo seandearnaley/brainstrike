@@ -15,6 +15,7 @@ import { Schema, SchemaIssue } from 'effect';
 export interface RuntimeSubagentSettings {
   /** Wall-clock limit on one child execution; `null` is Off (the default). */
   maxChildRuntimeMs: number | null;
+  /** Model calls one child may make, its reserved summary step included; a persona that declares fewer keeps its own. */
   maxChildSteps: number;
   /** Tree: model/tool operations running at once across all descendants. */
   maxConcurrentWork: number;
@@ -22,9 +23,9 @@ export interface RuntimeSubagentSettings {
   maxDepth: number;
   /** Tree: delegations one original root turn admits, resumes and descendants included. */
   maxInvocations: number;
-  /** Output one working step may produce; `null` is Off (the default): the model's own limit. */
+  /** Output one working step may produce; `null` is Off (the default): the model's own limit. A step cut here fails the child. */
   maxStepOutputTokens: number | null;
-  /** Output the reserved summary step may produce; `null` is Off (the default). */
+  /** Output the reserved summary step may produce; `null` is Off (the default). A summary cut here returns truncated, not failed. */
   synthesisOutputTokens: number | null;
 }
 /**
