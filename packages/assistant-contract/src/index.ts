@@ -15,6 +15,7 @@ export * from './conversation-rewind.ts';
 export * from './delegated-tool-actions.ts';
 export * from './edit-checkpoints.ts';
 export * from './file-mention-directive.ts';
+export * from './generation-options.ts';
 export * from './grep-match.ts';
 export * from './guarded-tool-error.ts';
 export * from './hook-skip-notices.ts';

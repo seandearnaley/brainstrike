@@ -1,8 +1,6 @@
+import { buildProviderOptions } from '@brainstrike/assistant-contract/generation-options';
 import { describe, expect, it } from 'vitest';
-import {
-  buildProviderOptions,
-  reconcileProviderSettingsForModel,
-} from '../assistant-ui-panel-wrapper-runtime';
+import { reconcileProviderSettingsForModel } from '../assistant-ui-panel-wrapper-runtime';
 
 describe('direct Anthropic provider options', () => {
   it('explicitly disables Opus 5 thinking when effort and budget are cleared', () => {

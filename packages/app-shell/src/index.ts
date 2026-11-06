@@ -11,7 +11,6 @@ export {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
-  buildModelSettings,
   buildProviderOptionsWhenReady,
   getProviderLlmModelDefinitions,
   type LlmProviderModelDefinition,

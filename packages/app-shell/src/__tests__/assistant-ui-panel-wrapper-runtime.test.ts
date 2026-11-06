@@ -6,6 +6,10 @@ import {
   resolveOpenRouterReasoningActive,
 } from '@brainstrike/assistant-contract';
 import {
+  buildModelSettings,
+  buildProviderOptions,
+} from '@brainstrike/assistant-contract/generation-options';
+import {
   DESKTOP_NATIVE_TOOL_IDS,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract/tool-metadata';
@@ -14,8 +18,6 @@ import {
   buildAgentLoopSettings,
   buildDraftRuntimeForProvider,
   buildEffectiveModelSettings,
-  buildModelSettings,
-  buildProviderOptions,
   buildProviderOptionsWhenReady,
   formatToolLabel,
   reconcileProviderSettingsForModel,
