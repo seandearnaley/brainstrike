@@ -63,6 +63,23 @@ import { hostArtifactReader } from './tool-artifacts.ts';
 import type { HostToolRecords } from './tool-records.ts';
 import { isHostTurnInput } from './turn-input.ts';
 
+/**
+ * A step's finish as the log keeps it: without the provider's HTTP response
+ * headers, which carry account and request identifiers and which nothing
+ * reads. The AI SDK has no switch for them, as it has for request bodies.
+ */
+function withoutResponseHeaders<Chunk extends { readonly type: string }>(chunk: Chunk): Chunk {
+  if (chunk.type !== 'finish-step' || !('response' in chunk)) {
+    return chunk;
+  }
+  const response = chunk.response as { readonly headers?: unknown } | undefined;
+  if (response?.headers === undefined) {
+    return chunk;
+  }
+  const { headers: _headers, ...kept } = response;
+  return { ...chunk, response: kept };
+}
+
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
 
 /**
@@ -759,7 +776,9 @@ async function runHostSdkAttempt(
       // SDK errors also carry requests, responses and retry graphs: none is a
       // public transcript. Reuse the terminal projection before durable publication.
       const publicChunk =
-        chunk.type === 'error' ? { error: outcome.publicError(), type: chunk.type } : chunk;
+        chunk.type === 'error'
+          ? { error: outcome.publicError(), type: chunk.type }
+          : withoutResponseHeaders(chunk);
       await ports.append(run.threadId, [
         { chunk: jsonValue(publicChunk), runId: run.id, type: 'stream.chunk' },
       ]);
