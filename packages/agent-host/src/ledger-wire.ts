@@ -45,8 +45,6 @@ export const HostLedgerThreadSchema = Schema.Struct({
         cacheReadTokens: Tokens,
         /** What caching saved these calls; absent without cache traffic. */
         cacheSavingsUsd: Schema.optionalKey(Schema.NullOr(Schema.Number)),
-        estimatedCacheCreationTokens: Tokens,
-        estimatedCacheReadTokens: Tokens,
         estimatedCostUsd: CostUsd,
         estimatedInputTokens: Tokens,
         estimatedOutputTokens: Tokens,
@@ -64,8 +62,6 @@ export const HostLedgerThreadSchema = Schema.Struct({
         billedCostUsd: BilledCostUsd,
         /** The branch the run's thread had checked out at Send; null when unrecorded. */
         checkoutBranch: Schema.NullOr(Id),
-        estimatedCacheCreationTokens: Tokens,
-        estimatedCacheReadTokens: Tokens,
         estimatedCostUsd: CostUsd,
         estimatedInputTokens: Tokens,
         estimatedOutputTokens: Tokens,
@@ -90,8 +86,6 @@ export const HostLedgerThreadSchema = Schema.Struct({
         completedAt: Schema.NullOr(CommitTime),
         durationMs: Schema.NullOr(Schema.Int),
         editCount: Tokens,
-        estimatedCacheCreationTokens: Tokens,
-        estimatedCacheReadTokens: Tokens,
         estimatedCostUsd: CostUsd,
         estimatedInputTokens: Tokens,
         estimatedOutputTokens: Tokens,

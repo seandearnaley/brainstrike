@@ -86,6 +86,12 @@ test('a billed host run counts toward the daily cap, gates the next send, and li
   const run = ledger.getByTestId('task-ledger-run-row').filter({ hasText: MODEL_LABEL });
   await expect(run).toHaveCount(1, { timeout: 30_000 });
   await expect(run.getByTestId('task-ledger-run-cost')).toHaveText('$0.0042');
+  // Opened, the run lists every token the bill covers: the shim reports 4 input and 3 output.
+  await run.getByRole('button').click();
+  const breakdown = run.getByTestId('task-ledger-run-breakdown');
+  await expect(breakdown).toContainText(/Input\s*4(?!\d)/u);
+  await expect(breakdown).toContainText(/Output\s*3(?!\d)/u);
+  await expect(breakdown).toContainText('what the provider billed');
   await page.keyboard.press('Escape');
 
   // Projected, never written: the legacy usage table is untouched.

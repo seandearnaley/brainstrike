@@ -100,8 +100,6 @@ test('a committed log folds into ledger runs and per-call usage', () => {
     completedAt: finished?.ts,
     durationMs: (finished?.ts ?? 0) - (first.ts ?? 0),
     editCount: 0,
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     estimatedCostUsd: usd(2, 50),
     estimatedInputTokens: 2,
     estimatedOutputTokens: 50,
@@ -189,8 +187,6 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
       {
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(4, 100),
         estimatedInputTokens: 4,
         estimatedOutputTokens: 100,
@@ -310,8 +306,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     expect(mergeRootUsage([rootUsage])).toEqual([
       {
         checkoutBranch: null,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
@@ -325,8 +319,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       },
       {
         checkoutBranch: null,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
@@ -543,7 +535,6 @@ describe('a call OpenRouter billed costs what it billed', () => {
     expect(runs.find((run) => run.runId === runId)).toMatchObject({
       billedCostUsd: 0.002,
       cacheReadTokens: 400,
-      estimatedCacheReadTokens: 0,
       estimatedCostUsd: usd(2, 50),
       estimatedInputTokens: 2,
       estimatedOutputTokens: 50,

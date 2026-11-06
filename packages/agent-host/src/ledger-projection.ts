@@ -196,8 +196,8 @@ interface RunFold {
   cacheWriteTokens: number;
   completedAt: number | null;
   editCount: number;
-  /** The calls the provider billed no amount for: priced from the catalog. */
-  readonly estimated: Mutable<Tokens>;
+  /** The tokens of calls the provider billed no amount for: priced from the catalog. */
+  readonly estimated: { inputTokens: number; outputTokens: number };
   estimatedCostUsd: number | null;
   failedToolCallCount: number;
   inputTokens: number;
@@ -413,7 +413,7 @@ export class ThreadLedgerFold {
       cacheWriteTokens: 0,
       completedAt: null,
       editCount: 0,
-      estimated: { cacheReadTokens: 0, cacheWriteTokens: 0, inputTokens: 0, outputTokens: 0 },
+      estimated: { inputTokens: 0, outputTokens: 0 },
       estimatedCostUsd: 0,
       failedToolCallCount: 0,
       inputTokens: 0,
@@ -496,14 +496,10 @@ export class ThreadLedgerFold {
     }
     run.estimated.inputTokens += tokens.inputTokens;
     run.estimated.outputTokens += tokens.outputTokens;
-    run.estimated.cacheReadTokens += tokens.cacheReadTokens;
-    run.estimated.cacheWriteTokens += tokens.cacheWriteTokens;
     run.estimatedCostUsd = addCost(run.estimatedCostUsd, costUsd);
     for (const share of [subtotal, rootUsage]) {
       share.estimatedInputTokens += tokens.inputTokens;
       share.estimatedOutputTokens += tokens.outputTokens;
-      share.estimatedCacheReadTokens += tokens.cacheReadTokens;
-      share.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
       share.estimatedCostUsd = addCost(share.estimatedCostUsd, costUsd);
     }
   }
@@ -520,8 +516,6 @@ function rootUsageKey(root: RunRoot, model: CatalogModel): string {
 }
 function emptyRootUsage(root: RunRoot, model: CatalogModel): Mutable<LedgerRootUsage> {
   return {
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     estimatedCostUsd: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
@@ -539,8 +533,6 @@ function emptySubtotal(
   return {
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     estimatedCostUsd: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
@@ -583,8 +575,6 @@ export function mergeRootUsage(
     total.outputTokens += usage.outputTokens;
     total.estimatedInputTokens += usage.estimatedInputTokens;
     total.estimatedOutputTokens += usage.estimatedOutputTokens;
-    total.estimatedCacheReadTokens += usage.estimatedCacheReadTokens;
-    total.estimatedCacheCreationTokens += usage.estimatedCacheCreationTokens;
     total.estimatedCostUsd = addCost(total.estimatedCostUsd, usage.estimatedCostUsd);
     if (usage.billedCostUsd !== undefined) {
       total.billedCostUsd = (total.billedCostUsd ?? 0) + usage.billedCostUsd;
@@ -600,8 +590,6 @@ function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun
     completedAt: run.completedAt,
     durationMs: run.completedAt === null ? null : run.completedAt - run.startedAt,
     editCount: run.editCount,
-    estimatedCacheCreationTokens: run.estimated.cacheWriteTokens,
-    estimatedCacheReadTokens: run.estimated.cacheReadTokens,
     estimatedCostUsd: run.estimatedCostUsd,
     estimatedInputTokens: run.estimated.inputTokens,
     estimatedOutputTokens: run.estimated.outputTokens,
