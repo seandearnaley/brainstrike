@@ -24,7 +24,7 @@ export interface HostChildToolbarDetails {
   readonly steps: number;
   /** The latest run's admitted tools. */
   readonly tools?: readonly string[];
-  /** Tokens all of this child's runs have used, as their steps reported them. */
+  /** Tokens the latest run has used, as its steps reported them. */
   readonly usage: { readonly inputTokens: number; readonly outputTokens: number };
 }
 

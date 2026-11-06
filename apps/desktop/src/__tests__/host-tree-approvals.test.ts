@@ -24,7 +24,13 @@ function child(fields: Partial<Tree['descendants'][number]>): Tree['descendants'
     color: 'emerald',
     origin,
     pending: [],
-    run: { delegatedInvocation: true, status: 'running', toolCalls: 2, turnId: 'root-run' },
+    run: {
+      delegatedInvocation: true,
+      modelId: 'openrouter::anthropic/claude-opus-5.5',
+      status: 'running',
+      toolCalls: 2,
+      turnId: 'root-run',
+    },
     threadId: 'child',
     ...fields,
   };
@@ -73,7 +79,14 @@ test('a tree the host cannot serve makes every card unavailable, with the reason
   let answer: () => Promise<Tree> = async () => tree([child({})]);
   const { change, client } = treeClient(() => answer());
   const approvals = new HostTreeApprovals(client, 'root');
-  await expect.poll(() => approvals.read('child')).toEqual({ status: 'running', toolCalls: 2 });
+  await expect
+    .poll(() => approvals.read('child'))
+    .toEqual({
+      // The card names the model the child runs on, from Core's summary (ADR-0037).
+      modelId: 'openrouter::anthropic/claude-opus-5.5',
+      status: 'running',
+      toolCalls: 2,
+    });
 
   answer = async () => {
     throw refusalError('input', 'thread.unknown', 'Unknown thread');
@@ -85,11 +98,23 @@ test('a tree the host cannot serve makes every card unavailable, with the reason
   answer = async () =>
     tree([
       child({
-        run: { delegatedInvocation: true, status: 'completed', toolCalls: 3, turnId: 'root-run' },
+        run: {
+          delegatedInvocation: true,
+          modelId: 'openrouter::anthropic/claude-opus-5.5',
+          status: 'completed',
+          toolCalls: 3,
+          turnId: 'root-run',
+        },
       }),
     ]);
   change(['child', 'root']);
-  await expect.poll(() => approvals.read('child')).toEqual({ status: 'completed', toolCalls: 3 });
+  await expect
+    .poll(() => approvals.read('child'))
+    .toEqual({
+      modelId: 'openrouter::anthropic/claude-opus-5.5',
+      status: 'completed',
+      toolCalls: 3,
+    });
   approvals.close();
 });
 
@@ -124,7 +149,13 @@ test('a lost host leaves no subagent shown as working, and no turn to stop', asy
     thread: {
       answered: [],
       pending: [],
-      run: { delegatedInvocation: true, status: 'running', toolCalls: 0, turnId: 'root-run' },
+      run: {
+        delegatedInvocation: true,
+        modelId: 'openai::gpt-6-sol',
+        status: 'running',
+        toolCalls: 0,
+        turnId: 'root-run',
+      },
       threadId: 'root',
     },
   }));
