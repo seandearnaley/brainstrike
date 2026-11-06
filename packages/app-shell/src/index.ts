@@ -22,9 +22,13 @@ export * from './diagnostics';
 export * from './hooks/use-assistant-availability';
 export { useAssistantModelChange } from './hooks/use-assistant-model-change';
 export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
+export { resolveAssistantProviderSource } from './hooks/use-assistant-provider-status';
 export { useAssistantToolMenu } from './hooks/use-assistant-tool-menu';
 export { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
-export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
+export {
+  useAssistantProviders,
+  useConfiguredAssistantProviders,
+} from './hooks/use-configured-assistant-providers';
 export { useEnableModel } from './hooks/use-enable-model';
 export { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
 export { useOpenSettingsSection } from './hooks/use-open-settings-section';

@@ -12,6 +12,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
+import { SubagentModelsSection } from './settings/models/subagent-models-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import type { ClearContentProps } from './settings/system/clear-content-panel';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
@@ -255,13 +256,23 @@ export function createAssistantMemorySettingsCategory({
   };
 }
 
-export function createSubagentPersonasSettingsCategory(
-  options: SubagentPersonasSettingsSectionProps = {}
-): SettingsCategory {
+export function createSubagentPersonasSettingsCategory({
+  configuredProviders,
+  providersError,
+  ...options
+}: SubagentPersonasSettingsSectionProps & {
+  /** The providers the host can run; absent while unknown. */
+  readonly configuredProviders?: readonly string[] | undefined;
+  readonly providersError?: string | undefined;
+} = {}): SettingsCategory {
   return {
     content: (
       <div className="space-y-6">
         <SubagentPersonasSettingsSection {...options} />
+        <SubagentModelsSection
+          configuredProviders={configuredProviders}
+          providersError={providersError}
+        />
         <SubagentSettingsSection />
       </div>
     ),
@@ -276,6 +287,7 @@ export function createSubagentPersonasSettingsCategory(
       'persona',
       'delegation',
       'delegate',
+      'models',
       'agents',
       'explorer',
       'analyst',
