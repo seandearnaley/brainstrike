@@ -12,6 +12,8 @@ import {
 
 function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedgerRow {
   return {
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: new Date('2026-07-15T12:00:05Z'),
     durationMs: 5000,
     estimatedCacheCreationTokens: 0,

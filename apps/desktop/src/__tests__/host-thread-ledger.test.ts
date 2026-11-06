@@ -64,6 +64,8 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
   );
   // Commit times read as the ledger row's dates.
   expect(runs.find((run) => run.threadId === threadId && run.runId === runId)).toEqual({
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: new Date(finished?.ts ?? 0),
     durationMs: (finished?.ts ?? 0) - (first.ts ?? 0),
     editCount: 0,

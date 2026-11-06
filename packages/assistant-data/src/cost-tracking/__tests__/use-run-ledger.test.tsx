@@ -12,6 +12,8 @@ function setDesktopAgentHost(bridge: AgentHostBridge): void {
 
 function makeRow(overrides: Partial<RunLedgerRow> = {}): RunLedgerRow {
   return {
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: new Date('2026-07-15T12:00:05.000Z'),
     durationMs: 5000,
     estimatedCacheCreationTokens: 0,

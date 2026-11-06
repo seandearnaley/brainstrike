@@ -202,7 +202,6 @@ export class HostCore {
         this.append(threadId, [{ notice, type: 'notice.posted' }], 'normal', this.foldRows)
       ),
     presentations: this.presentations,
-    read: (threadId) => this.read(threadId, 0),
     runs: () => this.runs,
     selections: this.selections,
     startNextRun: (next, origin) => this.startNextRun(next, origin),

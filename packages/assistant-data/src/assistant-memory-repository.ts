@@ -242,6 +242,10 @@ export interface RunLedgerListOptions {
  */
 export interface RunLedgerRow {
   readonly billedCostUsd?: number;
+  /** Prompt-cache write tokens of every call, billed or estimated. Share of `inputTokens`. */
+  readonly cacheCreationTokens: number;
+  /** Prompt-cache read tokens of every call (same total-inclusive contract). */
+  readonly cacheReadTokens: number;
   readonly completedAt: Date | null;
   readonly durationMs: number | null;
   /**

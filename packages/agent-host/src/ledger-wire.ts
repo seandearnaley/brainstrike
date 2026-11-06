@@ -16,6 +16,8 @@ const Tokens = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  * call in the total has no registry price.
  */
 const CostUsd = Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)));
+/** What the provider billed for the total's billed calls; absent when it billed none. */
+const BilledCostUsd = Schema.optionalKey(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)));
 /** A run as the thread badges and the Task Ledger read it: Stop is cancelled, an interruption failed. */
 const LedgerRunStatus = Schema.Literals(['running', 'completed', 'failed', 'cancelled']);
 /** A thread's latest root run, folded from its committed log. */
@@ -31,13 +33,14 @@ export type HostLatestRun = (typeof HostLatestRunSchema)['Type'];
 /**
  * One thread's share of the cost views, as Core folds its committed log: the
  * legacy RunLedgerRow, cross-root usage and thread usage shapes, with commit
- * times in ms. The host records no provider-billed cost, so every token is an
- * estimate.
+ * times in ms. A call the provider billed counts in `billedCostUsd`; the
+ * `estimated*` fields cover only the rest, priced from the catalog.
  */
 export const HostLedgerThreadSchema = Schema.Struct({
   perModel: Schema.mutable(
     Schema.Array(
       Schema.Struct({
+        billedCostUsd: BilledCostUsd,
         cacheCreationTokens: Tokens,
         cacheReadTokens: Tokens,
         /** What caching saved these calls; absent without cache traffic. */
@@ -58,6 +61,7 @@ export const HostLedgerThreadSchema = Schema.Struct({
   rootUsage: Schema.mutable(
     Schema.Array(
       Schema.Struct({
+        billedCostUsd: BilledCostUsd,
         /** The branch the run's thread had checked out at Send; null when unrecorded. */
         checkoutBranch: Schema.NullOr(Id),
         estimatedCacheCreationTokens: Tokens,
@@ -79,6 +83,10 @@ export const HostLedgerThreadSchema = Schema.Struct({
   runs: Schema.mutable(
     Schema.Array(
       Schema.Struct({
+        billedCostUsd: BilledCostUsd,
+        /** Every call's prompt-cache tokens, billed or estimated. */
+        cacheCreationTokens: Tokens,
+        cacheReadTokens: Tokens,
         completedAt: Schema.NullOr(CommitTime),
         durationMs: Schema.NullOr(Schema.Int),
         editCount: Tokens,
@@ -110,6 +118,7 @@ export const HostLedgerThreadSchema = Schema.Struct({
     Schema.Array(
       Schema.Struct({
         at: CommitTime,
+        billedCostUsd: BilledCostUsd,
         cacheReadTokens: Tokens,
         cacheWriteTokens: Tokens,
         costUsd: CostUsd,

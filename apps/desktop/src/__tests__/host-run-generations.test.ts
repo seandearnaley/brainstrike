@@ -113,6 +113,32 @@ describe('HostRunGenerations', () => {
     expect(generations.read('not-a-run')).toBeUndefined();
   });
 
+  test('states what OpenRouter billed when it billed every step, and an estimate otherwise', () => {
+    /** The first run's steps, the first `billed` of them reporting OpenRouter's $0.001 each. */
+    const billed = (count: number): HostLogRow[] => {
+      let step = 0;
+      return rows.map((row) => {
+        const { event } = row;
+        if (event.type !== 'model.step' || event.runId !== firstRun || step++ >= count) {
+          return row;
+        }
+        const usage = typeof event.usage === 'object' && event.usage !== null ? event.usage : {};
+        return { ...row, event: { ...event, usage: { ...usage, raw: { cost: 0.001 } } } };
+      });
+    };
+    const read = (log: readonly HostLogRow[]) => {
+      const source = new Source();
+      source.publish(log);
+      return new HostRunGenerations(source).read(firstRun)?.cost;
+    };
+    expect(read(billed(2))).toEqual({ basis: 'billed', usd: 0.002 });
+    // The unbilled step lists at $3 / $15 per million: 1 input and 25 output tokens.
+    expect(read(billed(1))).toEqual({
+      basis: 'estimated',
+      usd: expect.closeTo(0.001 + (1 * 3 + 25 * 15) / 1e6, 12),
+    });
+  });
+
   test("keeps a run's value until one of its own facts commits", () => {
     const source = new Source();
     const cut = rows.findIndex(

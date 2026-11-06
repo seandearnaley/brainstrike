@@ -1,4 +1,4 @@
-import { ThreadLedgerFold } from '@brainstrike/agent-host/ledger-projection';
+import { type HostLedgerThread, ThreadLedgerFold } from '@brainstrike/agent-host/ledger-projection';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import { capturedEffort } from '@brainstrike/app-shell';
 import { modelVendor } from '@brainstrike/assistant-contract/model-vendors';
@@ -97,12 +97,27 @@ function addUsage(tokens: GenerationTokens, usage: unknown): GenerationTokens {
   };
 }
 
-/** Facts the run's cost views own: its priced cost, tool calls and wall time. */
+/** Facts the run's cost views own: its cost, tool calls and wall time. */
 interface LedgerFacts {
-  /** Null when the catalog has no rates for one of the run's calls. */
-  readonly costUsd: number | null;
+  /** Absent when the catalog has no rates for one of the run's unbilled calls. */
+  readonly cost: GenerationDetails['cost'];
   readonly durationMs: number | null;
   readonly toolCalls: number;
+}
+
+/**
+ * What the provider billed, when it billed every call; otherwise billed plus
+ * the catalog price of the rest, an estimate. An unpriced run shows no cost,
+ * never $0 (docs/agents/assistant-persistence.md).
+ */
+function runCost(run: HostLedgerThread['runs'][number]): GenerationDetails['cost'] {
+  const estimated = run.estimatedInputTokens + run.estimatedOutputTokens > 0;
+  if (run.billedCostUsd !== undefined && !estimated) {
+    return { basis: 'billed', usd: run.billedCostUsd };
+  }
+  return run.estimatedCostUsd === null
+    ? undefined
+    : { basis: 'estimated', usd: (run.billedCostUsd ?? 0) + run.estimatedCostUsd };
 }
 
 /**
@@ -213,7 +228,7 @@ export class HostRunGenerations implements GenerationDetailsSource {
         this.ledger.read().runs.map((run) => [
           run.runId,
           {
-            costUsd: run.estimatedCostUsd,
+            cost: runCost(run),
             durationMs: run.durationMs,
             toolCalls: run.toolCallCount,
           },
@@ -229,7 +244,8 @@ function sameLedger(a: LedgerFacts | undefined, b: LedgerFacts | undefined): boo
     a === b ||
     (a !== undefined &&
       b !== undefined &&
-      a.costUsd === b.costUsd &&
+      a.cost?.basis === b.cost?.basis &&
+      a.cost?.usd === b.cost?.usd &&
       a.durationMs === b.durationMs &&
       a.toolCalls === b.toolCalls)
   );
@@ -238,10 +254,7 @@ function sameLedger(a: LedgerFacts | undefined, b: LedgerFacts | undefined): boo
 function details(facts: RunFacts, ledger: LedgerFacts | undefined): GenerationDetails {
   const vendor = findModelVendor(facts.provider, facts.model);
   return {
-    // An unpriced run shows no cost, never $0 (docs/agents/assistant-persistence.md).
-    ...(ledger === undefined || ledger.costUsd === null
-      ? {}
-      : { cost: { basis: 'estimated' as const, usd: ledger.costUsd } }),
+    ...(ledger?.cost ? { cost: ledger.cost } : {}),
     ...(facts.effort ? { effort: facts.effort } : {}),
     ...(facts.finishReason ? { finishReason: facts.finishReason } : {}),
     ...(facts.firstOutputMs === undefined ? {} : { firstOutputMs: facts.firstOutputMs }),

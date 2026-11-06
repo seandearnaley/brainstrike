@@ -4,6 +4,8 @@ import { hostRunsModelComparison, hostRunsTotals, hostRunsTrend } from '../run-l
 
 function hostRun(overrides: Partial<RunLedgerRow> & { readonly runId: string }): RunLedgerRow {
   return {
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: new Date('2026-10-12T14:00:10.000Z'),
     durationMs: 10_000,
     editCount: 0,
@@ -140,12 +142,13 @@ describe('the Task Ledger model comparison', () => {
 describe('the Task Ledger totals', () => {
   it('sums cost and cache tokens, and counts the runs it could not price', () => {
     const totals = hostRunsTotals([
-      hostRun({ estimatedCacheReadTokens: 80, runId: 'cached' }),
-      hostRun({ billedCostUsd: 0.01, runId: 'billed' }),
+      hostRun({ cacheReadTokens: 80, estimatedCacheReadTokens: 80, runId: 'cached' }),
+      // A billed call's cache reads count too, though none of its tokens are estimated.
+      hostRun({ billedCostUsd: 0.01, cacheReadTokens: 40, runId: 'billed' }),
       hostRun({ estimatedCostUsd: null, model: 'vendor/uncatalogued', runId: 'unpriced' }),
     ]);
     expect(totals).toEqual({
-      cacheReadTokens: 80,
+      cacheReadTokens: 120,
       cacheWriteTokens: 0,
       costUsd: expect.closeTo(0.0112, 10),
       inputTokens: 300,
