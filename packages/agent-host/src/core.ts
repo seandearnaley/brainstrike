@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BlobContent } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { endHostAbandonedTurns, type HostForkPoint, hostRunFork } from './abandoned-turns.ts';
+import { admitHostChildModel } from './child-model-admission.ts';
 import { HostContextCompactions } from './context-compaction.ts';
 import { hostCanvases } from './core-canvases.ts';
 import { type HostChildRunPort, HostChildRuns } from './core-child-runs.ts';
@@ -727,6 +728,11 @@ export class HostCore {
   /** BST-1932: HostChildRuns orchestrates a delegation; Core lends its sole writer and loop. */
   private childRunPort(run: Run, action: Action): HostChildRunPort {
     return {
+      admitModel: (target, runId) => {
+        const threadId = this.children.rootThread(run.threadId);
+        const root = { threadId, ...this.workspaces.admissionBinding(threadId) };
+        return admitHostChildModel(this.platform, run, root, target, runId);
+      },
       commit: async ({ child, items, threadId }) => {
         // BST-2463: the child is readable before any listener hears of its rows.
         await this.appendAcross(items, 'full', () => this.threads.add(threadId));

@@ -6,8 +6,10 @@ import {
   resolveOpenRouterReasoningActive,
 } from '@brainstrike/assistant-contract';
 import {
+  buildEffectiveModelSettings,
   buildModelSettings,
   buildProviderOptions,
+  type SelectedModelBudgetDef,
 } from '@brainstrike/assistant-contract/generation-options';
 import {
   DESKTOP_NATIVE_TOOL_IDS,
@@ -17,7 +19,6 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAgentLoopSettings,
   buildDraftRuntimeForProvider,
-  buildEffectiveModelSettings,
   buildProviderOptionsWhenReady,
   formatToolLabel,
   reconcileProviderSettingsForModel,
@@ -27,7 +28,6 @@ import {
   resolveComposerAttachmentsAvailability,
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
-  type SelectedModelBudgetDef,
 } from '../assistant-ui-panel-wrapper-runtime';
 
 describe('assistant runtime helpers', () => {

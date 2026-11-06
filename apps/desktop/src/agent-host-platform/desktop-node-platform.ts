@@ -57,6 +57,7 @@ import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { mainPlatformConnection } from './connection';
+import { desktopChildConfiguration } from './desktop-child-configuration';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import {
   createDesktopRunAdmission,
@@ -361,6 +362,7 @@ export async function createDesktopHostConfiguration(
       rootRegistry.attachThreadReads(reads);
     },
     auth: host.auth,
+    childConfiguration: desktopChildConfiguration,
     close: async () => {
       // Runs' workspace borrows end, then admitted folder changes finish while the store is open.
       await workspace.close();

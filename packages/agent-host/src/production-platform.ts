@@ -114,6 +114,8 @@ export interface ProductionHostPlatformOptions {
   readonly attachThreadReads?: HostPlatform['attachThreadReads'];
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
+  /** ADR-0037: a delegated child's run configuration on another model. */
+  readonly childConfiguration?: HostPlatform['childConfiguration'];
   close(): Promise<void>;
   /** The command sessions this host's runs start that end by themselves. */
   readonly commandSessionExits?: HostPlatform['commandSessionExits'];
@@ -692,6 +694,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       ? { attachMcpTaskOwner: options.mcp.attachTaskOwner.bind(options.mcp) }
       : {}),
     ...(options.attachThreadReads ? { attachThreadReads: options.attachThreadReads } : {}),
+    ...(options.childConfiguration ? { childConfiguration: options.childConfiguration } : {}),
     ...(options.commandSessionExits ? { commandSessionExits: options.commandSessionExits } : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,

@@ -1,4 +1,3 @@
-export * from './admitted-child-configuration.ts';
 export * from './assistant-attachments.ts';
 export * from './assistant-task-list.ts';
 export * from './bedrock-defaults.ts';
@@ -6,6 +5,7 @@ export * from './boundary-failure.ts';
 export * from './canvas-link.ts';
 export * from './child-execution-configuration.ts';
 export * from './child-input.ts';
+export * from './child-model.ts';
 export * from './child-permission-ceiling.ts';
 export * from './compaction-summary.ts';
 export * from './context-breakdown.ts';

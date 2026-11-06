@@ -37,7 +37,9 @@ A child is an ordinary host run in its own child thread, on its parent's host
 - **Context:** fresh. Persona instructions, child context and the prompt; never the parent's
   history.
 - **Admission by reference:** same `LanguageModel`, parent executors narrowed by persona, same
-  memory owner and workspace binding (`deriveHostChildAdmission`).
+  memory owner and workspace binding (`deriveHostChildAdmission`). Amended by
+  [ADR-0037](0037-subagents-choose-their-model.md): a child on another model is admitted on
+  that model.
 - **Foreground / background:** root delegations default to background; a child's own
   delegations are foreground. Foreground `join` waits on the child's `run.finished`.
 - **Background delivery (B10/B14):** a settled child reaches its parent as a `run.started`

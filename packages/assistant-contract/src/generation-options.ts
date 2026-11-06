@@ -9,11 +9,19 @@ import { type AssistantProviderSettings, getGoogleThinkingLevels } from '@brains
 import { BEDROCK_BUDGET_TOKENS_BY_EFFORT, BEDROCK_REASONING_EFFORTS } from './model-reasoning.ts';
 import {
   mergeOpenRouterAutoProfileModel,
+  type OpenRouterAutoProfileModel,
   resolveOpenRouterAutoRuntimeProfile,
+  resolveOpenRouterCodingMaxOutputTokens,
+  resolveOpenRouterOutputWindow,
+  resolveOpenRouterReasoningActive,
 } from './openrouter-coding-defaults.ts';
 import type { OpenRouterModelMetadata } from './openrouter-model-metadata.ts';
 import type { SupportedProvider } from './provider-metadata.ts';
-import { findLlmModelDefinition, getLlmModelDefinition } from './provider-registry.ts';
+import {
+  findLlmModelDefinition,
+  getLlmModelDefinition,
+  listProviderLlmModels,
+} from './provider-registry.ts';
 import { resolveBedrockReasoningDisplay, resolveReasoningVisible } from './reasoning-visibility.ts';
 import type {
   AnthropicProviderOptions,
@@ -383,4 +391,76 @@ export function buildProviderOptions(
     default:
       return;
   }
+}
+
+/** The catalog limits an OpenRouter output window is sized against. */
+export interface SelectedModelBudgetDef {
+  contextWindow: number;
+  maxOutputTokens?: number;
+}
+
+/** An OpenRouter model's catalog row, as the output-window rules read it. */
+export function findOpenRouterCatalogModel(
+  modelId: string
+): OpenRouterAutoProfileModel | undefined {
+  return listProviderLlmModels('openrouter').find(({ id }) => id === modelId);
+}
+
+/**
+ * The model the output-window resolution reasons about: the live snapshot with
+ * the catalog-only facts (`autoEffort`, `vendorDefaultOutputTokens`) merged
+ * back in, or the static catalog entry while metadata is pending. The catalog
+ * overlay only applies when the snapshot identity matches the selected model.
+ */
+function resolveAutoProfileModel(
+  openRouterMetadata: OpenRouterModelMetadata | undefined,
+  modelName: string | undefined
+): OpenRouterAutoProfileModel | undefined {
+  if (openRouterMetadata) {
+    const catalogModel =
+      modelName !== undefined && openRouterMetadata.id === modelName
+        ? findOpenRouterCatalogModel(modelName)
+        : undefined;
+    return mergeOpenRouterAutoProfileModel(openRouterMetadata, catalogModel);
+  }
+  return modelName === undefined ? undefined : getLlmModelDefinition('openrouter', modelName);
+}
+
+/**
+ * A request's model settings as the composer sends them: the person's own,
+ * and for OpenRouter an output limit sized to the model and its reasoning
+ * state when they set none (the admission's input budget is derived from it).
+ */
+export function buildEffectiveModelSettings(
+  providerId: string | null | undefined,
+  configuredSettings: RuntimeData['modelSettings'] | undefined,
+  selectedModelDef?: SelectedModelBudgetDef,
+  openRouterMetadata?: OpenRouterModelMetadata,
+  modelName?: string,
+  reasoningEffort?: AssistantProviderSettings['reasoningEffort']
+): RuntimeData['modelSettings'] | undefined {
+  if (providerId !== 'openrouter') {
+    return configuredSettings;
+  }
+  if (configuredSettings?.maxOutputTokens !== undefined) {
+    return configuredSettings;
+  }
+  const autoProfileModel = resolveAutoProfileModel(openRouterMetadata, modelName);
+  if (autoProfileModel) {
+    // Sized for the request's reasoning state (BST-1170): an active-reasoning
+    // request on a model with a vendor-documented completion window gets that
+    // window — the 32K coding ceiling starved thinking+answer and killed runs
+    // at `finishReason: length`.
+    return {
+      ...configuredSettings,
+      maxOutputTokens: resolveOpenRouterOutputWindow(
+        autoProfileModel,
+        resolveOpenRouterReasoningActive(autoProfileModel, reasoningEffort)
+      ),
+    };
+  }
+  return {
+    ...configuredSettings,
+    maxOutputTokens: resolveOpenRouterCodingMaxOutputTokens(selectedModelDef?.maxOutputTokens),
+  };
 }
