@@ -538,9 +538,10 @@ export default function SettingsPageContent() {
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(browserOrigins ? { browserOrigins } : undefined),
-      createSubagentPersonasSettingsCategory(
-        workspaceSettings ? { listPersonas: () => workspaceSettings.listPersonas() } : {}
-      ),
+      createSubagentPersonasSettingsCategory({
+        ...(workspaceSettings ? { listPersonas: () => workspaceSettings.listPersonas() } : {}),
+        ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
+      }),
       createSkillsSettingsCategory(
         hostDiscovery ? { scanSkills: () => hostDiscovery.scanSkills() } : {}
       ),

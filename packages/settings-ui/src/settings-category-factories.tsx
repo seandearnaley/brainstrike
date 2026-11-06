@@ -12,6 +12,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
+import { SubagentModelsSection } from './settings/models/subagent-models-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import type { ClearContentProps } from './settings/system/clear-content-panel';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
@@ -255,13 +256,17 @@ export function createAssistantMemorySettingsCategory({
   };
 }
 
-export function createSubagentPersonasSettingsCategory(
-  options: SubagentPersonasSettingsSectionProps = {}
-): SettingsCategory {
+export function createSubagentPersonasSettingsCategory({
+  providerKeySources,
+  ...options
+}: SubagentPersonasSettingsSectionProps & {
+  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
+} = {}): SettingsCategory {
   return {
     content: (
       <div className="space-y-6">
         <SubagentPersonasSettingsSection {...options} />
+        <SubagentModelsSection {...(providerKeySources ? { providerKeySources } : {})} />
         <SubagentSettingsSection />
       </div>
     ),
@@ -276,6 +281,7 @@ export function createSubagentPersonasSettingsCategory(
       'persona',
       'delegation',
       'delegate',
+      'models',
       'agents',
       'explorer',
       'analyst',
