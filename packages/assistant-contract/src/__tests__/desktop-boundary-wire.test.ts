@@ -1,6 +1,5 @@
 import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { admittedPersonaConfigurationSchema } from '../admitted-child-configuration.js';
 import {
   childExecutionConfigurationSchema,
   childNextRunSchema,
@@ -16,19 +15,6 @@ const image = {
   filename: 'evidence.png',
   mediaType: 'image/png',
   type: 'file',
-};
-const persona = {
-  maxSteps: 2,
-  persona: {
-    allowedToolIds: ['brainstrike.readWorkspaceFile'],
-    description: 'Description',
-    id: 'reader',
-    instructions: 'Instructions',
-    label: 'Reader',
-    maxSteps: 2,
-    mode: 'read-only',
-    source: 'user',
-  },
 };
 const execution = { model: 'model', planMode: false, provider: 'openai' };
 const readDelivery = {
@@ -46,7 +32,6 @@ const decodeClosed = (schema: Decoder, value: unknown) =>
   Schema.decodeUnknownSync(schema, { onExcessProperty: 'error' })(value);
 
 test.each([
-  ['persona', admittedPersonaConfigurationSchema, persona, persona],
   ['execution', childExecutionConfigurationSchema, execution, execution],
   [
     'next-run',

@@ -61,6 +61,7 @@ export function readDesktopHostConfiguration(
   // Session grants on host threads are host facts, never captured from this store.
   const { sessionGrants: _sessionGrants, ...permission } = getPermissionToolGateSnapshotInput();
   const personas = useSubagentPersonasStore.getState();
+  const subagentPreferences = useAssistantSubagentPreferencesStore.getState();
   const instructions = useWorkspaceInstructionsPreferencesStore.getState();
   return captureDesktopHostIntent({
     agentLoop: projection?.agentLoop ?? buildAgentLoopSettings(providerSettings[provider]),
@@ -77,7 +78,8 @@ export function readDesktopHostConfiguration(
     subagents: {
       delegationEnabled: personas.delegationEnabled,
       disabledPersonaIds: [...personas.disabledPersonaIds],
-      settings: useAssistantSubagentPreferencesStore.getState().settings,
+      models: [...subagentPreferences.models],
+      settings: subagentPreferences.settings,
     },
     threadDraft,
     workspaceInstructionsPreference: {

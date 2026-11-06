@@ -7,7 +7,7 @@
  * and dispatches the `agent-<persona>` tools from it.
  */
 import { homedir } from 'node:os';
-import type { HostDelegation } from '@brainstrike/agent-host';
+import type { HostDelegation, HostDelegationModel } from '@brainstrike/agent-host';
 import {
   type AssistantPersonaDefinition,
   BUILT_IN_PERSONAS,
@@ -15,6 +15,15 @@ import {
   type RuntimeSubagentSettings,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/assistant-contract';
+import {
+  ChildModelError,
+  childModelEfforts,
+  childModelIdentity,
+} from '@brainstrike/assistant-contract/child-model';
+import {
+  findLlmModelDefinition,
+  resolveModelLabel,
+} from '@brainstrike/assistant-contract/provider-registry';
 import {
   createNodeFsScanDeps,
   scanUserPersonas,
@@ -27,7 +36,38 @@ const logger = createLogger('DesktopHostDelegation');
 export interface HostSubagentsIntent {
   readonly delegationEnabled: boolean;
   readonly disabledPersonaIds: readonly string[];
+  /** ADR-0037: the `provider::model` IDs a delegation may name. */
+  readonly models?: readonly string[] | undefined;
   readonly settings: RuntimeSubagentSettings;
+}
+
+/**
+ * The allowed models a delegation may name, as the catalog lists them. An ID
+ * the catalog no longer lists is left out and logged: offering it would only
+ * refuse every delegation that named it.
+ */
+function allowedModels(ids: readonly string[] | undefined): HostDelegationModel[] {
+  return (ids ?? []).flatMap((id) => {
+    try {
+      const { model, provider } = childModelIdentity(id);
+      if (!findLlmModelDefinition(provider, model)) {
+        throw new ChildModelError(`${id} is not in the model catalog`);
+      }
+      return [
+        {
+          efforts: childModelEfforts(provider, model),
+          id,
+          label: resolveModelLabel(provider, model),
+        },
+      ];
+    } catch (cause) {
+      logger.warn('An allowed subagent model is not in the catalog; delegations cannot name it', {
+        code: 'host_subagent_model_uncatalogued',
+        errorName: cause instanceof Error ? cause.name : typeof cause,
+      });
+      return [];
+    }
+  });
 }
 
 export interface HostPersonaScan {
@@ -77,7 +117,9 @@ export function resolveHostDelegation(
     });
   }
   const disabled = new Set(subagents.disabledPersonaIds);
+  const models = allowedModels(subagents.models);
   return {
+    ...(models.length > 0 ? { models } : {}),
     personas: [...BUILT_IN_PERSONAS, ...scanned].filter((persona) => !disabled.has(persona.id)),
     settings: parseRuntimeSubagentSettings(subagents.settings),
   };

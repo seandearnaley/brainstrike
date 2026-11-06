@@ -317,6 +317,30 @@ describe('buildUserPersona', () => {
     }
   });
 
+  it('pins an effort beside the model, and refuses an effort without a model or off the scale', () => {
+    const pinned = buildUserPersona({
+      content: validFile(
+        'description: d\nmodel: openrouter::anthropic/claude-opus-5.5\neffort: high'
+      ),
+      fileName: 'p.md',
+    });
+    expect(pinned).toMatchObject({
+      ok: true,
+      persona: {
+        model: { effort: 'high', modelId: 'anthropic/claude-opus-5.5', provider: 'openrouter' },
+      },
+    });
+    expect(
+      buildUserPersona({ content: validFile('description: d\neffort: high'), fileName: 'p.md' })
+    ).toMatchObject({ error: expect.stringMatching(/effort needs a model/u), ok: false });
+    expect(
+      buildUserPersona({
+        content: validFile('description: d\nmodel: openai::gpt-6-sol\neffort: extreme'),
+        fileName: 'p.md',
+      })
+    ).toMatchObject({ error: expect.stringMatching(/effort must be one of/u), ok: false });
+  });
+
   it('oversized file content fails closed against the char cap', () => {
     const filler = 'x'.repeat(MAX_USER_PERSONA_FILE_CHARS + 1);
     const result = buildUserPersona({

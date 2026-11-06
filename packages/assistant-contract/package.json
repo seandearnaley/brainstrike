@@ -48,6 +48,7 @@
     "./compaction-summary": "./src/compaction-summary.ts",
     "./mastra-memory-schema": "./src/mastra-memory-schema.ts",
     "./memory-settings": "./src/memory-settings.ts",
+    "./child-model": "./src/child-model.ts",
     "./personas": "./src/personas.ts",
     "./provider-key-resolution": "./src/provider-key-resolution.ts",
     "./provider-metadata": "./src/provider-metadata.ts",

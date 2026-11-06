@@ -4,6 +4,7 @@ import {
   type PermissionToolGateSnapshot,
   refusalError,
 } from '@brainstrike/assistant-contract';
+import type { ChildModelTarget } from '@brainstrike/assistant-contract/child-model';
 import {
   type AssistantPersonaDefinition,
   personaMode,
@@ -25,9 +26,11 @@ import {
 import {
   deriveHostChildAdmission,
   type HostChildResult,
-  HostDelegationInputSchema,
+  hostChildModelRefusal,
+  hostChildModelTarget,
   hostChildResult,
   hostChildStarted,
+  hostDelegationInputSchema,
   hostDelegationRunsInBackground,
   hostInvocationLimitText,
 } from './child-runs.ts';
@@ -59,8 +62,9 @@ import type {
   HostLogRow,
   HostResults,
   HostRunSelection,
+  HostRunSnapshot,
 } from './protocol.ts';
-import { delegatedHostRunAdmission, startedHostRun } from './run-branch.ts';
+import { delegatedHostRunAdmission, hostRunInput, startedHostRun } from './run-branch.ts';
 
 type Action = Extract<
   HostEvent,
@@ -77,6 +81,17 @@ type Started = Extract<
 const logger = createLogger('AgentHost');
 /** HostCore's writer, loop and stop, lent to one delegation. */
 export interface HostChildRunPort {
+  /**
+   * ADR-0037: a selection for a child on `target`, admitted as the parent's
+   * own run would be on that model, with the configuration it carries.
+   */
+  admitModel(
+    target: ChildModelTarget,
+    runId: string
+  ): Promise<{
+    readonly admission: HostRunAdmission;
+    readonly configuration: HostRunSnapshot['configuration'];
+  }>;
   /** Commit `items` in one transaction, then register the child thread and run. */
   commit(prepared: HostPreparedChild): Promise<void>;
   /** Commit only the parent's effect: a refused delegation starts no child. */
@@ -107,10 +122,20 @@ export interface HostPreparedChild {
   }[];
   readonly model: LanguageModel;
   readonly origin: HostChildOrigin;
+  /** The selection admitted for this child's own model, which the child holds. */
+  readonly owned?: HostRunAdmission;
   readonly persona: AssistantPersonaDefinition;
   readonly settings: HostDelegation['settings'];
   readonly settled: Promise<void>;
   readonly threadId: string;
+}
+/** The selection a child runs on: its parent's admission, or one admitted for its own model. */
+interface HostChildSelection {
+  readonly admission: HostRunAdmission;
+  /** The run configuration the child's selection carries. */
+  readonly configuration: HostRunSnapshot['configuration'] | undefined;
+  readonly modelId: string;
+  readonly owned: boolean;
 }
 /** A policy answer that did not commit leaves its approval for a person. */
 function reportHostGrantFailure(run: HostRunState, cause: unknown): void {
@@ -577,7 +602,7 @@ export class HostChildRuns {
    * returns the shipped acknowledgement and reports through a delivery.
    */
   async delegate(request: HostDelegationRequest, port: HostChildRunPort): Promise<HostChildResult> {
-    const prepared = this.prepare(request, port.taken);
+    const prepared = await this.prepare(request, port);
     if (typeof prepared === 'string') {
       await port.commitEffect();
       request.run.started.add(request.action.toolCallId);
@@ -594,12 +619,16 @@ export class HostChildRuns {
       this.settlements.delete(prepared.child.id);
       this.origins.delete(prepared.threadId);
       release();
+      await prepared.owned?.close?.();
       throw cause;
     }
-    // The committed child holds its parent's selection until the child settles.
-    const borrowed = borrowHostAdmission(request.admission.close);
-    if (borrowed && prepared.child.admission) {
-      prepared.child.admission = { ...prepared.child.admission, close: borrowed };
+    // The committed child holds the selection it runs on until it settles: its
+    // own model's, or a borrow of its parent's.
+    const close = prepared.owned
+      ? prepared.owned.close
+      : borrowHostAdmission(request.admission.close);
+    if (close && prepared.child.admission) {
+      prepared.child.admission = { ...prepared.child.admission, close };
     }
     request.run.started.add(request.action.toolCallId);
     this.invocations.set(prepared.threadId, prepared.child.id);
@@ -756,11 +785,16 @@ export class HostChildRuns {
         : [];
     });
   }
-  /** The child's identity, its admission narrowed from the parent's, and its committed rows. */
-  private prepare(
+  /**
+   * The child's identity, its admission narrowed from its model's, and its
+   * committed rows. A child on another model than its parent's (ADR-0037) is
+   * admitted on that model as any run is; one that cannot be is refused,
+   * never run on the parent's model instead.
+   */
+  private async prepare(
     { action, admission, input, run }: HostDelegationRequest,
-    taken: (id: string) => boolean
-  ): HostPreparedChild | string {
+    port: Pick<HostChildRunPort, 'admitModel' | 'taken'>
+  ): Promise<HostPreparedChild | string> {
     const delegation = admission.delegation;
     if (!delegation) {
       throw new Error('Run has no admitted delegation capability');
@@ -769,14 +803,7 @@ export class HostChildRuns {
     if (!persona) {
       throw new Error('Delegation tool has no admitted persona');
     }
-    if (persona.model) {
-      throw refusalError(
-        'configuration',
-        'persona.model-pinned',
-        `Persona "${persona.id}" pins a model, which host threads cannot run yet`
-      );
-    }
-    const parsed = Schema.decodeUnknownSync(HostDelegationInputSchema, {
+    const parsed = Schema.decodeUnknownSync(hostDelegationInputSchema(persona, delegation), {
       errors: 'all',
       onExcessProperty: 'error',
     })(input);
@@ -796,25 +823,44 @@ export class HostChildRuns {
       toolCallId: action.toolCallId,
       turnId,
     };
+    const threadId = randomUUID();
+    const runId = randomUUID();
+    if (port.taken(threadId) || port.taken(runId)) {
+      throw new Error('Generated child identity collides with a committed identity');
+    }
+    const target = hostChildModelTarget(persona, parsed, run.modelId);
+    // Reserves the invocation; an unadmitted or uncommitted delegation releases it.
+    this.origins.set(threadId, origin);
+    let selected: HostChildSelection;
+    try {
+      selected = target
+        ? { ...(await port.admitModel(target, runId)), modelId: target.modelId, owned: true }
+        : {
+            admission,
+            configuration: run.input?.configuration,
+            modelId: run.modelId,
+            owned: false,
+          };
+    } catch (cause) {
+      this.origins.delete(threadId);
+      run.controller.signal.throwIfAborted();
+      return hostChildModelRefusal(persona, target, cause);
+    }
     const childAdmission = deriveHostChildAdmission(
-      admission,
+      selected.admission,
       persona,
       delegation,
       this.queue(turnId, delegation.settings),
       origin.depth
     );
-    const threadId = randomUUID();
     const started: Started = {
-      modelId: run.modelId,
+      modelId: selected.modelId,
       parentMessageId: null,
       prompt: parsed.prompt,
-      runId: randomUUID(),
+      runId,
       snapshot: childAdmission.snapshot,
       type: 'run.started',
     };
-    if (taken(threadId) || taken(started.runId)) {
-      throw new Error('Generated child identity collides with a committed identity');
-    }
     // Every run of the tree shares its root thread's grants (ADR-0010).
     const child = startedHostRun(
       [],
@@ -826,27 +872,24 @@ export class HostChildRuns {
     );
     child.origin = origin;
     // A child runs under its parent's admitting client transport (desktop-ui or public-socket).
-    if (run.input?.origin) {
-      child.input = { origin: run.input.origin };
-    }
+    child.input = hostRunInput(selected.configuration, run.input?.origin);
     // Root policy governs every descendant (ADR-0010); only admitted denies are frozen.
     child.policyThreadId = run.policyThreadId ?? run.threadId;
     this.runtimeLimits.set(child.id, delegation.settings.maxChildRuntimeMs);
     child.admission = childAdmission;
     const settled = Promise.withResolvers<void>();
     this.settlements.set(child.id, settled);
-    // Reserves the invocation; an uncommitted delegation releases it.
-    this.origins.set(threadId, origin);
     return {
       child,
       items: [
         { event: action, threadId: run.threadId },
         { event: { origin, type: 'thread.started' }, threadId },
-        // ADR-0019: the child thread starts on its parent run's selection.
+        // ADR-0019: the child thread starts on its own run's selection, so a
+        // person's follow-up runs on the child's model.
         {
           event: {
-            modelId: run.modelId,
-            ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
+            modelId: selected.modelId,
+            ...(selected.configuration ? { configuration: selected.configuration } : {}),
             type: 'thread.selection.updated',
           },
           threadId,
@@ -855,6 +898,7 @@ export class HostChildRuns {
       ],
       model: childAdmission.model,
       origin,
+      ...(selected.owned ? { owned: selected.admission } : {}),
       persona,
       settings: delegation.settings,
       settled: settled.promise,

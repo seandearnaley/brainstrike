@@ -5,6 +5,11 @@
  * admission, and the result the parent's model reads.
  */
 import { createHash } from 'node:crypto';
+import {
+  CHILD_EFFORTS,
+  type ChildEffort,
+  type ChildModelTarget,
+} from '@brainstrike/assistant-contract/child-model';
 import { standardInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import {
   type AssistantPersonaDefinition,
@@ -23,12 +28,8 @@ import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.ts'
 import { canonical, jsonValue } from './json-value.ts';
 import type { HostDelegation, HostRunAdmission, HostTool } from './ports.ts';
 import type { HostEvent } from './protocol.ts';
-/**
- * The shipped Mastra delegation input, less its model-controlled memory/step
- * overrides. `_background` keeps the shipped foreground opt-out; retries and
- * timeouts stay host-owned, so they are not offered.
- */
-export const HostDelegationInputSchema = Schema.Struct({
+
+const DelegationInputFields = {
   _background: Schema.optional(
     Schema.Struct({
       disposition: Schema.optional(Schema.Literals(['foreground', 'deferred', 'awaited'])).annotate(
@@ -42,7 +43,71 @@ export const HostDelegationInputSchema = Schema.Struct({
     description: 'Optional: override how this delegation executes. Omit it in most cases.',
   }),
   prompt: Schema.String.check(Schema.isMinCodePoints(1)),
-});
+};
+/**
+ * The shipped Mastra delegation input, less its model-controlled memory/step
+ * overrides. `_background` keeps the shipped foreground opt-out; retries and
+ * timeouts stay host-owned, so they are not offered.
+ */
+export const HostDelegationInputSchema = Schema.Struct(DelegationInputFields);
+type HostDelegationInput = (typeof HostDelegationInputSchema)['Type'] & {
+  readonly effort?: ChildEffort | undefined;
+  readonly model?: string | undefined;
+};
+/**
+ * ADR-0037: a persona's delegation input. Where a person allowed models and
+ * the persona pins none, the model may name one of them and an effort; the
+ * model's own enum is the allowlist, so no other model can be named.
+ */
+export function hostDelegationInputSchema(
+  persona: AssistantPersonaDefinition,
+  delegation: HostDelegation
+): Schema.Codec<HostDelegationInput, unknown> {
+  const models = persona.model ? [] : (delegation.models ?? []);
+  if (models.length === 0) {
+    return HostDelegationInputSchema;
+  }
+  return Schema.Struct({
+    ...DelegationInputFields,
+    effort: Schema.optional(Schema.Literals(CHILD_EFFORTS)).annotate({
+      description: `Reasoning effort for the subagent's model; omit for the model's own. ${models
+        .map((model) => `${model.label} takes ${model.efforts.join(', ') || 'none'}`)
+        .join('; ')}.`,
+    }),
+    model: Schema.optional(Schema.Literals(models.map((model) => model.id))).annotate({
+      description: `Run the subagent on another model; omit to run it on yours. ${models
+        .map((model) => `${model.id} is ${model.label}`)
+        .join('; ')}.`,
+    }),
+  });
+}
+/**
+ * The model a child runs on when it is not its parent's: its persona's pin,
+ * or the model and effort its delegation names. Undefined runs it on the
+ * parent's admitted model, by reference.
+ */
+export function hostChildModelTarget(
+  persona: AssistantPersonaDefinition,
+  input: HostDelegationInput,
+  parentModelId: string
+): ChildModelTarget | undefined {
+  const pin = persona.model;
+  const modelId = pin ? `${pin.provider}::${pin.modelId}` : (input.model ?? parentModelId);
+  const effort = pin ? pin.effort : input.effort;
+  if (modelId === parentModelId && effort === undefined) {
+    return;
+  }
+  return effort === undefined ? { modelId } : { effort, modelId };
+}
+/** What the parent's model reads when its child's model cannot be admitted. */
+export function hostChildModelRefusal(
+  persona: AssistantPersonaDefinition,
+  target: ChildModelTarget | undefined,
+  cause: unknown
+): string {
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  return `[Delegation Rejected] ${persona.label} cannot run on ${target?.modelId ?? 'its model'}: ${reason}`;
+}
 /**
  * Report section 4: a root delegation runs in the background unless the
  * model opts out; a child's own delegations run in the foreground (B5).
@@ -73,9 +138,13 @@ const HostChildResultSchema = Schema.Struct({
   text: Schema.String,
 });
 export type HostChildResult = (typeof HostChildResultSchema)['Type'];
-function personaIdentity(persona: AssistantPersonaDefinition, settings: RuntimeSubagentSettings) {
+function personaIdentity(persona: AssistantPersonaDefinition, delegation: HostDelegation) {
+  const { models, settings } = delegation;
+  // The allowed models join the identity only where they exist, so a person
+  // who allows none keeps the identities of before ADR-0037.
+  const identity = models?.length ? { models, persona, settings } : { persona, settings };
   const digest = createHash('sha256')
-    .update(canonical(jsonValue({ persona, settings })))
+    .update(canonical(jsonValue(identity)))
     .digest('hex')
     .slice(0, 16);
   return `delegation:${persona.id}:${digest}`;
@@ -96,8 +165,8 @@ function createHostDelegationTools(delegation: HostDelegation): Record<string, H
         delegation: persona,
         description: delegationDescriptionForPersona(persona, delegation.settings),
         execute: () => Promise.reject(new Error('HostCore dispatches persona delegation')),
-        identity: personaIdentity(persona, delegation.settings),
-        inputSchema: standardInputSchema(HostDelegationInputSchema, {
+        identity: personaIdentity(persona, delegation),
+        inputSchema: standardInputSchema(hostDelegationInputSchema(persona, delegation), {
           jsonSchemaOnExcessProperty: 'error',
           onExcessProperty: 'ignore',
         }),
