@@ -9,7 +9,7 @@
       // tests load it. Package configs replace array fields; redeclare the
       // root's pass-through.
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"],
-      "passThroughEnv": ["CI", "COVERAGE", "VITEST_MAX_WORKERS"]
+      "passThroughEnv": ["CI", "COVERAGE", "NIGHTLY_TEST_RESULTS_DIR", "VITEST_MAX_WORKERS"]
     },
     "test:integration": {
       // The soak sizes reach Vitest only when declared (strict env mode), and are
