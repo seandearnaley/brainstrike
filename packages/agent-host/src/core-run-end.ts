@@ -3,6 +3,7 @@ import { type HostChildRuns, reportHostChildWakeFailure } from './core-child-run
 import { HostCommandSessionExits } from './core-command-exits.ts';
 import {
   awaitHostThreadsIdle,
+  finishHostRun,
   joinHostThreadSettlements,
   settleHostRunOwner,
 } from './core-run-lifecycle.ts';
@@ -17,7 +18,6 @@ import {
 } from './notices.ts';
 import type { HostClientOrigin } from './ports.ts';
 import type { HostEvent, HostLogRow, HostNotice, HostParams } from './protocol.ts';
-import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
 import { endHostRunTurn } from './run-admission.ts';
 import {
   type HostRunPosition,
@@ -60,7 +60,6 @@ export interface HostRunEndPorts {
   /** Commit a notice on `threadId` and fold it. */
   readonly post: (threadId: string, notice: HostNotice) => Promise<unknown>;
   readonly presentations: Pick<HostThreadPresentationState, 'finishing' | 'settle'>;
-  readonly read: (threadId: string) => Promise<HostLogRow[]>;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
   readonly selections: Parameters<HostChildRuns['wakeParams']>[2];
   readonly startNextRun: (
@@ -139,7 +138,7 @@ export class HostRunEnds {
     const ports = this.ports;
     // While its admission is live: a completed run asks for a title, a failed one withdraws it.
     ports.presentations.finishing(run, outcome, ports.runs().values());
-    return finishHostRunWithProviderBilling(
+    return finishHostRun(
       run,
       outcome,
       detail,
@@ -148,7 +147,6 @@ export class HostRunEnds {
         end: (owned) => endHostRunTurn(owned, ports.closeOwner),
         settle: (owned) => settleHostRunOwner(owned, ports.closeOwner),
       },
-      () => ports.read(run.threadId),
       async (event, commit) => {
         const own = (await hostRunTerminalEvents(run, event)).map((terminal) => ({
           event: terminal,

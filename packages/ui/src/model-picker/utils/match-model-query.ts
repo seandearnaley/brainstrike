@@ -10,6 +10,8 @@ export interface ModelQueryFields {
   providerId: string;
   providerName?: string | null | undefined;
   tagline?: string | null | undefined;
+  /** The model's maker, so "anthropic" finds Claude on every route. */
+  vendorName?: string | null | undefined;
 }
 
 // Newline separates fields so a query word (which never contains whitespace)
@@ -35,6 +37,7 @@ export function matchesModelQuery(fields: ModelQueryFields, query: string): bool
     fields.providerId,
     fields.providerName ?? '',
     fields.tagline ?? '',
+    fields.vendorName ?? '',
     ...(fields.keywords ?? []),
   ]
     .join(FIELD_SEPARATOR)

@@ -25,6 +25,7 @@
  */
 import { OPENAI_REASONING_EFFORT_VALUES } from '@brainstrike/types';
 import { Schema, SchemaIssue } from 'effect';
+import { MODEL_VENDOR_IDS } from './model-vendors.ts';
 
 /**
  * The transformation from "what Effect Schema infers" to "what the registry publishes".
@@ -142,6 +143,7 @@ const LlmModelSchema = Schema.Struct({
   tagline: Schema.optional(Schema.String),
   tokenMeasurement: Schema.optional(TokenizerBackedMeasurementSchema),
   type: Schema.Literal('llm'),
+  vendor: Schema.Literals(MODEL_VENDOR_IDS),
   vision: ModelVisionSupportSchema,
 });
 const ProviderModelSchema = LlmModelSchema;

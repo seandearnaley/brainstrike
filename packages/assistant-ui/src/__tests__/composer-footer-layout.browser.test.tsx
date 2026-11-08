@@ -22,7 +22,6 @@ import './assistant-conversation-panel.browser.css';
 
 const providerGroups: ProviderGroupConfig[] = [
   {
-    label: 'Cloud',
     providers: [
       {
         capabilities: {
@@ -48,10 +47,8 @@ const providerGroups: ProviderGroupConfig[] = [
 ];
 const pickerModels: ModelPickerModel[] = [
   {
-    capabilities: { streaming: true, type: 'llm' },
-    description: null,
+    capabilities: {},
     id: 'gpt-5.4',
-    name: 'GPT-5.4 with a long display name',
     providerId: 'openai',
   },
 ];

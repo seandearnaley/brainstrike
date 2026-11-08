@@ -8,6 +8,7 @@ The host admits concrete models and executable tools; clients submit non-secret 
   - Derive authentication and capability behavior from registry metadata, never provider-name heuristics.
   - Catalog object keys are alphabetical at every depth. Biome's `useSortedKeys` doesn't reach JSON keys and no check enforces it, so keep the order by hand. Row order is curated, not sorted.
 - Pricing and model limits belong to the route that serves and bills the request. Provider-reported cost is authoritative; catalog rates are estimates.
+  - The ledger reads OpenRouter's bill from each committed step's usage (`raw.cost`; a BYOK call adds `cost_details.upstream_inference_cost`). Only a call no provider billed is priced from the catalog.
 - Prepare provider history through [the shared request boundary](../../packages/agent/src/provider-request.ts).
   - Keep executed tool provenance and OpenAI call/output identities distinct.
   - Native OpenAI tool-search history needs its declared `openai.tool_search` provider tool at the SDK edge; a function named `tool_search` is a different tool ([vendor identity contract](https://github.com/vercel/ai/pull/19754)). The host keeps its own discovery catalog.

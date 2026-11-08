@@ -71,6 +71,8 @@ export const PlatformMemorySettingsSchema = Schema.Struct({
 const PlatformSubagentsIntentSchema = Schema.Struct({
   delegationEnabled: Schema.Boolean,
   disabledPersonaIds: Schema.mutable(Schema.Array(Id)),
+  /** ADR-0037: the `provider::model` IDs a delegation may name. */
+  models: Schema.optional(Schema.mutable(Schema.Array(Id))),
   settings: runtimeSubagentSettingsSchema,
 });
 /** Existing UI preference owners supply only non-secret intent; roots remain Main-owned. */

@@ -2,7 +2,10 @@ import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assi
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { useMemo, useSyncExternalStore } from 'react';
-import { useAssistantProviderSource } from './assistant-provider-source';
+import {
+  type AssistantProviderSource,
+  useAssistantProviderSource,
+} from './assistant-provider-source';
 
 type SecretsState = ReturnType<typeof useSecretsStore.getState>;
 
@@ -42,7 +45,13 @@ const discoveryListeners = new Set<() => void>();
  * one discovery read per mounted thread tab.
  */
 export function useConfiguredAssistantProviders(): ConfiguredAssistantProviders {
-  const source = useAssistantProviderSource();
+  return useAssistantProviders(useAssistantProviderSource());
+}
+
+/** The providers a source names, for a surface outside a composer's source. */
+export function useAssistantProviders(
+  source: AssistantProviderSource
+): ConfiguredAssistantProviders {
   const discoversProviders = source.kind === 'discovery';
   const snapshot = useSyncExternalStore(
     discoversProviders ? subscribeToProviderDiscovery : subscribeToInactiveDiscovery,

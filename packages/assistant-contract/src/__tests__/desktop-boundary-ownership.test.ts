@@ -1,6 +1,5 @@
 import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { admittedPersonaConfigurationSchema } from '../admitted-child-configuration.js';
 import { childExecutionConfigurationSchema } from '../child-execution-configuration.js';
 import { assistantChildInputSchema } from '../child-input.js';
 import { ReadDeliverySchema } from '../context-provenance.js';
@@ -10,7 +9,6 @@ import { ProviderCatalogSchema } from '../provider-catalog-schema.js';
 test('desktop child, provider and conversation boundaries have an Effect owner', () => {
   expect(
     [
-      admittedPersonaConfigurationSchema,
       assistantChildInputSchema,
       childExecutionConfigurationSchema,
       ReadDeliverySchema,

@@ -190,9 +190,8 @@ export function ModelCatalog({
       onToggle,
       onToggleDetails: toggleDetails,
       query: deferredQuery,
-      showTagline: tier !== 'narrow',
     }),
-    [busyModelIds, deferredQuery, onToggle, tier, toggleDetails]
+    [busyModelIds, deferredQuery, onToggle, toggleDetails]
   );
 
   useEffect(() => {

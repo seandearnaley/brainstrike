@@ -58,11 +58,6 @@ export const childGenerationOptionsSchema = Schema.Struct({
       ),
     })
   ),
-  local: Schema.optional(
-    Schema.Struct({
-      thinking: Schema.optional(Schema.Struct({ enabled: Schema.optional(Schema.Boolean) })),
-    })
-  ),
   openai: Schema.optional(
     Schema.Struct({
       reasoningEffort: Schema.optional(effort),
@@ -90,16 +85,6 @@ export const childModelSettingsSchema = Schema.Struct({
   temperature: Schema.optional(Schema.Finite),
   topP: Schema.optional(Schema.Finite),
 });
-/** Requested settings can only reduce tools. The caller cannot supply a permission snapshot. */
-export const childNextRunSchema = Schema.Struct({
-  disabledToolIds: Schema.optional(Schema.mutable(Schema.Array(id))),
-  model: Schema.optional(Schema.Struct({ modelId: id, provider })),
-  modelSettings: Schema.optional(childModelSettingsSchema),
-  planMode: Schema.optional(Schema.Boolean),
-  providerOptions: Schema.optional(childGenerationOptionsSchema),
-  requestedReasoningEffort: Schema.optional(effort),
-});
-export type ChildNextRun = (typeof childNextRunSchema)['Type'];
 const decision = Schema.Literals(['allow', 'ask', 'deny']);
 const risk = Schema.Literals(['read', 'edit', 'execute', 'mcp']);
 const permissionSchema = Schema.Struct({

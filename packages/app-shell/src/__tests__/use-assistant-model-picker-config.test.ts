@@ -11,6 +11,7 @@ const openAiDefaultModel: LlmProviderModelDefinition = {
   supportsStreaming: true,
   tagline: 'Most capable for everyday work',
   type: 'llm',
+  vendor: 'openai',
   vision: 'supported',
 };
 
@@ -20,6 +21,7 @@ const openAiDisabledModel: LlmProviderModelDefinition = {
   label: 'Hosted Disabled',
   supportsStreaming: true,
   type: 'llm',
+  vendor: 'openai',
   vision: 'unsupported',
 };
 
@@ -29,6 +31,7 @@ const gatewayModel: LlmProviderModelDefinition = {
   label: 'Uncatalogued',
   supportsStreaming: true,
   type: 'llm',
+  vendor: 'qwen',
   vision: 'unsupported',
 };
 
@@ -54,7 +57,6 @@ describe('useAssistantModelPickerConfig', () => {
 
     expect(result.current.providerGroups).toEqual([
       {
-        label: 'Hosted',
         providers: [
           expect.objectContaining({
             capabilities: expect.objectContaining({
@@ -69,6 +71,7 @@ describe('useAssistantModelPickerConfig', () => {
                 label: 'Hosted Default',
                 supportsStreaming: true,
                 type: 'llm',
+                vendor: { id: 'openai', name: 'OpenAI' },
               }),
               expect.objectContaining({
                 enabled: false,
@@ -82,7 +85,6 @@ describe('useAssistantModelPickerConfig', () => {
         runtime: 'hosted',
       },
       {
-        label: 'Gateway',
         providers: [
           expect.objectContaining({
             capabilities: expect.objectContaining({
@@ -97,6 +99,8 @@ describe('useAssistantModelPickerConfig', () => {
                 label: 'Uncatalogued',
                 supportsStreaming: true,
                 type: 'llm',
+                // The gateway's row names its maker, which its route doesn't.
+                vendor: { id: 'qwen', name: 'Qwen' },
               },
             ],
             name: 'OpenRouter',
@@ -106,39 +110,17 @@ describe('useAssistantModelPickerConfig', () => {
         runtime: 'gateway',
       },
     ]);
-    expect(result.current.pickerProviders).toEqual([
-      { icon: null, id: 'openai', name: 'OpenAI' },
-      { icon: null, id: 'openrouter', name: 'OpenRouter' },
-    ]);
     expect(result.current.pickerModels).toEqual([
+      // Hosted OpenAI models reason by provider default.
       {
-        // Hosted OpenAI models reason by provider default; the tagline flows
-        // through as the row description.
-        capabilities: {
-          reasoning: 'supported',
-          streaming: true,
-          type: 'llm',
-          vision: 'supported',
-        },
-        contextWindow: 200_000,
-        description: 'Most capable for everyday work',
+        capabilities: { reasoning: 'supported', vision: 'supported' },
         id: 'hosted-default',
-        name: 'Hosted Default',
         providerId: 'openai',
       },
+      // Undeclared gateway models surface reasoning 'unknown' (unverified).
       {
-        // Undeclared gateway models surface reasoning 'unknown' (unverified),
-        // and taglineless models keep a null description (no invented copy).
-        capabilities: {
-          reasoning: 'unknown',
-          streaming: true,
-          type: 'llm',
-          vision: 'unsupported',
-        },
-        contextWindow: 200_000,
-        description: null,
+        capabilities: { reasoning: 'unknown', vision: 'unsupported' },
         id: 'vendor/uncatalogued',
-        name: 'Uncatalogued',
         providerId: 'openrouter',
       },
     ]);

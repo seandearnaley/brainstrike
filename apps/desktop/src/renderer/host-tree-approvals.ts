@@ -120,7 +120,7 @@ function childRun(
   if (lost !== undefined) {
     return { reason: lost, status: 'unavailable', toolCalls: run?.toolCalls ?? 0 };
   }
-  return run ? { status: run.status, toolCalls: run.toolCalls } : undefined;
+  return run ? { modelId: run.modelId, status: run.status, toolCalls: run.toolCalls } : undefined;
 }
 
 function sameRun(a: SubagentChildRun | undefined, b: SubagentChildRun | undefined): boolean {
@@ -130,6 +130,7 @@ function sameRun(a: SubagentChildRun | undefined, b: SubagentChildRun | undefine
       b !== undefined &&
       a.status === b.status &&
       a.toolCalls === b.toolCalls &&
+      (a.status === 'unavailable' || b.status === 'unavailable' || a.modelId === b.modelId) &&
       (a.status !== 'unavailable' || (b.status === 'unavailable' && a.reason === b.reason)))
   );
 }

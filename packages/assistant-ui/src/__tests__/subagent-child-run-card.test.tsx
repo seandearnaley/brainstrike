@@ -61,6 +61,26 @@ it('follows the child’s committed run live: working with its count, then finis
   expect(within(card).getByRole('img', { name: 'Completed' })).toBeVisible();
 });
 
+it('marks the card with the maker of the model its child runs on', async () => {
+  const runs = childRunSource({
+    'child-1': {
+      modelId: 'openrouter::anthropic/claude-opus-5.5',
+      status: 'running',
+      toolCalls: 0,
+    },
+  });
+  render(
+    <SubagentChildRunContext value={runs}>
+      <Harness adapter={adapter} initialMessages={[delegation]} />
+    </SubagentChildRunContext>
+  );
+  await userEvent.setup().click(await screen.findByTestId('assistant-activity-summary'));
+  const card = await screen.findByTestId('subagent-execution-card');
+  const mark = within(card).getByRole('img', { name: 'Claude Opus 5.5 (OpenRouter)' });
+  expect(mark).toHaveAttribute('data-model-mark', 'anthropic');
+  expect(mark).toHaveAttribute('data-model-route', 'openrouter');
+});
+
 class Captured extends Component<
   { readonly children: ReactNode; readonly onError: (error: Error) => void },
   { readonly failed: boolean }

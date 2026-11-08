@@ -5,6 +5,7 @@ import {
   resolveModelReasoningSupport,
   resolveReasoningControlsAvailability,
 } from '@brainstrike/assistant-contract/model-reasoning';
+import { type ModelVendor, modelVendor } from '@brainstrike/assistant-contract/model-vendors';
 import {
   findProviderDefinition,
   type ModelVisionSupport,
@@ -43,6 +44,8 @@ export interface CatalogRow {
   /** Whether the static registry has an entry for this exact model. */
   readonly registered: boolean;
   readonly tagline: string | null;
+  /** The model's maker, for its mark; absent for a model the static registry doesn't list. */
+  readonly vendor?: ModelVendor | undefined;
   readonly vision: ModelVisionSupport | null;
 }
 
@@ -100,6 +103,7 @@ export function projectCatalogRow(model: DbModel, providerName: string): Catalog
     recommended: definition?.default === true,
     registered: definition !== undefined,
     tagline: model.tagline,
+    ...(definition ? { vendor: modelVendor(definition.vendor) } : {}),
     vision: definition?.vision ?? null,
   };
 }

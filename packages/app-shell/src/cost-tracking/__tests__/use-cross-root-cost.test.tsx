@@ -44,8 +44,6 @@ describe('useCrossRootCost', () => {
     ]);
     const hostRow = {
       checkoutBranch: null,
-      estimatedCacheCreationTokens: 0,
-      estimatedCacheReadTokens: 0,
       estimatedCostUsd: 0,
       estimatedInputTokens: 40,
       estimatedOutputTokens: 6,
@@ -82,8 +80,6 @@ describe('useCrossRootCost', () => {
     const usage = [
       {
         checkoutBranch: 'cost/ledger-redesign',
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: 0.01,
         estimatedInputTokens: 40,
         estimatedOutputTokens: 6,
@@ -112,8 +108,6 @@ describe('useCrossRootCost', () => {
     const usage = [
       {
         checkoutBranch: null,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
         estimatedCostUsd: 0,
         estimatedInputTokens: 40,
         estimatedOutputTokens: 6,
