@@ -342,28 +342,29 @@ describe('hunk actions', () => {
     );
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'a mode change stays with the file, not with its hunks',
-    async () => {
-      const before = Array.from({ length: 20 }, (_, index) => `line ${index}\n`).join('');
-      const dir = await repoWith({ 'run.sh': before });
-      await writeFile(path.join(dir, 'run.sh'), before.replace('line 3\n', 'three\n'));
-      await chmod(path.join(dir, 'run.sh'), 0o755);
-      const changes = changesIn(dir);
-      const unstaged = scope('unstaged', dir);
+  it('a mode change stays with the file, not with its hunks', async () => {
+    const before = Array.from({ length: 20 }, (_, index) => `line ${index}\n`).join('');
+    const dir = await repoWith({ 'run.sh': before });
+    // The index records run.sh as executable and the working tree file is not: a
+    // mode change on POSIX. Windows has no executable bit and Git for Windows
+    // sets core.filemode false, so there the index's mode is the only one.
+    git(dir, ['update-index', '--chmod=+x', 'run.sh']);
+    git(dir, ['commit', '-q', '-m', 'executable']);
+    await writeFile(path.join(dir, 'run.sh'), before.replace('line 3\n', 'three\n'));
+    const changes = changesIn(dir);
+    const unstaged = scope('unstaged', dir);
 
-      const hunks = await hunksOf(changes, unstaged, 'run.sh');
-      const result = await changes.apply('stage', unstaged, {
-        hunks,
-        kind: 'hunks',
-        path: 'run.sh',
-      });
+    const hunks = await hunksOf(changes, unstaged, 'run.sh');
+    const result = await changes.apply('stage', unstaged, {
+      hunks,
+      kind: 'hunks',
+      path: 'run.sh',
+    });
 
-      expect(result.ok).toBe(true);
-      expect(git(dir, ['ls-files', '-s', 'run.sh'])).toMatch(/^100644 /u);
-      expect(indexText(dir, 'run.sh')).toBe(before.replace('line 3\n', 'three\n'));
-    }
-  );
+    expect(result.ok).toBe(true);
+    expect(git(dir, ['ls-files', '-s', 'run.sh'])).toMatch(/^100755 /u);
+    expect(indexText(dir, 'run.sh')).toBe(before.replace('line 3\n', 'three\n'));
+  });
 
   it('refuse the hunks of text git does not decode, whose bytes they would replace', async () => {
     const lines = Array.from({ length: 20 }, (_, index) => `line ${index}\n`).join('');
@@ -648,48 +649,43 @@ describe('a stale or unoffered target', () => {
     expect(await readFile(path.join(outside, 'important.txt'), 'utf8')).toBe('mine, edited\n');
   });
 
-  it.skipIf(process.platform === 'win32')(
-    "never runs the repository's fsmonitor command",
-    async () => {
-      const dir = await repoWith({ 'f.txt': lines });
-      const marker = path.join(await tempDir(), 'fsmonitor-ran');
-      const hook = path.join(dir, '.git', 'fsmonitor-hook');
-      await writeFile(hook, `#!/bin/sh\necho ran >> '${marker}'\nexit 1\n`);
-      await chmod(hook, 0o755);
-      git(dir, ['config', 'core.fsmonitor', hook]);
-      await writeFile(path.join(dir, 'f.txt'), lines.replace('line 1\n', 'one\n'));
-      await writeFile(path.join(dir, 'u.txt'), 'u\n');
-      const changes = changesIn(dir);
-      const unstaged = scope('unstaged', dir);
+  it("never runs the repository's fsmonitor command", async () => {
+    const dir = await repoWith({ 'f.txt': lines });
+    const marker = path.join(await tempDir(), 'fsmonitor-ran');
+    const hook = path.join(dir, '.git', 'fsmonitor-hook');
+    // git runs the hook through sh, which reads a Windows path's backslashes
+    // as escapes.
+    const shellPath = (file: string) => file.replaceAll('\\', '/');
+    await writeFile(hook, `#!/bin/sh\necho ran >> '${shellPath(marker)}'\nexit 1\n`);
+    await chmod(hook, 0o755);
+    git(dir, ['config', 'core.fsmonitor', shellPath(hook)]);
+    await writeFile(path.join(dir, 'f.txt'), lines.replace('line 1\n', 'one\n'));
+    await writeFile(path.join(dir, 'u.txt'), 'u\n');
+    const changes = changesIn(dir);
+    const unstaged = scope('unstaged', dir);
 
-      const [hunk = ''] = await hunksOf(changes, unstaged, 'f.txt');
-      const diffs = [
-        await changes.fileDiff(unstaged, 'f.txt'),
-        await changes.fileDiff(unstaged, 'u.txt'),
-      ];
-      const stage = await changes.apply('stage', unstaged, {
-        hunks: [hunk],
-        kind: 'hunks',
-        path: 'f.txt',
-      });
-      const revert = await changes.apply(
-        'revert',
-        unstaged,
-        await drawn(changes, unstaged, ['u.txt'])
-      );
+    const [hunk = ''] = await hunksOf(changes, unstaged, 'f.txt');
+    const diffs = [
+      await changes.fileDiff(unstaged, 'f.txt'),
+      await changes.fileDiff(unstaged, 'u.txt'),
+    ];
+    const stage = await changes.apply('stage', unstaged, {
+      hunks: [hunk],
+      kind: 'hunks',
+      path: 'f.txt',
+    });
+    const revert = await changes.apply(
+      'revert',
+      unstaged,
+      await drawn(changes, unstaged, ['u.txt'])
+    );
 
-      expect([...diffs, stage, revert].map((result) => result.ok)).toEqual([
-        true,
-        true,
-        true,
-        true,
-      ]);
-      expect(existsSync(marker)).toBe(false);
-      // The hook is live: git's own status runs it.
-      git(dir, ['status', '--porcelain']);
-      expect(existsSync(marker)).toBe(true);
-    }
-  );
+    expect([...diffs, stage, revert].map((result) => result.ok)).toEqual([true, true, true, true]);
+    expect(existsSync(marker)).toBe(false);
+    // The hook is live: git's own status runs it.
+    git(dir, ['status', '--porcelain']);
+    expect(existsSync(marker)).toBe(true);
+  });
 });
 
 /** Each listed path with its status. */
