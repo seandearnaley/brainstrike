@@ -447,7 +447,7 @@ jobs:
         with:
           turbo-cache: "true"
 
-      # BST-2127: the host Nightly Coverage also runs on
+      # BST-2127: the host the Coverage workflow also runs on
       # (.github/actions/linux-desktop-test-host): the real OS-fence
       # dependencies (BST-1071), an X server for desktop's real-app proofs, and
       # the desktop model cache. Every shard gets it, not only the ones that
@@ -532,8 +532,7 @@ jobs:
       # and per-package vitest configs enable V8 coverage whenever CI==='true'
       # unless COVERAGE overrides it — so every PR unit run silently paid
       # coverage-instrumentation overhead whose output nothing consumed (the
-      # push path already set it; coverage.yml/nightly-coverage.yml own real
-      # coverage). turbo.jsonc keeps COVERAGE in `passThroughEnv` (out of the
+      # push path already set it; coverage.yml owns real coverage). turbo.jsonc keeps COVERAGE in `passThroughEnv` (out of the
       # cache key), so PR and push runs still share cache entries — and now
       # also genuinely run the same uninstrumented workload.
       - name: Affected unit tests
@@ -830,19 +829,6 @@ jobs:
           elif [ "$SHARD_COUNT" = "0" ] || [ "$SHARD_RESULT" != "success" ]; then
             exit 1
           fi
-
-  # The `coverage` job MOVED to .github/workflows/coverage.yml. It needs a
-  # `coverage`-label trigger, which would mean subscribing THIS workflow to
-  # the `pull_request` `labeled` action — and this workflow is the sole
-  # producer of every required status check, so every label add would then
-  # report those checks as `skipped` and grey out the merge box (measured on
-  # PR #1664). See the header comment in coverage.yml for the full rationale.
-  # Coverage is advisory; nightly-coverage.yml remains the threshold gate.
-  # This is enforced, not just asserted: the ruleset requires only Static, Unit,
-  # Build, Web E2E and Desktop E2E, so Codecov statuses cannot block a merge, and
-  # codecov.yml marks them `informational` to stop them rendering a misleading
-  # red X. scripts/verify-codecov-status-contract.mjs guards that pairing; see
-  # docs/archive/agent-contract-history/ci-quality/codecov-non-gating.md.
 
   build:
     name: Build

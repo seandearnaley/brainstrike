@@ -1,0 +1,8 @@
+# Codecov only reports coverage: .github/workflows/coverage.yml uploads main's
+# unit coverage once a day and nothing gates on it, so Codecov posts no commit
+# statuses and no pull request comments.
+coverage:
+  status:
+    project: off
+    patch: off
+comment: false
