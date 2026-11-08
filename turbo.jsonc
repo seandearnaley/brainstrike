@@ -58,8 +58,10 @@
         "TURBO_TEST_MODE"
       ],
       // Read at run time but kept out of the hash, so PR (unset) and push ("false") runs share entries.
+      // NIGHTLY_TEST_RESULTS_DIR only adds a JSON report (test-utils vitest.base), so it stays out too.
       "passThroughEnv": [
         "COVERAGE",
+        "NIGHTLY_TEST_RESULTS_DIR",
         "VITEST_MAX_WORKERS"
       ],
       "outputs": [],
@@ -80,6 +82,7 @@
       ],
       "passThroughEnv": [
         "COVERAGE",
+        "NIGHTLY_TEST_RESULTS_DIR",
         "VITEST_MAX_WORKERS"
       ],
       "outputs": [],

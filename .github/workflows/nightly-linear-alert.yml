@@ -33,7 +33,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-      # Each test job uploads its Playwright JSON reports and job status as
+      # Each test job uploads its Playwright or Vitest JSON reports and job status as
       # nightly-results--<job>[--<part>], laid out <job>/<part>/
       # (scripts/lib/nightly-test-results.mjs). A workflow with no such artifact
       # leaves the directory empty: every red job is then filed on the
