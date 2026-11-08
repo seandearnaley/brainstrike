@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type ViteUserConfig } from 'vitest/config';
 import LostTestFileReporter from '../vitest-lost-file-reporter.mjs';
 
@@ -43,6 +44,14 @@ function nightlyReporters(): ['json', { outputFile: string }][] {
  */
 export const sharedConfig = defineConfig({
   test: {
+    // lcov names each file from the repository root, so Codecov can tell one
+    // package's src/index.ts from another's (.github/workflows/coverage.yml).
+    coverage: {
+      reporter: [
+        'text-summary',
+        ['lcovonly', { projectRoot: fileURLToPath(new URL('../../..', import.meta.url)) }],
+      ],
+    },
     // One module cache per package, so parallel lanes never clear a shared one.
     fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,

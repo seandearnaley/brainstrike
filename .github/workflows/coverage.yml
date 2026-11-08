@@ -1,0 +1,83 @@
+# Measures main's unit-test coverage once a day and reports it to Codecov.
+# Advisory only: no check, threshold or merge rule reads it, and codecov.yml
+# turns Codecov's statuses and comments off. It runs in the quiet hours before
+# flake-hunt.yml and nightly.yml, so the whole unit suite never competes with a
+# merge-queue batch for the account's concurrent-job slots.
+#
+# `-- --coverage.enabled` is a Turbo pass-through argument, so these runs hash
+# apart from the queue's coverage-off runs, and a package unchanged since the
+# last run replays its cached `coverage/` report (turbo.jsonc `test` outputs).
+# Every package's lcov names files from the repository root, which is how
+# Codecov matches them (@brainstrike/test-utils/vitest.base). The two native
+# add-on packages test with `node --test`, which takes no Vitest flags.
+
+name: Coverage
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+jobs:
+  coverage:
+    name: Coverage
+    if: github.repository == 'seandearnaley/brainstrike'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Codecov verifies the upload with GitHub's OIDC token; no Codecov token is stored.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: "true"
+
+      - name: Provision the Linux desktop test host
+        uses: ./.github/actions/linux-desktop-test-host
+
+      - name: Unit tests with coverage
+        env:
+          TEST_TIMEOUT_MULTIPLIER: "2"
+          TURBO_TEST_MODE: unit
+        run: >-
+          pnpm turbo run test --concurrency=4
+          --filter='!@brainstrike/secure-fs-native'
+          --filter='!@brainstrike/windows-job-native'
+          -- --coverage.enabled
+
+      - name: List the reports
+        id: reports
+        run: |
+          set -euo pipefail
+          files=$(find packages apps -path '*/node_modules' -prune -o -path '*/coverage/lcov.info' -print | sort | paste -sd, -)
+          if [ -z "$files" ]; then
+            echo "::error::The coverage run wrote no lcov report."
+            exit 1
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          files: ${{ steps.reports.outputs.files }}
+          disable_search: true
+          fail_ci_if_error: true

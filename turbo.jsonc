@@ -64,7 +64,10 @@
         "NIGHTLY_TEST_RESULTS_DIR",
         "VITEST_MAX_WORKERS"
       ],
-      "outputs": [],
+      // Written only by coverage.yml, whose `-- --coverage.enabled` argument hashes its runs apart.
+      "outputs": [
+        "coverage/**"
+      ],
       "outputLogs": "new-only"
     },
     "test:integration": {
