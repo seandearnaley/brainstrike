@@ -36,4 +36,4 @@ export function Shell({ navigate }: { navigate: (path: string) => void }) {
 - Keep secrets out of UI, logs and serialized preferences.
 - Contracts: [UI](../../docs/agents/ui-conventions.md), [persistence](../../docs/agents/assistant-persistence.md), [reset](../../docs/agents/platform-contracts.md).
 
-ISC. See the repository [LICENSE](../../LICENSE).
+MIT. See the repository [LICENSE](../../LICENSE).

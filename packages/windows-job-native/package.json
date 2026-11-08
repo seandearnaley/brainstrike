@@ -17,6 +17,7 @@
     }
   },
   "gypfile": true,
+  "license": "MIT",
   "main": "./index.cjs",
   "scripts": {
     "build": "node-gyp rebuild",

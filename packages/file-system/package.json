@@ -28,6 +28,7 @@
     "./secure-file-read": "./src/secure-file-read.ts",
     "./native-watch": "./src/native-watch.ts"
   },
+  "license": "MIT",
   "scripts": {
     "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"

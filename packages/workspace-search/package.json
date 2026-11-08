@@ -27,6 +27,7 @@
     "./styles.css": "./styles.css",
     "./workspace-search-store": "./src/core/workspace-search-store.ts"
   },
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.2.4"
   },

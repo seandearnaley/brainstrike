@@ -57,7 +57,7 @@
     "./stores/worktree-setup-consent-store": "./src/stores/worktree-setup-consent-store.ts",
     "./stores/assistant-preferences-store-name": "./src/stores/assistant-preferences-store-name.ts"
   },
-  "license": "ISC",
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.3.0",
     "zustand": "^5"

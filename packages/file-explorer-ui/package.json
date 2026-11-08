@@ -53,7 +53,7 @@
     "./editor-view-state-store": "./src/editor-view-state-store.ts",
     "./file-tab-pane-store": "./src/file-tab-pane-store.ts"
   },
-  "license": "ISC",
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

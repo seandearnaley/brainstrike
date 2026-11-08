@@ -28,6 +28,7 @@
     "./worker": "./src/token-cache.worker.ts",
     "./background-indexer-worker": "./src/background-indexer.worker.ts"
   },
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.2.4"
   },
