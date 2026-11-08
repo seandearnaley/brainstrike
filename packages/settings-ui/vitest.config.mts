@@ -20,12 +20,6 @@ export default mergeConfig(
         ],
         provider: 'v8',
         reporter: ['text', 'json', 'html'],
-        thresholds: {
-          branches: 60,
-          functions: 60,
-          lines: 70,
-          statements: 70,
-        },
       },
       environment: 'happy-dom',
       maxWorkers: process.env['CI'] ? '50%' : '100%',

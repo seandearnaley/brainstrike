@@ -42,4 +42,5 @@ pnpm dev --filter @brainstrike/desktop
   - `topo` is a transit node that no package defines. `test*` and `type-check` depend on it, so a dependency's source edit re-hashes its dependents without a build. An empty `dependsOn` would replay stale passes.
   - Global `inputs` list only files every task reads. Turbo already hashes each package's lockfile closure and each task definition. The shared tsconfig preset is extended by raw relative path, so its glob is the only thing carrying it into hashes.
   - Strict env mode passes only declared variables. Anything that changes a result goes in `env`; `COVERAGE` and `VITEST_MAX_WORKERS` are `passThroughEnv` so PR and push runs share cache entries.
+  - `test` outputs `coverage/**`, which only the daily [Coverage workflow](.github/workflows/coverage.yml) writes: its `-- --coverage.enabled` pass-through argument gives it its own cache entries, and a hit replays the package's report for Codecov.
   - A suite that loads a native add-on declares the add-on `build` edge in its package's `turbo.json`, never an inline `pnpm build &&` (two concurrent node-gyp rebuilds race).

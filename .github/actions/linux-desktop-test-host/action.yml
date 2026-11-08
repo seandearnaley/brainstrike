@@ -1,9 +1,9 @@
 name: Linux desktop test host
 description: >-
   BST-2127. The one Linux host provisioning for every lane that runs the Unit
-  suites or their coverage (test.yml `unit-shard`, nightly-coverage.yml
-  `package-coverage`) or the desktop E2E regression (desktop-e2e.yml, whose
-  shell specs run inside the fence since BST-2328): the real OS-fence
+  suites or their coverage (test.yml `unit-shard`, coverage.yml `coverage`)
+  or the desktop E2E regression (desktop-e2e.yml, whose shell specs run
+  inside the fence since BST-2328): the real OS-fence
   dependencies and an X server for the passes that launch Electron.
   Callers MUST check out and run `setup-workspace` first.
 # ONE host, two lanes. Nightly Coverage gained xvfb in #3813 while the Unit lane
