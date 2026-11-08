@@ -55,7 +55,7 @@ jobs:
   desktop-full-regression:
     name: Desktop Full Regression (shard ${{ matrix.shard }})
     if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
-    runs-on: ubicloud-standard-4
+    runs-on: ubuntu-24.04
     # Each shard runs a twelfth of the desktop E2E suite, the smoke and
     # regression projects together, under the lane's 30m --global-timeout.
     # The smoke specs ran as six more jobs in test.yml, each paying 35-58 s of

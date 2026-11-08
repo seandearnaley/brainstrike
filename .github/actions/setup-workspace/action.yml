@@ -62,7 +62,7 @@ runs:
     # save their own copy.
     #
     # Node 26 is not in the runner images' tool cache, so setup-node downloaded
-    # it on every job: 10 s of each Ubicloud job's setup (queue run
+    # it on every job: 10 s of each job's setup (queue run
     # 40661149145). Runs on main save the installed copy; a queue batch, which
     # reads only main's caches, restores it where setup-node looks first.
     - id: nvmrc
