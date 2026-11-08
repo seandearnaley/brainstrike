@@ -11,6 +11,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
@@ -86,6 +87,7 @@ test('an agent in a new worktree greps the unindexed worktree', async ({
 
     await ensureAssistantShellVisible(page);
     await expect(page.getByTestId('workspace-bar')).toBeVisible({ timeout: 30_000 });
+    await chooseThreadFolder(page, path.basename(root));
     const worktreePath = await workInNewWorktree(page);
     writeFileSync(path.join(worktreePath, 'only-in-worktree.txt'), `${MARKER}\n`);
 

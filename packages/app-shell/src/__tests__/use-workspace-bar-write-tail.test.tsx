@@ -202,7 +202,17 @@ const realUpdateThreadMetadata = useAssistantThreadStore.getState().updateThread
 const assistantThreadRepository = {
   updateThreadMetadata,
 } as unknown as AssistantThreadRepository;
-const currentMainRoot = { displayName: 'brainstrike', path: '/ws/brainstrike' };
+// A thread's folder is its own persisted binding. Tests that do not name one are
+// bound to this folder; `{ operatingRootId: undefined }` seeds an unbound thread.
+const MAIN_BINDING = {
+  operatingRootDisplayName: 'brainstrike',
+  operatingRootId: 'r-main-db',
+  operatingRootPath: '/ws/brainstrike',
+};
+
+function withMainBinding(metadata: Record<string, unknown>): Record<string, unknown> {
+  return 'operatingRootId' in metadata ? metadata : { ...MAIN_BINDING, ...metadata };
+}
 // Keyed by the file-explorer ADAPTER rootId (the production store builds it as
 // `Object.fromEntries(roots.map((r) => [r.rootId, r]))`). It is deliberately
 // UNRELATED to the DB `roots.id` above: the durable id must never be borrowed
@@ -234,7 +244,7 @@ function seedThreads(threads: readonly SeededThread[], selectedId: string) {
 }
 
 function seedThread(metadata: Record<string, unknown>) {
-  seedThreads([{ id: THREAD_ID, metadata }], THREAD_ID);
+  seedThreads([{ id: THREAD_ID, metadata: withMainBinding(metadata) }], THREAD_ID);
 }
 
 /** The worktrees bridge the host serves in the current test; none (web) unless installed. */
@@ -297,7 +307,6 @@ async function setup(metadata: Record<string, unknown> = {}) {
     (props: BarProps) =>
       useWorkspaceBar({
         assistantThreadRepository,
-        currentMainRoot,
         memoryResourceId: RESOURCE_ID,
         rootDescriptors,
         selectedMemoryThreadId: props.selectedMemoryThreadId,

@@ -61,7 +61,6 @@ import { HostRunGenerations } from './host-run-generations';
 import type { HostThreadCanvases } from './host-thread-canvases';
 import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
-import { bindHostThreadToMainRoot } from './host-thread-root-binding';
 import type { HostThreadRuns } from './host-thread-runs';
 import { NewHostThread } from './new-host-thread';
 import {
@@ -262,19 +261,6 @@ function HostThread({
   const configuration = useRef(readConfiguration);
   const modelId = useRef(readModelId);
   const planMode = useRef(readPlanMode);
-  // Legacy parity: a send binds an unbound thread to the Main root first.
-  const bindRoot = useRef(async (): Promise<void> => undefined);
-  useLayoutEffect(() => {
-    bindRoot.current = () => {
-      const { activeRootIds, rootDescriptors } = explorer.getState();
-      const main = activeRootIds[0] ? rootDescriptors[activeRootIds[0]] : undefined;
-      return bindHostThreadToMainRoot({
-        client,
-        mainRoot: main,
-        threadId,
-      });
-    };
-  }, [client, explorer, threadId]);
   useLayoutEffect(() => {
     configuration.current = readConfiguration;
     modelId.current = readModelId;
@@ -287,8 +273,6 @@ function HostThread({
     // Commit-time view ownership survives StrictMode render replay without
     // starting duplicate subscriptions or disposing a still-mounted source.
     const current = createCommittedHostConversation({
-      // A child is admitted under its root's binding, so only a root binds.
-      ...(child ? {} : { bindThreadRoot: () => bindRoot.current() }),
       client,
       modelId: '',
       onEntryCommitted,
@@ -300,7 +284,7 @@ function HostThread({
     });
     setConversation(current);
     return () => current.close();
-  }, [child, client, explorer, onEntryCommitted, replacement, threadId]);
+  }, [client, explorer, onEntryCommitted, replacement, threadId]);
   // A root thread's "Restore to before this message" goes to its owner (the
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();

@@ -119,11 +119,6 @@ function isRunNotAdmitted(cause: unknown): cause is Error {
   return cause instanceof Error && hostErrorCode(cause) === HOST_RUN_NOT_ADMITTED_CODE;
 }
 export interface CommittedHostThreadOptions {
-  /**
-   * Before a send's `run/start` (desktop binds the thread to its folder, as
-   * legacy's first request did); a refusal fails the send.
-   */
-  readonly beforeStart?: () => Promise<void>;
   readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
   /** Told when a newer committed title, colour, icon or workspace binding reaches this view. */
   readonly onEntryCommitted?: () => void;
@@ -172,14 +167,6 @@ export async function startCommittedTurn(
   const user = hostUserMessage(message);
   // BST-2004: a send whose host was lost before it answered, or before the
   // send left, is settled from the replacement's committed log; nothing is resent.
-  try {
-    await options.beforeStart?.();
-  } catch (cause) {
-    if (settleLost && isConnectionLoss(cause)) {
-      return await settleLost(commandId);
-    }
-    throw cause;
-  }
   try {
     await client.request('run/start', {
       ...user,

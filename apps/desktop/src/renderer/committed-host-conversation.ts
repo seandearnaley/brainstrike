@@ -112,11 +112,6 @@ export function hostRunSettings(
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostConversation(
   options: HostRunSettingsSource & {
-    /**
-     * Bind the thread to its folder before a run it starts, as legacy's first
-     * request did (`bindHostThreadToMainRoot`); a refusal fails that send.
-     */
-    readonly bindThreadRoot?: () => Promise<void>;
     readonly client: HostClient;
     /** Told when a newer committed title, colour, icon or workspace binding reaches this view. */
     readonly onEntryCommitted?: () => void;
@@ -132,7 +127,6 @@ export function createCommittedHostConversation(
   const runSettings = () => hostRunSettings(options);
   const settleLost = replacement ? settleLostSend(client, replacement, threadId) : undefined;
   const thread = createCommittedHostThread({
-    ...(options.bindThreadRoot ? { beforeStart: options.bindThreadRoot } : {}),
     client,
     ...(options.onEntryCommitted ? { onEntryCommitted: options.onEntryCommitted } : {}),
     runSettings,
@@ -151,7 +145,6 @@ export function createCommittedHostConversation(
       if (parentId === null) {
         throw new Error('Regenerate has no committed user message');
       }
-      await options.bindThreadRoot?.();
       await client.request('run/regenerate', {
         commandId: crypto.randomUUID(),
         ...runSettings(),
