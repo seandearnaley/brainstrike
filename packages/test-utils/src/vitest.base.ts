@@ -14,13 +14,15 @@ export const coverageEnabled =
  */
 const nightlyResultsDir = process.env['NIGHTLY_TEST_RESULTS_DIR'];
 
-type PackageManifest = { name: string };
+interface PackageManifest {
+  name: string;
+}
 
 /**
  * One report per package and lane in that flat directory: `ui.test.json`,
  * `agent.test-integration.json`. The lane is the package script pnpm runs.
  */
-function nightlyReporters(): Array<['json', { outputFile: string }]> {
+function nightlyReporters(): ['json', { outputFile: string }][] {
   if (!nightlyResultsDir) {
     return [];
   }
