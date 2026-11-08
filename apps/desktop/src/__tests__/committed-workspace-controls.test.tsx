@@ -104,21 +104,16 @@ test('binds the bar to the committed host thread through the host-routed reposit
   expect(host.updateThreadBinding).toHaveBeenCalledExactlyOnceWith(HOST_THREAD, patch);
 });
 
-test('names the MAIN folder for an unbound thread; explorer focus never names it', () => {
+test("never names a workspace folder as an unbound thread's folder", () => {
   const store = mount(hostCapability());
-  expect(hosted.props && 'currentMainRoot' in hosted.props).toBe(false);
   act(() => {
     store.getState().setActiveRoots([REPO, OTHER]);
     store.getState().setCurrentFolderId(OTHER.rootId);
   });
-  expect(hosted.props?.currentMainRoot).toEqual(REPO);
+  // The open folders are offered to the bar; none of them is the thread's.
   expect(hosted.props?.rootDescriptors).toEqual({
     [OTHER.rootId]: OTHER,
     [REPO.rootId]: REPO,
   });
-  act(() => {
-    store.getState().setCurrentFolderId(REPO.rootId);
-    store.getState().setMainRoot(OTHER.rootId);
-  });
-  expect(hosted.props?.currentMainRoot).toEqual(OTHER);
+  expect(hosted.props).not.toHaveProperty('currentMainRoot');
 });

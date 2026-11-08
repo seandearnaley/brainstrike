@@ -12,6 +12,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   freshRepo as createFreshRepo,
@@ -89,8 +90,10 @@ test.afterAll(() => {
 test.describe('Worktree mode (desktop)', () => {
   test('@smoke shows the Local mode chip for a git repo', async ({ window: page }) => {
     test.setTimeout(90_000);
-    await seedRoot(page, freshRepo('local'));
+    const repo = freshRepo('local');
+    await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
 
     const chip = page.getByTestId('workspace-bar-mode-chip');
     await expect(chip).toBeVisible({ timeout: 30_000 });
@@ -103,6 +106,7 @@ test.describe('Worktree mode (desktop)', () => {
     const repo = freshRepo('create');
     await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
 
     const created = await createAndUseWorktree(page);
     await expect(page.getByTestId('workspace-bar-folder-chip')).toContainText(created.name, {
@@ -130,6 +134,7 @@ test.describe('Worktree mode (desktop)', () => {
     });
     await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
 
     await page.getByTestId('workspace-bar-mode-chip').click();
     await page.getByTestId('workspace-bar-mode-pick-worktree').click();
@@ -150,6 +155,7 @@ test.describe('Worktree mode (desktop)', () => {
     const repo = freshRepo('archive');
     await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
 
     const created = await createAndUseWorktree(page);
     await page.getByTestId('workspace-bar-mode-chip').click();
@@ -209,8 +215,10 @@ test.describe('Worktree mode (desktop)', () => {
 
   test('hands off to Local and the chip stays Local across a reload', async ({ window: page }) => {
     test.setTimeout(240_000);
-    await seedRoot(page, freshRepo('handoff'));
+    const repo = freshRepo('handoff');
+    await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
     await createAndUseWorktree(page);
 
     await page.getByTestId('workspace-bar-mode-chip').click();
@@ -229,8 +237,10 @@ test.describe('Worktree mode (desktop)', () => {
 
   test('persists the worktree checkout across a reload', async ({ window: page }) => {
     test.setTimeout(240_000);
-    await seedRoot(page, freshRepo('persist'));
+    const repo = freshRepo('persist');
+    await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
     const created = await createAndUseWorktree(page);
 
     await reloadRenderer(page, 'worktree-mode: reload 2');
@@ -252,6 +262,7 @@ test.describe('Worktree mode (desktop)', () => {
     git(repo, ['branch', 'feature/alpha']);
     await seedRoot(page, repo);
     await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
 
     // Checkout status can render a read-only chip before branch discovery settles.
     // Wait for the menu trigger; a menu opened while only the PR diagnostic has

@@ -2,18 +2,12 @@ import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-da
 import { useAssistantThreadStore, useResourceThread } from '@brainstrike/assistant-data';
 
 import {
-  type AssistantOperatingRootCandidate,
-  resolveAssistantOperatingRootBinding as resolveDurableAssistantOperatingRootBinding,
-} from '../assistant-operating-root';
-import {
   type AssistantOperatingRootBinding,
   resolveAssistantOperatingRootBinding,
 } from '../assistant-ui-panel-wrapper-runtime';
-import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 interface UseAssistantThreadRootBindingArgs {
   readonly assistantThreadRepository: AssistantThreadCatalogRepository | null;
-  readonly currentMainRoot?: AssistantOperatingRootCandidate | undefined;
   readonly memoryResourceId: string;
   readonly selectedMemoryThreadId: string | undefined;
 }
@@ -28,9 +22,6 @@ interface UseAssistantThreadRootBindingResult {
   readonly persistThreadRootBinding: (
     binding: Omit<AssistantOperatingRootBinding, 'persisted'>
   ) => Promise<void>;
-  readonly resolveThreadRootBinding: () => Promise<
-    Omit<AssistantOperatingRootBinding, 'persisted'> | undefined
-  >;
   /**
    * The selected thread's row has not reached the store yet, so its metadata
    * reads as EMPTY. Every WRITE derived from that metadata must be refused
@@ -44,7 +35,6 @@ interface UseAssistantThreadRootBindingResult {
 
 export function useAssistantThreadRootBinding({
   assistantThreadRepository,
-  currentMainRoot,
   memoryResourceId,
   selectedMemoryThreadId,
 }: UseAssistantThreadRootBindingArgs): UseAssistantThreadRootBindingResult {
@@ -55,9 +45,8 @@ export function useAssistantThreadRootBinding({
   const threadRootBinding = resolveAssistantOperatingRootBinding({
     ...(selectedThread?.metadata ? { threadMetadata: selectedThread.metadata } : {}),
   });
-  const displayRootBinding = selectedThreadMetadataPending
-    ? undefined
-    : (threadRootBinding ?? currentMainRoot);
+  // A thread's folder is its own binding; an unbound thread has none.
+  const displayRootBinding = selectedThreadMetadataPending ? undefined : threadRootBinding;
   // No root-count gate: the workspace bar is ORIENTATION, not disambiguation,
   // so a single-root workspace shows its root too (BST-1397).
   const operatingRoot = displayRootBinding
@@ -66,26 +55,6 @@ export function useAssistantThreadRootBinding({
         ...(displayRootBinding.path ? { path: displayRootBinding.path } : {}),
       }
     : undefined;
-  const resolveThreadRootBinding = async () => {
-    if (selectedThreadMetadataPending) {
-      throw new Error(
-        'Cannot resolve the assistant thread root before the selected thread metadata is loaded.'
-      );
-    }
-    if (threadRootBinding) {
-      const { persisted: _persisted, ...binding } = threadRootBinding;
-      return binding;
-    }
-    if (!currentMainRoot) {
-      return;
-    }
-    if (!getThreadGroupsCapability()) {
-      throw new Error(
-        'Cannot bind an assistant thread root before the workspace database is ready.'
-      );
-    }
-    return resolveDurableAssistantOperatingRootBinding(currentMainRoot);
-  };
   const persistThreadRootBinding = async (
     binding: Omit<AssistantOperatingRootBinding, 'persisted'>
   ): Promise<void> => {
@@ -112,7 +81,6 @@ export function useAssistantThreadRootBinding({
   return {
     operatingRoot,
     persistThreadRootBinding,
-    resolveThreadRootBinding,
     selectedThreadMetadataPending,
     threadRootBinding,
   };

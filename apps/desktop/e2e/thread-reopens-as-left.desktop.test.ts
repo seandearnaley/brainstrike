@@ -14,6 +14,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { readHostRoot } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -133,6 +134,7 @@ async function reopenFolderThread(
     await ensureMockWorkspaceOpen(page);
     await enableChatModel(page);
     await ensureAssistantShellVisible(page);
+    await chooseThreadFolder(page, path.basename(root));
     await send(page, 'STEP_1');
     const tabId = (await selectedThreadTab(page).getAttribute('id')) ?? '';
     await openOtherFolder(page, electronApp, other);
@@ -210,6 +212,7 @@ async function reopenWorktreeThread(
     await expect(page.getByText('hello.ts').first()).toBeVisible({ timeout: 60_000 });
     await enableChatModel(page);
     await ensureAssistantShellVisible(page);
+    await chooseThreadFolder(page, path.basename(root));
     await page.getByTestId('workspace-bar-mode-chip').click();
     await page.getByTestId('workspace-bar-mode-new-worktree').click();
     const dialog = page.getByTestId('worktree-create-dialog');

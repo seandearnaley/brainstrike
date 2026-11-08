@@ -49,14 +49,9 @@ describe('assistant runtime helpers', () => {
     expect(formatToolLabel('filesystem.search_files')).toBe('Search Files');
   });
 
-  it('keeps a persisted thread root when the workspace Main root later changes', () => {
+  it('returns a persisted thread root as bound', () => {
     expect(
       resolveAssistantOperatingRootBinding({
-        currentMainRoot: {
-          displayName: 'ProjectB',
-          path: '/Users/me/ProjectB',
-          rootId: 'root-b',
-        },
         threadMetadata: {
           operatingRootDisplayName: 'ProjectA',
           operatingRootId: 'root-a',
@@ -71,14 +66,13 @@ describe('assistant runtime helpers', () => {
     });
   });
 
-  it('rejects incomplete persisted thread-root metadata instead of retargeting to Main', () => {
+  it('resolves an unbound thread to no root', () => {
+    expect(resolveAssistantOperatingRootBinding({ threadMetadata: {} })).toBeUndefined();
+  });
+
+  it('rejects incomplete persisted thread-root metadata', () => {
     expect(() =>
       resolveAssistantOperatingRootBinding({
-        currentMainRoot: {
-          displayName: 'ProjectB',
-          path: '/Users/me/ProjectB',
-          rootId: 'root-b',
-        },
         threadMetadata: {
           operatingRootId: 'root-a',
         },
