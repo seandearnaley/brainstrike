@@ -25,7 +25,8 @@ interface AssistantSubagentPreferencesData {
 }
 
 interface AssistantSubagentPreferencesActions {
-  resetToDefaults: () => void;
+  /** The limits only; the allowed models stay. */
+  resetLimits: () => void;
   /** `null` turns the limit Off. */
   setMaxChildRuntimeMs: (value: number | null) => void;
   setMaxChildSteps: (value: number) => void;
@@ -130,7 +131,7 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
       };
       return {
         ...defaultData(),
-        resetToDefaults: () => set(defaultData()),
+        resetLimits: () => set({ settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS }),
         setMaxChildRuntimeMs: (value) => patch('maxChildRuntimeMs', value),
         setMaxChildSteps: (value) => patch('maxChildSteps', value),
         setMaxConcurrentWork: (value) => patch('maxConcurrentWork', value),

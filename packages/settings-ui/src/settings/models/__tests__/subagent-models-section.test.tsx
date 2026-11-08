@@ -30,7 +30,7 @@ const model = (providerId: string, id: string, name: string, isEnabled = true) =
 const configured = ['openai', 'openrouter'] as const;
 
 beforeEach(() => {
-  useAssistantSubagentPreferencesStore.getState().resetToDefaults();
+  useAssistantSubagentPreferencesStore.getState().setModels([]);
   useModelRegistryStore.setState({
     error: null,
     hasLoaded: true,
@@ -85,6 +85,14 @@ it('offers only the models of providers with a key', async () => {
   const menu = await screen.findByRole('dialog', { name: 'Add a model subagents may run on' });
   expect(within(menu).getByRole('option', { name: /GPT-6 Sol/u })).toBeInTheDocument();
   expect(within(menu).queryByRole('option', { name: /Claude Opus/u })).not.toBeInTheDocument();
+});
+
+it('cannot add a model once every enabled model with a key is allowed', () => {
+  useAssistantSubagentPreferencesStore
+    .getState()
+    .setModels(['openai::gpt-6-sol', 'openrouter::anthropic/claude-opus-5.5']);
+  render(<SubagentModelsSection configuredProviders={configured} />);
+  expect(screen.getByRole('button', { name: 'Add model' })).toBeDisabled();
 });
 
 it('says why an allowed model cannot run: disabled, without a key, or gone from the catalog', () => {

@@ -123,7 +123,7 @@ export function ModelMenu({
           <Command.List className="max-h-[min(60vh,420px)] min-h-0 overflow-y-auto p-1">
             {searching || hasOptions || empty === undefined ? (
               <Command.Empty className="text-muted-foreground px-2 py-6 text-center text-sm">
-                No models match “{query.trim()}”.
+                {searching ? `No models match “${query.trim()}”.` : 'No models.'}
               </Command.Empty>
             ) : (
               empty

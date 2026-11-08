@@ -115,36 +115,35 @@ export function SubagentModelsSection({
       setQuery('');
     }
   };
-  const options: ModelMenuOption[] =
+  const addable =
     loaded && withKeys
-      ? catalog
-          .filter(
-            (model) =>
-              model.isEnabled &&
-              withKeys.has(model.provider) &&
-              !allowed.includes(model.id) &&
-              matchesModelQuery(
-                {
-                  label: model.label,
-                  modelId: model.id,
-                  providerId: model.provider,
-                  providerName: model.markLabel,
-                },
-                query
-              )
-          )
-          .map((model) => ({
-            key: model.id,
-            label: model.label,
-            markLabel: model.markLabel,
-            onSelect: () => {
-              setModels([...allowed, model.id]);
-              close(false);
-            },
-            provider: model.provider,
-            vendor: model.vendor,
-          }))
+      ? catalog.filter(
+          (model) => model.isEnabled && withKeys.has(model.provider) && !allowed.includes(model.id)
+        )
       : [];
+  const options: ModelMenuOption[] = addable
+    .filter((model) =>
+      matchesModelQuery(
+        {
+          label: model.label,
+          modelId: model.id,
+          providerId: model.provider,
+          providerName: model.markLabel,
+        },
+        query
+      )
+    )
+    .map((model) => ({
+      key: model.id,
+      label: model.label,
+      markLabel: model.markLabel,
+      onSelect: () => {
+        setModels([...allowed, model.id]);
+        close(false);
+      },
+      provider: model.provider,
+      vendor: model.vendor,
+    }));
 
   return (
     <Card className="space-y-3 p-4" data-testid="subagent-models-section">
@@ -202,7 +201,7 @@ export function SubagentModelsSection({
         trigger={
           <Button
             className="gap-1.5"
-            disabled={!(loaded && withKeys)}
+            disabled={addable.length === 0}
             size="sm"
             type="button"
             variant="outline"

@@ -118,7 +118,7 @@ function BudgetField({
 export function SubagentSettingsSection() {
   const store = useAssistantSubagentPreferencesStore(
     useShallow((state) => ({
-      resetToDefaults: state.resetToDefaults,
+      resetLimits: state.resetLimits,
       setMaxChildRuntimeMs: state.setMaxChildRuntimeMs,
       setMaxChildSteps: state.setMaxChildSteps,
       setMaxConcurrentWork: state.setMaxConcurrentWork,
@@ -185,7 +185,7 @@ export function SubagentSettingsSection() {
         <Button
           aria-label="Reset subagent budgets to defaults"
           onClick={() => {
-            store.resetToDefaults();
+            store.resetLimits();
             setGeneration((current) => current + 1);
           }}
           size="sm"
