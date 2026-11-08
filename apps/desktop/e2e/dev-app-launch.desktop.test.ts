@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createLogger, createServer } from 'vite';
+import { createServer } from 'vite';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { launchElectronAppWithOptions, reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+import { runViteCacheDir } from './utils/run-vite-cache';
 import { seedRoot } from './utils/seed-root';
 
 // Regression: the renderer's Send schema once imported a Node-only module through
@@ -27,30 +28,27 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
     },
   });
   let joined = false;
-  // A hosted runner starts with no optimized-dependency cache. On its 2 vCPUs the optimizer
-  // committed before its crawl reached every import, and each dependency it met later
-  // re-optimized and reloaded the renderer mid-launch (BST-2091). This server optimizes
-  // cold and commits the scan's result at once, as that runner did, recording each late one.
-  // Its cache is its own, so the forced optimize never rewrites one another spec is serving;
-  // the `.vite` name keeps the React transform's exclusion of optimized chunks.
-  const lateOptimizations: string[] = [];
-  const logger = createLogger();
-  const logInfo = logger.info;
-  logger.info = (message, options) => {
-    if (/optimized dependencies changed|dependenc(?:y|ies) optimized:/u.test(message)) {
-      lateOptimizations.push(message);
-    }
-    logInfo(message, options);
-  };
+  // On a hosted runner the optimizer committed the dependency scan's result before the
+  // renderer's crawl reached every import, so each dependency the scan missed re-optimized and
+  // reloaded the renderer mid-launch (BST-2091). Global setup commits that scan before any
+  // request; served from a copy of it with discovery on, every dependency the scan missed is
+  // optimized late, however fast the runner (BST-2469). The copy is this spec's own, so a late
+  // one never rewrites the cache other workers read; the `.vite` name keeps the React
+  // transform's exclusion of optimized chunks.
+  const cacheDir = path.join(profile, '.vite');
+  await cp(runViteCacheDir(), cacheDir, { recursive: true });
   const server = await createServer({
-    cacheDir: path.join(profile, '.vite'),
+    cacheDir,
     configFile: path.resolve('vite.config.mts'),
-    customLogger: logger,
-    optimizeDeps: { force: true, holdUntilCrawlEnd: false },
     server: { host: '127.0.0.1', port: 0 },
   });
   try {
     await server.listen();
+    const optimizer = server.environments.client.depsOptimizer;
+    const scanned = new Set(Object.keys(optimizer?.metadata.optimized ?? {}));
+    if (!optimizer || scanned.size === 0) {
+      throw new Error('The dev renderer did not start from the dependency scan global setup ran');
+    }
     const rendererUrl = server.resolvedUrls?.local[0];
     if (!rendererUrl) {
       throw new Error('Dev renderer URL unavailable');
@@ -89,7 +87,11 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
       expect(provider.refusals()).toEqual([]);
       await expect(context.window.getByTestId('new-agent-button')).toBeVisible();
       expect(errors).toEqual([]);
-      expect(lateOptimizations).toEqual([]);
+      const { discovered, optimized } = optimizer.metadata;
+      const late = [...Object.keys(optimized), ...Object.keys(discovered)].filter(
+        (dependency) => !scanned.has(dependency)
+      );
+      expect(late).toEqual([]);
     } finally {
       await context.app.close();
       joined = true;
