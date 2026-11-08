@@ -1,5 +1,5 @@
-// Reads the Playwright JSON reports a nightly workflow uploaded into per-test
-// outcomes for scripts/notify-linear-nightly.mjs (BST-2189).
+// Reads the Playwright and Vitest JSON reports a nightly workflow uploaded into
+// per-test outcomes for scripts/notify-linear-nightly.mjs (BST-2189, BST-2401).
 //
 // Layout: <reportsDir>/[<artifact>/]<job>/<part>/<file>. <job> is the key the
 // workflow passes in `--results`; <part> is one job instance under it, such as
@@ -8,16 +8,18 @@
 // survives actions/download-artifact, which writes a single matching artifact
 // straight into its path but several into one subdirectory each. A part holds:
 //
-//   <report>.json   a Playwright JSON report, one per Playwright run;
+//   <report>.json   a Playwright JSON report, one per Playwright run, or a
+//                   Vitest `json` reporter report, one per package lane
+//                   (test-utils vitest.base);
 //   job.status      the job's own status (success, failure or cancelled),
 //                   written by an always() step before the upload;
 //   <lane>.unreported  a lane that failed without writing its report
 //                   (scripts/run-e2e-lane-sequence.mjs), holding how it failed.
 //
 // Nothing here is dropped quietly: any other file, a file outside a
-// <job>/<part> directory, a report that is not Playwright JSON or names run
-// errors, and a test status this reader does not know all come back as
-// problems for the notifier to file.
+// <job>/<part> directory, a report that is neither format or names run
+// errors, a Vitest test file that failed outside any test, and a test status
+// this reader does not know all come back as problems for the notifier to file.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -28,6 +30,13 @@ const STATUS_OUTCOMES = new Map([
   ['unexpected', 'failed'],
 ]);
 const SKIPPED_STATUS = 'skipped';
+// Vitest's json reporter uses Jest's assertion statuses. It records no retry,
+// so a Vitest test is never flaky here.
+const VITEST_OUTCOMES = new Map([
+  ['passed', 'passed'],
+  ['failed', 'failed'],
+]);
+const VITEST_NOT_RUN = new Set(['skipped', 'pending', 'todo', 'disabled']);
 const TITLE_SEPARATOR = ' › ';
 const ERROR_EXCERPT_LINES = 12;
 const ERROR_EXCERPT_CHARS = 1200;
@@ -97,6 +106,60 @@ function isPlaywrightJsonReport(report) {
   );
 }
 
+function isVitestJsonReport(report) {
+  return typeof report?.numTotalTests === 'number' && Array.isArray(report.testResults);
+}
+
+/** The repository path of a test file's absolute path, on any runner's OS. */
+function repoRelativeFile(absoluteFile, repoRoot) {
+  const segments = absoluteFile.split(/[\\/]+/u).filter(Boolean);
+  const name = segments.pop();
+  const dir = repoRelativeDir(segments.join('/'), repoRoot);
+  return dir === undefined || name === undefined ? undefined : path.posix.join(dir, name);
+}
+
+function readVitestReport(report, { file, job, part, repoRoot }) {
+  const tests = [];
+  const problems = [];
+  const problem = (reason) => problems.push({ file, job, reason });
+  for (const testFile of report.testResults) {
+    const spec = repoRelativeFile(String(testFile?.name ?? ''), repoRoot);
+    if (spec === undefined) {
+      problem(`names test file ${testFile?.name}, which is not a file of this checkout`);
+      continue;
+    }
+    let failedTests = 0;
+    for (const assertion of testFile.assertionResults ?? []) {
+      if (VITEST_NOT_RUN.has(assertion.status)) {
+        continue;
+      }
+      const outcome = VITEST_OUTCOMES.get(assertion.status);
+      const title = [...(assertion.ancestorTitles ?? []), assertion.title].join(TITLE_SEPARATOR);
+      if (!outcome) {
+        problem(`gives "${title}" the unknown status ${JSON.stringify(assertion.status)}`);
+        continue;
+      }
+      if (outcome === 'failed') {
+        failedTests += 1;
+      }
+      const message = assertion.failureMessages?.[0];
+      tests.push({
+        error: outcome === 'failed' && message ? excerpt(message) : undefined,
+        job,
+        outcome,
+        part,
+        spec,
+        title,
+      });
+    }
+    // An import error or a failing hook fails the file with no failing test.
+    if (testFile.status === 'failed' && failedTests === 0) {
+      problem(`says ${spec} failed outside any test: ${excerpt(testFile.message || 'no message')}`);
+    }
+  }
+  return { problems, tests };
+}
+
 function readReport({ absolutePath, file, job, part, repoRoot }) {
   const tests = [];
   const problems = [];
@@ -109,8 +172,11 @@ function readReport({ absolutePath, file, job, part, repoRoot }) {
     problem(`is not valid JSON (${error instanceof Error ? error.message : String(error)})`);
     return { problems, tests };
   }
+  if (isVitestJsonReport(report)) {
+    return readVitestReport(report, { file, job, part, repoRoot });
+  }
   if (!isPlaywrightJsonReport(report)) {
-    problem('is not a Playwright JSON report');
+    problem('is not a Playwright or Vitest JSON report');
     return { problems, tests };
   }
   for (const error of report.errors) {
