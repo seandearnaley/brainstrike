@@ -708,17 +708,20 @@ jobs:
     steps:
       # The same checkout as Unit's.
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           filter: blob:none
 
       - name: Setup workspace
+        id: setup
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: "true"
 
       - name: Provision the Electron binary
+        id: electron
         uses: ./.github/actions/provision-electron
 
       # The release's own rg.exe, as apt installs the real binary on Linux. A
@@ -727,6 +730,7 @@ jobs:
       # with the Root as its cwd, and the test's rmdir of the Root fails with
       # EBUSY (queue run 40150063798).
       - name: Install ripgrep
+        id: ripgrep
         shell: pwsh
         env:
           RIPGREP_VERSION: 14.1.1
@@ -744,8 +748,54 @@ jobs:
           & (Join-Path $bin 'rg.exe') --version
           Add-Content -Path $env:GITHUB_PATH -Value $bin
 
+      # Each package's Vitest run writes a JSON report here (test-utils
+      # vitest.base), laid out <job>/<part>/ as the Linear notifier reads it
+      # (scripts/lib/nightly-test-results.mjs), so a failing test files its own
+      # issue instead of "uploaded no test results" (BST-2401). A package Turbo
+      # replays from cache passed and writes none.
       - name: Unit tests
+        id: tests
+        env:
+          NIGHTLY_TEST_RESULTS_DIR: ${{ runner.temp }}/nightly-results/windows-shard/${{ matrix.shard }}
         run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
+
+      # Runs on failure and on the job timeout too. job.status lets the notifier
+      # judge this shard alone; when the tests never ran, the .unreported file
+      # names the step that stopped the shard, so a setup failure reads as one.
+      - name: Record the shard status
+        if: always()
+        env:
+          RESULTS_DIR: ${{ runner.temp }}/nightly-results/windows-shard/${{ matrix.shard }}
+          JOB_STATUS: ${{ job.status }}
+          CHECKOUT: ${{ steps.checkout.outcome }}
+          SETUP: ${{ steps.setup.outcome }}
+          ELECTRON: ${{ steps.electron.outcome }}
+          RIPGREP: ${{ steps.ripgrep.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RESULTS_DIR"
+          printf '%s\n' "$JOB_STATUS" > "$RESULTS_DIR/job.status"
+          case "$TESTS" in
+            success | failure) exit 0 ;;
+          esac
+          how="was ${TESTS:-not reached}"
+          for step in "Checkout=$CHECKOUT" "Setup workspace=$SETUP" "Provision the Electron binary=$ELECTRON" "Install ripgrep=$RIPGREP"; do
+            if [ "${step#*=}" != success ]; then
+              how="never ran: ${step%%=*} was ${step#*=}"
+              break
+            fi
+          done
+          printf '%s\n' "$how" > "$RESULTS_DIR/unit-tests.unreported"
+
+      - name: Upload the shard results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--windows-shard--${{ matrix.shard }}
+          path: ${{ runner.temp }}/nightly-results
+          retention-days: 7
+          if-no-files-found: error
 
   # Fan-in over the Windows shards, like Unit over unit-shard.
   windows:
@@ -1069,5 +1119,8 @@ jobs:
       # the caller's (BST-2233).
       workflow_name: Test
       results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},windows-shard=${{ needs.windows-shard.result }},windows=${{ needs.windows.result }}
+      # Each Windows shard uploads its own results part, so the notifier judges
+      # it alone. Empty when Unit plan selected no shards or failed.
+      parts: ${{ needs.unit-plan.outputs.unit-shard-count != '0' && needs.unit-plan.outputs.unit-matrix && format('windows-shard={0}', join(fromJSON(needs.unit-plan.outputs.unit-matrix).include.*.shard, ' ')) || '' }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
