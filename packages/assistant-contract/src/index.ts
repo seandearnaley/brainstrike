@@ -1,4 +1,3 @@
-export * from './admitted-child-configuration.ts';
 export * from './assistant-attachments.ts';
 export * from './assistant-task-list.ts';
 export * from './bedrock-defaults.ts';
@@ -6,6 +5,7 @@ export * from './boundary-failure.ts';
 export * from './canvas-link.ts';
 export * from './child-execution-configuration.ts';
 export * from './child-input.ts';
+export * from './child-model.ts';
 export * from './child-permission-ceiling.ts';
 export * from './compaction-summary.ts';
 export * from './context-breakdown.ts';
@@ -15,6 +15,7 @@ export * from './conversation-rewind.ts';
 export * from './delegated-tool-actions.ts';
 export * from './edit-checkpoints.ts';
 export * from './file-mention-directive.ts';
+export * from './generation-options.ts';
 export * from './grep-match.ts';
 export * from './guarded-tool-error.ts';
 export * from './hook-skip-notices.ts';
@@ -41,6 +42,7 @@ export type {
 export { projectModelCatalog } from './model-catalog.ts';
 export * from './model-reasoning.ts';
 export * from './model-step.ts';
+export * from './model-vendors.ts';
 export * from './native-tool-catalog.ts';
 export * from './openrouter-coding-defaults.ts';
 export * from './openrouter-model-metadata.ts';

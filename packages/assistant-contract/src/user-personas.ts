@@ -12,6 +12,7 @@
  * explicit worker mode selects an eligible host scope without granting authority.
  */
 
+import { CHILD_EFFORTS } from './child-model.ts';
 import { NATIVE_TOOL_ID } from './native-tool-catalog.ts';
 import {
   type AssistantPersonaDefinition,
@@ -84,6 +85,7 @@ const LIST_KEYS = new Set(['tools']);
 export type ParsedUserPersonaFile =
   | {
       readonly description?: string;
+      readonly effort?: string;
       readonly instructions: string;
       readonly maxSteps?: number;
       readonly mode?: AssistantPersonaMode;
@@ -96,6 +98,7 @@ export type ParsedUserPersonaFile =
 
 interface FrontmatterAccumulator {
   description?: string;
+  effort?: string;
   maxSteps?: number;
   mode?: AssistantPersonaMode;
   model?: string;
@@ -153,6 +156,10 @@ function consumeKeyValueLine(state: FrontmatterAccumulator, line: string): strin
     }
     case 'model': {
       state.model = value;
+      return null;
+    }
+    case 'effort': {
+      state.effort = value;
       return null;
     }
     case 'maxsteps': {
@@ -232,6 +239,7 @@ export function parseUserPersonaFile(content: string): ParsedUserPersonaFile {
     ...(state.name ? { name: state.name } : {}),
     ...(state.description ? { description: state.description } : {}),
     ...(state.model ? { model: state.model } : {}),
+    ...(state.effort ? { effort: state.effort } : {}),
     ...(state.mode ? { mode: state.mode } : {}),
     ...(state.maxSteps === undefined ? {} : { maxSteps: state.maxSteps }),
     ...(state.tools === undefined ? {} : { tools: state.tools }),
@@ -441,10 +449,17 @@ function resolvePersonaMaxSteps(declared: number | undefined): PersonaFieldResul
 }
 
 function resolvePersonaModelPin(
-  declared: string | undefined
+  declared: string | undefined,
+  effort: string | undefined
 ): PersonaFieldResult<AssistantPersonaModelPin | undefined> {
   if (declared === undefined) {
-    return { ok: true, value: undefined };
+    return effort === undefined
+      ? { ok: true, value: undefined }
+      : { error: 'effort needs a model: add model: provider::modelId', ok: false };
+  }
+  const pinnedEffort = CHILD_EFFORTS.find((candidate) => candidate === effort);
+  if (effort !== undefined && pinnedEffort === undefined) {
+    return { error: `effort must be one of ${CHILD_EFFORTS.join(', ')}`, ok: false };
   }
   const pinResult = parsePersonaModelPin(declared);
   if (!pinResult.ok) {
@@ -456,7 +471,10 @@ function resolvePersonaModelPin(
       ok: false,
     };
   }
-  return { ok: true, value: pinResult.pin };
+  return {
+    ok: true,
+    value: pinnedEffort ? { ...pinResult.pin, effort: pinnedEffort } : pinResult.pin,
+  };
 }
 
 function resolvePersonaTools(
@@ -504,7 +522,7 @@ export function buildUserPersona(input: BuildUserPersonaInput): BuildUserPersona
   if (!maxSteps.ok) {
     return { error: maxSteps.error, ok: false };
   }
-  const model = resolvePersonaModelPin(parsed.model);
+  const model = resolvePersonaModelPin(parsed.model, parsed.effort);
   if (!model.ok) {
     return { error: model.error, ok: false };
   }

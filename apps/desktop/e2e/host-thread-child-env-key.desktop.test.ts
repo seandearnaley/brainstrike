@@ -57,7 +57,7 @@ test('a delegated child continues on the env-only OpenRouter key its parent runs
   const modelDialog = window.getByRole('dialog', { name: 'Choose a model' });
   await modelDialog.getByRole('combobox').fill('GPT-5.6 Terra');
   await modelDialog
-    .getByRole('option', { name: /^GPT-5\.6 Terra/u })
+    .getByRole('option', { name: /GPT-5\.6 Terra \(OpenRouter\)/u })
     .filter({ hasText: 'OpenRouter' })
     .first()
     .click();

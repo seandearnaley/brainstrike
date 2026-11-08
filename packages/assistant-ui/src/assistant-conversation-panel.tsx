@@ -1,8 +1,5 @@
 import { type AssistantRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
-import type {
-  AssistantChildInput,
-  OpenRouterModelMetadataLookup,
-} from '@brainstrike/assistant-contract';
+import type { OpenRouterModelMetadataLookup } from '@brainstrike/assistant-contract';
 import { cn } from '@brainstrike/ui';
 import type { ComponentProps, ReactElement } from 'react';
 import { ActiveConversationInputProvider } from './active-conversation-input';
@@ -27,7 +24,6 @@ export type AssistantConversationPanelProps = Partial<
   readonly onProviderSettingsValidationChange?: ((reason: string | undefined) => void) | undefined;
   readonly allowIdleInput?: boolean;
   readonly onSendActiveInput?: SendActiveConversationInput | undefined;
-  readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
   readonly className?: string;
   readonly agentColor?: string | undefined;
   readonly decisionRoute?: DecisionRoute | undefined;
@@ -57,7 +53,6 @@ export function AssistantConversationPanel({
   decisionRoute,
   allowIdleInput = false,
   onSendActiveInput,
-  prepareActiveInput,
   label,
   ownerThread,
   rewind = null,
@@ -89,7 +84,6 @@ export function AssistantConversationPanel({
           <ActiveConversationInputProvider
             allowIdleInput={allowIdleInput}
             onSend={onSendActiveInput}
-            prepare={prepareActiveInput}
           >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={rewind}>

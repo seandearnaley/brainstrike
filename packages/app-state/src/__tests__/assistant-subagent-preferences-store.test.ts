@@ -205,11 +205,14 @@ describe('assistant subagent preferences store', () => {
     });
   });
 
-  it('resets to defaults', () => {
-    useAssistantSubagentPreferencesStore.getState().setMaxChildSteps(5);
-    useAssistantSubagentPreferencesStore.getState().resetToDefaults();
-    expect(useAssistantSubagentPreferencesStore.getState().settings).toEqual(
-      DEFAULT_RUNTIME_SUBAGENT_SETTINGS
-    );
+  it('resets the limits to defaults and keeps the allowed models', () => {
+    const store = useAssistantSubagentPreferencesStore.getState();
+    store.setModels(['openai::gpt-6-sol']);
+    store.setMaxChildSteps(5);
+    store.resetLimits();
+    expect(useAssistantSubagentPreferencesStore.getState()).toMatchObject({
+      models: ['openai::gpt-6-sol'],
+      settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+    });
   });
 });

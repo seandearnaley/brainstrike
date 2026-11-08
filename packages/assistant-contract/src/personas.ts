@@ -4,6 +4,7 @@
  * native/MCP tools. Runtime host capabilities and permissions remain the ceiling.
  */
 
+import type { ChildEffort } from './child-model.ts';
 import { NATIVE_TOOL_ID } from './native-tool-catalog.ts';
 import { type RuntimeSubagentSettings, SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.ts';
 import {
@@ -29,10 +30,13 @@ export type AssistantPersonaId = string;
 export type AssistantPersonaSource = 'built-in' | 'user';
 
 /**
- * Optional hosted model pin resolved with the host provider/key boundary.
- * Unresolvable pins are visibly omitted; they never reuse an unrelated model.
+ * A persona's own model (ADR-0037): its delegations run on it, at its effort,
+ * whatever model the parent runs. A pin the host cannot admit refuses the
+ * delegation visibly; it never falls back to the parent's model.
  */
 export interface AssistantPersonaModelPin {
+  /** The reasoning effort the pinned model runs at; absent is the model's own (Auto). */
+  readonly effort?: ChildEffort;
   readonly modelId: string;
   readonly provider: string;
 }
@@ -51,12 +55,7 @@ export interface AssistantPersonaDefinition {
   readonly maxSteps: number;
   /** Absent preserves legacy read-only behavior. Workers inherit no authority beyond the host. */
   readonly mode?: AssistantPersonaMode;
-  /**
-   * Optional model pin: the child runs on `provider::modelId` instead of the
-   * parent's model. Resolution (API key + provider client) happens in the
-   * agent factory; an unresolvable pin SKIPS the persona with a visible warn,
-   * never a silent fallback to the parent model.
-   */
+  /** Optional model pin: the child runs on `provider::modelId` instead of the parent's model. */
   readonly model?: AssistantPersonaModelPin;
   /** Where the persona came from; absent means built-in. */
   readonly source?: AssistantPersonaSource;

@@ -25,7 +25,8 @@ export function useAssistantStatusProviderSource(): AssistantProviderSource {
   return resolveAssistantProviderSource(status);
 }
 
-function resolveAssistantProviderSource(
+/** The provider source a host's assistant availability names. */
+export function resolveAssistantProviderSource(
   status: AssistantAvailabilityStatus
 ): AssistantProviderSource {
   if (status.state === 'enabled' && status.provider && status.model) {

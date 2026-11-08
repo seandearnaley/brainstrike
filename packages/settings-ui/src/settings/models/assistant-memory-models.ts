@@ -1,14 +1,20 @@
 import type { DbModel, DbProvider } from '@brainstrike/app-state/stores/model-registry-store';
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { RuntimeAssistantMemoryScope } from '@brainstrike/assistant-contract/memory-settings';
+import { modelVendor } from '@brainstrike/assistant-contract/model-vendors';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { findModelVendor } from '@brainstrike/assistant-contract/provider-registry';
+import { modelMarkLabel } from '@brainstrike/ui';
 
 export interface AssistantMemoryModelOption {
+  /** The model's name; its mark carries its maker and route. */
   label: string;
+  /** "Anthropic via OpenRouter": the mark's accessible name. */
+  markLabel: string;
   modelId: string;
   providerId: string;
-  providerName: string;
   target: string;
+  vendor?: string;
 }
 
 // The assistant server allows the same provider set.
@@ -40,12 +46,20 @@ function toMastraModelTarget(providerId: string, modelId: string): string {
 }
 
 function toOption(provider: DbProvider, model: DbModel): AssistantMemoryModelOption {
+  const vendor = findModelVendor(provider.id, model.id);
+  const maker = vendor ? modelVendor(vendor) : undefined;
   return {
-    label: `${provider.name} · ${model.name}`,
+    label: model.name,
+    markLabel: modelMarkLabel({
+      providerId: provider.id,
+      providerName: provider.name,
+      vendorId: maker?.id,
+      vendorName: maker?.name,
+    }),
     modelId: model.id,
     providerId: provider.id,
-    providerName: provider.name,
     target: toMastraModelTarget(provider.id, model.id),
+    ...(maker ? { vendor: maker.id } : {}),
   };
 }
 

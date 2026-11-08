@@ -12,8 +12,6 @@ export interface CatalogRowActions {
   readonly onToggleDetails: (modelId: string) => void;
   /** The deferred search query, for highlighting and "id on demand". */
   readonly query: string;
-  /** False at the narrow tier (< 640px). */
-  readonly showTagline: boolean;
 }
 
 export const CatalogRowActionsContext = createContext<CatalogRowActions | null>(null);

@@ -59,7 +59,3 @@ export {
   withToolCallInputTimeout,
 } from './stream/with-tool-call-input-timeout.ts';
 export type { RuntimeData } from './types.ts';
-export {
-  type BilledCostReading,
-  readOpenRouterBilledCost,
-} from './usage-metering.ts';

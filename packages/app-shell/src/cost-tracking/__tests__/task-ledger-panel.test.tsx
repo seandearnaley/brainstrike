@@ -12,10 +12,10 @@ import {
 
 function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedgerRow {
   return {
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: new Date('2026-07-15T12:00:05Z'),
     durationMs: 5000,
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     // gpt-5.2 lists $1.75 / $14: (1000 * 1.75 + 200 * 14) / 1e6.
     estimatedCostUsd: 0.004_55,
     estimatedInputTokens: 1000,
@@ -144,7 +144,7 @@ describe('TaskLedgerPanelView', () => {
       ledger: {
         rows: [
           makeRun({
-            estimatedCacheReadTokens: 600,
+            cacheReadTokens: 600,
             estimatedCostUsd: 0.0031,
             estimatedInputTokens: 1000,
             estimatedOutputTokens: 200,
@@ -164,6 +164,32 @@ describe('TaskLedgerPanelView', () => {
     expect(breakdown).toHaveTextContent(/Cache read\s*600/u);
     expect(breakdown).toHaveTextContent(/Output\s*200/u);
     expect(breakdown).toHaveTextContent('$0.0031');
+  });
+
+  it('opens a run its provider billed into all of its tokens and the bill', () => {
+    renderPanel({
+      ledger: {
+        rows: [
+          makeRun({
+            billedCostUsd: 0.0042,
+            cacheReadTokens: 100,
+            estimatedCostUsd: 0,
+            estimatedInputTokens: 0,
+            estimatedOutputTokens: 0,
+            inputTokens: 400,
+            outputTokens: 30,
+            runId: 'run-1',
+          }),
+        ],
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /GPT-5\.2/u }));
+    const breakdown = screen.getByTestId('task-ledger-run-breakdown');
+    expect(breakdown).toHaveTextContent(/Input\s*300/u);
+    expect(breakdown).toHaveTextContent(/Cache read\s*100/u);
+    expect(breakdown).toHaveTextContent(/Output\s*30/u);
+    expect(breakdown).toHaveTextContent(/\$0\.0042\s*what the provider billed/u);
   });
 
   it('renders "cost unavailable" (never a fabricated $0) for an unpriced model', () => {

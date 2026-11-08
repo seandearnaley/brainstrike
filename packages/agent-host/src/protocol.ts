@@ -920,6 +920,8 @@ export type HostAnsweredApproval = (typeof HostAnsweredApprovalSchema)['Type'];
 export const HostSummaryRunSchema = Schema.Struct({
   /** Whether the run is the thread's first: a child's delegated invocation, not a follow-up. */
   delegatedInvocation: Schema.Boolean,
+  /** The `provider::model` the run was admitted on (ADR-0037: a child's own). */
+  modelId: Schema.String,
   status: Schema.Literals(['running', 'needs-input', 'no-answer', ...HOST_RUN_OUTCOMES]),
   /** The tool calls the thread's runs made, counted by the ledger's rule. */
   toolCalls: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),

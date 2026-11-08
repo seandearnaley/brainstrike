@@ -190,7 +190,6 @@ describe('resolveCumulativeUsageDisplay', () => {
         entry({
           cacheReadTokens: 1000,
           cacheSavingsUsd: null,
-          estimatedCacheReadTokens: 1000,
           estimatedCostUsd: null,
           inputTokens: 2000,
           model: 'gpt-5.2',

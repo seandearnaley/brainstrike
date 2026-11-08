@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { MODEL_VENDOR_NAMES } from '../model-vendors.js';
 import {
+  findModelVendor,
   getLlmModelDefinition,
   type LlmModelDefinition,
   listProviderLlmModels,
@@ -74,6 +76,33 @@ describe('provider catalog identity', () => {
     expect(first).toBeDefined();
     expect(getLlmModelDefinition('anthropic', first?.id ?? '')).toBe(first);
     expect(() => getLlmModelDefinition('openai', first?.id ?? '')).toThrow(/Unknown LLM model/u);
+  });
+});
+
+describe('model vendors', () => {
+  it("names the provider itself as the maker of every model on a maker's own API", () => {
+    for (const provider of listProviders()) {
+      if (provider.id === 'openrouter' || provider.id === 'bedrock') {
+        continue;
+      }
+      for (const model of provider.models) {
+        expect(model.vendor, `${provider.id}/${model.id}`).toBe(provider.id);
+      }
+    }
+  });
+
+  it('declares one maker for a model however many routes serve it', () => {
+    // Claude on Anthropic's API, OpenRouter and Bedrock is one maker's model.
+    expect(findModelVendor('anthropic', 'claude-opus-5-5')).toBe('anthropic');
+    expect(findModelVendor('openrouter', 'anthropic/claude-opus-5.5')).toBe('anthropic');
+    expect(findModelVendor('bedrock', 'anthropic.claude-opus-5-5')).toBe('anthropic');
+    expect(findModelVendor('bedrock', 'amazon.nova-pro-v1:0')).toBe('amazon');
+    expect(findModelVendor('openrouter', 'not/a-catalogued-model')).toBeUndefined();
+  });
+
+  it('lists only makers some catalog row declares', () => {
+    const declared = new Set(llmRows().map(({ model }) => model.vendor));
+    expect([...declared].sort()).toEqual(Object.keys(MODEL_VENDOR_NAMES).sort());
   });
 });
 

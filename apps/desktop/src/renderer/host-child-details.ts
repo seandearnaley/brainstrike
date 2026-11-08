@@ -17,7 +17,7 @@ const CommittedModelConfigurationSchema = Schema.Struct({
 });
 
 /** A run's admitted model settings: read, unreadable, or never recorded (a non-desktop client). */
-function admittedExecution(
+export function admittedExecution(
   configuration: unknown,
   planMode: boolean
 ): Pick<HostChildToolbarDetails, 'execution' | 'executionUnreadable'> {
@@ -51,8 +51,8 @@ function admittedExecution(
 /**
  * BST-1932 (F15): a host child's toolbar facts, folded incrementally from its
  * own committed log: the persona profile its origin recorded, its latest
- * run's admitted model, mode, step budget and tools, the steps that run has
- * taken, and the tokens all its runs have used. Nothing is read from current
+ * run's admitted model, mode, step budget and tools, and the steps and tokens
+ * that run has taken. Nothing is read from current
  * settings. The value keeps its identity until one of those facts changes.
  */
 export class HostChildDetailsFold {
@@ -77,12 +77,16 @@ export class HostChildDetailsFold {
       } else if (event.type === 'run.started') {
         this.latest = event;
         this.steps = 0;
+        this.inputTokens = 0;
+        this.outputTokens = 0;
         changed = true;
-      } else if (event.type === 'model.step') {
+      } else if (event.type === 'model.step' && event.runId === this.latest?.runId) {
+        // The latest run's own usage, under the model it names (ADR-0037: a
+        // follow-up may run on another model than the delegation did).
         const tokens = tokensOf(event.usage);
         this.inputTokens += tokens.inputTokens;
         this.outputTokens += tokens.outputTokens;
-        this.steps += event.runId === this.latest?.runId ? 1 : 0;
+        this.steps += 1;
         changed = true;
       }
     }

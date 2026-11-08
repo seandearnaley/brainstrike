@@ -11,7 +11,6 @@ window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
 const providerGroups: ProviderGroupConfig[] = [
   {
-    label: 'Hosted',
     providers: [
       {
         capabilities: {
@@ -54,6 +53,7 @@ const providerGroups: ProviderGroupConfig[] = [
             label: 'Claude Sonnet 5',
             supportsStreaming: true,
             type: 'llm',
+            vendor: { id: 'anthropic', name: 'Anthropic' },
           },
           {
             enabled: true,
@@ -70,7 +70,6 @@ const providerGroups: ProviderGroupConfig[] = [
     runtime: 'hosted',
   },
   {
-    label: 'Gateway',
     providers: [
       {
         capabilities: {
@@ -84,6 +83,23 @@ const providerGroups: ProviderGroupConfig[] = [
             label: 'Kimi K3 (OpenRouter)',
             supportsStreaming: true,
             type: 'llm',
+            vendor: { id: 'moonshot', name: 'Moonshot AI' },
+          },
+          {
+            enabled: true,
+            id: 'anthropic/claude-haiku-5.5',
+            label: 'Claude Haiku 5.5 (OpenRouter)',
+            supportsStreaming: true,
+            type: 'llm',
+            vendor: { id: 'anthropic', name: 'Anthropic' },
+          },
+          {
+            enabled: true,
+            id: 'x-ai/grok-4.7',
+            label: 'Grok 4.7 (OpenRouter)',
+            supportsStreaming: true,
+            type: 'llm',
+            vendor: { id: 'xai', name: 'xAI' },
           },
         ],
         name: 'OpenRouter',
@@ -96,43 +112,28 @@ const providerGroups: ProviderGroupConfig[] = [
 
 const pickerModels: ModelPickerModel[] = [
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
-    contextWindow: 1_050_000,
-    description: 'Most capable for everyday work',
+    capabilities: { reasoning: 'supported', vision: 'supported' },
     id: 'gpt-5.6-terra',
-    name: 'GPT-5.6 Terra',
     providerId: 'openai',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'unsupported' },
-    contextWindow: 400_000,
-    description: null,
+    capabilities: { reasoning: 'supported', vision: 'unsupported' },
     id: 'shared-model-id',
-    name: 'Shared (OpenAI)',
     providerId: 'openai',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
-    contextWindow: 1_000_000,
-    description: 'Best mix of smarts and speed',
+    capabilities: { reasoning: 'supported', vision: 'supported' },
     id: 'claude-sonnet-5',
-    name: 'Claude Sonnet 5',
     providerId: 'anthropic',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'unsupported' },
-    contextWindow: 400_000,
-    description: null,
+    capabilities: { reasoning: 'supported', vision: 'unsupported' },
     id: 'shared-model-id',
-    name: 'Shared (Anthropic)',
     providerId: 'anthropic',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
-    contextWindow: 1_048_576,
-    description: null,
+    capabilities: { reasoning: 'supported', vision: 'supported' },
     id: 'moonshotai/kimi-k3',
-    name: 'Kimi K3 (OpenRouter)',
     providerId: 'openrouter',
   },
 ];
@@ -145,16 +146,13 @@ const baseProps = {
 
 const fixtureWithDisabledDeepseek = {
   ...baseProps,
-  // Metadata for a DISABLED model, so the Not enabled row's lack of a context
-  // badge and capability icons is a real assertion, not a vacuous one.
+  // Metadata for a DISABLED model, so the Not enabled row's lack of
+  // capability icons is a real assertion, not a vacuous one.
   pickerModels: [
     ...pickerModels,
     {
-      capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
-      contextWindow: 1_000_000,
-      description: 'Fast and cheap',
+      capabilities: { reasoning: 'supported', vision: 'supported' },
       id: 'deepseek/deepseek-v4.1-flash',
-      name: 'DeepSeek V4.1 Flash',
       providerId: 'openrouter',
     },
   ] satisfies ModelPickerModel[],
@@ -231,7 +229,7 @@ describe('ComposerModelPicker', () => {
     expect(trigger).toBeEnabled();
   });
 
-  it('opens with search focused and shows the selected row with tagline, icons and a Selected mark', async () => {
+  it('opens with search focused and shows the selected row with its mark, icons and a Selected mark', async () => {
     const user = setup();
     render(<ComposerModelPicker {...baseProps} onModelChange={vi.fn()} />);
 
@@ -242,10 +240,12 @@ describe('ComposerModelPicker', () => {
     if (!row) {
       throw new Error('selected row missing');
     }
-    expect(within(row).getByText('Most capable for everyday work')).toBeInTheDocument();
+    expect(within(row).getByRole('img', { name: 'OpenAI' })).toBeInTheDocument();
     expect(within(row).getByLabelText('Vision')).toBeInTheDocument();
     expect(within(row).getByLabelText('Reasoning')).toBeInTheDocument();
     expect(within(row).getByLabelText('Selected')).toBeInTheDocument();
+    // One line per model: its name, then only the capability icons' titles.
+    expect(row).toHaveTextContent(/^GPT-5\.6 TerraSupports image inputSupports reasoning$/u);
   });
 
   it('lists valid recents after the selected model, in order, deduped', async () => {
@@ -316,12 +316,9 @@ describe('ComposerModelPicker', () => {
     const picker = await openPicker(user);
     await user.type(within(picker).getByRole('combobox'), 'shared');
     expect(within(picker).queryByRole('group', { name: 'Recent' })).not.toBeInTheDocument();
-    const anthropicRow = within(picker).getByRole('option', {
-      name: /Shared \(Anthropic\).*Anthropic/u,
-    });
-    expect(
-      within(picker).getByRole('option', { name: /Shared \(OpenAI\).*OpenAI/u })
-    ).toBeInTheDocument();
+    // The mark names each row's maker, so duplicate labels stay apart.
+    const anthropicRow = within(picker).getByRole('option', { name: /^Anthropic Shared/u });
+    expect(within(picker).getByRole('option', { name: /^OpenAI Shared/u })).toBeInTheDocument();
     await user.click(anthropicRow);
 
     // Duplicate bare id resolves through its own provider — never openai.
@@ -329,14 +326,36 @@ describe('ComposerModelPicker', () => {
     expect(onModelChange).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a context-window badge on list rows', async () => {
+  it("marks each row with its maker, and badges the gateway that serves another maker's model", async () => {
     const user = setup();
     render(<ComposerModelPicker {...baseProps} onModelChange={vi.fn()} />);
 
     const picker = await openPicker(user);
-    // The Recent row also matches by name, so anchor on the list row's badge.
-    const badge = within(picker).getByText('1.1M context');
-    expect(badge.closest('[role="option"]')).toHaveTextContent('GPT-5.6 Terra');
+    const gateway = within(picker).getByRole('group', { name: 'OpenRouter' });
+    const claude = within(gateway).getByRole('option', { name: /Claude Haiku 5\.5/u });
+    const claudeMark = within(claude).getByRole('img', { name: 'Anthropic via OpenRouter' });
+    expect(claudeMark).toHaveAttribute('data-model-mark', 'anthropic');
+    expect(claudeMark).toHaveAttribute('data-model-route', 'openrouter');
+    // A maker without a mark of its own shows its route's, and its name still reads.
+    const kimi = within(gateway).getByRole('option', { name: /Kimi K3/u });
+    const kimiMark = within(kimi).getByRole('img', { name: 'Moonshot AI via OpenRouter' });
+    expect(kimiMark).toHaveAttribute('data-model-mark', 'openrouter');
+    // On its maker's own API the mark carries no route badge.
+    const hosted = within(picker).getByRole('group', { name: 'Anthropic' });
+    const direct = within(hosted).getByRole('option', { name: /^Anthropic Claude Sonnet 5/u });
+    const directMark = within(direct).getByRole('img', { name: 'Anthropic' });
+    expect(directMark).not.toHaveAttribute('data-model-route');
+  });
+
+  it('finds a gateway model by its maker', async () => {
+    const user = setup();
+    render(<ComposerModelPicker {...baseProps} onModelChange={vi.fn()} />);
+
+    const picker = await openPicker(user);
+    // "xai" is in the maker's name only: not in the row's ID, label or route.
+    await user.type(within(picker).getByRole('combobox'), 'xai');
+    expect(within(picker).getByRole('option', { name: /Grok 4\.7/u })).toBeInTheDocument();
+    expect(within(picker).queryByRole('option', { name: /Kimi K3/u })).not.toBeInTheDocument();
   });
 
   it('enables then selects a Not enabled match only after the host commits', async () => {
@@ -394,7 +413,7 @@ describe('ComposerModelPicker', () => {
     ).not.toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('renders Not enabled rows without a context badge or capability icons', async () => {
+  it('renders Not enabled rows without capability icons', async () => {
     const user = setup();
     render(
       <ComposerModelPicker
@@ -407,7 +426,6 @@ describe('ComposerModelPicker', () => {
     const picker = await openPicker(user);
     await user.type(within(picker).getByRole('combobox'), 'deepseek');
     const row = within(picker).getByRole('option', { name: ENABLE_FLASH });
-    expect(within(row).queryByText(/context$/u)).not.toBeInTheDocument();
     expect(within(row).queryByLabelText('Vision')).not.toBeInTheDocument();
     expect(within(row).queryByLabelText('Reasoning')).not.toBeInTheDocument();
   });

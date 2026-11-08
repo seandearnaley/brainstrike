@@ -7,10 +7,9 @@
  * agent host's scan of `.brainstrike/agents` (`workspace/personas`, desktop
  * only) — INCLUDING invalid persona files with their parse/validation error,
  * so authors see exactly why a file did not load. Web has no host scan and
- * shows an honest desktop-only note instead.
+ * lists the built-ins.
  */
 
-import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import {
   subagentPersonasSelectors,
   useSubagentPersonasStore,
@@ -19,22 +18,10 @@ import {
   type AssistantPersonaListItem,
   type AssistantPersonasListResult,
   BUILT_IN_PERSONAS,
-  effectiveChildStepBudget,
   personaScope,
 } from '@brainstrike/assistant-contract';
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  ErrorNotice,
-  Label,
-  Switch,
-} from '@brainstrike/ui';
-import { AlertTriangle, Layers } from 'lucide-react';
+import { Badge, Button, Card, cn, ErrorNotice, Label, Switch } from '@brainstrike/ui';
+import { AlertTriangle, Layers, Users, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.map((persona) => ({
@@ -45,69 +32,6 @@ const BUILT_IN_ITEMS: readonly AssistantPersonaListItem[] = BUILT_IN_PERSONAS.ma
   source: 'built-in',
   status: 'ok',
 }));
-
-const TOOL_ID_PREFIX = 'brainstrike.';
-const MAX_LISTED_TOOLS = 6;
-
-/** A tool id as the user sees it in the tools settings: without the host prefix. */
-function displayToolId(toolId: string): string {
-  return toolId.startsWith(TOOL_ID_PREFIX) ? toolId.slice(TOOL_ID_PREFIX.length) : toolId;
-}
-
-/**
- * The scope a loadable persona runs with, in plain terms, from the same facts
- * the host enforces: effective mode, the HOST-CAPPED step budget
- * (`effectiveChildStepBudget`, the number the model is told), and the declared
- * capability set. Absent facts (an older host) render nothing rather than a
- * guess.
- */
-function PersonaScopeLine({ item }: { readonly item: AssistantPersonaListItem }) {
-  const settings = useAssistantSubagentPreferencesStore((state) => state.settings);
-  if (item.mode === undefined || item.maxSteps === undefined || item.allowedToolIds === undefined) {
-    return null;
-  }
-  const steps = effectiveChildStepBudget({ maxSteps: item.maxSteps }, settings);
-  const allTools = item.allowedToolIds.includes('*');
-  const listed = item.allowedToolIds.slice(0, MAX_LISTED_TOOLS).map(displayToolId).join(', ');
-  const remaining = item.allowedToolIds.length - MAX_LISTED_TOOLS;
-  // Worker mode only PERMITS edit/run tools to be declared; the declared list
-  // (then host permissions) decides what the child can actually do, so the
-  // label names the mode and the tool clause states the scope. A one-step
-  // child has no reserved summary turn (`buildChildIterationPolicy`).
-  return (
-    <p className="text-muted-foreground text-xs" data-testid={`subagent-persona-scope-${item.id}`}>
-      Declared scope: {item.mode === 'worker' ? 'Worker mode' : 'Read-only'} · Up to {steps}{' '}
-      {steps === 1 ? 'step' : 'steps'}
-      {steps >= 2 ? ' (1 reserved for its summary)' : ''} ·{' '}
-      {allTools
-        ? item.mode === 'worker'
-          ? 'every tool the host permits, including edit and run tools'
-          : 'every read-only tool the host permits'
-        : `${item.allowedToolIds.length} ${item.allowedToolIds.length === 1 ? 'tool' : 'tools'}: ${listed}${remaining > 0 ? ` and ${remaining} more` : ''}`}
-    </p>
-  );
-}
-
-/**
- * The limits the host enforces on every root turn, stated from the user's
- * settings — the same object every request carries — so the panel can never
- * drift from enforcement (a test with non-default settings pins this).
- */
-function DelegationLimits() {
-  const settings = useAssistantSubagentPreferencesStore((state) => state.settings);
-  return (
-    <div className="space-y-1" data-testid="subagent-delegation-limits">
-      <p className="text-sm font-medium">Limits on every turn</p>
-      <p className="text-muted-foreground text-sm">
-        Subagents can delegate to other subagents up to {settings.maxDepth} levels deep, with at
-        most {settings.maxInvocations} delegations per turn and {settings.maxConcurrentWork}{' '}
-        subagents working at once. No subagent may exceed {settings.maxChildSteps} steps, whatever
-        its persona declares (see Subagent limits below). Personas cannot raise these limits; the
-        host enforces them.
-      </p>
-    </div>
-  );
-}
 
 /**
  * The row's second line: the error for a broken file, the shadowing
@@ -133,32 +57,34 @@ function PersonaRowDetail({
     );
   }
   if (item.status === 'shadowed') {
-    // Same wording shape as the skills panel: name the WINNING file, because
-    // "which copy is live" is the question the author actually has.
+    // Name the WINNING file: "which copy is live" is the question the author has.
     return (
       <p className="text-muted-foreground flex items-center gap-1 text-sm">
         <Layers className="size-3.5 shrink-0" />
-        Shadowed by a higher-priority persona of the same name in{' '}
-        <code>{item.shadowedBy?.absPath}</code> — this copy is inactive.
+        Shadowed by <code>{item.shadowedBy?.absPath}</code>
       </p>
     );
   }
+  const { availability } = item;
+  // Severity never rests on colour alone: each has its own icon and spoken prefix.
+  const blocked = availability?.status === 'blocked';
+  const SeverityIcon = blocked ? XCircle : AlertTriangle;
   return (
     <>
       <p className="text-muted-foreground text-sm">{item.description}</p>
-      <PersonaScopeLine item={item} />
       {/* An empty checked result deliberately distinguishes no issues from an unchecked row. */}
-      {item.availability ? (
+      {availability ? (
         <div className="mt-1 space-y-1" data-testid={`subagent-persona-availability-${item.id}`}>
-          {item.availability.status === 'request-dependent' ? null : (
-            <p className="text-sm font-medium">
-              {item.availability.status === 'blocked'
-                ? 'Unavailable until corrected'
-                : 'Check this configuration'}
-            </p>
-          )}
-          {item.availability.issues.map((issue) => (
-            <p className="text-warning text-sm" key={`${issue.code}:${issue.toolId ?? ''}`}>
+          {availability.issues.map((issue) => (
+            <p
+              className={cn(
+                'flex items-center gap-1 text-sm',
+                blocked ? 'text-destructive' : 'text-warning'
+              )}
+              key={`${issue.code}:${issue.toolId ?? ''}`}
+            >
+              <SeverityIcon aria-hidden="true" className="size-3.5 shrink-0" />
+              <span className="sr-only">{blocked ? 'Unavailable: ' : 'Check: '}</span>
               {issue.message}
             </p>
           ))}
@@ -254,92 +180,72 @@ export function SubagentPersonasSettingsSection({
   const disabledSet = new Set(disabledPersonaIds);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Personas</CardTitle>
-        <CardDescription>
-          The assistant can delegate focused tasks to subagent personas: read-only ones survey and
-          analyze, and worker personas can edit and run within the tools and permissions the host
-          allows. Add your own personas as markdown files in <code>.brainstrike/agents/</code>{' '}
-          (workspace or home directory).
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <Label className="text-sm font-medium" htmlFor="subagent-delegation-toggle">
-              Enable subagent delegation
-            </Label>
-            <p className="text-muted-foreground text-sm">
-              On by default. When off, the assistant never delegates to subagents.
-            </p>
-          </div>
-          <Switch
-            checked={delegationEnabled}
-            data-testid="subagent-delegation-toggle"
-            id="subagent-delegation-toggle"
-            onCheckedChange={(value) => setDelegationEnabled(value === true)}
-          />
+    <Card className="space-y-4 p-4" data-testid="subagent-personas-section">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Users aria-hidden="true" className="text-muted-foreground h-4 w-4" />
+          <h3 className="text-sm font-medium">Personas</h3>
         </div>
-
-        <DelegationLimits />
-        <p className="text-muted-foreground text-sm">
-          Each profile states its declared scope. Available tools, model access and permissions are
-          checked again for every request. Host checks below do not grant access or promise that
-          every declared tool can run.
-        </p>
-        {hasHost ? (
-          <div className="space-y-2">
-            {loadFailed ? (
-              <ErrorNotice
-                message="Could not load user personas or check host availability. Retry after checking your workspace and provider settings."
-                onRetry={reloadPersonas}
-                retryLabel="Retry loading personas"
-              />
-            ) : (
-              <Button disabled={loading} onClick={reloadPersonas} size="sm" variant="outline">
-                {loading ? 'Checking personas…' : 'Refresh personas and host checks'}
-              </Button>
-            )}
-          </div>
+        {hasHost && !loadFailed ? (
+          <Button
+            aria-label="Refresh personas"
+            disabled={loading}
+            onClick={reloadPersonas}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </Button>
         ) : null}
+      </div>
+      {loadFailed ? (
+        <ErrorNotice
+          message="The personas didn’t load."
+          onRetry={reloadPersonas}
+          retryLabel="Retry"
+        />
+      ) : null}
+      <div className="flex items-center justify-between gap-4">
+        <Label className="text-sm font-medium" htmlFor="subagent-delegation-toggle">
+          Enable subagent delegation
+        </Label>
+        <Switch
+          checked={delegationEnabled}
+          data-testid="subagent-delegation-toggle"
+          id="subagent-delegation-toggle"
+          onCheckedChange={(value) => setDelegationEnabled(value === true)}
+        />
+      </div>
 
-        {incompleteDirs.length > 0 ? (
-          <div className="space-y-1" data-testid="subagent-personas-incomplete">
-            {incompleteDirs.map((entry) => (
-              <p
-                className="text-warning flex items-center gap-1 text-sm"
-                key={`${entry.reason}:${entry.dir}`}
-              >
-                <AlertTriangle className="size-3.5 shrink-0" />
-                {entry.reason === 'cap-reached'
-                  ? `Persona scan limit reached before ${entry.dir} was read — personas there were not loaded.`
-                  : `Too many files to scan in ${entry.dir} — some personas were not read.`}
-              </p>
-            ))}
-          </div>
-        ) : null}
-
-        <fieldset className="space-y-3 border-0 p-0" disabled={!delegationEnabled}>
-          <legend className="text-sm font-medium">Personas</legend>
-          {items.map((item) => (
-            <PersonaRow
-              disabled={!delegationEnabled}
-              enabled={!disabledSet.has(item.id)}
-              item={item}
-              key={item.absPath ?? `${item.source}-${item.id}`}
-              onToggle={setPersonaEnabled}
-            />
+      {incompleteDirs.length > 0 ? (
+        <div className="space-y-1" data-testid="subagent-personas-incomplete">
+          {incompleteDirs.map((entry) => (
+            <p
+              className="text-warning flex items-center gap-1 text-sm"
+              key={`${entry.reason}:${entry.dir}`}
+            >
+              <AlertTriangle className="size-3.5 shrink-0" />
+              {entry.reason === 'cap-reached'
+                ? `Persona scan limit reached before ${entry.dir} was read — personas there were not loaded.`
+                : `Too many files to scan in ${entry.dir} — some personas were not read.`}
+            </p>
           ))}
-        </fieldset>
+        </div>
+      ) : null}
 
-        {hasHost ? null : (
-          <p className="text-muted-foreground text-xs">
-            User-defined personas load from <code>.brainstrike/agents/</code> in the desktop app.
-            Delegation runs in the desktop assistant runtime.
-          </p>
-        )}
-      </CardContent>
+      <fieldset className="space-y-3 border-0 p-0" disabled={!delegationEnabled}>
+        <legend className="sr-only">Personas</legend>
+        {items.map((item) => (
+          <PersonaRow
+            disabled={!delegationEnabled}
+            enabled={!disabledSet.has(item.id)}
+            item={item}
+            key={item.absPath ?? `${item.source}-${item.id}`}
+            onToggle={setPersonaEnabled}
+          />
+        ))}
+      </fieldset>
     </Card>
   );
 }

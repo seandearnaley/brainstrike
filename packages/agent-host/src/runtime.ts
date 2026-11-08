@@ -136,6 +136,9 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
   if (acquired.attachThreadReads) {
     owned.attachThreadReads = acquired.attachThreadReads.bind(acquired);
   }
+  if (acquired.childConfiguration) {
+    owned.childConfiguration = acquired.childConfiguration.bind(acquired);
+  }
   if (acquired.forgetThread) {
     owned.forgetThread = acquired.forgetThread.bind(acquired);
   }
