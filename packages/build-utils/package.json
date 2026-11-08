@@ -15,6 +15,7 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "license": "MIT",
   "peerDependencies": {
     "vite": "^8"
   },

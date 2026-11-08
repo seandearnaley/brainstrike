@@ -59,4 +59,4 @@ pnpm dev --filter @brainstrike/desktop
 
 ## License
 
-ISC. See [LICENSE](LICENSE); package-specific notices stay with each package.
+MIT. See [LICENSE](LICENSE); package-specific notices stay with each package.

@@ -17,6 +17,7 @@
     "./popup-animations": "./popup-animations.ts",
     "./settings-test-overrides": "./settings-test-overrides.ts"
   },
+  "license": "MIT",
   "private": true,
   "scripts": {
     "test": "vitest run",

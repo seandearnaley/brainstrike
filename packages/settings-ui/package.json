@@ -52,7 +52,7 @@
     "./settings/tools/mcp-elicitation-dialog": "./src/settings/tools/mcp-elicitation-dialog.tsx",
     "./settings/tools/mcp-elicitation-host": "./src/settings/tools/mcp-elicitation-host.tsx"
   },
-  "license": "ISC",
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.3.0"
   },

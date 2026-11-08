@@ -241,7 +241,7 @@ describe('buildAboutPanelOptions', () => {
     expect(buildAboutPanelOptions('Brainstrike', '0.4.0')).toEqual({
       applicationName: 'Brainstrike',
       applicationVersion: '0.4.0',
-      copyright: 'Copyright © 2024 BrainStrike contributors',
+      copyright: 'Copyright © 2024 Sean Dearnaley',
       website: 'https://brainstrike.ai',
     });
   });

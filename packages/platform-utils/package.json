@@ -13,6 +13,7 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "license": "MIT",
   "scripts": {
     "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"

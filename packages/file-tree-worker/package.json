@@ -20,6 +20,7 @@
     ".": "./src/index.ts",
     "./worker": "./src/file-tree.worker.ts"
   },
+  "license": "MIT",
   "private": true,
   "scripts": {
     "test": "vitest run",

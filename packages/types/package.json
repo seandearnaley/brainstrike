@@ -22,7 +22,7 @@
     "./agent-color": "./src/agent-color.ts",
     "./catalog-args": "./src/catalog-args/index.ts"
   },
-  "license": "ISC",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "test": "vitest run",

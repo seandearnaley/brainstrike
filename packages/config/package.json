@@ -24,7 +24,7 @@
     "biome/biome.json",
     "tsconfig"
   ],
-  "license": "ISC",
+  "license": "MIT",
   "main": "index.js",
   "private": true,
   "scripts": {

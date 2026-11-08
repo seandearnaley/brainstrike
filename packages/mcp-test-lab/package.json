@@ -37,6 +37,7 @@
     "dist",
     "fixtures"
   ],
+  "license": "MIT",
   "private": true,
   "scripts": {
     "build": "node ../../scripts/rimraf.mjs dist && tsc && node scripts/verify-built-package.mjs",

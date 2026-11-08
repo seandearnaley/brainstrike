@@ -179,7 +179,7 @@ export function buildAboutPanelOptions(
   return {
     applicationName: appName,
     applicationVersion: version,
-    copyright: 'Copyright © 2024 BrainStrike contributors',
+    copyright: 'Copyright © 2024 Sean Dearnaley',
     website: 'https://brainstrike.ai',
   };
 }
