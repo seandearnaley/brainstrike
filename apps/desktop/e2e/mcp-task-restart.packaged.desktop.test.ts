@@ -137,6 +137,10 @@ test(
     const environment = {
       BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
       BRAINSTRIKE_OPENROUTER_API_KEY: PROVIDER_KEY,
+      // A 12 s tool guard bounds the task tool's settlement wait at 9 s (three
+      // quarters of the guard) instead of the 45 s default: the run still ends
+      // on the live task with its input pending, without idling 36 s.
+      BRAINSTRIKE_TOOL_TIMEOUT_MS: '12000',
       OPENROUTER_BASE_URL: provider.baseUrl,
     };
     const readTasks = () => readCommittedMcpTasks(userDataDir);
@@ -159,7 +163,7 @@ test(
       expect(pending).toHaveLength(1);
       expect(pending[0]?.status).toBe('input_required');
       const taskId = pending[0]?.taskId;
-      // The tool settles on the live task once its bounded wait (45 s) ends, so
+      // The tool settles on the live task once its bounded wait (9 s) ends, so
       // the thread keeps the task's card; the run then completes. Closing before
       // that would leave the call's effect uncertain and the run interrupted.
       await expect(first.page.getByText(FINAL_TEXT, { exact: true })).toBeVisible({
