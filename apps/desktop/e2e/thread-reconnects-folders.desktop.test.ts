@@ -9,6 +9,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-thread-reconnects-folders';
@@ -51,6 +52,8 @@ test('returning to a thread reconnects its folder and its file opens after a res
     });
     await ensureAssistantShellVisible(page);
     await enableAssistantCatalogModel(page, MODEL);
+    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+    await chooseThreadFolder(region, path.basename(alphaRoot));
     await send(page, 'THREAD_ONE');
     await page.getByText('alpha-file.txt', { exact: true }).first().dblclick();
     await expect(page.getByText('ALPHA CONTENT').first()).toBeVisible({ timeout: 30_000 });
@@ -68,6 +71,7 @@ test('returning to a thread reconnects its folder and its file opens after a res
       page.getByTestId('root-section-header-row').filter({ hasText: path.basename(root) });
     await expect(folderRow(alphaRoot)).toHaveCount(0);
     await page.getByTestId('assistant-new-thread-button').click();
+    await chooseThreadFolder(region, path.basename(bravoRoot));
     await send(page, 'THREAD_TWO');
 
     // Back on thread one, A is open again beside B.

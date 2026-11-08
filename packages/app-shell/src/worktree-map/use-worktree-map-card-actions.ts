@@ -14,8 +14,9 @@ import { createLogger } from '@brainstrike/logging';
 import { useState } from 'react';
 import type { TerminalTargetState } from '../stores/terminal-target-store';
 import type { WorktreeCheckoutIntentState } from '../stores/worktree-checkout-intent-store';
+import { getThreadGroupsCapability } from '../thread-groups-capability';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
-import type { WorktreeMapCardModel } from './worktree-map-model';
+import type { WorktreeMapCardModel, WorktreeMapRepositoryModel } from './worktree-map-model';
 
 const logger = createLogger('WorktreeMapSurface');
 
@@ -48,6 +49,8 @@ export interface UseWorktreeMapCardActionsInput {
   readonly openTerminalAt: TerminalTargetState['openTerminalAt'];
   readonly publishIntent: WorktreeCheckoutIntentState['publish'];
   readonly refresh: () => Promise<void>;
+  /** The Map's repositories, unfiltered: a new thread returns to its repository's open folder. */
+  readonly repositories: readonly WorktreeMapRepositoryModel[];
   readonly repository: AssistantThreadCatalogRepository | null;
   readonly resourceId: string;
   readonly selectThread: (resourceId: string, threadId: string) => void;
@@ -76,6 +79,26 @@ export interface WorktreeMapCardActions {
   readonly onOpenTerminal: (card: WorktreeMapCardModel) => void;
 }
 
+/** The open folder holding the card's repository (its primary checkout), if one is open. */
+async function repositoryFolder(
+  repositories: readonly WorktreeMapRepositoryModel[],
+  card: WorktreeMapCardModel
+): Promise<
+  { readonly displayName: string; readonly path: string; readonly rootId: string } | undefined
+> {
+  const containment = repositories
+    .find((candidate) => candidate.repoCommonDir === card.entry.repoCommonDir)
+    ?.cards.find((candidate) => candidate.entry.primary)?.entry.containment;
+  const rootId =
+    containment === undefined || containment === 'outside-roots' ? undefined : containment[0];
+  const catalog = getThreadGroupsCapability();
+  if (!(rootId && catalog)) {
+    return;
+  }
+  const row = (await catalog.readRoots()).find((candidate) => candidate.id === rootId);
+  return row ? { displayName: row.displayName, path: row.path, rootId } : undefined;
+}
+
 export function useWorktreeMapCardActions(
   input: UseWorktreeMapCardActionsInput
 ): WorktreeMapCardActions {
@@ -85,6 +108,7 @@ export function useWorktreeMapCardActions(
     openTerminalAt,
     publishIntent,
     refresh,
+    repositories,
     repository,
     resourceId,
     selectThread,
@@ -143,10 +167,14 @@ export function useWorktreeMapCardActions(
         // written later by the mid-session registration, and a refresh now
         // would race it and re-read `rootId: null`. `useWorktreeMap`
         // re-loads itself off the root-identity context once the row lands.
-        return createThread(repository, resourceId).then((thread) => {
+        return Promise.all([
+          createThread(repository, resourceId),
+          repositoryFolder(repositories, card),
+        ]).then(([thread, localRoot]) => {
           selectThread(resourceId, thread.id);
           publishIntent({
             branch: card.entry.branch,
+            ...(localRoot ? { localRoot } : {}),
             path: card.entry.path,
             threadId: thread.id,
             worktreeId,

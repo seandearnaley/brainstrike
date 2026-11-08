@@ -88,6 +88,7 @@ export function WorktreeMapSurface(): ReactElement {
     openTerminalAt,
     publishIntent,
     refresh,
+    repositories,
     repository,
     resourceId,
     selectThread,

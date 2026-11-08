@@ -32,18 +32,11 @@ describe('useAssistantThreadRootBinding', () => {
     const { result } = renderHook(() =>
       useAssistantThreadRootBinding({
         assistantThreadRepository: repository,
-        currentMainRoot: {
-          displayName: 'Current Main',
-          path: '/workspace/current-main',
-        },
         memoryResourceId: RESOURCE_ID,
         selectedMemoryThreadId: THREAD_ID,
       })
     );
 
-    await expect(result.current.resolveThreadRootBinding()).rejects.toThrow(
-      'Cannot resolve the assistant thread root before the selected thread metadata is loaded.'
-    );
     await expect(
       result.current.persistThreadRootBinding({
         displayName: 'Current Main',
@@ -57,7 +50,39 @@ describe('useAssistantThreadRootBinding', () => {
     expect(updateThreadMetadata).not.toHaveBeenCalled();
   });
 
-  it('exposes operatingRoot for a single-root workspace (the bar is always visible)', () => {
+  it("exposes the thread's own persisted binding as its operatingRoot", () => {
+    useAssistantThreadStore.setState({
+      ...useAssistantThreadStore.getState(),
+      threadsByResourceId: {
+        [RESOURCE_ID]: [
+          {
+            createdAt: new Date(),
+            id: THREAD_ID,
+            metadata: {
+              operatingRootDisplayName: 'Only',
+              operatingRootId: 'only-root',
+              operatingRootPath: '/ws/only',
+            },
+            resourceId: RESOURCE_ID,
+            title: 't',
+            updatedAt: new Date(),
+          },
+        ],
+      },
+    });
+    const { result } = renderHook(() =>
+      useAssistantThreadRootBinding({
+        assistantThreadRepository: {
+          updateThreadMetadata: vi.fn(async () => {}),
+        } as unknown as AssistantThreadRepository,
+        memoryResourceId: RESOURCE_ID,
+        selectedMemoryThreadId: THREAD_ID,
+      })
+    );
+    expect(result.current.operatingRoot).toEqual({ displayName: 'Only', path: '/ws/only' });
+  });
+
+  it('exposes no folder for an unbound thread', () => {
     useAssistantThreadStore.setState({
       ...useAssistantThreadStore.getState(),
       threadsByResourceId: {
@@ -75,14 +100,12 @@ describe('useAssistantThreadRootBinding', () => {
     });
     const { result } = renderHook(() =>
       useAssistantThreadRootBinding({
-        assistantThreadRepository: {
-          updateThreadMetadata: vi.fn(async () => {}),
-        } as unknown as AssistantThreadRepository,
-        currentMainRoot: { displayName: 'Only', path: '/ws/only' },
+        assistantThreadRepository: null,
         memoryResourceId: RESOURCE_ID,
         selectedMemoryThreadId: THREAD_ID,
       })
     );
-    expect(result.current.operatingRoot).toEqual({ displayName: 'Only', path: '/ws/only' });
+    expect(result.current.operatingRoot).toBeUndefined();
+    expect(result.current.threadRootBinding).toBeUndefined();
   });
 });

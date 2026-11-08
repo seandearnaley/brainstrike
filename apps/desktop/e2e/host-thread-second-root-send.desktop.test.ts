@@ -12,6 +12,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostRootRecords, readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
@@ -139,6 +140,8 @@ test('a host thread sends after a second folder is added, across a reload and th
       await expect(region.getByText(REFUSAL)).toHaveCount(0);
     };
 
+    // The thread works in folder A: the person chooses it before the first send.
+    await chooseThreadFolder(region, path.basename(alphaRoot));
     await send(1);
 
     const { reloadRenderer } = await loadElectronHelpers();

@@ -14,10 +14,8 @@ import { type ReactElement, useMemo } from 'react';
  * repository the thread tabs use: a host-owned thread commits them as its
  * workspace binding, which stays authoritative for the thread's operating
  * root and checkout. Core commits a scope change only after Main's live
- * root/worktree owner validates it. Until a thread has a binding, the chip
- * names the workspace's MAIN folder, exactly as the legacy panel does; the
- * explorer's focused folder is presentation only and never names the
- * thread's root.
+ * root/worktree owner validates it. A thread without a binding has no
+ * folder; the workspace's open folders never name the thread's root.
  */
 export function CommittedWorkspaceControls({
   threadId,
@@ -32,14 +30,9 @@ export function CommittedWorkspaceControls({
     return createHostAssistantThreadRepository(host);
   }, [host]);
   const rootDescriptors = useFileExplorerStoreSelector((state) => state.rootDescriptors);
-  const mainRoot = useFileExplorerStoreSelector((state) => {
-    const mainRootId = state.activeRootIds[0];
-    return mainRootId ? state.rootDescriptors[mainRootId] : undefined;
-  });
   return (
     <WorkspaceBarHost
       assistantThreadRepository={repository}
-      {...(mainRoot ? { currentMainRoot: mainRoot } : {})}
       memoryResourceId={WORKSPACE_MEMORY_RESOURCE_ID}
       rootDescriptors={rootDescriptors}
       selectedMemoryThreadId={threadId}

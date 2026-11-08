@@ -15,6 +15,7 @@ import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostRootRecords, readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
 
@@ -122,7 +123,8 @@ test('a file attached from outside the thread reaches the model marked, and Add 
     await submit(turn);
   };
 
-  // The thread binds folder A on its first run.
+  // The thread works in folder A, chosen before its first run.
+  await chooseThreadFolder(region, path.basename(alphaRoot));
   await send(0, 'ATTACH_TURN_0: start');
   const alphaId = await rootIdOf(page, alphaRoot);
 

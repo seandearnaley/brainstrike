@@ -35,6 +35,30 @@ export function displayNameForPath(path: string): string {
   return displayName;
 }
 
+interface CheckoutRoot {
+  readonly displayName: string;
+  readonly path: string;
+  readonly rootId: string;
+}
+
+/**
+ * The folders a move into a worktree keeps among the thread's folders: its old primary, or, for a
+ * thread with no folder, the named Local folder, so a hand-off finds it there.
+ */
+function foldersLeftBehind(
+  current: ThreadCheckoutFolders,
+  worktreeRootId: string,
+  localRoot: CheckoutRoot | undefined,
+  checkoutLocalRootId: string
+): readonly CheckoutRoot[] {
+  if (current.primaryRootId === undefined) {
+    return localRoot?.rootId === checkoutLocalRootId && localRoot ? [localRoot] : [];
+  }
+  const primaryPath = current.primaryRoot?.path;
+  return current.primaryRootId !== worktreeRootId && current.primaryRoot && primaryPath
+    ? [{ ...current.primaryRoot, path: primaryPath }]
+    : [];
+}
 export function useThreadCheckout(args: UseThreadCheckoutArgs): {
   readonly checkout: ThreadCheckoutState;
   readonly handOffToLocal: () => Promise<void>;
@@ -44,6 +68,12 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
   readonly localRootId: string | null;
   readonly selectWorktree: (worktree: {
     readonly branch: string | null;
+    /** The repository's open folder, which a thread with no folder returns to on hand-off. */
+    readonly localRoot?: {
+      readonly displayName: string;
+      readonly path: string;
+      readonly rootId: string;
+    };
     readonly path: string;
     readonly worktreeId: string;
   }) => Promise<void>;
@@ -73,6 +103,11 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
 
   const selectWorktree = async (worktree: {
     readonly branch: string | null;
+    readonly localRoot?: {
+      readonly displayName: string;
+      readonly path: string;
+      readonly rootId: string;
+    };
     readonly path: string;
     readonly worktreeId: string;
   }) => {
@@ -80,8 +115,10 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
     const rootId = await resolveRootIdForPath(worktree.path, displayName);
     await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
       // Preserve the original Local root across worktree-to-worktree switches;
-      // only a transition from Local establishes a new one.
-      const rawLocalRootId = current.checkoutLocalRootId ?? current.primaryRootId;
+      // only a transition from Local establishes a new one. A thread with no
+      // folder returns to the repository's open folder the caller named.
+      const rawLocalRootId =
+        current.checkoutLocalRootId ?? current.primaryRootId ?? worktree.localRoot?.rootId;
       // A local root that resolves to the WORKTREE we are switching into is
       // degenerate (BST-1390): it happens after "Folder didn't follow" hands
       // off without ever recording a real Local root (leaving `primaryRootId`
@@ -127,10 +164,7 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
           'Could not switch worktrees: the current primary folder is no longer available.'
         );
       }
-      const demoted =
-        demotesPrimary && current.primaryRoot && currentPrimaryPath
-          ? [{ ...current.primaryRoot, path: currentPrimaryPath }]
-          : [];
+      const demoted = foldersLeftBehind(current, rootId, worktree.localRoot, checkoutLocalRootId);
       const nextRoot = { displayName, path: worktree.path, rootId };
       const secondaryRoots = [
         ...current.secondaryRoots.filter((root) => root.rootId !== rootId),

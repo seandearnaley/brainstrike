@@ -52,7 +52,6 @@ export interface AssistantOperatingRootBinding {
 }
 
 export function resolveAssistantOperatingRootBinding(args: {
-  readonly currentMainRoot?: Omit<AssistantOperatingRootBinding, 'persisted'> | undefined;
   readonly threadMetadata?: AssistantThreadMetadata | undefined;
 }): AssistantOperatingRootBinding | undefined {
   const metadata = args.threadMetadata;
@@ -73,7 +72,7 @@ export function resolveAssistantOperatingRootBinding(args: {
       rootId: metadata.operatingRootId,
     };
   }
-  return args.currentMainRoot ? { ...args.currentMainRoot, persisted: false } : undefined;
+  return;
 }
 
 export function resolveAdvertisedNativeToolIds(args: {
