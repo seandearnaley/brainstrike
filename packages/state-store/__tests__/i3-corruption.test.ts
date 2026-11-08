@@ -11,6 +11,7 @@ import {
   rmSync,
   statSync,
   truncateSync,
+  writeFileSync,
   writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -222,7 +223,7 @@ describe('item 3 · S integrity', () => {
     let seedReady = false;
 
     beforeAll(() => {
-      // Shared seed stays outside cleanupDirs; each case owns its recovery clones.
+      // Shared seed stays outside cleanupDirs; each case owns its one recovery copy.
       dir = mkdtempSync(join(tmpdir(), 'bs-ss-i3swal-seed-'));
       const db = new Database(join(dir, 'a.db'));
       try {
@@ -274,13 +275,19 @@ describe('item 3 · S integrity', () => {
         if (!range) {
           throw new Error(`missing WAL cut case ${number}`);
         }
+        // One copy per case, cut in place from its longest prefix down (BST-2467). A read-only
+        // connection never checkpoints into c.db or deletes the WAL, so truncating is the only
+        // write: no file is created, copied, synced or deleted per cut. Emptying the wal-index
+        // before each open makes every open recover from the cut WAL itself.
         const c = join(freshDir('i3swal'), 'c.db');
-        for (let cut = range.first; cut <= range.last; cut++) {
-          rmSync(`${c}-shm`, { force: true });
-          copyFileSync(join(dir, 'base.db'), c);
-          copyFileSync(join(dir, 'base.db-wal'), `${c}-wal`);
+        copyFileSync(join(dir, 'base.db'), c);
+        copyFileSync(join(dir, 'base.db-wal'), `${c}-wal`);
+        writeFileSync(`${c}-shm`, '');
+        const caseCuts: number[] = [];
+        for (let cut = range.last; cut >= range.first; cut--) {
           truncateSync(`${c}-wal`, cut);
-          const x = new Database(c);
+          truncateSync(`${c}-shm`, 0);
+          const x = new Database(c, { fileMustExist: true, readonly: true });
           let n: number;
           let ic: string | undefined;
           try {
@@ -295,8 +302,9 @@ describe('item 3 · S integrity', () => {
               `cut=${cut - size49} (absolute ${cut}): rows=${n} check=${ic}`
             )
             .toBe(true);
-          completedCuts.push(cut);
+          caseCuts.push(cut);
         }
+        completedCuts.push(...caseCuts.reverse());
       }
     );
   });
