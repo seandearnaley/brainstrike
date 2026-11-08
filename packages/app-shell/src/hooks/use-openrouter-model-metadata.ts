@@ -3,14 +3,16 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  buildEffectiveModelSettings,
+  type SelectedModelBudgetDef,
+} from '@brainstrike/assistant-contract/generation-options';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { useEffect, useMemo, useState } from 'react';
 import { useAssistantThreadHost } from '../assistant-thread-host-context';
 import {
   buildAgentLoopSettings,
-  buildEffectiveModelSettings,
   resolveOpenRouterMetadataDisabledReason,
-  type SelectedModelBudgetDef,
 } from '../assistant-ui-panel-wrapper-runtime';
 
 const MAX_VISIBLE_ERROR_CHARS = 300;

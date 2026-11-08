@@ -1,14 +1,11 @@
 import { resolveModelReasoningSupport } from '@brainstrike/assistant-contract/model-reasoning';
+import { modelVendor } from '@brainstrike/assistant-contract/model-vendors';
 import {
   getProviderDefinition,
   type ProviderRuntime,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import type {
-  ModelPickerModel,
-  ModelPickerProvider,
-  ProviderGroupConfig,
-} from '@brainstrike/assistant-ui';
+import type { ModelPickerModel, ProviderGroupConfig } from '@brainstrike/assistant-ui';
 import { useMemo } from 'react';
 import type { LlmProviderModelDefinition } from '../assistant-ui-panel-wrapper-runtime';
 
@@ -22,14 +19,8 @@ interface UseAssistantModelPickerConfigArgs {
 
 interface UseAssistantModelPickerConfigResult {
   readonly pickerModels: ModelPickerModel[];
-  readonly pickerProviders: ModelPickerProvider[];
   readonly providerGroups: ProviderGroupConfig[];
 }
-
-const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
-  gateway: 'Gateway',
-  hosted: 'Hosted',
-};
 
 const runtimeOrder: readonly ProviderRuntime[] = ['hosted', 'gateway'];
 
@@ -43,7 +34,6 @@ export function useAssistantModelPickerConfig({
 
     runtimeOrder.forEach((runtime) => {
       groups.set(runtime, {
-        label: RUNTIME_LABELS[runtime] ?? runtime,
         providers: [],
         runtime,
       });
@@ -61,6 +51,7 @@ export function useAssistantModelPickerConfig({
         label: model.label ?? model.id,
         supportsStreaming: Boolean(model.supportsStreaming),
         type: 'llm' as const,
+        vendor: modelVendor(model.vendor),
       }));
 
       const group = groups.get(runtime);
@@ -84,15 +75,6 @@ export function useAssistantModelPickerConfig({
       );
   }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
 
-  const pickerProviders: ModelPickerProvider[] = configuredProviders.map((providerId) => {
-    const definition = getProviderDefinition(providerId);
-    return {
-      icon: null,
-      id: providerId,
-      name: definition.displayName,
-    };
-  });
-
   const pickerModels = useMemo<ModelPickerModel[]>(() => {
     const models: ModelPickerModel[] = [];
 
@@ -107,14 +89,9 @@ export function useAssistantModelPickerConfig({
         models.push({
           capabilities: {
             reasoning: resolveModelReasoningSupport(providerId, model.id).state,
-            streaming: model.supportsStreaming ?? false,
-            type: 'llm',
             vision: model.vision,
           },
-          contextWindow: model.contextWindow,
-          description: model.tagline ?? null,
           id: model.id,
-          name: model.label ?? model.id,
           providerId,
         });
       }
@@ -125,7 +102,6 @@ export function useAssistantModelPickerConfig({
 
   return {
     pickerModels,
-    pickerProviders,
     providerGroups,
   };
 }

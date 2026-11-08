@@ -4,7 +4,6 @@ import {
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   validateImageAttachmentPart,
 } from './assistant-attachments.ts';
-import { childNextRunSchema } from './child-execution-configuration.ts';
 import { omitUndefinedOptional } from './schema-boundary.ts';
 /** Matches native Mastra FilePart; the root composer currently supports images. */
 export const assistantChildAttachmentSchema = Schema.Struct({
@@ -45,7 +44,6 @@ export const assistantChildInputSchema = Schema.Struct({
   id: Schema.String.pipe(Schema.decodeTo(Schema.Trim))
     .check(Schema.isMinCodePoints(1))
     .check(Schema.isMaxCodePoints(512)),
-  nextRun: Schema.optional(childNextRunSchema),
   text: Schema.String.pipe(Schema.decodeTo(Schema.Trim)).check(Schema.isMaxCodePoints(32_000)),
 }).check(
   Schema.makeFilter((input) =>
@@ -65,7 +63,7 @@ export function normalizeAssistantChildInput(input: unknown): AssistantChildInpu
 }
 /** Fixed field order for complete-content receipt identity, independent of object insertion order. */
 export function serializeAssistantChildInput(
-  input: Pick<AssistantChildInput, 'text' | 'attachments' | 'nextRun'>
+  input: Pick<AssistantChildInput, 'text' | 'attachments'>
 ): string {
   return JSON.stringify({
     attachments: (input.attachments ?? []).map((part) => ({
@@ -75,13 +73,5 @@ export function serializeAssistantChildInput(
       ...(part.filename === undefined ? {} : { filename: part.filename }),
     })),
     text: input.text,
-    ...(input.nextRun
-      ? {
-          nextRun: Schema.decodeSync(childNextRunSchema, {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })(input.nextRun),
-        }
-      : {}),
   });
 }

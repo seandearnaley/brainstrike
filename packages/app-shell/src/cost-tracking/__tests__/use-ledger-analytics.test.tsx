@@ -5,11 +5,11 @@ import { useLedgerAnalytics } from '../use-ledger-analytics';
 
 function hostRun(overrides: Partial<RunLedgerRow> & { readonly runId: string }): RunLedgerRow {
   return {
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: new Date('2026-10-12T14:00:10.000Z'),
     durationMs: 10_000,
     editCount: 0,
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     estimatedCostUsd: 0,
     estimatedInputTokens: 100,
     estimatedOutputTokens: 20,

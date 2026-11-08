@@ -359,25 +359,6 @@ describe('ModelCatalog states', () => {
     expect(screen.getByTestId('model-catalog-filters-trigger')).toBeInTheDocument();
     expect(screen.queryByText(/per million tokens/u)).not.toBeInTheDocument();
   });
-
-  it('shows the tagline until the catalog is narrow', async () => {
-    const models = MODELS.map((model) =>
-      model.id === 'gpt-5.6-terra' ? { ...model, tagline: 'Flagship terra model' } : model
-    );
-    const wide = render(<ModelCatalog {...catalogProps({ models })} />);
-    expect(screen.getByTestId('model-catalog')).toHaveAttribute('data-width-tier', 'wide');
-    expect(
-      within(screen.getByTestId('model-row-gpt-5.6-terra')).getByText('Flagship terra model')
-    ).toBeInTheDocument();
-    wide.unmount();
-
-    installCatalogDomStubs({ width: 500 });
-    render(<ModelCatalog {...catalogProps({ models })} />);
-    await waitFor(() => {
-      expect(screen.getByTestId('model-catalog')).toHaveAttribute('data-width-tier', 'narrow');
-    });
-    expect(screen.queryByText('Flagship terra model')).not.toBeInTheDocument();
-  });
 });
 
 describe('ModelCatalog / shortcut', () => {

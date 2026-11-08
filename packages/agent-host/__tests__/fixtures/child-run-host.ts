@@ -23,6 +23,7 @@ import { withHostDelegationTools } from '../../src/child-runs.js';
 import { HostCore, type HostEventStore } from '../../src/core.js';
 import type {
   HostClientOrigin,
+  HostDelegation,
   HostPlatform,
   HostRunAdmissionRequest,
   HostTool,
@@ -131,12 +132,16 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** ADR-0037: the platform's run configuration for a child on another model. */
+  readonly childConfiguration?: HostPlatform['childConfiguration'];
   /** The command sessions the host's runs start that end by themselves. */
   readonly commandSessionExits?: HostPlatform['commandSessionExits'];
   /** Holds a batch's commit until it resolves, to observe the host between a reservation and its commit. */
   readonly holdAppend?: (items: readonly AppendItem[]) => Promise<void>;
   /** The production run owner over the fixture's own store, as the host platform opens it. */
   readonly memory?: (store: StateStore) => HostPlatform['openRun'];
+  /** ADR-0037: the models a delegation may name. */
+  readonly models?: HostDelegation['models'];
   /** The platform's run owner (Memory), opened with each run's context. */
   readonly openRun?: HostPlatform['openRun'];
   readonly personas?: readonly AssistantPersonaDefinition[];
@@ -144,6 +149,8 @@ export interface ChildRunFixture {
   readonly policy?: HostPlatform['readPermissionPolicy'];
   /** What `read_file` does; it returns the fixture notes at once by default. */
   readonly readFile?: () => Promise<unknown>;
+  /** The model each admission resolves; the harness model for every ID by default. */
+  readonly resolveModel?: HostPlatform['resolveModel'];
   readonly settings?: Partial<RuntimeSubagentSettings>;
   /** Tools the host admits beside the fixture's own. */
   readonly tools?: Readonly<Record<string, HostTool>>;
@@ -166,9 +173,11 @@ function fixturePlatform(
   fixture: ChildRunFixture = {}
 ): HostPlatform {
   return {
+    ...(fixture.childConfiguration ? { childConfiguration: fixture.childConfiguration } : {}),
     close: async () => undefined,
     ...(fixture.commandSessionExits ? { commandSessionExits: fixture.commandSessionExits } : {}),
     delegation: {
+      ...(fixture.models ? { models: fixture.models } : {}),
       personas: fixture.personas ?? [explorer],
       settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...fixture.settings },
     },
@@ -180,7 +189,7 @@ function fixturePlatform(
         policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'allow', read: 'allow' },
         yolo: false,
       })),
-    resolveModel: async () => model,
+    resolveModel: fixture.resolveModel ?? (async () => model),
     tools: {
       ask_user: askUserTool,
       read_file: {

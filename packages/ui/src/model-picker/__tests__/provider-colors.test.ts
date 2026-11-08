@@ -1,12 +1,16 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { getProviderColor, PROVIDER_COLOR_MAP } from '../utils/provider-colors';
+import {
+  getProviderColor,
+  PROVIDER_COLOR_MAP,
+  UNKNOWN_PROVIDER_COLOR,
+} from '../utils/provider-colors';
 
 /**
  * Registry exhaustiveness is a COMPILE-TIME pin now (`satisfies
  * Record<SupportedProvider, ...>` in provider-colors.ts, PR #2513 review
  * finding 6). This runtime test covers only what `satisfies` cannot: the
- * lookup/fallback behavior of getProviderColor itself.
+ * lookup behavior of getProviderColor itself.
  */
 describe('provider colors', () => {
   it('returns the explicit map entry for mapped providers', () => {
@@ -16,9 +20,8 @@ describe('provider colors', () => {
     }
   });
 
-  it('keeps the hash fallback for dynamically discovered ids only', () => {
-    const fallback = getProviderColor('some-unknown-runtime', 'light');
-    expect(fallback).toMatch(/^hsl\(/u);
-    expect(PROVIDER_COLOR_MAP['some-unknown-runtime']).toBeUndefined();
+  it('gives an unmapped id the muted text colour in both themes, never a derived hue', () => {
+    expect(getProviderColor('some-unknown-runtime', 'light')).toBe(UNKNOWN_PROVIDER_COLOR);
+    expect(getProviderColor('another-runtime', 'dark')).toBe(UNKNOWN_PROVIDER_COLOR);
   });
 });

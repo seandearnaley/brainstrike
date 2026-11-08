@@ -52,6 +52,7 @@ import {
   DialogTitle,
   ErrorNotice,
   Label,
+  ModelSelect,
   Switch,
 } from '@brainstrike/ui';
 import { AlertTriangle, X } from 'lucide-react';
@@ -426,31 +427,30 @@ function AccessModeBlock({ disabled }: { disabled: boolean }) {
           ))}
         </select>
       </div>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Label className="text-sm font-medium" htmlFor="permission-auto-review-model">
-            Auto-review model
-          </Label>
-          <p className="text-muted-foreground text-sm">
-            The quick model Auto asks. Auto uses a fast model from your chat provider, such as Haiku
-            for Anthropic chats; another model also sends each reviewed call to its provider.
-          </p>
-        </div>
-        <select
-          className="border-input bg-background h-9 max-w-56 shrink-0 rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+      <div className="flex items-center justify-between gap-4">
+        <Label className="text-sm font-medium" htmlFor="permission-auto-review-model">
+          Auto-review model
+        </Label>
+        <ModelSelect
+          className="max-w-64"
           data-testid="permission-auto-review-model"
+          disabled={disabled}
           id="permission-auto-review-model"
-          onChange={(event) => void setAutoReviewModel(event.target.value)}
+          onValueChange={(value) => void setAutoReviewModel(value)}
+          options={[
+            // Auto reviews on the chat's own provider, so no other provider sees the call.
+            { label: 'Auto (chat’s provider)', value: AUTO_REVIEW_MODEL_AUTO },
+            ...(known ? [] : [{ label: autoReviewModel, value: autoReviewModel }]),
+            ...options.map((option) => ({
+              label: option.label,
+              markLabel: option.markLabel,
+              provider: option.providerId,
+              value: option.target,
+              vendor: option.vendor,
+            })),
+          ]}
           value={autoReviewModel}
-        >
-          <option value={AUTO_REVIEW_MODEL_AUTO}>Auto — chat provider’s quick model</option>
-          {known ? null : <option value={autoReviewModel}>{autoReviewModel}</option>}
-          {options.map((option) => (
-            <option key={option.target} value={option.target}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        />
       </div>
     </fieldset>
   );

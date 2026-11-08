@@ -24,6 +24,7 @@ const WELL_FORMED_MODEL: Record<string, unknown> = {
   contextWindow: 400_000,
   id: 'gpt-5.6-sol',
   type: 'llm',
+  vendor: 'openai',
   vision: 'supported',
 };
 
@@ -54,6 +55,14 @@ describe('ProviderCatalogSchema', () => {
         catalogWith(WELL_FORMED_MODEL)
       )
     ).not.toThrow();
+  });
+
+  it('rejects a model row that names no maker, or one the vendor list lacks', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    expect(Result.isFailure(decode(catalogWith(modelWithout('vendor'))))).toBe(true);
+    expect(Result.isFailure(decode(catalogWith({ ...WELL_FORMED_MODEL, vendor: 'open-ai' })))).toBe(
+      true
+    );
   });
 
   it('rejects an LLM model entry that omits the required vision capability', () => {

@@ -32,18 +32,29 @@ const asked = (seq: number, interactionId: string, kind: string, runId = 'delega
 // `adopt`: a child's first run is the delegated invocation, any later run a
 // follow-up), so the parent's turn Stop cannot end it.
 test('a child running its delegated invocation, then a follow-up turn of its own', () => {
-  const summaries = fed([row(1, { runId: 'delegated', type: 'run.started' })]);
+  const summaries = fed([
+    row(1, {
+      modelId: 'openrouter::anthropic/claude-opus-5.5',
+      runId: 'delegated',
+      type: 'run.started',
+    }),
+  ]);
   expect(summaries.read('child').run).toEqual({
     delegatedInvocation: true,
+    modelId: 'openrouter::anthropic/claude-opus-5.5',
     status: 'running',
     toolCalls: 0,
     turnId: 'delegated',
   });
 
   summaries.apply(row(2, { outcome: 'completed', runId: 'delegated', type: 'run.finished' }));
-  summaries.apply(row(3, { runId: 'follow-up', type: 'run.started' }));
+  // A follow-up on another model: the card names the model of the run it shows.
+  summaries.apply(
+    row(3, { modelId: 'openai::gpt-6-sol', runId: 'follow-up', type: 'run.started' })
+  );
   expect(summaries.read('child').run).toMatchObject({
     delegatedInvocation: false,
+    modelId: 'openai::gpt-6-sol',
     status: 'running',
   });
 });

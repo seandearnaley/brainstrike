@@ -1,28 +1,26 @@
 /**
- * Search-first composer model picker (BST-1795): Popover + cmdk. Opening
- * focuses search; an empty query shows Recent then enabled models grouped
- * by provider; typing flattens to provider-labelled enabled matches plus
- * disabled registry-backed matches under "Not enabled", which are enabled
- * through the host and selected only once that write commits. Reasoning
- * Effort/Thinking controls stay OUT of this picker (BST-948).
+ * Search-first composer model picker (BST-1795) on the shared `ModelMenu`.
+ * Opening focuses search; an empty query shows Recent then enabled models
+ * grouped by provider; typing flattens to enabled matches plus disabled
+ * registry-backed matches under "Not enabled", which are enabled through the
+ * host and selected only once that write commits. Each row is the model's
+ * maker mark, its name and its capability icons. Reasoning Effort/Thinking
+ * controls stay out of this picker (BST-948).
  */
 import {
   Button,
-  formatContextWindow,
-  getProviderColor,
+  ModelMark,
+  ModelMenu,
+  type ModelMenuGroup,
+  type ModelMenuOption,
   type ModelPickerModel,
-  ModelPickerSearch,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  modelMarkLabel,
+  ProviderIcon,
 } from '@brainstrike/ui';
-import { Command } from 'cmdk';
-import { Brain, Check, ChevronDown, Eye, Plus } from 'lucide-react';
+import { Brain, ChevronDown, Eye, Plus } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ProviderGroupConfig } from './assistant-ui-panel';
 import { buildComposerPickerSections, type ComposerPickerEntry } from './composer-picker-sections';
-
-export { modelIdFromCompositeKey } from './composer-picker-sections';
 
 export interface ComposerModelPickerProps {
   disabled?: boolean | undefined;
@@ -38,13 +36,6 @@ export interface ComposerModelPickerProps {
   /** Composite key "provider::model". */
   selectedModel?: string | undefined;
 }
-
-/** Shared by the composer's search-first pickers (models, branches). */
-export const GROUP_HEADING_CLASS =
-  '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide';
-
-export const ROW_CLASS =
-  'flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled=true]:opacity-50';
 
 function triggerLabel(selectedEntry: ComposerPickerEntry | undefined, hasOptions: boolean): string {
   if (selectedEntry) {
@@ -82,138 +73,41 @@ function CapabilityIcons({ meta }: { meta: ModelPickerModel | undefined }): Reac
   );
 }
 
-function ProviderDot({ providerId }: { providerId: string }): ReactNode {
-  return (
-    <span
-      aria-hidden
-      className="size-2 shrink-0 rounded-full"
-      style={{ backgroundColor: getProviderColor(providerId, 'light') }}
-    />
-  );
+/** "Anthropic", or "Anthropic via OpenRouter": the row's maker, which its text never names. */
+function markLabelOf(entry: ComposerPickerEntry): string {
+  return modelMarkLabel({
+    providerId: entry.providerId,
+    providerName: entry.providerName,
+    vendorId: entry.vendor?.id,
+    vendorName: entry.vendor?.name,
+  });
 }
 
-function SelectedMark({ selected }: { selected: boolean }): ReactNode {
-  return (
-    <span className="flex size-4 shrink-0 items-center justify-center">
-      {selected ? <Check aria-label="Selected" className="size-4" role="img" /> : null}
-    </span>
-  );
-}
-
-interface RowProps {
-  entry: ComposerPickerEntry;
-  onPick: (entry: ComposerPickerEntry) => void;
-  selected: boolean;
-  showProvider: boolean;
-}
-
-function RecentRow({ entry, onPick, selected }: Omit<RowProps, 'showProvider'>): ReactNode {
-  return (
-    <Command.Item
-      className={ROW_CLASS}
-      onSelect={() => onPick(entry)}
-      value={`recent:${entry.compositeKey}`}
-    >
-      <ProviderDot providerId={entry.providerId} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate leading-5 font-medium">{entry.modelLabel}</span>
-        {entry.meta?.description ? (
-          <span className="text-muted-foreground block truncate text-xs leading-4">
-            {entry.meta.description}
-          </span>
-        ) : null}
-      </span>
-      <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
-      <CapabilityIcons meta={entry.meta} />
-      <SelectedMark selected={selected} />
-    </Command.Item>
-  );
-}
-
-function ListRow({ entry, onPick, selected, showProvider }: RowProps): ReactNode {
-  return (
-    <Command.Item className={ROW_CLASS} onSelect={() => onPick(entry)} value={entry.compositeKey}>
-      {showProvider ? <ProviderDot providerId={entry.providerId} /> : null}
-      <span className="min-w-0 flex-1 truncate leading-5">{entry.modelLabel}</span>
-      {showProvider ? (
-        <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
-      ) : null}
-      {entry.meta?.contextWindow ? (
-        <span className="border-border/50 bg-background/55 text-muted-foreground text-2xs shrink-0 rounded-md border px-1">
-          {formatContextWindow(entry.meta.contextWindow)}
-        </span>
-      ) : null}
-      <CapabilityIcons meta={entry.meta} />
-      <SelectedMark selected={selected} />
-    </Command.Item>
-  );
-}
-
-/** A provider group's heading: its name, then its model count as a separate muted badge. */
-function GroupHeading({ count, label }: { count: number; label: string }): ReactNode {
+/** A provider group's heading: its mark and name. */
+function GroupHeading({ name, providerId }: { name: string; providerId: string }): ReactNode {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="truncate">{label}</span>
-      <span className="bg-muted text-muted-foreground rounded-full px-1.5 leading-4 tabular-nums">
-        {count}
-      </span>
+      <ProviderIcon className="size-3 shrink-0" providerId={providerId} />
+      <span className="truncate">{name}</span>
     </span>
   );
 }
 
-/**
- * The open picker with nothing enabled: says so, points to search when models
- * can be enabled from here, and offers the host's model settings when it has
- * them.
- */
+/** The open picker with nothing enabled: says so, and offers the host's model settings when it has them. */
 function NoEnabledModels({
-  canEnable,
   onManageModels,
 }: {
-  canEnable: boolean;
   onManageModels: (() => void) | undefined;
 }): ReactNode {
   return (
     <div className="flex flex-col items-center gap-2 px-3 py-6 text-center text-sm">
       <p className="font-medium">No models are enabled</p>
-      <p className="text-muted-foreground text-xs">
-        {canEnable
-          ? 'Search to find a model and enable it here, or manage models in Settings.'
-          : 'Enable a model in Settings to start chatting.'}
-      </p>
       {onManageModels ? (
         <Button onClick={onManageModels} size="sm" type="button" variant="outline">
           Manage models
         </Button>
       ) : null}
     </div>
-  );
-}
-
-function NotEnabledRow({
-  entry,
-  onEnable,
-  pending,
-}: {
-  entry: ComposerPickerEntry;
-  onEnable: (entry: ComposerPickerEntry) => void;
-  pending: boolean;
-}): ReactNode {
-  return (
-    <Command.Item
-      aria-label={`Enable and select ${entry.modelLabel} (${entry.providerName})`}
-      className={ROW_CLASS}
-      disabled={pending}
-      onSelect={() => onEnable(entry)}
-      value={`enable:${entry.compositeKey}`}
-    >
-      <ProviderDot providerId={entry.providerId} />
-      <span className="text-muted-foreground min-w-0 flex-1 truncate leading-5">
-        {entry.modelLabel}
-      </span>
-      <span className="text-muted-foreground text-2xs shrink-0">{entry.providerName}</span>
-      <Plus aria-hidden className="text-muted-foreground size-3.5 shrink-0" />
-    </Command.Item>
   );
 }
 
@@ -305,11 +199,78 @@ export function ComposerModelPicker({
   );
 
   const isSearching = query.trim().length > 0;
+  const option = (entry: ComposerPickerEntry, key = entry.compositeKey): ModelMenuOption => ({
+    key,
+    label: entry.modelLabel,
+    markLabel: markLabelOf(entry),
+    onSelect: () => handlePick(entry),
+    provider: entry.providerId,
+    selected: entry.compositeKey === selectedModel,
+    trailing: <CapabilityIcons meta={entry.meta} />,
+    vendor: entry.vendor?.id,
+  });
   const notEnabled = onEnableModel ? sections.notEnabled : [];
+  const groups: ModelMenuGroup[] = isSearching
+    ? [
+        {
+          heading: 'Models',
+          key: 'models',
+          options: sections.matches.map((entry) => option(entry)),
+        },
+        {
+          heading: 'Not enabled',
+          key: 'not-enabled',
+          options: notEnabled.map((entry) => ({
+            ariaLabel: `Enable and select ${entry.modelLabel} (${markLabelOf(entry)})`,
+            disabled: pendingKey !== null,
+            key: `enable:${entry.compositeKey}`,
+            label: entry.modelLabel,
+            markLabel: markLabelOf(entry),
+            onSelect: () => {
+              void handleEnable(entry);
+            },
+            provider: entry.providerId,
+            trailing: <Plus aria-hidden className="text-muted-foreground size-3.5 shrink-0" />,
+            vendor: entry.vendor?.id,
+          })),
+        },
+      ]
+    : [
+        {
+          heading: 'Recent',
+          key: 'recent',
+          options: sections.recent.map((entry) => option(entry, `recent:${entry.compositeKey}`)),
+        },
+        ...sections.groups.map((group) => ({
+          heading: <GroupHeading name={group.providerName} providerId={group.providerId} />,
+          key: `${group.runtime}:${group.providerId}`,
+          options: group.entries.map((entry) => option(entry)),
+        })),
+      ];
 
   return (
-    <Popover onOpenChange={handleOpenChange} open={open}>
-      <PopoverTrigger asChild>
+    <ModelMenu
+      aria-label="Choose a model"
+      empty={
+        <NoEnabledModels
+          onManageModels={
+            onManageModels
+              ? () => {
+                  // Settings opens beside the chat, not over it: close the
+                  // picker first, as every other exit does.
+                  handleOpenChange(false);
+                  onManageModels();
+                }
+              : undefined
+          }
+        />
+      }
+      groups={groups}
+      onOpenChange={handleOpenChange}
+      onQueryChange={setQuery}
+      open={open}
+      query={query}
+      trigger={
         <button
           aria-label={`Selected model: ${selectedEntry?.modelLabel ?? 'none'}`}
           className="bs-composer-chip"
@@ -317,107 +278,17 @@ export function ComposerModelPicker({
           disabled={!canSelect}
           type="button"
         >
-          {selectedEntry ? <ProviderDot providerId={selectedEntry.providerId} /> : null}
+          {selectedEntry ? (
+            <ModelMark
+              className="text-foreground/80"
+              provider={selectedEntry.providerId}
+              vendor={selectedEntry.vendor?.id}
+            />
+          ) : null}
           <span className="bs-composer-chip-label">{triggerText}</span>
           <ChevronDown aria-hidden />
         </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        aria-label="Choose a model"
-        className="w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-xl p-0"
-        sideOffset={6}
-      >
-        <Command className="flex flex-col" label="Models" shouldFilter={false}>
-          <ModelPickerSearch onValueChange={setQuery} placeholder="Search models…" value={query} />
-          <Command.List className="max-h-[min(60vh,420px)] overflow-y-auto p-1">
-            {isSearching || hasOptions ? (
-              <Command.Empty className="text-muted-foreground px-2 py-6 text-center text-sm">
-                No models match “{query.trim()}”.
-              </Command.Empty>
-            ) : (
-              <NoEnabledModels
-                canEnable={Boolean(onEnableModel)}
-                onManageModels={
-                  onManageModels
-                    ? () => {
-                        // Settings opens beside the chat, not over it: close
-                        // the picker first, as every other exit does.
-                        handleOpenChange(false);
-                        onManageModels();
-                      }
-                    : undefined
-                }
-              />
-            )}
-            {isSearching ? null : (
-              <>
-                {sections.recent.length > 0 ? (
-                  <Command.Group className={GROUP_HEADING_CLASS} heading="Recent">
-                    {sections.recent.map((entry) => (
-                      <RecentRow
-                        entry={entry}
-                        key={entry.compositeKey}
-                        onPick={handlePick}
-                        selected={entry.compositeKey === selectedModel}
-                      />
-                    ))}
-                  </Command.Group>
-                ) : null}
-                {sections.groups.map((group) => (
-                  <Command.Group
-                    className={GROUP_HEADING_CLASS}
-                    heading={
-                      <GroupHeading
-                        count={group.entries.length}
-                        label={`${group.runtimeLabel} · ${group.providerName}`}
-                      />
-                    }
-                    key={`${group.runtimeLabel}:${group.providerId}`}
-                  >
-                    {group.entries.map((entry) => (
-                      <ListRow
-                        entry={entry}
-                        key={entry.compositeKey}
-                        onPick={handlePick}
-                        selected={entry.compositeKey === selectedModel}
-                        showProvider={false}
-                      />
-                    ))}
-                  </Command.Group>
-                ))}
-              </>
-            )}
-            {isSearching && sections.matches.length > 0 ? (
-              <Command.Group className={GROUP_HEADING_CLASS} heading="Models">
-                {sections.matches.map((entry) => (
-                  <ListRow
-                    entry={entry}
-                    key={entry.compositeKey}
-                    onPick={handlePick}
-                    selected={entry.compositeKey === selectedModel}
-                    showProvider
-                  />
-                ))}
-              </Command.Group>
-            ) : null}
-            {isSearching && notEnabled.length > 0 ? (
-              <Command.Group className={GROUP_HEADING_CLASS} heading="Not enabled">
-                {notEnabled.map((entry) => (
-                  <NotEnabledRow
-                    entry={entry}
-                    key={entry.compositeKey}
-                    onEnable={(target) => {
-                      void handleEnable(target);
-                    }}
-                    pending={pendingKey !== null}
-                  />
-                ))}
-              </Command.Group>
-            ) : null}
-          </Command.List>
-        </Command>
-      </PopoverContent>
-    </Popover>
+      }
+    />
   );
 }

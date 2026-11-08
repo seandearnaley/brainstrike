@@ -269,15 +269,27 @@ function RunFacts({ row }: { readonly row: RunLedgerRow }) {
   return <span className="truncate">{facts.join(' · ')}</span>;
 }
 
+/** How the run's cost was reached: billed, priced, or not priceable. */
+function costBasis(row: RunLedgerRow): string {
+  if (row.estimatedCostUsd === null) {
+    return 'a model in this run has no list price';
+  }
+  if (row.billedCostUsd === undefined) {
+    return 'each request priced at its own rate';
+  }
+  return row.estimatedInputTokens + row.estimatedOutputTokens === 0
+    ? 'what the provider billed'
+    : 'billed, and the rest priced at its own rate';
+}
+
 /** The run's tokens by class, each with what it means for the bill. */
 function RunBreakdown({ row }: { readonly row: RunLedgerRow }) {
-  const uncached =
-    row.estimatedInputTokens - row.estimatedCacheReadTokens - row.estimatedCacheCreationTokens;
+  const uncached = row.inputTokens - row.cacheReadTokens - row.cacheCreationTokens;
   const lines = [
     ['Input', uncached, 'billed at the input rate'],
-    ['Cache read', row.estimatedCacheReadTokens, 'billed at the discounted cache rate'],
-    ['Cache write', row.estimatedCacheCreationTokens, 'billed at the cache write rate'],
-    ['Output', row.estimatedOutputTokens, 'billed at the output rate, reasoning included'],
+    ['Cache read', row.cacheReadTokens, 'billed at the discounted cache rate'],
+    ['Cache write', row.cacheCreationTokens, 'billed at the cache write rate'],
+    ['Output', row.outputTokens, 'billed at the output rate, reasoning included'],
   ] as const;
   return (
     <dl
@@ -294,11 +306,7 @@ function RunBreakdown({ row }: { readonly row: RunLedgerRow }) {
       <div className="contents">
         <dt className="text-muted-foreground border-t pt-1">Cost</dt>
         <dd className="border-t pt-1 text-right font-semibold tabular-nums">{runCostLabel(row)}</dd>
-        <dd className="text-muted-foreground border-t pt-1">
-          {row.estimatedCostUsd === null
-            ? 'a model in this run has no list price'
-            : 'each request priced at its own rate'}
-        </dd>
+        <dd className="text-muted-foreground border-t pt-1">{costBasis(row)}</dd>
       </div>
     </dl>
   );

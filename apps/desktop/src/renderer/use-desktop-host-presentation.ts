@@ -1,7 +1,6 @@
 import {
   type AssistantProviderNotice,
   buildDraftRuntimeForProvider,
-  buildModelSettings,
   buildProviderOptionsWhenReady,
   getProviderLlmModelDefinitions,
   type LlmProviderModelDefinition,
@@ -30,6 +29,7 @@ import {
   type OpenRouterModelMetadataLookup,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { buildModelSettings } from '@brainstrike/assistant-contract/generation-options';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { CommittedAssistantConversationProps } from '@brainstrike/assistant-ui';
 import {

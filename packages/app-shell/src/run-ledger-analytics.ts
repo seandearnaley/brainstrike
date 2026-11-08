@@ -3,8 +3,8 @@ import type { RunLedgerRow } from '@brainstrike/assistant-data';
 /**
  * Task Ledger analytics: the totals, the daily trend and the per-model
  * comparison, folded from the agent host's committed runs. Pure; no state, no
- * writes. The host records no provider-billed cost, so every cost here is the
- * ledger's list-price estimate, summed from calls priced one by one.
+ * writes. A run's cost is what its provider billed plus the list price of its
+ * unbilled calls, each priced on its own.
  */
 
 /** Tokens and estimated cost over a set of runs. */
@@ -56,8 +56,8 @@ export const NO_LEDGER_USAGE: LedgerUsageTotals = {
 export function addRunUsage<T extends LedgerUsageTotals>(total: T, run: RunLedgerRow): T {
   return {
     ...total,
-    cacheReadTokens: total.cacheReadTokens + run.estimatedCacheReadTokens,
-    cacheWriteTokens: total.cacheWriteTokens + run.estimatedCacheCreationTokens,
+    cacheReadTokens: total.cacheReadTokens + run.cacheReadTokens,
+    cacheWriteTokens: total.cacheWriteTokens + run.cacheCreationTokens,
     costUsd: total.costUsd + (run.billedCostUsd ?? 0) + (run.estimatedCostUsd ?? 0),
     inputTokens: total.inputTokens + run.inputTokens,
     outputTokens: total.outputTokens + run.outputTokens,

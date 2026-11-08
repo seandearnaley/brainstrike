@@ -1,5 +1,9 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { Button } from '@brainstrike/ui';
+import {
+  findModelVendor,
+  resolveModelLabel,
+} from '@brainstrike/assistant-contract/provider-registry';
+import { Button, ModelMark } from '@brainstrike/ui';
 import { ArrowUpRight } from 'lucide-react';
 import type { ComponentProps, MouseEvent } from 'react';
 import type { StepGlyphState } from './activity-step-icons';
@@ -151,12 +155,32 @@ function delegationVerb(
     : STEP_VERB[state](label);
 }
 
+/** The maker mark of the model a child runs on, named for assistive tech by the model. */
+function ChildModelMark({ modelId }: { readonly modelId: string | undefined }) {
+  const separator = modelId?.indexOf('::') ?? -1;
+  if (modelId === undefined || separator <= 0) {
+    return null;
+  }
+  const provider = modelId.slice(0, separator);
+  const model = modelId.slice(separator + 2);
+  return (
+    <ModelMark
+      className="text-foreground/70 mt-0.5"
+      label={resolveModelLabel(provider, model)}
+      provider={provider}
+      vendor={findModelVendor(provider, model)}
+    />
+  );
+}
+
 function SubagentTaskSummary({
   label,
+  modelId,
   presentation,
   task,
 }: {
   readonly label: string;
+  readonly modelId: string | undefined;
   readonly presentation: SubagentConversationPresentation | undefined;
   readonly task: string | undefined;
 }) {
@@ -171,10 +195,11 @@ function SubagentTaskSummary({
           className={`mt-0.5 size-3 shrink-0 rounded-full border-2 ${presentation.markClassName}`}
         />
       ) : null}
-      <div className="min-w-0 text-xs">
+      <div className="min-w-0 flex-1 text-xs">
         <span className="text-muted-foreground font-medium">{label}</span>
         {task ? <p className="line-clamp-2 break-words whitespace-pre-wrap">{task}</p> : null}
       </div>
+      <ChildModelMark modelId={modelId} />
     </div>
   );
 }
@@ -262,7 +287,12 @@ export const SubagentExecutionCard = ({
         }
         verb={delegationVerb(stepState, childRun, presentation?.displayName ?? label)}
       />
-      <SubagentTaskSummary label={label} presentation={presentation} task={task} />
+      <SubagentTaskSummary
+        label={label}
+        modelId={childRun?.status === 'unavailable' ? undefined : childRun?.modelId}
+        presentation={presentation}
+        task={task}
+      />
       <SubagentApprovalHistory approvals={approvalHistory} colorId={presentation?.colorId} />
       {navigationError ? (
         <p className="border-border text-destructive border-t px-3 py-2 text-xs" role="alert">

@@ -9,7 +9,6 @@ import {
 
 const providerGroups: ProviderGroupConfig[] = [
   {
-    label: 'Hosted',
     providers: [
       {
         capabilities: {
@@ -90,7 +89,6 @@ const providerGroups: ProviderGroupConfig[] = [
     runtime: 'hosted',
   },
   {
-    label: 'Gateway',
     providers: [
       {
         capabilities: {
@@ -122,43 +120,28 @@ const providerGroups: ProviderGroupConfig[] = [
 
 const pickerModels: ModelPickerModel[] = [
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
-    contextWindow: 1_050_000,
-    description: 'Most capable for everyday work',
+    capabilities: { reasoning: 'supported', vision: 'supported' },
     id: 'gpt-5.6-terra',
-    name: 'GPT-5.6 Terra',
     providerId: 'openai',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'unsupported' },
-    contextWindow: 400_000,
-    description: null,
+    capabilities: { reasoning: 'supported', vision: 'unsupported' },
     id: 'shared-model-id',
-    name: 'Shared (OpenAI)',
     providerId: 'openai',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
-    contextWindow: 1_000_000,
-    description: 'Best mix of smarts and speed',
+    capabilities: { reasoning: 'supported', vision: 'supported' },
     id: 'claude-sonnet-5',
-    name: 'Claude Sonnet 5',
     providerId: 'anthropic',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'unsupported' },
-    contextWindow: 400_000,
-    description: null,
+    capabilities: { reasoning: 'supported', vision: 'unsupported' },
     id: 'shared-model-id',
-    name: 'Shared (Anthropic)',
     providerId: 'anthropic',
   },
   {
-    capabilities: { reasoning: 'supported', streaming: true, type: 'llm', vision: 'supported' },
-    contextWindow: 1_048_576,
-    description: null,
+    capabilities: { reasoning: 'supported', vision: 'supported' },
     id: 'moonshotai/kimi-k3',
-    name: 'Kimi K3 (OpenRouter)',
     providerId: 'openrouter',
   },
 ];
@@ -210,7 +193,12 @@ describe('buildComposerPickerSections — empty query', () => {
     const sections = buildComposerPickerSections(base);
     const all = sections.groups.flatMap((group) => keys(group.entries));
     expect(all).not.toContain('openrouter::deepseek/deepseek-v4.1-flash');
-    expect(sections.groups[0]).toMatchObject({ providerId: 'openai', runtimeLabel: 'Hosted' });
+    expect(sections.groups.map((group) => group.providerId)).toEqual([
+      'openai',
+      'anthropic',
+      'bedrock',
+      'openrouter',
+    ]);
     expect(sections.matches).toEqual([]);
     expect(sections.notEnabled).toEqual([]);
   });

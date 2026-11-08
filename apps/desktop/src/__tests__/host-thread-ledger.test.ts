@@ -64,11 +64,11 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
   );
   // Commit times read as the ledger row's dates.
   expect(runs.find((run) => run.threadId === threadId && run.runId === runId)).toEqual({
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     completedAt: new Date(finished?.ts ?? 0),
     durationMs: (finished?.ts ?? 0) - (first.ts ?? 0),
     editCount: 0,
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     // $3 input / $15 output per million tokens.
     estimatedCostUsd: expect.closeTo((2 * 3 + 50 * 15) / 1e6, 12),
     estimatedInputTokens: 2,
@@ -94,8 +94,6 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
   expect(rootUsage).toEqual([
     {
       checkoutBranch: null,
-      estimatedCacheCreationTokens: 0,
-      estimatedCacheReadTokens: 0,
       estimatedCostUsd: expect.closeTo((8 * 3 + 200 * 15) / 1e6, 12),
       estimatedInputTokens: 8,
       estimatedOutputTokens: 200,

@@ -26,12 +26,13 @@ import type {
   AssistantProviderSettingsMap,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
-import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
+import type { ModelPickerModel } from '@brainstrike/ui';
 import { DiagramFullSizeContainerContext } from '@brainstrike/ui/diagram-full-size-container';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
 import { ControlsMenu } from './assistant-controls-menu';
+import { AssistantGenerationMark } from './assistant-generation-mark';
 import { AssistantMessageError } from './assistant-message-error';
 import { AssistantMessageText } from './assistant-message-text';
 import {
@@ -54,7 +55,8 @@ import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './compose
 import { ComposerEffortControl } from './composer-effort-control';
 import { ComposerImageDropShell } from './composer-image-drop';
 import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from './composer-input';
-import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-picker';
+import { ComposerModelPicker } from './composer-model-picker';
+import { modelIdFromCompositeKey } from './composer-picker-sections';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
 import {
   type CumulativeUsageDisplay,
@@ -87,7 +89,7 @@ export type { ComposerAttachmentsAvailability } from './composer-input';
 export { USER_ACTION_BAR_CLASSNAME, UserActionBar, UserMessage } from './user-message';
 
 // Re-export types needed by consumers
-export type { ModelPickerModel, ModelPickerProvider };
+export type { ModelPickerModel };
 
 export interface ProviderConfig {
   defaultModel: string;
@@ -105,6 +107,8 @@ export interface ProviderModelOptionConfig {
   label: string;
   supportsStreaming?: boolean;
   type: 'llm';
+  /** The model's maker from its catalog row; absent for an uncatalogued model. */
+  vendor?: { readonly id: string; readonly name: string } | undefined;
 }
 
 export interface ProviderOptionConfig {
@@ -118,7 +122,6 @@ export interface ProviderOptionConfig {
 }
 
 export interface ProviderGroupConfig {
-  label: string;
   providers: ProviderOptionConfig[];
   runtime: ProviderRuntimeCategory;
 }
@@ -546,6 +549,8 @@ const AssistantMessage = () => {
       data-message-id={messageId}
       tabIndex={-1}
     >
+      {/* The maker mark of the model that wrote this message, with its run's details. */}
+      <AssistantGenerationMark className="col-start-1 row-start-1 mt-1.5 mr-2" />
       <div className="aui-assistant-message-content text-foreground col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl leading-6 break-words">
         {/* Grouped rendering (activity groups + text + data parts) lives in
             assistant-activity-parts.tsx; see its header for the grouping rule. */}

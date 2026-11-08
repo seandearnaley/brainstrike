@@ -118,12 +118,12 @@ describe('catalog column layouts', () => {
 });
 
 describe('catalog model rows', () => {
-  it('renders one line: switch, name, tag, tagline, capabilities, context, max out and price', () => {
+  it('renders one line: switch, mark, name, tag, capabilities, context, max out and price', () => {
     renderRows([TERRA]);
     const cell = screen.getByTestId('model-row-gpt-5.6-terra');
     expect(within(cell).getByText('GPT-5.6 Terra')).toHaveAttribute('title', 'gpt-5.6-terra');
     expect(within(cell).getByText('Recommended')).toBeInTheDocument();
-    expect(within(cell).getByText('Most capable for everyday work')).toBeInTheDocument();
+    expect(within(cell).queryByText('Most capable for everyday work')).not.toBeInTheDocument();
     expect(screen.getByText('1,050,000 token context window')).toBeInTheDocument();
     expect(screen.getByText('128,000 token max output')).toBeInTheDocument();
     expect(screen.getByText('input $2.50, output $15 per million tokens')).toBeInTheDocument();
@@ -265,13 +265,26 @@ describe('catalog model rows', () => {
     );
   });
 
-  it('hides Max out and Price at the narrow tier, and the tagline when showTagline is off', () => {
-    renderRows([makeCatalogRow({ id: 'm', name: 'M', tagline: 'A tagline' })], {
-      actions: { showTagline: false },
-      tier: 'narrow',
-    });
+  it('hides Max out and Price at the narrow tier', () => {
+    renderRows([makeCatalogRow({ id: 'm', name: 'M' })], { tier: 'narrow' });
     expect(screen.queryByText(/token max output/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/per million tokens/u)).not.toBeInTheDocument();
+  });
+
+  it("marks a row with its model's maker and route, and shows no tagline", () => {
+    renderRows([
+      makeCatalogRow({
+        id: 'anthropic/claude-opus-5.5',
+        name: 'Claude Opus 5.5 (OpenRouter)',
+        providerId: 'openrouter',
+        providerName: 'OpenRouter',
+        tagline: 'A tagline',
+        vendor: { id: 'anthropic', name: 'Anthropic' },
+      }),
+    ]);
+    const row = screen.getByTestId('model-row-anthropic/claude-opus-5.5');
+    const mark = within(row).getByRole('img', { name: 'Anthropic via OpenRouter' });
+    expect(mark).toHaveAttribute('data-model-mark', 'anthropic');
     expect(screen.queryByText('A tagline')).not.toBeInTheDocument();
   });
 

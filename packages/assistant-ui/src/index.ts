@@ -112,6 +112,12 @@ export {
   useCheckpointTurnRevert,
 } from './edit-checkpoint-context';
 export { FollowUpQueueChips, QueueFollowUpButton } from './follow-up-queue';
+export {
+  type GenerationDetails,
+  GenerationDetailsProvider,
+  type GenerationDetailsSource,
+  type GenerationTokens,
+} from './generation-details-context';
 export { LiveShellOutputs } from './live-shell-outputs';
 export {
   McpTaskBridgeProvider,

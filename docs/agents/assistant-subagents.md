@@ -16,7 +16,9 @@ Owners: [child admission](../../packages/agent-host/src/child-runs.ts), [persona
 - Freeze the persona instructions, catalog and executable identities for the admitted run.
   - Later settings can't widen it or replace a paused call's authority.
   - Live root grants can release child asks; later reductions and denies still apply.
-- Children inherit the admitted parent model. Model-pinned personas refuse explicitly (`persona.model-pinned`); never substitute another model.
+- A child runs on its persona's pinned model, else the allowed model its delegation names, else its parent's admitted model ([ADR-0037](../adr/0037-subagents-choose-their-model.md)).
+  - A child on another model is admitted on it through `acquireHostRunAdmission`, with the platform's `childConfiguration`; its run and thread selection commit its own model.
+  - One the host cannot admit is refused to the parent's model; never substitute another model.
 - Delegation is unavailable in plan mode.
 - Child system context is host-projected. The delegated prompt is task input, not authority over system instructions, credentials or tool scope.
 
@@ -31,7 +33,7 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - All descendants share the turn's work queue.
   - Model streams and tool execution hold permits; delegation and approval waits hold none.
   - Each child has its own execution watchdog, and its last model step is reserved for a tool-free summary.
-  - A descendant at any depth prepares each step from the root's provider, never by wrapping its parent's, so one step holds one permit and follows only its own persona's step rules.
+  - A descendant at any depth prepares each step from its model's provider (the root's, or the admission of the nearest ancestor on another model), never by wrapping its parent's, so one step holds one permit and follows only its own persona's step rules.
 - Root delegation defaults to background unless inline is requested; nested delegation runs inline.
 - The parent's model receives the bounded child result; the child's full transcript and artifacts stay in its own log with original usage attribution.
 - Starting work never proves completion.

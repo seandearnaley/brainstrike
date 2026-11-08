@@ -1,6 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { readDesktopRunConfiguration } from '@brainstrike/agent-host/desktop-run-configuration';
 import {
+  billedCostOf,
   catalogModel,
   observerUsageModel,
   STATUS_BY_OUTCOME,
@@ -157,6 +158,12 @@ function transcript(rows: readonly HostLogRow[]): ThreadDebugBundleData['message
   return messages.slice(-TRANSCRIPT_MESSAGES);
 }
 
+/** What the provider billed for a call, as the bundle writes it; null when it billed none. */
+function billedUsd(model: ReturnType<typeof catalogModel>, usage: unknown): string | null {
+  const billed = model ? billedCostOf(model, usage) : undefined;
+  return billed === undefined ? null : String(billed);
+}
+
 /** The run's provider calls; an observer call whose id names no provider says so. */
 function usage(
   rows: readonly HostLogRow[],
@@ -190,7 +197,7 @@ function usage(
     const tokens = tokensOf(call.usage);
     return [
       {
-        billedCostUsd: null,
+        billedCostUsd: billedUsd(call.model, call.usage),
         inputTokens: tokens.inputTokens,
         model: call.model?.model ?? call.modelId,
         outputTokens: tokens.outputTokens,

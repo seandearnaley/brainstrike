@@ -19,11 +19,14 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 interface AssistantSubagentPreferencesData {
+  /** ADR-0037: the `provider::model` IDs a delegation may name; none by default. */
+  models: readonly string[];
   settings: RuntimeSubagentSettings;
 }
 
 interface AssistantSubagentPreferencesActions {
-  resetToDefaults: () => void;
+  /** The limits only; the allowed models stay. */
+  resetLimits: () => void;
   /** `null` turns the limit Off. */
   setMaxChildRuntimeMs: (value: number | null) => void;
   setMaxChildSteps: (value: number) => void;
@@ -32,6 +35,7 @@ interface AssistantSubagentPreferencesActions {
   setMaxInvocations: (value: number) => void;
   /** `null` turns the limit Off. */
   setMaxStepOutputTokens: (value: number | null) => void;
+  setModels: (models: readonly string[]) => void;
   /** `null` turns the limit Off. */
   setSynthesisOutputTokens: (value: number | null) => void;
 }
@@ -44,7 +48,14 @@ export const ASSISTANT_SUBAGENT_PREFERENCES_STORE_NAME =
 const STORE_VERSION = 4 as const;
 
 function defaultData(): AssistantSubagentPreferencesData {
-  return { settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS };
+  return { models: [], settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS };
+}
+
+/** Saved model IDs: a list of non-empty strings, or none. */
+function savedModels(value: unknown): readonly string[] {
+  return Array.isArray(value) && value.every((id) => typeof id === 'string' && id.length > 0)
+    ? [...new Set(value as string[])]
+    : [];
 }
 
 /** Persisted-payload sanitizer: anything the contract rejects → defaults. */
@@ -52,9 +63,12 @@ function sanitizePersistedData(persistedState: unknown): AssistantSubagentPrefer
   if (!(persistedState && typeof persistedState === 'object')) {
     return defaultData();
   }
-  const candidate = (persistedState as { settings?: unknown }).settings;
+  const { models, settings: candidate } = persistedState as {
+    models?: unknown;
+    settings?: unknown;
+  };
   try {
-    return { settings: parseRuntimeSubagentSettings(candidate) };
+    return { models: savedModels(models), settings: parseRuntimeSubagentSettings(candidate) };
   } catch (error) {
     if (error instanceof RuntimeSubagentSettingsError) {
       return defaultData();
@@ -117,13 +131,14 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
       };
       return {
         ...defaultData(),
-        resetToDefaults: () => set(defaultData()),
+        resetLimits: () => set({ settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS }),
         setMaxChildRuntimeMs: (value) => patch('maxChildRuntimeMs', value),
         setMaxChildSteps: (value) => patch('maxChildSteps', value),
         setMaxConcurrentWork: (value) => patch('maxConcurrentWork', value),
         setMaxDepth: (value) => patch('maxDepth', value),
         setMaxInvocations: (value) => patch('maxInvocations', value),
         setMaxStepOutputTokens: (value) => patch('maxStepOutputTokens', value),
+        setModels: (models) => set({ models: savedModels(models) }),
         setSynthesisOutputTokens: (value) => patch('synthesisOutputTokens', value),
       };
     },
@@ -131,7 +146,7 @@ export const useAssistantSubagentPreferencesStore = create<AssistantSubagentPref
       merge: createSanitizedPersistMerge(sanitizePersistedData),
       migrate: (persistedState, version) =>
         sanitizePersistedData(migratePersistedData(persistedState, version)),
-      partialize: (state) => ({ settings: state.settings }),
+      partialize: (state) => ({ models: state.models, settings: state.settings }),
       version: STORE_VERSION,
     }
   )

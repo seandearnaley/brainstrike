@@ -63,6 +63,63 @@ interface CatalogModel {
   readonly model: string;
   readonly provider: string;
 }
+const Usd = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+/**
+ * OpenRouter's usage accounting, which the AI SDK keeps on the step's usage as
+ * the provider sent it (`raw`). `cost` is what OpenRouter charged; for a BYOK
+ * call the provider also bills its own key `upstream_inference_cost`.
+ * https://openrouter.ai/docs/use-cases/usage-accounting
+ */
+const OpenRouterUsageSchema = Schema.Struct({
+  raw: Schema.optional(
+    Schema.Struct({
+      cost: Schema.optional(Usd),
+      // biome-ignore lint/style/useNamingConvention: OpenRouter's usage key.
+      cost_details: Schema.optional(
+        Schema.NullOr(
+          Schema.Struct({
+            // biome-ignore lint/style/useNamingConvention: OpenRouter's usage key.
+            upstream_inference_cost: Schema.optional(Schema.NullOr(Usd)),
+          })
+        )
+      ),
+      // biome-ignore lint/style/useNamingConvention: OpenRouter's usage key.
+      is_byok: Schema.optional(Schema.Boolean),
+    })
+  ),
+});
+const malformedBilledCosts = new Set<string>();
+/**
+ * What the provider billed for one call; undefined when it reported no full
+ * amount, so the call is priced from the catalog instead. A malformed report
+ * is never a number: it is logged (once per model) and the call estimated.
+ */
+export function billedCostOf(model: CatalogModel, usage: unknown): number | undefined {
+  if (model.provider !== 'openrouter') {
+    return;
+  }
+  const parsed = Schema.decodeUnknownResult(OpenRouterUsageSchema)(usage);
+  if (parsed._tag === 'Failure') {
+    const modelId = `${model.provider}::${model.model}`;
+    if (!malformedBilledCosts.has(modelId)) {
+      malformedBilledCosts.add(modelId);
+      logger.error('Provider reported a malformed billed cost; the call is estimated', {
+        code: 'provider_billed_cost_malformed',
+        modelId,
+      });
+    }
+    return;
+  }
+  const raw = parsed.success.raw;
+  if (raw?.cost === undefined) {
+    return;
+  }
+  if (raw.is_byok !== true) {
+    return raw.cost;
+  }
+  const upstream = raw.cost_details?.upstream_inference_cost;
+  return upstream === undefined || upstream === null ? undefined : raw.cost + upstream;
+}
 /** One provider call's list-price cost and what its cache saved; null when the model is unpriced. */
 interface CallCost {
   readonly cacheSavingsUsd: number | null;
@@ -134,10 +191,13 @@ type RunRoot = Pick<
   'checkoutBranch' | 'localRootId' | 'rootDisplayName' | 'rootId'
 >;
 interface RunFold {
+  billedCostUsd: number | undefined;
   cacheReadTokens: number;
   cacheWriteTokens: number;
   completedAt: number | null;
   editCount: number;
+  /** The tokens of calls the provider billed no amount for: priced from the catalog. */
+  readonly estimated: { inputTokens: number; outputTokens: number };
   estimatedCostUsd: number | null;
   failedToolCallCount: number;
   inputTokens: number;
@@ -267,15 +327,15 @@ export class ThreadLedgerFold {
     }
     run.toolCalls.apply(event);
     if (event.type === 'model.step') {
-      this.count(run, row, run, tokensOf(event.usage), 'chat');
+      this.count(run, row, run, event.usage, 'chat');
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
       const model = observerUsageModel(event.modelId);
-      this.count(run, row, model, tokensOf(event.usage), MEMORY_USAGE_KIND[event.kind]);
+      this.count(run, row, model, event.usage, MEMORY_USAGE_KIND[event.kind]);
     } else if (event.type === 'context.compacted' && event.usage !== undefined) {
       // A compaction summarizer's side call, when one ran, costs like Memory's.
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
-      this.count(run, row, model, tokensOf(event.usage), 'compaction-summary');
+      this.count(run, row, model, event.usage, 'compaction-summary');
     } else if (event.type === 'stream.chunk') {
       countToolError(run, event.chunk);
     } else if (event.type === 'run.finished') {
@@ -348,10 +408,12 @@ export class ThreadLedgerFold {
     const focusedRootId = configuration?.intent?.selectionFolderId;
     this.runs.set(event.runId, {
       ...model,
+      billedCostUsd: undefined,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       completedAt: null,
       editCount: 0,
+      estimated: { inputTokens: 0, outputTokens: 0 },
       estimatedCostUsd: 0,
       failedToolCallCount: 0,
       inputTokens: 0,
@@ -385,9 +447,10 @@ export class ThreadLedgerFold {
     run: RunFold,
     row: HostLogRow,
     model: CatalogModel | undefined,
-    tokens: Tokens,
+    usage: unknown,
     kind: AssistantRunUsageKind
   ): void {
+    const tokens = tokensOf(usage);
     run.inputTokens += tokens.inputTokens;
     run.outputTokens += tokens.outputTokens;
     run.cacheReadTokens += tokens.cacheReadTokens;
@@ -397,10 +460,12 @@ export class ThreadLedgerFold {
     }
     // Each call is priced under its own model: an observer's call is not the run's.
     const { cacheSavingsUsd, costUsd } = costOfCall(model, tokens);
-    run.estimatedCostUsd = addCost(run.estimatedCostUsd, costUsd);
+    // A billed call costs what the provider billed; only the rest is estimated.
+    const billedCostUsd = billedCostOf(model, usage);
     if (row.ts !== undefined) {
       this.usage.push({
         at: row.ts,
+        ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
         costUsd,
         model: model.model,
         provider: model.provider,
@@ -413,26 +478,30 @@ export class ThreadLedgerFold {
     subtotal.outputTokens += tokens.outputTokens;
     subtotal.cacheReadTokens += tokens.cacheReadTokens;
     subtotal.cacheCreationTokens += tokens.cacheWriteTokens;
-    subtotal.estimatedInputTokens += tokens.inputTokens;
-    subtotal.estimatedOutputTokens += tokens.outputTokens;
-    subtotal.estimatedCacheReadTokens += tokens.cacheReadTokens;
-    subtotal.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
-    subtotal.estimatedCostUsd = addCost(subtotal.estimatedCostUsd, costUsd);
     if (tokens.cacheReadTokens + tokens.cacheWriteTokens > 0) {
       subtotal.cacheSavingsUsd = addCost(subtotal.cacheSavingsUsd ?? 0, cacheSavingsUsd);
     }
-    this.bySource.set(key, subtotal);
     this.perModelSnapshot = undefined;
     const rootKey = rootUsageKey(run.root, model);
     const rootUsage = this.byRoot.get(rootKey) ?? emptyRootUsage(run.root, model);
     rootUsage.inputTokens += tokens.inputTokens;
     rootUsage.outputTokens += tokens.outputTokens;
-    rootUsage.estimatedInputTokens += tokens.inputTokens;
-    rootUsage.estimatedOutputTokens += tokens.outputTokens;
-    rootUsage.estimatedCacheReadTokens += tokens.cacheReadTokens;
-    rootUsage.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
-    rootUsage.estimatedCostUsd = addCost(rootUsage.estimatedCostUsd, costUsd);
+    this.bySource.set(key, subtotal);
     this.byRoot.set(rootKey, rootUsage);
+    if (billedCostUsd !== undefined) {
+      run.billedCostUsd = (run.billedCostUsd ?? 0) + billedCostUsd;
+      subtotal.billedCostUsd = (subtotal.billedCostUsd ?? 0) + billedCostUsd;
+      rootUsage.billedCostUsd = (rootUsage.billedCostUsd ?? 0) + billedCostUsd;
+      return;
+    }
+    run.estimated.inputTokens += tokens.inputTokens;
+    run.estimated.outputTokens += tokens.outputTokens;
+    run.estimatedCostUsd = addCost(run.estimatedCostUsd, costUsd);
+    for (const share of [subtotal, rootUsage]) {
+      share.estimatedInputTokens += tokens.inputTokens;
+      share.estimatedOutputTokens += tokens.outputTokens;
+      share.estimatedCostUsd = addCost(share.estimatedCostUsd, costUsd);
+    }
   }
 }
 function rootUsageKey(root: RunRoot, model: CatalogModel): string {
@@ -447,8 +516,6 @@ function rootUsageKey(root: RunRoot, model: CatalogModel): string {
 }
 function emptyRootUsage(root: RunRoot, model: CatalogModel): Mutable<LedgerRootUsage> {
   return {
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     estimatedCostUsd: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
@@ -466,8 +533,6 @@ function emptySubtotal(
   return {
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
-    estimatedCacheCreationTokens: 0,
-    estimatedCacheReadTokens: 0,
     estimatedCostUsd: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
@@ -510,23 +575,24 @@ export function mergeRootUsage(
     total.outputTokens += usage.outputTokens;
     total.estimatedInputTokens += usage.estimatedInputTokens;
     total.estimatedOutputTokens += usage.estimatedOutputTokens;
-    total.estimatedCacheReadTokens += usage.estimatedCacheReadTokens;
-    total.estimatedCacheCreationTokens += usage.estimatedCacheCreationTokens;
     total.estimatedCostUsd = addCost(total.estimatedCostUsd, usage.estimatedCostUsd);
+    if (usage.billedCostUsd !== undefined) {
+      total.billedCostUsd = (total.billedCostUsd ?? 0) + usage.billedCostUsd;
+    }
   }
   return [...merged.values()].sort(compareRootUsage);
 }
 function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun {
   return {
+    ...(run.billedCostUsd === undefined ? {} : { billedCostUsd: run.billedCostUsd }),
+    cacheCreationTokens: run.cacheWriteTokens,
+    cacheReadTokens: run.cacheReadTokens,
     completedAt: run.completedAt,
     durationMs: run.completedAt === null ? null : run.completedAt - run.startedAt,
     editCount: run.editCount,
-    // The host records no provider-billed cost: every token is estimated.
-    estimatedCacheCreationTokens: run.cacheWriteTokens,
-    estimatedCacheReadTokens: run.cacheReadTokens,
     estimatedCostUsd: run.estimatedCostUsd,
-    estimatedInputTokens: run.inputTokens,
-    estimatedOutputTokens: run.outputTokens,
+    estimatedInputTokens: run.estimated.inputTokens,
+    estimatedOutputTokens: run.estimated.outputTokens,
     failedToolCallCount: run.failedToolCallCount,
     inputTokens: run.inputTokens,
     model: run.model,

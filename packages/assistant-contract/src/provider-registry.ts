@@ -1,3 +1,4 @@
+import type { ModelVendorId } from './model-vendors.ts';
 import providerCatalog from './provider-catalog.json' with { type: 'json' };
 import { parseProviderCatalog } from './provider-catalog-schema.ts';
 import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.ts';
@@ -254,6 +255,12 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   tokenMeasurement?: TokenizerBackedMeasurementCapability;
   type: 'llm';
   /**
+   * Who made the model, whichever route serves it: `anthropic` for Claude on
+   * Anthropic's API, OpenRouter and Bedrock alike. REQUIRED and declared per
+   * row; never read from the model ID's prefix.
+   */
+  vendor: ModelVendorId;
+  /**
    * Image-input support. REQUIRED: adding a model without it is a compile
    * error — this gates the composer attachment affordance per selected model.
    * Declare the capability of the route actually used (e.g. a gateway route
@@ -463,6 +470,12 @@ export function findLlmModelDefinition(
     return;
   }
   return provider.models.find((definition) => definition.id === modelId);
+}
+
+/** A catalogued model's maker; undefined for a model the catalog doesn't list. */
+export function findModelVendor(providerId: string, modelId: string): ModelVendorId | undefined {
+  return findProviderDefinition(providerId)?.models.find((definition) => definition.id === modelId)
+    ?.vendor;
 }
 
 /** A catalogued model's label, else its raw id. */

@@ -21,6 +21,7 @@ import type {
   ToolRiskCategory,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
+import type { ChildEffort, ChildModelTarget } from '@brainstrike/assistant-contract/child-model';
 import type {
   AssistantContextBreakdown,
   PromptToolCallWindow,
@@ -544,7 +545,20 @@ export interface HostMcpRuntime {
  * resolved by the existing settings owner for this admission. HostCore owns
  * the `agent-<persona>` tools built from it and dispatches them itself.
  */
+/** A catalog model a delegation may name (ADR-0037), with the efforts it accepts. */
+export interface HostDelegationModel {
+  readonly efforts: readonly ChildEffort[];
+  /** `provider::model`. */
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface HostDelegation {
+  /**
+   * The models a person allowed delegations to name; absent or empty, a
+   * delegation runs on its persona's pin or its parent's model.
+   */
+  readonly models?: readonly HostDelegationModel[] | undefined;
   readonly personas: readonly AssistantPersonaDefinition[];
   readonly settings: RuntimeSubagentSettings;
 }
@@ -885,6 +899,17 @@ export interface HostPlatform {
   attachThreadReads?(reads: HostThreadReads): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
+  /**
+   * ADR-0037: the run configuration a delegated child on `target` is admitted
+   * with, from its parent run's own: the same intent with the child's model
+   * and generation options in place of the parent's. Throws for a parent
+   * configuration that cannot carry another model. Absent, every child runs
+   * on its parent's model.
+   */
+  childConfiguration?(
+    configuration: HostRunSnapshot['configuration'] | undefined,
+    target: ChildModelTarget
+  ): HostRunSnapshot['configuration'];
   close(): Promise<void>;
   /**
    * The command sessions this host's runs start that end by themselves, until
