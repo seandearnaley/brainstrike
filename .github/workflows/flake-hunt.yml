@@ -5,9 +5,9 @@
 # of the nightlies a release must pass (scripts/release-required-workflows.mjs):
 # a flake it finds is a defect to fix, not a broken build.
 #
-# Three times a batch's tests is about 80-130 runner-minutes on
-# ubicloud-standard-4, $0.20-0.35 a night. It starts in the quiet hours before
-# nightly.yml, when no batch needs the runners.
+# Three times a batch's tests is about 80-130 runner-minutes on GitHub-hosted
+# runners, free on a public repository. It starts in the quiet hours before
+# nightly.yml, when no batch needs the account's concurrent-job slots.
 
 name: Flake Hunt
 

@@ -76,7 +76,7 @@
    - **macOS builds each arch natively (BST-2148).** arm64 on `macos-15`, x64 on `macos-15-intel`: the Native Package Matrix's darwin targets in `scripts/native-package-targets.mjs`.
      - pnpm installs only the host's platform packages and node-gyp compiles the workspace addons for the host, so a leg first asserts its runner is its target.
      - Each leg runs its own signing-evidence gate and smoke test, including `apps/desktop/scripts/verify-macos-addon-archs.mjs`: every Mach-O addon in the app must carry the DMG's arch, or name the other darwin arch with its target sibling present.
-   - **Linux builds x64 and arm64 AppImages, each natively (BST-2190).** Each leg runs on a Ubicloud runner of its arch (`ubicloud-standard-4`, `ubicloud-standard-4-arm`) and asserts its runner is its target.
+   - **Linux builds x64 and arm64 AppImages, each natively (BST-2190).** Each leg runs on a GitHub-hosted runner of its arch (`ubuntu-24.04`, `ubuntu-24.04-arm`) and asserts its runner is its target.
      - Each AppImage is named `Brainstrike-<version>-linux-<arch>.AppImage`, overriding `linux.artifactName`, whose x64 literal exists because electron-builder's `${arch}` names an x64 AppImage `x86_64`.
      - Keep one release leg per Native Package Matrix target, and make sure the manifest names every leg's asset.
 3. Sign and notarize the final macOS DMGs' apps. Windows ships unsigned until Authenticode (Azure Trusted Signing) lands; Linux publishes a SHA-256 digest. Once signing credentials are configured, the pipeline fails if required signing evidence is absent; a matrix is never half-signed.

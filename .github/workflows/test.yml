@@ -405,15 +405,14 @@ jobs:
     name: Unit (${{ matrix.shard }})
     if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0'
     needs: [ admission, unit-plan ]
-    # The Unit matrix runs on the same explicit 4-vCPU/16-GB Ubicloud class as
-    # the other Linux x64 jobs. GitHub's hosted ARM pool terminated the `rest`
-    # shard without a test assertion on five consecutive attempts across two
-    # exact PR heads (runs 30158896583 and 30175303301, 2026-07-25). Moving the
-    # complete matrix keeps one fixed runner contract — no per-shard selection
-    # and no automatic fallback — while preserving every test, filter, and the
-    # required `Unit` fan-in below. `.turbo` cache keys include `runner.arch`,
-    # so this cannot cross-restore an incompatible ARM cache layer.
-    runs-on: ubicloud-standard-4
+    # The Unit matrix runs on GitHub's standard x64 runner (4 vCPU/16 GB on a
+    # public repository), like the other Linux x64 jobs. GitHub's hosted ARM
+    # pool terminated the `rest` shard without a test assertion on five
+    # consecutive attempts across two exact PR heads (runs 30158896583 and
+    # 30175303301, 2026-07-25), so the whole matrix stays on x64: one runner,
+    # no per-shard selection and no fallback. `.turbo` cache keys include
+    # `runner.arch`, so this cannot cross-restore an incompatible ARM cache layer.
+    runs-on: ubuntu-24.04
     # Desktop has six native Vitest shards, Agent and App Shell two each;
     # Heavy runs ui and file-explorer-ui, Assistant takes assistant-ui, Store
     # takes settings-ui and state-store (the three together took 16 minutes on a
@@ -849,7 +848,7 @@ jobs:
     name: Build
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [ admission ]
-    runs-on: ubicloud-standard-4
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Require successful admission
@@ -893,7 +892,7 @@ jobs:
     name: Native Electron Package
     if: needs.admission.outputs.admitted == 'true' && !inputs.nightly
     needs: [ admission ]
-    runs-on: ubicloud-standard-4
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -998,12 +997,9 @@ jobs:
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [ admission ]
-    # Cost-first runner migration (2026-08-28): this lane used 1,928 rounded
-    # GitHub Linux minutes in the 7.76-day audit. The same pinned Playwright
-    # container contract is already green in the Ubicloud Web E2E job, and the
-    # explicit 4-vCPU shape matches TURBO_CONCURRENCY below. There is no
-    # provider fallback: allocation must queue or fail visibly.
-    runs-on: ubicloud-standard-4
+    # GitHub's standard x64 runner has 4 vCPU on a public repository, matching
+    # TURBO_CONCURRENCY below.
+    runs-on: ubuntu-24.04
     # Same official Playwright image + pin as Web E2E — browsers baked in, no
     # cdn.playwright.dev download at job time. KEEP IN SYNC: the image tag MUST
     # equal @playwright/test's version (scripts/verify-playwright-pin-sync.mjs

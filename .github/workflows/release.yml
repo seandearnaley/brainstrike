@@ -20,14 +20,12 @@ name: Release
 # commit tried. A dispatch with no `sha` builds the newest all-green main commit
 # of the last 14 days, or fails saying so.
 #
-# Runner placement: Linux packaging runs on Ubicloud per the repo's cost
-# direction. Ubicloud offers Linux (x64/arm64) only, so the macOS and Windows
-# legs stay on GitHub-hosted runners — there is no Ubicloud option for them.
-# Each macOS arch builds on a runner of that arch, the Native Package Matrix's
-# darwin targets (BST-2148): pnpm installs only the host's platform packages
-# and node-gyp compiles for the host, so a cross-built x64 DMG shipped
-# arm64-only addons. Linux x64 and arm64 do the same on Ubicloud runners of
-# their arch (BST-2190): one leg per target in scripts/native-package-targets.mjs.
+# Runner placement: every leg runs on a GitHub-hosted standard runner, free on
+# a public repository. Each macOS arch builds on a runner of that arch, the
+# Native Package Matrix's darwin targets (BST-2148): pnpm installs only the
+# host's platform packages and node-gyp compiles for the host, so a cross-built
+# x64 DMG shipped arm64-only addons. Linux x64 and arm64 do the same on runners
+# of their arch (BST-2190): one leg per target in scripts/native-package-targets.mjs.
 #
 # Publication ordering (deliberate, do not reorder):
 #   1. build + smoke-test + hash on every target OS
@@ -543,12 +541,10 @@ jobs:
   build-linux:
     name: Build Linux (${{ matrix.arch }})
     needs: [ resolve, context ]
-    # One leg per arch, each on a Ubicloud runner OF that arch, the Native
-    # Package Matrix's linux targets (scripts/native-package-targets.mjs): as on
-    # macOS, pnpm installs only the host's platform packages and node-gyp
-    # compiles for the host. ubicloud-standard-4-arm is the 4-vCPU/12-GB Arm
-    # shape; the 2-vCPU one has 6 GB (docs/superpowers/research/
-    # 2026-08-28-ubicloud-github-actions-runners.md).
+    # One leg per arch, each on a runner OF that arch, the Native Package
+    # Matrix's linux targets (scripts/native-package-targets.mjs): as on macOS,
+    # pnpm installs only the host's platform packages and node-gyp compiles for
+    # the host.
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     strategy:
@@ -557,9 +553,9 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: ubicloud-standard-4
+            runner: ubuntu-24.04
           - arch: arm64
-            runner: ubicloud-standard-4-arm
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v7
