@@ -31,7 +31,7 @@
     "./assistant-memory-resource": "./src/assistant-memory-resource.ts",
     "./model-pricing": "./src/cost-tracking/model-pricing.ts"
   },
-  "license": "ISC",
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.3.0",
     "zustand": "^5"

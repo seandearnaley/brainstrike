@@ -28,7 +28,7 @@
     ".": "./src/index.ts",
     "./file-content-worker": "./src/file-content-worker.ts"
   },
-  "license": "ISC",
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.3.0"
   },

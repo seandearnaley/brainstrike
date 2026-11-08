@@ -29,7 +29,7 @@
     "./selection": "./src/selection.ts",
     "./testing": "./src/testing.ts"
   },
-  "license": "ISC",
+  "license": "MIT",
   "peerDependencies": {
     "react": "^19.3.0",
     "zustand": "^5"
