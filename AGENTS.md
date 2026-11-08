@@ -70,16 +70,16 @@ The merge queue is the gate (owner decision 2026-10-27). `main` lands only throu
   - Run lint, type-check and tests for the packages you touched (`pnpm test:affected`), plus the E2E specs for the feature you changed.
   - Report exactly what ran.
 - Open the PR ready for review once those pass.
-  - Mergify queues a ready PR by itself once Claude Review has run on its head and every review thread is resolved (`.mergify.yml`).
+  - Mergify queues a ready PR by itself once CodeRabbit has approved its latest commit and every review thread is resolved (`.mergify.yml`).
   - Confirm Mergify reports it queued (Merge Queue check in progress); an unqueued PR with green CI never merges.
-  - The Mergify Merge Protections check names any open thread; a missing or failed Claude Review keeps the PR out, even when queued by hand.
+  - The Mergify Merge Protections check names any open thread; a missing CodeRabbit approval keeps the PR out, even when queued by hand.
   - To queue by hand (e.g. a fork PR), tick "Queue this pull request" in Mergify's comment or comment `@mergifyio queue`.
   - Agents using the GitHub connector or API must tick the box (edit `- [ ]` to `- [x]`); their queue comment arrives defanged and Mergify ignores it.
-- Review threads (Claude, Codex or a person):
+- Review threads (CodeRabbit, Codex or a person):
   - Fix with a push, or reply with why it stands, then resolve the thread; a reply alone doesn't resolve it.
-  - Claude's follow-up review resolves its own thread when it judges the push fixed it.
+  - CodeRabbit's next review resolves its own thread when the push fixed it.
   - A thread posted after queueing holds the merge too, so a fix never needs a draft.
-  - A failed Claude Review holds the PR: report it to the owner with its run; don't rerun it.
+  - A failed or rate-limited CodeRabbit review holds the PR: report it to the owner; don't re-request the review.
 - Drafts:
   - Keep a PR a draft only while it depends on another open PR.
   - For a large or risky change, open a draft with the `full-check` label and mark it ready once Full Check passes (it runs the queue's lanes on the PR merged with main, again on each push).

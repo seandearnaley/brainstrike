@@ -1,22 +1,20 @@
 # Review instructions
 
-Claude Review (`.github/workflows/claude-review.yml`) reads this file from the
-base branch, never from the pull request under review, so a change here applies
-to PRs opened after it merges. Project rules live in `AGENTS.md`; this file only
-says what a review reports.
+CodeRabbit (`.coderabbit.yaml`) reads this file as a code guideline. Project
+rules live in `AGENTS.md`; this file only says what a review reports.
 
-## What Important means here
+## What an actionable finding means here
 
-Reserve Important for a bug that should be fixed before merging: wrong
+Reserve an actionable finding for a bug that should be fixed before merging: wrong
 behaviour a user or caller will hit, lost or corrupted durable data, a reset or
 recovery path that leaves state behind, a weakened security or sandbox boundary,
 a silent fallback that hides a failure, a race, or a leak. A change that breaks
-an owner rule in `AGENTS.md` is Important. Naming, structure and refactoring
-suggestions are Nit at most.
+an owner rule in `AGENTS.md` is actionable. Naming, structure and refactoring
+suggestions are nitpicks at most.
 
-## Cap the nits
+## Cap the nitpicks
 
-Report at most five Nits in the initial review, and none in a follow-up.
+Report at most five nitpicks in the initial review, and none in a follow-up.
 
 ## Do not report
 

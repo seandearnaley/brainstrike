@@ -1,6 +1,6 @@
 Ticket: BST-###
 
-<!-- The merge queue runs every check. Run the checks for what you changed before marking this ready; Mergify queues it once Claude Review has run and every thread is resolved. For the whole gate first, keep it a draft with the `full-check` label. -->
+<!-- The merge queue runs every check. Run the checks for what you changed before marking this ready; Mergify queues it once CodeRabbit has approved it and every thread is resolved. For the whole gate first, keep it a draft with the `full-check` label. -->
 
 ## Change
 

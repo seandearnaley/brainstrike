@@ -28,16 +28,16 @@ merge_protections_settings:
     - -from-fork
 
 # Review findings are addressed before a PR merges (owner decision 2026-10-30).
-# A PR queues only once Claude Review passed (queue_conditions below) and every
-# thread is resolved, and Mergify merges nothing while a thread is open, so a
-# thread posted after the PR queued holds it too. Thread counts are read on the
+# A PR queues only once CodeRabbit approved it (queue_conditions below) and
+# every thread is resolved, and Mergify merges nothing while a thread is open,
+# so a thread posted after the PR queued holds it too. Thread counts are read on the
 # PR itself, not on the batch draft. The Mergify Merge Protections check on the
 # PR names the rule it waits for.
 merge_protections:
   - name: Review threads resolved
     description: >-
-      Every review thread, from Claude, Codex or a person, is resolved: fixed by
-      a push, or answered and resolved. A reply alone does not resolve it.
+      Every review thread, from CodeRabbit, Codex or a person, is resolved:
+      fixed by a push, or answered and resolved. A reply alone does not resolve it.
     if:
       - base = main
     success_conditions:
@@ -47,15 +47,21 @@ queue_rules:
   - name: default
     queue_conditions:
       - base = main
-      # Claude Review gates entry, not merge. Mergify evaluates a merge
+      # The review gates entry, not merge. Mergify evaluates a merge
       # condition's checks on the batch's draft PR, where the review never runs,
       # so a merge protection on it dequeued every batch (#4859, batch draft
       # #4860). Queue conditions are read on the PR's own head, for automatic
-      # entry and for `@mergifyio queue` or the checkbox alike. The workflow
-      # skips bot PRs (Renovate's) and fork PRs, so those never wait for it; a
-      # fork is queued by hand only after it has been read (above).
+      # entry and for `@mergifyio queue` or the checkbox alike.
+      # CodeRabbit approves only once the latest commit has a completed review
+      # and none of its threads is open (.coderabbit.yaml), and the default
+      # ruleset dismisses approvals on push, so an approval always covers the
+      # head; its `CodeRabbit` check must also have finished there. Bot PRs
+      # (Renovate's) and fork PRs never wait for it; a fork is queued by hand
+      # only after it has been read (above).
       - or:
-          - check-success = @github-actions/Claude Review
+          - and:
+              - approved-reviews-by = coderabbitai[bot]
+              - check-success = CodeRabbit
           - author ~= \[bot\]$
           - from-fork
     merge_conditions:

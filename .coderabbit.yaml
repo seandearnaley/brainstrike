@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit reviews every ready pull request, free on a public repository.
+# .mergify.yml queues a PR only once CodeRabbit has approved it and its
+# `CodeRabbit` check on the latest commit succeeded. What to report lives in
+# REVIEW.md and the project rules in AGENTS.md; CodeRabbit reads both as code
+# guidelines by default.
+language: en-US
+reviews:
+  profile: chill
+  # A finding requests changes. The next review resolves the threads a push
+  # fixed, and CodeRabbit approves only once the latest commit has a completed
+  # review and no thread is open. A rate-limited review withholds approval.
+  auto_approvals:
+    enabled: true
+  # A review that stops on an error fails its check instead of ending neutral.
+  fail_commit_status: true
+  # The author's PR description stays as written.
+  high_level_summary: false
+  auto_review:
+    drafts: false
+    # Review every push: the queue needs the latest commit reviewed.
+    auto_pause_after_reviewed_commits: 0
+  path_filters:
+    - "!pnpm-lock.yaml"
+    - "!**/provider-cassettes/**"
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+  # The merge queue already runs lint and formatting, and every finding here is
+  # a thread someone must resolve, so the linters that duplicate it are off.
+  tools:
+    biome:
+      enabled: false
+    eslint:
+      enabled: false
+    oxc:
+      enabled: false
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+    yamllint:
+      enabled: false
+    reactDoctor:
+      enabled: false

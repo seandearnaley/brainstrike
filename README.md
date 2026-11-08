@@ -29,7 +29,7 @@ pnpm dev --filter @brainstrike/desktop
 
 **The merge queue is the gate.** Every queue batch runs every check, including the full desktop regression, on hosted runners.
 
-- Before opening a PR, run the checks for what you changed. Mergify queues a ready PR once Claude Review has run and every review thread is resolved.
+- Before opening a PR, run the checks for what you changed. Mergify queues a ready PR once CodeRabbit has approved it and every review thread is resolved.
 - To run the whole gate before queueing, open the PR as a draft with the `full-check` label.
 - Documentation-only changes need review and link checks, not app regressions.
 - Other hosted workflows, automated reviews and releases need owner authorization. See [AGENTS.md](AGENTS.md).
