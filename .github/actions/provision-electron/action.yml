@@ -12,11 +12,14 @@ description: >-
 # failure rather than the job's.
 #
 # The installer keeps the ~120 MB release zip in @electron/get's cache
-# (~/.cache/electron). Downloading it took 7-15 s of every desktop Unit shard
-# and E2E job (merge-queue run 40094214869); with the zip restored the
-# installer only verifies and extracts it (about 2.5 s). The key changes only
-# with the Electron version, so the nightly run on main saves it once and merge
-# queue batches restore it.
+# (env-paths: ~/.cache/electron on Linux, %LOCALAPPDATA%\electron\Cache on
+# Windows). Caching ~/.cache/electron on Windows saved nothing, so every
+# nightly Windows shard fetched the zip from GitHub, and a 504 there stopped
+# six of them (BST-2471, run 42582572234). Downloading it took 7-15 s of
+# every desktop Unit shard and E2E job (merge-queue run 40094214869); with the
+# zip restored the installer only verifies and extracts it (about 2.5 s). The
+# key changes only with the Electron version, so the nightly run on main saves
+# it once and merge queue batches restore it.
 runs:
   using: composite
   steps:
@@ -27,7 +30,7 @@ runs:
       run: echo "version=$(node -p "require('electron/package.json').version")" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@v6
       with:
-        path: ~/.cache/electron
+        path: ${{ runner.os == 'Windows' && '~/AppData/Local/electron/Cache' || '~/.cache/electron' }}
         key: ${{ runner.os }}-${{ runner.arch }}-electron-${{ steps.electron.outputs.version }}
     - name: Install the Electron binary
       shell: bash
