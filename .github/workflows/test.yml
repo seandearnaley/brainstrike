@@ -703,6 +703,8 @@ jobs:
       # 1.5 s on macOS.
       TEST_TIMEOUT_MULTIPLIER: "4"
       TURBO_TEST_MODE: unit
+      RIPGREP_VERSION: 14.1.1
+      RIPGREP_SHA256: d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1
     steps:
       # The same checkout as Unit's.
       - name: Checkout
@@ -726,17 +728,26 @@ jobs:
       # Chocolatey install puts a shim first on PATH that runs rg.exe as its
       # child: live grep's timeout kills the shim, the real rg keeps running
       # with the Root as its cwd, and the test's rmdir of the Root fails with
-      # EBUSY (queue run 40150063798).
+      # EBUSY (queue run 40150063798). The zip is cached by version and
+      # checksum, as Electron's is, so the shards stop fetching it from GitHub
+      # every night (a 504 there stopped two of them, BST-2471).
+      - name: Restore the ripgrep release
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ripgrep-download
+          key: ${{ runner.os }}-${{ runner.arch }}-ripgrep-${{ env.RIPGREP_VERSION }}-${{ env.RIPGREP_SHA256 }}
+
       - name: Install ripgrep
         id: ripgrep
         shell: pwsh
-        env:
-          RIPGREP_VERSION: 14.1.1
-          RIPGREP_SHA256: d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1
         run: |
           $name = "ripgrep-$env:RIPGREP_VERSION-x86_64-pc-windows-msvc"
-          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
-          Invoke-WebRequest -Uri "https://github.com/BurntSushi/ripgrep/releases/download/$env:RIPGREP_VERSION/$name.zip" -OutFile $zip
+          $dir = Join-Path $env:RUNNER_TEMP 'ripgrep-download'
+          $zip = Join-Path $dir "$name.zip"
+          if (-not (Test-Path $zip)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            Invoke-WebRequest -Uri "https://github.com/BurntSushi/ripgrep/releases/download/$env:RIPGREP_VERSION/$name.zip" -OutFile $zip
+          }
           $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
           if ($actual -ne $env:RIPGREP_SHA256) {
             throw "$name.zip has sha256 $actual, expected $env:RIPGREP_SHA256"
