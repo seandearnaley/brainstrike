@@ -6,7 +6,8 @@
   - 2026-11-10 (owner decisions, below): decision 7's default is replaced by an Automatic default, a
     project gets a host-owned record with its own id, and the interface word is "Project".
   - 2026-11-10: decision 3 is complete. The Threads panel lists threads by project by
-    default, with a checkout chip on each row (see decision 3).
+    default, with a checkout chip on each row and a Needs you strip above the sections
+    (see decision 3).
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -79,6 +80,18 @@ for it.
      or Local for a thread working in its folder itself. It reads the thread's
      binding, so no row asks git. A panel narrower than 420px keeps the title:
      a worktree shows as its branch icon alone and Local is not shown.
+   - **A Needs you strip leads the panel** (2026-11-10), in every grouping and
+     whatever the list is filtered by. It lists every thread waiting on the
+     person, across all projects, and says which wait it is: a question, an
+     approval, a plan to review, or a run that finished, failed or was stopped
+     and has not been looked at. A row opens its thread, which also keeps its
+     own row below. The strip is absent when nothing waits.
+   - It reads the state the row glyphs read, and adds no source: the host's
+     fold of each thread's committed `interaction.requested` and
+     `interaction.responded` rows (the latest run's `needsInput`, with the
+     kinds in `waitingOn`), and its committed finish time against the
+     watermark the on-screen transcript advances. A thread leaves the strip
+     when its request is answered or it has been shown.
 4. **Open replaces; add is secondary.** "Open Folder…" makes the chosen folder
    the window's project, and Recents is the switcher. "Add Folder to Workspace"
    stays for multi-repository work. Open is one more host method on the

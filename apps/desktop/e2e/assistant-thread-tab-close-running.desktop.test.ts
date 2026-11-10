@@ -117,11 +117,17 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     await expect(spinners).toHaveCount(0, { timeout: 60_000 });
     expect(await readCommittedRunStatus(electron.getUserDataDir(), threadId)).toBe('completed');
     await expect(threadsPanel.getByTestId('thread-unseen-glyph')).toHaveCount(1);
+    // It finished with nobody looking, so the Needs you strip lists it.
+    const waiting = threadsPanel.getByRole('region', { name: 'Needs you' });
+    await expect(waiting.getByTestId('threads-needs-you-reason')).toHaveText('Ready to review');
 
-    await threadsPanel.getByRole('button', { name: / has unseen activity/u }).click();
+    // The strip's row opens the thread, and once it is shown it no longer waits.
+    await waiting.getByTestId('threads-needs-you-row').click();
     await expect(strip.getByRole('tab')).toHaveCount(1);
     await expect(panel).toBeVisible();
     await expect(panel.getByText(FINAL_TEXT, { exact: true })).toBeVisible();
+    await expect(waiting).toHaveCount(0);
+    await expect(threadsPanel.getByTestId('thread-unseen-glyph')).toHaveCount(0);
     expect(cancels).toEqual([]);
   } finally {
     release.resolve();

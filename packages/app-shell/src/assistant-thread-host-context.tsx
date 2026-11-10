@@ -33,6 +33,12 @@ export interface AssistantThreadHostRun {
   /** The committed start time; null when the host recorded none. */
   readonly startedAt: Date | null;
   readonly status: Exclude<AssistantThreadRunStatus, 'cancelling'>;
+  /**
+   * The kinds of unanswered request the run waits on, as the host committed
+   * them; present while `needsInput` is true. A network consent is asked as an
+   * approval is.
+   */
+  readonly waitingOn?: readonly ('approval' | 'network' | 'plan' | 'question')[];
 }
 
 /** Cost views' share of the host: its committed runs and provider calls. */

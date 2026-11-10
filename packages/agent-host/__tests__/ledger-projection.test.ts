@@ -823,6 +823,22 @@ describe("a thread's latest root run", () => {
       latest(approved.slice(0, indexOf(approved, 'interaction.responded') + 1))?.needsInput
     ).toBe(false);
   });
+  test('a waiting run names what it waits on, for as long as it waits', () => {
+    const asked = indexOf(approved, 'interaction.requested');
+    // The recording's request is a tool approval.
+    expect(latest(approved.slice(0, asked + 1))?.waitingOn).toEqual(['approval']);
+    // The same wait as a question: the thread list tells the two apart.
+    const question = approved.map((row) =>
+      row.event.type === 'interaction.requested'
+        ? { ...row, event: { ...row.event, kind: 'question' as const } }
+        : row
+    );
+    expect(latest(question.slice(0, asked + 1))?.waitingOn).toEqual(['question']);
+    // Answered, it waits on nothing, and a finished run never does.
+    const answered = latest(approved.slice(0, indexOf(approved, 'interaction.responded') + 1));
+    expect(answered).not.toHaveProperty('waitingOn');
+    expect(latest(approved)).not.toHaveProperty('waitingOn');
+  });
 });
 describe("Core's projection of every thread", () => {
   test('lists each thread it folded until the thread is forgotten', () => {

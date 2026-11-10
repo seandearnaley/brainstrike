@@ -763,19 +763,33 @@ function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun
     unreportedCallCount: run.unreportedCallCount,
   };
 }
+type InteractionKind = Extract<HostEvent, { type: 'interaction.requested' }>['kind'];
 /** A thread's latest root run, with what it still waits on (Core starts one at a time). */
 export interface LatestRunFold {
-  /** Interactions (approval, question, plan, network) the run waits on its user for. */
-  readonly pending: ReadonlySet<string>;
+  /** Interactions the run waits on its user for, by id, each with the kind it asked as. */
+  readonly pending: ReadonlyMap<string, InteractionKind>;
   readonly run: HostLatestRun;
   readonly runId: string;
 }
 function withPending(
   latest: LatestRunFold,
-  pending: ReadonlySet<string>,
+  pending: ReadonlyMap<string, InteractionKind>,
   seq: number
 ): LatestRunFold {
-  return { ...latest, pending, run: { ...latest.run, needsInput: pending.size > 0, seq } };
+  const { completedAt, startedAt, status } = latest.run;
+  return {
+    ...latest,
+    pending,
+    run: {
+      completedAt,
+      needsInput: pending.size > 0,
+      seq,
+      startedAt,
+      status,
+      // A Map keeps insertion order, so the kinds read in the order first asked.
+      ...(pending.size > 0 ? { waitingOn: [...new Set(pending.values())] } : {}),
+    },
+  };
 }
 /** Fold one committed row into the thread's latest root run. */
 export function foldLatestRun(
@@ -785,7 +799,7 @@ export function foldLatestRun(
   const { event } = row;
   if (event.type === 'run.started') {
     return {
-      pending: new Set(),
+      pending: new Map(),
       run: {
         completedAt: null,
         needsInput: false,
@@ -800,10 +814,14 @@ export function foldLatestRun(
     return latest;
   }
   if (event.type === 'interaction.requested') {
-    return withPending(latest, new Set([...latest.pending, event.interactionId]), row.seq);
+    return withPending(
+      latest,
+      new Map([...latest.pending, [event.interactionId, event.kind]]),
+      row.seq
+    );
   }
   if (event.type === 'interaction.responded' && latest.pending.has(event.interactionId)) {
-    const pending = new Set(latest.pending);
+    const pending = new Map(latest.pending);
     pending.delete(event.interactionId);
     return withPending(latest, pending, row.seq);
   }
@@ -811,7 +829,7 @@ export function foldLatestRun(
     return latest;
   }
   return {
-    pending: new Set(),
+    pending: new Map(),
     run: {
       completedAt: row.ts ?? null,
       needsInput: false,

@@ -20,6 +20,8 @@ const CostUsd = Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(
 const BilledCostUsd = Schema.optionalKey(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)));
 /** A run as the thread badges and the Task Ledger read it: Stop is cancelled, an interruption failed. */
 const LedgerRunStatus = Schema.Literals(['running', 'completed', 'failed', 'cancelled']);
+/** What a run can wait on its person for: the kinds an `interaction.requested` commits. */
+const WaitingOn = Schema.Literals(['approval', 'question', 'plan', 'network']);
 /** A thread's latest root run, folded from its committed log. */
 export const HostLatestRunSchema = Schema.Struct({
   completedAt: Schema.NullOr(CommitTime),
@@ -28,6 +30,12 @@ export const HostLatestRunSchema = Schema.Struct({
   /** When the run started: the thread's latest conversation activity while it runs. */
   startedAt: Schema.NullOr(CommitTime),
   status: LedgerRunStatus,
+  /**
+   * The kinds of unanswered request the run waits on, in the order it first
+   * asked each. Present exactly while `needsInput` is true, so a thread list
+   * can say what a thread it has not opened is waiting for.
+   */
+  waitingOn: Schema.optionalKey(Schema.Array(WaitingOn)),
 });
 export type HostLatestRun = (typeof HostLatestRunSchema)['Type'];
 /**
