@@ -1,7 +1,46 @@
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import { Button, Checkbox, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { ChevronDown, ShieldQuestion } from 'lucide-react';
-import { type ReactElement, useState } from 'react';
+import { type ReactElement, useId, useState } from 'react';
 import type { WorkspaceBarTrust, WorkspaceBarTrustAsk } from './workspace-bar';
+
+/**
+ * The offer to make the folder's parent a trusted location: unticked until the
+ * person ticks it, and it names the folder everything in which would be trusted.
+ */
+const ParentLocationOffer = ({
+  checked,
+  disabled,
+  location,
+  onCheckedChange,
+}: {
+  readonly checked: boolean;
+  readonly disabled: boolean;
+  readonly location: string;
+  readonly onCheckedChange: (checked: boolean) => void;
+}): ReactElement => {
+  const id = useId();
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <Checkbox
+        aria-describedby={`${id}-cost`}
+        checked={checked}
+        className="mt-0.5"
+        disabled={disabled}
+        id={id}
+        onCheckedChange={(next) => onCheckedChange(next === true)}
+      />
+      <div className="min-w-0 space-y-0.5">
+        <label className="[overflow-wrap:anywhere]" htmlFor={id}>
+          Also trust every folder in <span className="font-medium">{location}</span>
+        </label>
+        <p className="text-muted-foreground" id={`${id}-cost`}>
+          A folder put there later is trusted without asking, so tick this only where you keep your
+          own work.
+        </p>
+      </div>
+    </div>
+  );
+};
 
 /** One question: the folder the answer is for, what it holds back, and the two answers. */
 const TrustAsk = ({
@@ -12,41 +51,65 @@ const TrustAsk = ({
   readonly ask: WorkspaceBarTrustAsk;
   readonly busy: boolean;
   readonly onDecide: WorkspaceBarTrust['onDecide'];
-}): ReactElement => (
-  <section className="space-y-2" data-testid={`workspace-bar-trust-ask-${ask.folders[0]?.rootId}`}>
-    <h2 className="text-sm font-semibold [overflow-wrap:anywhere]">
-      Trust the files in {ask.displayName}?
-    </h2>
-    <ul className="space-y-0.5 text-xs [overflow-wrap:anywhere]">
-      {ask.folders.map((folder) => (
-        <li key={folder.rootId}>
-          {ask.sharedWithWorktrees ? (
-            <span className="font-medium">{folder.displayName}: </span>
-          ) : null}
-          {folder.holds}
-        </li>
-      ))}
-    </ul>
-    <p className="text-muted-foreground text-xs">
-      These can steer the assistant, so Brainstrike holds them until you trust the folder. The
-      assistant works without them until then.
-      {ask.sharedWithWorktrees ? ' Your answer covers this repository and its worktrees.' : null}
-    </p>
-    <div className="flex flex-wrap gap-2">
-      <Button disabled={busy} onClick={() => onDecide(ask, 'trusted')} size="sm">
-        Trust folder
-      </Button>
-      <Button
-        disabled={busy}
-        onClick={() => onDecide(ask, 'restricted')}
-        size="sm"
-        variant="outline"
-      >
-        Keep restricted
-      </Button>
-    </div>
-  </section>
-);
+}): ReactElement => {
+  const [alsoParent, setAlsoParent] = useState(false);
+  const { offeredLocation } = ask;
+  return (
+    <section
+      className="space-y-2"
+      data-testid={`workspace-bar-trust-ask-${ask.folders[0]?.rootId}`}
+    >
+      <h2 className="text-sm font-semibold [overflow-wrap:anywhere]">
+        Trust the files in {ask.displayName}?
+      </h2>
+      <ul className="space-y-0.5 text-xs [overflow-wrap:anywhere]">
+        {ask.folders.map((folder) => (
+          <li key={folder.rootId}>
+            {ask.sharedWithWorktrees ? (
+              <span className="font-medium">{folder.displayName}: </span>
+            ) : null}
+            {folder.holds}
+          </li>
+        ))}
+      </ul>
+      <p className="text-muted-foreground text-xs">
+        These can steer the assistant, so Brainstrike holds them until you trust the folder. The
+        assistant works without them until then.
+        {ask.sharedWithWorktrees ? ' Your answer covers this repository and its worktrees.' : null}
+      </p>
+      {offeredLocation ? (
+        <ParentLocationOffer
+          checked={alsoParent}
+          disabled={busy}
+          location={offeredLocation}
+          onCheckedChange={setAlsoParent}
+        />
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          disabled={busy}
+          // The parent is trusted only with the folder, and only when its box is ticked.
+          onClick={() =>
+            offeredLocation && alsoParent
+              ? onDecide(ask, 'trusted', offeredLocation)
+              : onDecide(ask, 'trusted')
+          }
+          size="sm"
+        >
+          Trust folder
+        </Button>
+        <Button
+          disabled={busy}
+          onClick={() => onDecide(ask, 'restricted')}
+          size="sm"
+          variant="outline"
+        >
+          Keep restricted
+        </Button>
+      </div>
+    </section>
+  );
+};
 
 /**
  * ADR-0032: the thread's folders whose instructions, skills, slash commands

@@ -9,6 +9,8 @@
     once per answer.
   - 2026-11-10 (owner decisions, below): trusted locations, folders the app makes, and no
     access-mode cap for an untrusted folder (BST-2341).
+  - 2026-11-10: trusted locations are built (the **Trusted locations** decision). No action in
+    the app makes a folder yet, so that rule is written down for the feature that adds one.
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -55,6 +57,70 @@ location, and none lets a folder approve itself.
   host is the only writer (`workspace/trust`), for every client origin, as
   `hooks/trust` is, so the desktop and the CLI record answers the same way.
   Factory reset clears answers with every other setting.
+- **Trusted locations.** A trusted location is a folder the person marked so
+  that every folder in it is trusted without an ask.
+  - The host keeps the locations in one StateStore setting
+    (`workspace.trust.locations`), each by its canonical path, and is their only
+    writer. Factory reset clears them with every other setting.
+  - Reading a folder's trust: the answer the person gave for it wins,
+    restricted included. With no answer, the folder is trusted when the folder
+    that answers for it is a trusted location or lies inside one. Nothing is
+    recorded for the folders a location covers.
+  - A location does not reach into a folder the person kept restricted. When
+    a folder between the location and the folder being read is restricted,
+    read through the folder that answers for it, the location does not cover
+    the folder, which is undecided and asks as it did before. The answer given
+    for the location's own folder is about that folder's own files and does
+    not change what the location covers.
+  - A folder is judged by where it really is. Paths are canonical, so a
+    symlink inside a location that points outside it is not covered. A managed
+    worktree counts by where its repository is, not where its own folder is,
+    and so does a folder inside a managed worktree. A folder that only claims
+    a repository, through its own `.git` or a ledger row, answers for itself
+    and is judged by its own path.
+  - A managed worktree the person once kept restricted as a folder of its own
+    keeps that record until an answer is given through it. A location does not
+    trust past it either: the worktree is undecided and asks.
+  - Every reader shares the one read (`readHostWorkspaceTrustAnswer`): the
+    roots a run loads configuration from, discovery, `workspace/trust/list`
+    and the git filter guard.
+  - Only the person's explicit action records a location, and only together
+    with a `trusted` answer: the box "Also trust every folder in <parent>",
+    unticked by default, in the composer's ask and on the Settings row, or the
+    CLI's `workspace trust --trust-parent`. A run, a read, a headless start and
+    the files in a folder never record one.
+  - The host says which parent that is (`offeredLocation` on
+    `workspace/trust/list` and `workspace/trust/read`), so the ask and the
+    CLI's prompt name the folder that will be recorded: for a managed
+    worktree, the folder its repository is kept in. The request names that
+    parent back (`workspace/trust` `location`). The host works out the parent
+    of the folder the answer is for from its own records and records the
+    location only when the two are the same folder. Anything else is refused,
+    and the answer is not recorded either.
+  - The parent is not offered, and is refused, when trusting everything in it
+    would reach past the person's own work:
+    - the top of the filesystem;
+    - the person's home directory or a folder that holds it, which would cover
+      every download, including under the second spelling macOS gives the same
+      folder (`/System/Volumes/Data/Users/...`);
+    - a folder other people can put things in: one the person does not own, or
+      one open to everyone, such as `/tmp` or `/Users/Shared`. Git refuses a
+      repository another user owns for the same reason (`safe.directory`).
+      Windows reports neither an owner nor these mode bits, so this is not
+      checked there.
+
+    The last rule also holds on the way down from a location. A folder under
+    one that other people can put things in, the location itself included
+    once it is opened to everyone, is not covered and asks.
+
+    Sean's brief named the filesystem root and the home directory for this
+    first version. The others were added while building, for the same reason,
+    and he has not ruled on them.
+  - Settings › Workspace Trust lists the locations and removes one
+    (`workspace/trust/locations`, `workspace/trust/locations/remove`), and says
+    which location a folder is trusted through (`trustedThrough`). Removing
+    one keeps the answers given for folders; a folder trusted only through it
+    is undecided again. A folder trusted through a location shows no chip.
 - **Only `trusted` loads agent configuration.** The roots a run passes to its
   workspace instructions, project skills (prompt catalog and skill tools),
   project slash commands and subagent personas are the trusted ones. An
@@ -71,7 +137,7 @@ location, and none lets a folder approve itself.
   waits on it: a run sent before an answer simply leaves the folder's
   configuration out. Settings › Workspace trust lists every answer behind the
   mounted folders and changes it. The standalone CLI records it with
-  `workspace trust [<dir>] [--yes]`.
+  `workspace trust [<dir>] [--yes] [--trust-parent]`.
   - A thread's own folders are the ones its runs read configuration from: its
     operating folder and secondaries, or every open folder while it has none. A
     folder open for another thread is not asked about.
@@ -156,6 +222,25 @@ location, and none lets a folder approve itself.
   with the "changed" notice, until those checkouts hold the new bytes.
 - An untrusted folder does not cap the access mode (owner decision 2026-11-10,
   BST-2341). This ADR leaves access modes (ADR-0031) unchanged.
+- A repository cloned by hand into a trusted location is trusted the moment its
+  folder is opened, with no ask. That is the accepted cost of a location.
+- Trust through a location is the same trust everywhere it is read. So a
+  folder in a trusted location also runs its own git filters (BST-2454) with
+  no ask: a folder unpacked there from an archive, with filter commands in its
+  own `.git/config`, runs them when the app runs git in it. A clone does not
+  carry such commands.
+- A volume's top folder, such as `/Volumes/Work`, can be offered on macOS and
+  Linux when the person owns it, while a Windows drive root cannot.
+- A folder open to a group, or shared through an access control list, is not
+  told apart from the person's own. Telling a shared group from a person's own
+  needs the group's members, and Debian, Ubuntu and Fedora make a person's own
+  folders group-writable by default, so refusing every group-writable folder
+  would remove the offer there.
+- A folder inside a restricted folder is still asked about on its own, as
+  before. A trusted location around both does not answer for it.
+- A location is kept by the path it had when it was added. If that folder is
+  moved or renamed, the location covers nothing until it is removed in
+  Settings and added again from its new place.
 
 ## Owner decisions, 2026-11-10
 
@@ -166,12 +251,28 @@ They supersede the text above where they differ.
   everything in the folder's parent. A folder with no answer of its own is
   trusted when it lies inside a trusted location. An explicit answer, including
   restricted, still wins. Accepted cost: a hostile repository cloned into a
-  trusted location by hand is trusted. Not built yet.
+  trusted location by hand is trusted. Built 2026-11-10: the **Trusted
+  locations** decision above says how.
+  - The build is narrower than this answer in three places, which the
+    **Trusted locations** decision records and which stand until Sean rules
+    otherwise: a location does not reach into a folder kept restricted; what
+    is in a managed worktree counts by where its repository is; and some
+    parents are never offered.
 - **Folders the app makes are trusted with no question**: a project created in
   the app or a scratch folder, which has no repository answer to inherit. Never
   a folder that already existed. A managed worktree is not one of these: it
   still shares its repository's answer, whether trusted, restricted or
-  undecided. Not built yet.
+  undecided.
+  - Nothing to build yet (checked 2026-11-10). The app makes no folder that
+    becomes a thread's working folder, apart from managed worktrees. Every
+    way a folder opens (`workspace/roots/add`, `open`, `pick`, `restore`) takes
+    a folder that already exists, the folder picker cannot create one, and a
+    thread with no folder gets none.
+  - The rule for the feature that adds such an action: at the moment the app
+    creates the folder, the host records it as `trusted` through its one
+    writer (`writeHostWorkspaceTrust`). It records nothing when the folder
+    already existed, so a path the app merely reuses still asks. The record is
+    the folder's own answer, which the person can change in Settings.
 - **An untrusted folder does not cap the access mode** (BST-2341). A run keeps
   the access mode the composer shows, and the sandbox and permission policy
   still apply. The options not taken were capping at Ask, and capping at Ask

@@ -68,7 +68,7 @@ test('a folder stays undecided until answered, and the answer survives a host re
   const workspace = await tempDir('bs-workspace-trust-ws-');
   let client = await open(stateRoot);
   const read = (path = workspace) => client.request('workspace/trust/read', { path });
-  await expect(read()).resolves.toEqual({ trust: 'undecided' });
+  await expect(read()).resolves.toMatchObject({ trust: 'undecided' });
 
   await expect(
     client.request('workspace/trust', { path: 'relative/repo', trust: 'trusted' })
@@ -76,24 +76,26 @@ test('a folder stays undecided until answered, and the answer survives a host re
     failure: { code: 'workspace.trust-refused', kind: 'refusal' },
     message: /absolute path/u,
   });
-  await expect(read()).resolves.toEqual({ trust: 'undecided' });
+  await expect(read()).resolves.toMatchObject({ trust: 'undecided' });
 
   await expect(
     client.request('workspace/trust', { path: `${workspace}/`, trust: 'trusted' })
   ).resolves.toEqual({ trust: 'trusted' });
-  await expect(read()).resolves.toEqual({ trust: 'trusted' });
+  await expect(read()).resolves.toMatchObject({ trust: 'trusted' });
 
   await closeHosts();
   client = await open(stateRoot);
-  await expect(read()).resolves.toEqual({ trust: 'trusted' });
+  await expect(read()).resolves.toMatchObject({ trust: 'trusted' });
   // Trust belongs to that folder alone: a folder inside it asks again.
   await mkdir(join(workspace, 'nested'));
-  await expect(read(join(workspace, 'nested'))).resolves.toEqual({ trust: 'undecided' });
+  await expect(read(join(workspace, 'nested'))).resolves.toMatchObject({
+    trust: 'undecided',
+  });
 
   await expect(
     client.request('workspace/trust', { path: workspace, trust: 'restricted' })
   ).resolves.toEqual({ trust: 'restricted' });
-  await expect(read()).resolves.toEqual({ trust: 'restricted' });
+  await expect(read()).resolves.toMatchObject({ trust: 'restricted' });
 });
 
 test('only trusted roots load their agent configuration; restricted and undecided ones still mount', async () => {
