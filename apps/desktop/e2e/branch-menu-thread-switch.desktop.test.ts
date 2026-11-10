@@ -41,7 +41,9 @@ test('selecting another thread closes the open branch menu', async ({
   await input.fill('The first thread.');
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText('First reply.')).toBeVisible({ timeout: 60_000 });
-  await page.getByRole('button', { name: 'New thread' }).click();
+  // The toolbar's button, by its whole name: the thread list's project header
+  // also offers "New thread in <project>".
+  await page.getByRole('button', { exact: true, name: 'New thread' }).click();
   await chooseThreadFolder(region, path.basename(repo));
   await input.fill('The second thread.');
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
