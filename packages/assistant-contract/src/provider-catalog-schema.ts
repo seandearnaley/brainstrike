@@ -162,6 +162,7 @@ const ProviderSchema = Schema.Struct({
   keyFormatHint: Schema.optional(Schema.String),
   keyNotes: Schema.optional(Schema.String),
   models: Schema.mutable(Schema.Array(ProviderModelSchema)),
+  nativeWebSearchUsdPerCall: Schema.optional(Schema.Finite.check(Schema.isGreaterThan(0))),
   runtime: Schema.Literals(['hosted', 'gateway']),
 });
 export const ProviderCatalogSchema = Schema.mutable(Schema.Array(ProviderSchema));
