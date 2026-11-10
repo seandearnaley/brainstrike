@@ -20,6 +20,7 @@ import { createCatalogProjector } from './catalog-projection';
 import { CatalogSection } from './catalog-section';
 import {
   buildCatalogView,
+  bulkEnableRows,
   type CatalogProviderStat,
   type CatalogSection as CatalogSectionModel,
   type CatalogSort,
@@ -168,11 +169,13 @@ export function ModelCatalog({
 
   // Bulk actions only ever touch SHOWN rows, and only those that would change:
   // an unchanged row must not be written (it would gain a new updated_at, and
-  // Undo would then "restore" it too).
+  // Undo would then "restore" it too). Enabling never picks up an archived row.
   const handleBulk = (section: CatalogSectionModel, enabled: boolean): void => {
     onBulkChange({
       enabled,
-      modelIds: section.rows.flatMap((row) => (row.enabled === enabled ? [] : [row.id])),
+      modelIds: (enabled ? bulkEnableRows(section.rows) : section.rows).flatMap((row) =>
+        row.enabled === enabled ? [] : [row.id]
+      ),
       scopeLabel: section.providerName,
     });
   };

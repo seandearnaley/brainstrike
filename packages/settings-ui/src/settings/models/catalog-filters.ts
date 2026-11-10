@@ -10,6 +10,8 @@ export interface CatalogFilters {
   readonly providerIds: ReadonlySet<string>;
   readonly query: string;
   readonly reasoning: boolean;
+  /** Lists archived rows the user hasn't enabled; an enabled archived row always shows. */
+  readonly showArchived: boolean;
   readonly status: CatalogStatusFilter;
   readonly vision: boolean;
 }
@@ -19,6 +21,7 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilters = {
   providerIds: new Set<string>(),
   query: '',
   reasoning: false,
+  showArchived: false,
   status: 'all',
   vision: false,
 };
@@ -83,6 +86,7 @@ function matchesQuery(row: CatalogRow, query: string): boolean {
  */
 export function matchesCatalogFilters(row: CatalogRow, filters: CatalogFilters): boolean {
   return (
+    (filters.showArchived || row.enabled || row.lifecycle?.archived !== true) &&
     (filters.status === 'all' || row.enabled === (filters.status === 'enabled')) &&
     (!filters.vision || row.vision === 'supported') &&
     (!filters.reasoning || row.reasoning?.state === 'supported') &&

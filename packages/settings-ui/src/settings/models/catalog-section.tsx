@@ -13,7 +13,7 @@ import { ChevronRight } from 'lucide-react';
 import { type CSSProperties, type RefObject, useId } from 'react';
 import { buildSectionNodes, type CatalogNodeData, type CatalogRowNodes } from './catalog-nodes';
 import type { CatalogRow } from './catalog-projection';
-import type { CatalogSection as CatalogSectionModel } from './catalog-sections';
+import { bulkEnableRows, type CatalogSection as CatalogSectionModel } from './catalog-sections';
 
 /** First-paint estimates only; TreeTable measures the real rows (TreeGrid row-height contract). */
 const ROW_HEIGHT_ESTIMATES = { detail: 132, model: 36 };
@@ -125,7 +125,7 @@ export function CatalogSection({
   // in-flight toggle of a shown row could snapshot an uncommitted optimistic
   // state for Undo. Both bulk actions wait until the shown rows settle.
   const anyShownBusy = section.rows.some((row) => busyModelIds.has(row.id));
-  const canEnable = !anyShownBusy && section.rows.some((row) => !row.enabled);
+  const canEnable = !anyShownBusy && bulkEnableRows(section.rows).some((row) => !row.enabled);
   const canDisable = !anyShownBusy && section.rows.some((row) => row.enabled);
   const { providerId } = section;
 
@@ -182,6 +182,14 @@ export function CatalogSection({
           <span className="text-foreground font-semibold">{section.enabledCount}</span> /{' '}
           {section.totalCount} enabled
         </span>
+        {section.archivedCount > 0 ? (
+          <span
+            className="text-muted-foreground shrink-0 text-xs tabular-nums"
+            data-testid={`model-catalog-section-archived-${providerId}`}
+          >
+            {section.archivedCount} archived
+          </span>
+        ) : null}
         {filtering ? (
           <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{shown} shown</span>
         ) : null}

@@ -164,6 +164,39 @@ export function nextPricingChangeAfter(
   return next;
 }
 
+/**
+ * Where a model stands with its vendor. Absent means `active`.
+ *
+ * - `preview`, `active`: offered as usual.
+ * - `legacy`: superseded but still served; the Model Catalog calls it Archived.
+ * - `deprecated`: Archived, with the vendor's retirement day in `retiresAt`.
+ *
+ * Retirement is not a status: a retired row is removed from the catalog and
+ * its id remapped in `assistant-model-id-migrations.ts`.
+ */
+export type ModelLifecycleStatus = 'active' | 'deprecated' | 'legacy' | 'preview';
+
+export interface ModelLifecycle {
+  /** The day the vendor announced the deprecation, `YYYY-MM-DD`. */
+  readonly deprecatedAt?: string;
+  /** The day the vendor released the model, `YYYY-MM-DD`. */
+  readonly releasedAt?: string;
+  /** The model on the same provider that takes this one's place. */
+  readonly replacedBy?: string;
+  /** The vendor's announced shutdown day, `YYYY-MM-DD`. */
+  readonly retiresAt?: string;
+  readonly status: ModelLifecycleStatus;
+}
+
+/**
+ * Archived models stay usable: an archived model a user enabled stays enabled.
+ * Archiving only keeps a model out of discovery and out of bulk enabling.
+ */
+export function isArchivedModel(model: { readonly lifecycle?: ModelLifecycle }): boolean {
+  const status = model.lifecycle?.status;
+  return status === 'legacy' || status === 'deprecated';
+}
+
 interface BaseModelDefinition {
   readonly catalog?: ModelCatalogPresentation;
   /**
@@ -239,6 +272,8 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   contextWindow: number;
   /** Exact documented input modalities when the route publishes them. */
   inputModalities?: readonly ModelModality[];
+  /** The vendor's lifecycle status for this route; absent means `active`. */
+  lifecycle?: ModelLifecycle;
   /**
    * Provider's documented maximum output tokens. REQUIRED, like the context
    * window: it reserves output headroom in the input-budget derivation.

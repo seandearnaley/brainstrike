@@ -17,8 +17,20 @@ beforeAll(() => {
 });
 
 const PROVIDERS: CatalogProviderStat[] = [
-  { enabledCount: 1, providerId: 'openai', providerName: 'OpenAI', totalCount: 15 },
-  { enabledCount: 0, providerId: 'anthropic', providerName: 'Anthropic', totalCount: 7 },
+  {
+    archivedCount: 0,
+    enabledCount: 1,
+    providerId: 'openai',
+    providerName: 'OpenAI',
+    totalCount: 15,
+  },
+  {
+    archivedCount: 0,
+    enabledCount: 0,
+    providerId: 'anthropic',
+    providerName: 'Anthropic',
+    totalCount: 7,
+  },
 ];
 
 const UNFILTERED: CatalogSummary = {

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { MODEL_VENDOR_NAMES } from '../model-vendors.js';
+import { PROVIDER_MODEL_DEFAULT_POLICIES } from '../provider-model-default-policies.js';
 import {
   findModelVendor,
   getLlmModelDefinition,
+  isArchivedModel,
   type LlmModelDefinition,
   listProviderLlmModels,
   listProviders,
@@ -120,6 +122,53 @@ describe('model limits', () => {
         expect(model.maxOutputTokens, key).toBeGreaterThan(0);
         expect(model.maxOutputTokens, key).toBeLessThanOrEqual(model.contextWindow);
       }
+    }
+  });
+});
+
+describe('model lifecycle', () => {
+  it('points an archived model at a current model on its own provider', () => {
+    for (const provider of listProviders()) {
+      for (const model of provider.models) {
+        const replacedBy = model.lifecycle?.replacedBy;
+        if (replacedBy === undefined) {
+          continue;
+        }
+        const successor = provider.models.find((candidate) => candidate.id === replacedBy);
+        expect(successor, `${provider.id}/${model.id} replacedBy`).toBeDefined();
+        expect(successor && isArchivedModel(successor), `${provider.id}/${replacedBy}`).toBe(false);
+      }
+    }
+  });
+
+  it("dates a deprecation with the vendor's retirement day, in order", () => {
+    for (const { key, model } of llmRows()) {
+      const lifecycle = model.lifecycle;
+      if (lifecycle === undefined) {
+        continue;
+      }
+      if (lifecycle.status === 'deprecated') {
+        expect(lifecycle.retiresAt, key).toBeDefined();
+      }
+      const days = [lifecycle.releasedAt, lifecycle.deprecatedAt, lifecycle.retiresAt].filter(
+        (day) => day !== undefined
+      );
+      expect(days, key).toEqual([...days].sort());
+    }
+  });
+
+  it('never recommends or seeds an archived model', () => {
+    for (const provider of listProviders()) {
+      const policy = PROVIDER_MODEL_DEFAULT_POLICIES[provider.id];
+      const seeded = new Set<string>(policy.kind === 'seed' ? policy.modelIds : []);
+      for (const model of provider.models.filter(isArchivedModel)) {
+        const key = `${provider.id}/${model.id}`;
+        expect(model.default === true, `${key} is a recommended default`).toBe(false);
+        expect(seeded.has(model.id), `${key} is in the seed list`).toBe(false);
+      }
+      const fallback = resolveDefaultModel(provider.id);
+      const resolved = provider.models.find((model) => model.id === fallback);
+      expect(resolved && isArchivedModel(resolved), `${provider.id} default`).toBe(false);
     }
   });
 });

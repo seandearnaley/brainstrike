@@ -12,7 +12,7 @@ import {
 import type { CatalogProviderStat } from '../catalog-sections';
 
 function stat(providerId: string, enabledCount: number): CatalogProviderStat {
-  return { enabledCount, providerId, providerName: providerId, totalCount: 5 };
+  return { archivedCount: 0, enabledCount, providerId, providerName: providerId, totalCount: 5 };
 }
 
 const stats = [stat('openai', 3), stat('anthropic', 0), stat('openrouter', 1)];
