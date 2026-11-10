@@ -133,8 +133,8 @@ export class HostCore {
   private readonly catalog = new HostThreadCatalog();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
-    append: async (threadId, event) => {
-      await this.append(threadId, [event], 'normal', this.foldRows);
+    append: async (threadId, events) => {
+      await this.append(threadId, events, 'normal', this.foldRows);
     },
     update: (params, event) =>
       this.accept(

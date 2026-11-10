@@ -43,6 +43,14 @@ const usage = {
   inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
   outputTokens: { reasoning: 0, text: 1, total: 1 },
 };
+const REVIEW_MODEL_ID = 'openai::gpt-5.4-mini';
+
+/** The review calls the run committed, as the ledger costs them. */
+const reviewUsage = (events: readonly HostEvent[]) =>
+  events.filter(
+    (event): event is Extract<HostEvent, { type: 'model.usage' }> =>
+      event.type === 'model.usage' && event.kind === 'auto-review'
+  );
 
 /** A quick model that answers every review with `answer`, recording each prompt. */
 function reviewer(answer: Record<string, string>, prompts: string[]): MockLanguageModelV4 {
@@ -118,7 +126,7 @@ async function runCommand(
       model: scriptedToolSequence([{ input, toolId: 'execute_command' }]),
       reviewModel: async (target) => {
         targets.push(target);
-        return await reviewModel(target);
+        return { model: await reviewModel(target), modelId: REVIEW_MODEL_ID };
       },
       snapshot: {
         configuration: {},
@@ -178,6 +186,13 @@ test('a call the quick model approves runs without asking, and the review sees t
   expect(requested(events)).toBeUndefined();
   expect(executed).toEqual([{ command: 'pnpm test' }]);
   expect(targets).toEqual(['auto']);
+  // The review's own call is costed under the model it ran on.
+  expect(reviewUsage(events)).toEqual([
+    expect.objectContaining({
+      modelId: REVIEW_MODEL_ID,
+      usage: expect.objectContaining({ inputTokens: 1, outputTokens: 1 }),
+    }),
+  ]);
   expect(prompts).toHaveLength(1);
   expect(prompts[0]).toContain('Run the tests.');
   expect(prompts[0]).toContain('brainstrike.executeCommand');
@@ -200,6 +215,8 @@ test('a call the quick model flags asks the user and says why', async () => {
   expect(requested(events)?.reason).toBe(
     'Auto-review flagged this: It deletes files outside the task.'
   );
+  // A flagged call still cost its review, which commits with the paused step.
+  expect(reviewUsage(events)).toHaveLength(1);
 });
 
 test('an approve the quick model itself calls high risk still asks the user', async () => {
@@ -423,7 +440,10 @@ test("a delegated child's review sees the person's request, and its task never r
       if (!admission) {
         throw new Error('No admission');
       }
-      return { ...admission, reviewModel: async () => quick };
+      return {
+        ...admission,
+        reviewModel: async () => ({ model: quick, modelId: REVIEW_MODEL_ID }),
+      };
     }
   );
 

@@ -22,6 +22,8 @@ export const ASSISTANT_RUN_USAGE_KINDS = [
   'compaction-summary',
   'om-observation',
   'om-reflection',
+  'thread-title',
+  'auto-review',
 ] as const;
 
 export type AssistantRunUsageKind = (typeof ASSISTANT_RUN_USAGE_KINDS)[number];

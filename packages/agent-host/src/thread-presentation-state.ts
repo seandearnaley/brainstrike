@@ -1,12 +1,15 @@
 import { createLogger } from '@brainstrike/logging';
 import { generateText } from 'ai';
 import type { HostRunState } from './core-state.ts';
+import { jsonValue } from './json-value.ts';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
 import { hostTelemetry } from './telemetry/host-telemetry.ts';
 
 const logger = createLogger('AgentHost');
 
 type Updated = Extract<HostEvent, { type: 'thread.updated' }>;
+/** What the title request cost, costed under the run's own model. */
+type TitleUsage = Extract<HostEvent, { type: 'model.usage' }>;
 type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 /** A thread's committed presentation: its title, colour and icon. */
 export type HostThreadPresentation = Omit<Updated, 'type'>;
@@ -52,9 +55,14 @@ export function foldHostThreadPresentation(
 }
 
 /** One run's outstanding title request. */
+interface GeneratedTitle {
+  readonly title: string | undefined;
+  readonly usage: TitleUsage;
+}
+
 interface PendingTitle {
   /** Settles once the request answers, fails, or its signal aborts; never rejects. */
-  readonly title: Promise<string | undefined>;
+  readonly title: Promise<GeneratedTitle | undefined>;
   /** Withdraws the request of a run that failed or was interrupted before its title arrived. */
   readonly withdraw: AbortController;
 }
@@ -67,14 +75,14 @@ export class HostThreadPresentationState {
   private readonly core: {
     /** Core's admission queue: a generated title commits after any queued rename. */
     readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
-    readonly append: (threadId: string, event: Updated) => Promise<void>;
+    readonly append: (threadId: string, events: readonly (Updated | TitleUsage)[]) => Promise<void>;
     readonly update: (params: HostParams<'thread/update'>, event: Updated) => Promise<void>;
   };
 
   constructor(core: {
     /** Core's admission queue: a generated title commits after any queued rename. */
     readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
-    readonly append: (threadId: string, event: Updated) => Promise<void>;
+    readonly append: (threadId: string, events: readonly (Updated | TitleUsage)[]) => Promise<void>;
     readonly update: (params: HostParams<'thread/update'>, event: Updated) => Promise<void>;
   }) {
     this.core = core;
@@ -160,7 +168,17 @@ export class HostThreadPresentationState {
     });
     const title = Promise.race([generated, aborted])
       .then(
-        (result) => normalizeTitle(result.text),
+        (result): GeneratedTitle => ({
+          title: normalizeTitle(result.text),
+          // The provider billed the request whether or not its title is used.
+          usage: {
+            kind: 'thread-title',
+            modelId: run.modelId,
+            runId: run.id,
+            type: 'model.usage',
+            usage: jsonValue(result.totalUsage),
+          },
+        }),
         (cause: unknown): undefined => {
           // A Stop, a host close or a withdrawal ends the title on purpose;
           // a provider failure or an expired bound is reported.
@@ -182,13 +200,16 @@ export class HostThreadPresentationState {
     void title.then((generated) => (generated ? this.commit(run, generated) : undefined));
   }
 
-  /** Through Core's admission queue, so a rename admitted first wins. */
-  private async commit(run: HostRunState, title: string): Promise<void> {
+  /** Through Core's admission queue, so a rename admitted first wins; its cost always commits. */
+  private async commit(run: HostRunState, { title, usage }: GeneratedTitle): Promise<void> {
     try {
       await this.core.admit(run.threadId, async () => {
-        if (!this.titled(run.threadId)) {
-          await this.core.append(run.threadId, { title, type: 'thread.updated' });
-        }
+        await this.core.append(run.threadId, [
+          ...(title !== undefined && !this.titled(run.threadId)
+            ? [{ title, type: 'thread.updated' as const }]
+            : []),
+          usage,
+        ]);
       });
     } catch (cause) {
       logger.warn('Host thread title was not committed', {
