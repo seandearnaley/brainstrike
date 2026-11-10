@@ -1,6 +1,6 @@
 [
   {
-    "_note": "Model IDs per OpenAI docs:\nhttps://platform.openai.com/docs/guides/latest-model\nhttps://platform.openai.com/docs/models",
+    "_note": "Model IDs per OpenAI docs:\nhttps://platform.openai.com/docs/guides/latest-model\nhttps://platform.openai.com/docs/models\nWeb search (the non-preview tool native-web-search.ts swaps in): $10.00 per 1,000 calls on every model, plus its content tokens at the model's rates; pricing page Tools table, retrieved 2026-11-09: https://developers.openai.com/api/docs/pricing",
     "authType": "api_key",
     "capabilities": {
       "streaming": true
@@ -444,7 +444,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5-pro",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5-pro\nPRICING REFRESH 2026-11-09: the pricing page lists $60 input / $270 output above 272K input tokens. https://developers.openai.com/api/docs/pricing",
         "catalog": {
           "bestFor": ["Complex reasoning", "Tool use"],
           "description": null,
@@ -462,6 +462,13 @@
         "nativeToolSearch": "openai",
         "pricing": {
           "inputPerMTok": 30,
+          "longContextTiers": [
+            {
+              "inputPerMTok": 60,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 270
+            }
+          ],
           "outputPerMTok": 180
         },
         "reasoning": {
@@ -524,7 +531,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-pro\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-pro\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session (BST-1708). PRICING REFRESH 2026-11-09: the pricing page lists $60 input / $270 output above 272K input tokens. https://developers.openai.com/api/docs/pricing",
         "catalog": {
           "bestFor": ["Complex reasoning", "Tool use"],
           "description": null,
@@ -542,6 +549,13 @@
         "nativeToolSearch": "openai",
         "pricing": {
           "inputPerMTok": 30,
+          "longContextTiers": [
+            {
+              "inputPerMTok": 60,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 270
+            }
+          ],
           "outputPerMTok": 180
         },
         "reasoning": {
@@ -736,10 +750,11 @@
         "vision": "supported"
       }
     ],
+    "nativeWebSearchUsdPerCall": 0.01,
     "runtime": "hosted"
   },
   {
-    "_note": "Model aliases per Anthropic docs:\nhttps://www.anthropic.com/claude/sonnet\nhttps://www.anthropic.com/claude/haiku\nhttps://www.anthropic.com/claude/opus",
+    "_note": "Model aliases per Anthropic docs:\nhttps://www.anthropic.com/claude/sonnet\nhttps://www.anthropic.com/claude/haiku\nhttps://www.anthropic.com/claude/opus\nWeb search tool: $10 per 1,000 searches plus standard token costs for its results; a failed search is not billed. Pricing page, retrieved 2026-11-09: https://platform.claude.com/docs/en/about-claude/pricing",
     "authType": "api_key",
     "capabilities": {
       "streaming": true
@@ -1115,6 +1130,7 @@
         "vision": "supported"
       }
     ],
+    "nativeWebSearchUsdPerCall": 0.01,
     "runtime": "hosted"
   },
   {
