@@ -32,10 +32,16 @@ function storedRunSnapshot(event: HostEvent): {
   return { blobs: [{ content, hash }], body: { ...started, blobRefs: [hash], snapshotRef: hash } };
 }
 /**
- * The streamed chunk kinds Core's open folds: the ledger's tool-call and tool-error counts.
+ * The streamed chunk kinds Core's open folds: the ledger's tool-call and tool-error counts,
+ * and the step start that marks a call its provider answered.
  * A tool-call is counted once across stream and model.step. Every other chunk is the view's alone.
  */
-const HYDRATED_CHUNK_TYPES: ReadonlySet<unknown> = new Set(['tool-call', 'tool-error']);
+// `start-step` tells the ledger a provider answered a call it may never report (a cut-off stream).
+const HYDRATED_CHUNK_TYPES: ReadonlySet<unknown> = new Set([
+  'start-step',
+  'tool-call',
+  'tool-error',
+]);
 /** `false` when no fold of Core's open reads the event, so the hydration read skips its row. */
 export function hydratesHostEvent(event: HostEvent): boolean {
   if (event.type !== 'stream.chunk') {

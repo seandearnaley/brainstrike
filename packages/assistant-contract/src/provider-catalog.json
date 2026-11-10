@@ -1,7 +1,8 @@
 [
   {
-    "_note": "Model IDs per OpenAI docs:\nhttps://platform.openai.com/docs/guides/latest-model\nhttps://platform.openai.com/docs/models\nWeb search (the non-preview tool native-web-search.ts swaps in): $10.00 per 1,000 calls on every model, plus its content tokens at the model's rates; pricing page Tools table, retrieved 2026-11-09: https://developers.openai.com/api/docs/pricing",
+    "_note": "Model IDs per OpenAI docs:\nhttps://platform.openai.com/docs/guides/latest-model\nhttps://platform.openai.com/docs/models\nWeb search (the non-preview tool native-web-search.ts swaps in): $10.00 per 1,000 calls on every model, plus its content tokens at the model's rates; pricing page Tools table, retrieved 2026-11-09: https://developers.openai.com/api/docs/pricing\nA stream the client cuts off is not billed: OpenAI's usage by key recorded no request for a stopped Responses stream in two live checks (2026-11-10), and its docs describe no billing for a disconnected stream.",
     "authType": "api_key",
+    "billsCutOffStreams": false,
     "capabilities": {
       "streaming": true
     },

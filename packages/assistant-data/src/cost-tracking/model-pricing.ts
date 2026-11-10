@@ -28,3 +28,10 @@ export function resolveNativeWebSearchUsdPerCall(provider: string): number | und
     ? getProviderDefinition(provider).nativeWebSearchUsdPerCall
     : undefined;
 }
+
+/** Whether a stream the client cuts off still bills (true unless the provider declares it does not). */
+export function providerBillsCutOffStreams(provider: string): boolean {
+  return (
+    !isSupportedProvider(provider) || getProviderDefinition(provider).billsCutOffStreams !== false
+  );
+}

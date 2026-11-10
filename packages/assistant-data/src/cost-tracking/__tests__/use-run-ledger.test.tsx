@@ -32,6 +32,7 @@ function makeRow(overrides: Partial<RunLedgerRow> = {}): RunLedgerRow {
     status: 'completed',
     threadId: 'thread-1',
     toolCallCount: 5,
+    unreportedCallCount: 0,
     ...overrides,
   };
 }

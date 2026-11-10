@@ -1,6 +1,7 @@
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import {
+  providerBillsCutOffStreams,
   resolveModelPricing,
   resolveNativeWebSearchUsdPerCall,
 } from '@brainstrike/assistant-data/model-pricing';
@@ -283,6 +284,11 @@ interface RunFold {
   inputTokens: number;
   readonly model: string;
   outputTokens: number;
+  /**
+   * The provider call this run sent and has no usage for yet; `answered` once
+   * the provider started its reply (the committed `start-step`).
+   */
+  pendingCall: { answered: boolean } | undefined;
   readonly provider: string;
   revertedEditCount: number;
   readonly root: RunRoot;
@@ -291,7 +297,10 @@ interface RunFold {
   status: LedgerRun['status'];
   readonly threadId: string;
   readonly toolCalls: HostToolCallCount;
+  /** Calls a Stop or a failure cut off that the provider bills but never reported. */
+  unreportedCallCount: number;
 }
+type RunOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 /** The observer's calls are one source each; the observer names its own model. */
 const MEMORY_USAGE_KIND = {
   observation: 'om-observation',
@@ -366,11 +375,42 @@ export class HostToolCallCount {
 }
 
 /** A streamed tool error counts toward its run's failure total. */
-function countToolError(run: RunFold, streamed: unknown): void {
+function countStreamedChunk(run: RunFold, streamed: unknown): void {
   const chunk = Schema.decodeUnknownResult(StreamedChunkSchema)(streamed);
-  if (chunk._tag === 'Success' && chunk.success.type === 'tool-error') {
+  if (chunk._tag !== 'Success') {
+    return;
+  }
+  if (chunk.success.type === 'tool-error') {
     run.failedToolCallCount += 1;
   }
+  // Core commits a step's start, which the SDK emits once the provider answers;
+  // a refused request never starts one.
+  if (chunk.success.type === 'start-step' && run.pendingCall !== undefined) {
+    run.pendingCall.answered = true;
+  }
+}
+/**
+ * A run that a Stop or a close cut off mid-call, or that failed after the
+ * provider started its reply, never got that call's usage: providers report it
+ * only at a stream's end, and the AI SDK's `onAbort` carries finished steps
+ * only. A provider that bills such a stream (Anthropic, Google, OpenRouter's
+ * upstreams that cannot cancel) records a charge the ledger cannot see, so the
+ * call is counted as unreported rather than $0 or a guess. OpenAI does not
+ * bill one (its catalog row says so). A request refused before the provider
+ * answered is billed by none. A stalled attempt the host replaced settles when
+ * its replacement is sent, so each billed attempt counts once.
+ */
+function countCutOffCall(run: RunFold, outcome: RunOutcome | 'stalled'): void {
+  const pending = run.pendingCall;
+  run.pendingCall = undefined;
+  if (
+    pending === undefined ||
+    (outcome !== 'stopped' && outcome !== 'interrupted' && !pending.answered) ||
+    !providerBillsCutOffStreams(run.provider)
+  ) {
+    return;
+  }
+  run.unreportedCallCount += 1;
 }
 /**
  * One thread's cost-view share, folded incrementally from its first committed
@@ -406,7 +446,12 @@ export class ThreadLedgerFold {
       return;
     }
     run.toolCalls.apply(event);
-    if (event.type === 'model.step') {
+    if (event.type === 'provider.request.prepared') {
+      // A recovered attempt's new request replaces a stalled one the provider may have billed.
+      countCutOffCall(run, 'stalled');
+      run.pendingCall = { answered: false };
+    } else if (event.type === 'model.step') {
+      run.pendingCall = undefined;
       this.count(
         run,
         row,
@@ -427,8 +472,9 @@ export class ThreadLedgerFold {
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
       this.count(run, row, model, event.usage, 'compaction-summary');
     } else if (event.type === 'stream.chunk') {
-      countToolError(run, event.chunk);
+      countStreamedChunk(run, event.chunk);
     } else if (event.type === 'run.finished') {
+      countCutOffCall(run, event.outcome);
       run.status = STATUS_BY_OUTCOME[event.outcome];
       run.completedAt = row.ts ?? null;
     } else if (event.type === 'workspace.edit.recorded') {
@@ -508,6 +554,7 @@ export class ThreadLedgerFold {
       failedToolCallCount: 0,
       inputTokens: 0,
       outputTokens: 0,
+      pendingCall: undefined,
       revertedEditCount: 0,
       // The legacy attribution: the thread's bound root, else the root focused
       // at Send; the roots table names a focused root.
@@ -531,6 +578,7 @@ export class ThreadLedgerFold {
       status: 'running',
       threadId: row.threadId,
       toolCalls: new HostToolCallCount(),
+      unreportedCallCount: 0,
     });
   }
   private count(
@@ -701,6 +749,7 @@ function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun
     status: run.status,
     threadId: run.threadId,
     toolCallCount: run.toolCalls.size,
+    unreportedCallCount: run.unreportedCallCount,
   };
 }
 /** A thread's latest root run, with what it still waits on (Core starts one at a time). */

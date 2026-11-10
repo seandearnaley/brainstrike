@@ -150,6 +150,7 @@ const ProviderModelSchema = LlmModelSchema;
 const ProviderSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
   authType: Schema.Literals(['api_key', 'aws']),
+  billsCutOffStreams: Schema.optional(Schema.Boolean),
   capabilities: Schema.Struct({
     streaming: Schema.Boolean,
   }),

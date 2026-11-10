@@ -32,6 +32,7 @@ function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedge
     status: 'completed',
     threadId: 'thread-1',
     toolCallCount: 0,
+    unreportedCallCount: 0,
     ...overrides,
   };
 }
@@ -221,6 +222,30 @@ describe('TaskLedgerPanelView', () => {
     const cost = screen.getByTestId('task-ledger-run-cost');
     expect(cost).toHaveTextContent('no usage recorded');
     expect(cost).not.toHaveTextContent('$0.00');
+  });
+
+  it('names a stopped call its provider billed but never reported, beside what was recorded', () => {
+    renderPanel({
+      ledger: {
+        rows: [
+          makeRun({
+            billedCostUsd: 0.0042,
+            estimatedInputTokens: 0,
+            estimatedOutputTokens: 0,
+            provider: 'openrouter',
+            runId: 'run-1',
+            unreportedCallCount: 1,
+          }),
+          makeRun({ inputTokens: 0, outputTokens: 0, runId: 'run-2', unreportedCallCount: 1 }),
+        ],
+      },
+    });
+
+    const [recorded, cutOff] = screen.getAllByTestId('task-ledger-run-cost');
+    expect(recorded).toHaveTextContent('$0.0042 + 1 call not reported by the provider');
+    // A run whose only call was cut off is never "no usage" and never $0.
+    expect(cutOff).toHaveTextContent('cost not reported by the provider');
+    expect(cutOff).not.toHaveTextContent('$0.00');
   });
 
   it('renders an outcome chip with the label source in its title, blank when unlabeled', () => {
