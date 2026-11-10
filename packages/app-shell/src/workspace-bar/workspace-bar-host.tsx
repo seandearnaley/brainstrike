@@ -1,12 +1,14 @@
 import { WorkspaceBar } from '@brainstrike/assistant-ui';
 import type { ReactElement } from 'react';
 import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspace-bar';
+import { useWorkspaceTrustAsk } from '../workspace-trust/use-workspace-trust-ask';
 
 export type WorkspaceBarHostProps = UseWorkspaceBarArgs;
 
 /**
  * The app-shell side of the composer workspace bar: it owns `useWorkspaceBar`
- * and renders the store-free `<WorkspaceBar />` from @brainstrike/assistant-ui.
+ * and the thread's workspace trust question (ADR-0032), and renders the
+ * store-free `<WorkspaceBar />` from @brainstrike/assistant-ui.
  *
  * It exists to BOUND a re-render. `useWorkspaceBar` holds five live-refresh
  * selector subscriptions across two distinct signals, so every git push and
@@ -31,5 +33,10 @@ export type WorkspaceBarHostProps = UseWorkspaceBarArgs;
  */
 export function WorkspaceBarHost(args: WorkspaceBarHostProps): ReactElement {
   const barProps = useWorkspaceBar(args);
-  return <WorkspaceBar {...barProps} />;
+  const trust = useWorkspaceTrustAsk({
+    memoryResourceId: args.memoryResourceId,
+    openFolders: args.rootDescriptors,
+    threadId: args.selectedMemoryThreadId,
+  });
+  return <WorkspaceBar {...barProps} {...(trust ? { trust } : {})} />;
 }

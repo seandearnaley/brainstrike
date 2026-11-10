@@ -66,16 +66,20 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
   await ensureAssistantShellVisible(window);
   const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
 
-  // The composer asks, naming what the folder would load; nothing waits on it.
-  const prompt = panel.getByRole('region', { exact: true, name: 'Workspace trust' });
-  await expect(prompt).toContainText(`Trust the files in ${basename(workspace)}?`);
-  await expect(prompt).toContainText('This folder has AGENTS.md and 1 skill');
+  // The composer's chip counts what the folder holds back; nothing waits on it.
+  const chip = panel.getByRole('button', { name: /^Workspace trust:/u });
+  await expect(chip).toHaveAccessibleName('Workspace trust: 2 held');
   const before = await send(window, modelProvider, 'Before trust');
   expect(before).not.toContain(CONVENTIONS);
   expect(before).not.toContain(SKILL);
 
-  await prompt.getByRole('button', { exact: true, name: 'Trust folder' }).click();
-  await expect(prompt).toHaveCount(0);
+  // Opening it asks, naming what trusting the folder would load.
+  await chip.click();
+  const ask = window.getByRole('dialog', { exact: true, name: 'Workspace trust' });
+  await expect(ask).toContainText(`Trust the files in ${basename(workspace)}?`);
+  await expect(ask).toContainText('AGENTS.md and 1 skill');
+  await ask.getByRole('button', { exact: true, name: 'Trust folder' }).click();
+  await expect(chip).toHaveCount(0);
   const after = await send(window, modelProvider, 'After trust');
   expect(after).toContain(CONVENTIONS);
   expect(after).toContain(SKILL);
@@ -92,7 +96,7 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
   await expect(row).toContainText('Restricted');
   await ensureAssistantShellVisible(window);
   // Restricted is an answer too: the composer does not ask again.
-  await expect(prompt).toHaveCount(0);
+  await expect(chip).toHaveCount(0);
   const restricted = await send(window, modelProvider, 'After restricting');
   expect(restricted).not.toContain(CONVENTIONS);
   expect(restricted).not.toContain(SKILL);

@@ -31,47 +31,84 @@ export class HostWorkspaceTrustRefusal extends BoundaryFailureError {
  * one folder (a symlink, a trailing slash, another case) shares one answer.
  */
 const trustKey = (identity: string): string => `workspace.trust/${identity}`;
-/**
- * The canonical path of the folder whose answer the folder at `path` shares:
- * itself, or its repository's primary checkout when it is a managed worktree
- * (ADR-0034 decision 6). Undefined when nothing exists at `path`.
- */
-async function answeringIdentity(
+/** A folder and the folder whose answer it shares, each by its canonical path. */
+interface AnsweringFolder {
+  /**
+   * The folder itself, or its repository's primary checkout when it is a
+   * managed worktree (ADR-0034 decision 6). Undefined when nothing exists at
+   * the path, or the repository's folder went away while this ran.
+   */
+  readonly answering: string | undefined;
+  /** Undefined when nothing exists at the path. */
+  readonly folder: string | undefined;
+}
+async function answeringFolder(
   store: HostWorkspaceTrustStore,
   path: string
-): Promise<string | undefined> {
+): Promise<AnsweringFolder> {
   if (!isAbsolute(path)) {
     throw new HostWorkspaceTrustRefusal(
       `Workspace trust needs a folder's absolute path, not ${path}`
     );
   }
   const folder = hostFolderIdentity(path);
-  return folder === undefined ? undefined : hostAnsweringFolder(store, folder);
+  return {
+    answering: folder === undefined ? undefined : await hostAnsweringFolder(store, folder),
+    folder,
+  };
+}
+/** The answer the folder at a path shares, and the folder it is recorded for. */
+export interface HostWorkspaceTrustAnswer {
+  /**
+   * The canonical path of the folder that answers for this one, when it is
+   * another folder: a managed worktree's repository. Undefined for a folder
+   * that answers for itself.
+   */
+  readonly answeredBy: string | undefined;
+  /** The folder's own canonical path; undefined when nothing exists there. */
+  readonly folder: string | undefined;
+  readonly trust: HostWorkspaceTrust;
+}
+/**
+ * The person's answer for the folder at `path`, with the folder it was read
+ * from, resolved once so a listing never names one folder and shows another's
+ * answer.
+ */
+export async function readHostWorkspaceTrustAnswer(
+  store: HostWorkspaceTrustStore,
+  path: string
+): Promise<HostWorkspaceTrustAnswer> {
+  const { answering, folder } = await answeringFolder(store, path);
+  // A folder that is not there loads nothing, whatever was answered for its path.
+  const value = answering === undefined ? undefined : await store.getSetting(trustKey(answering));
+  return {
+    answeredBy: answering === folder ? undefined : answering,
+    folder,
+    trust:
+      value === undefined
+        ? 'undecided'
+        : Schema.decodeUnknownSync(HostWorkspaceTrustDecisionSchema)(value),
+  };
 }
 /** The person's answer for the folder at `path`; undecided until they give one. */
 export async function readHostWorkspaceTrust(
   store: HostWorkspaceTrustStore,
   path: string
 ): Promise<HostWorkspaceTrust> {
-  const identity = await answeringIdentity(store, path);
-  // A folder that is not there loads nothing, whatever was answered for its path.
-  const value = identity === undefined ? undefined : await store.getSetting(trustKey(identity));
-  return value === undefined
-    ? 'undecided'
-    : Schema.decodeUnknownSync(HostWorkspaceTrustDecisionSchema)(value);
+  return (await readHostWorkspaceTrustAnswer(store, path)).trust;
 }
-/** The only writer of a folder's trust: Settings, the composer's prompt and the CLI all call it. */
+/** The only writer of a folder's trust: Settings, the composer's chip and the CLI all call it. */
 export async function writeHostWorkspaceTrust(
   store: HostWorkspaceTrustStore,
   path: string,
   trust: HostWorkspaceTrustDecision
 ): Promise<void> {
-  const identity = await answeringIdentity(store, path);
-  if (identity === undefined) {
+  const { answering } = await answeringFolder(store, path);
+  if (answering === undefined) {
     // Nothing is at `path`, or its repository's folder went away while this request ran.
     throw new HostWorkspaceTrustRefusal(`${path} does not exist`);
   }
-  await store.setSetting(trustKey(identity), trust);
+  await store.setSetting(trustKey(answering), trust);
 }
 /**
  * The roots whose repo-supplied agent configuration may load: instructions,

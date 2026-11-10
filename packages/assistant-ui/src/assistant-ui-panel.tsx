@@ -240,7 +240,6 @@ export const ChatThreadUI = ({
   onComposerTextChange,
   canSteer,
   workspaceBar,
-  workspaceNotice,
   planMode,
   attachmentsAvailability,
   threadKey,
@@ -295,11 +294,6 @@ export const ChatThreadUI = ({
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
   workspaceBar?: ReactNode | undefined;
-  /**
-   * A full-width notice about the thread's folders above the composer
-   * toolbar (ADR-0032's workspace trust prompt), an app-shell-rendered slot.
-   */
-  workspaceNotice?: ReactNode | undefined;
   /** A new thread: its composer sits centred under a welcome until the first send. */
   welcome?: boolean | undefined;
 }) => {
@@ -418,7 +412,6 @@ export const ChatThreadUI = ({
             `disabledReason` keeps its place above the transcript, where
             native scroll anchoring holds a parked reader still. */}
                       <CapabilityNotice text={capabilityNotice} />
-                      {workspaceNotice ?? null}
                       {/* The composer toolbar: one line of workspace orientation
             (folder · branch · worktree, an app-shell-rendered slot so
             assistant-ui stays store-free) balanced by the context ring on

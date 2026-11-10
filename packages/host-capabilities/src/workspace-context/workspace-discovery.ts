@@ -14,16 +14,17 @@
  *
  * ADR-0032: the project tiers come only from roots the person trusted, and
  * `workspace/trust/list` counts what each live root would contribute once
- * trusted, with the same scans.
+ * trusted, with the same scans, and names the folder that answers for it.
  */
 
 import { homedir } from 'node:os';
+import { basename } from 'node:path';
 import type { SkillContentDeps, SkillScanEntry } from '@brainstrike/agent';
 import { MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
 import type { HostWorkspaceDiscovery, HostWorkspaceTrustRoot } from '@brainstrike/agent-host';
 import {
   type HostWorkspaceTrustStore,
-  readHostWorkspaceTrust,
+  readHostWorkspaceTrustAnswer,
   trustedHostWorkspaceRoots,
 } from '@brainstrike/agent-host/workspace-trust';
 import type {
@@ -166,9 +167,9 @@ function countByRoot(
 }
 
 /**
- * Each live root's trust and what trusting it would load. Counting reads a
- * restricted root's files with the scans' own bounded readers, but nothing
- * read here reaches a prompt or a tool.
+ * Each live root's trust, the folder that answers for it and what trusting it
+ * would load. Counting reads a restricted root's files with the scans' own
+ * bounded readers, but nothing read here reaches a prompt or a tool.
  */
 export async function discoverWorkspaceTrust(
   deps: WorkspaceTrustDeps,
@@ -199,11 +200,30 @@ export async function discoverWorkspaceTrust(
   }
   const skillCounts = countByRoot(skills.entries.filter((entry) => entry.status !== 'invalid'));
   const personaCounts = countByRoot(personas.entries.filter((entry) => entry.status !== 'invalid'));
+  const answers = await Promise.all(
+    live.map((root) => readHostWorkspaceTrustAnswer(deps.trust, root.path))
+  );
+  signal.throwIfAborted();
+  // A repository that is open too is named as its own entry names it.
+  const openByFolder = new Map(
+    live.flatMap((root, index) => {
+      const folder = answers[index]?.folder;
+      return folder === undefined ? [] : [[folder, root] as const];
+    })
+  );
   return {
     roots: await Promise.all(
-      live.map(async (root): Promise<HostWorkspaceTrustRoot> => {
+      live.map(async (root, index): Promise<HostWorkspaceTrustRoot> => {
         const instructions = await findRootContextFile(root, deps.readFile);
         signal.throwIfAborted();
+        const answer = answers[index] as (typeof answers)[number];
+        const answering =
+          answer.answeredBy === undefined
+            ? undefined
+            : (openByFolder.get(answer.answeredBy) ?? {
+                displayName: basename(answer.answeredBy),
+                path: answer.answeredBy,
+              });
         return {
           agentConfiguration: {
             commands: commandCounts.get(root.rootId) ?? 0,
@@ -217,10 +237,13 @@ export async function discoverWorkspaceTrust(
             personas: personaCounts.get(root.rootId) ?? 0,
             skills: skillCounts.get(root.rootId) ?? 0,
           },
+          ...(answering
+            ? { answeredBy: { displayName: answering.displayName, path: answering.path } }
+            : {}),
           displayName: root.displayName,
           path: root.path,
           rootId: root.rootId,
-          trust: await readHostWorkspaceTrust(deps.trust, root.path),
+          trust: answer.trust,
         };
       })
     ),

@@ -737,6 +737,11 @@ span.bs-composer-chip {
   flex-shrink: 3;
 }
 
+/* A count cut short says nothing, so a chip that is one keeps its width. */
+.bs-composer-chip-count {
+  flex-shrink: 0;
+}
+
 .bs-composer-chip-badge {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
