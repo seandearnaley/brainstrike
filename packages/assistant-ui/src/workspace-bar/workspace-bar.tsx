@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { BranchChip } from './branch-chip';
 import { FolderChip } from './folder-chip';
 import { ModeChip } from './mode-chip';
+import { TrustChip } from './trust-chip';
 import { WorkspaceBarDropZone } from './workspace-bar-drop-zone';
 import type { WorktreeArchiveConfirmation } from './worktree-archive-confirmation-dialog';
 
@@ -172,6 +173,40 @@ export interface WorkspaceBarBranchMenu {
   readonly scopeReason: string | null;
 }
 
+/**
+ * One workspace trust question (ADR-0032): a folder whose answer is still
+ * missing, and what of this thread's folders it holds back until then.
+ */
+export interface WorkspaceBarTrustAsk {
+  /** The folder the answer is for: the repository, when the thread works in one of its worktrees. */
+  readonly displayName: string;
+  /** This thread's folders the answer covers, each with what trusting it would load. */
+  readonly folders: readonly {
+    readonly displayName: string;
+    /** "AGENTS.md, 2 skills, and 1 slash command". */
+    readonly holds: string;
+    readonly rootId: string;
+  }[];
+  /** How many instructions files, skills, slash commands and subagents those folders hold. */
+  readonly held: number;
+  /** The absolute path the answer is recorded for. */
+  readonly path: string;
+  /** The answer is a repository's, which its worktrees share (ADR-0034 decision 6). */
+  readonly sharedWithWorktrees: boolean;
+}
+
+/** The workspace trust chip's questions and the two answers each takes. */
+export interface WorkspaceBarTrust {
+  /** Why the host refused the last answer; null once one is recorded. */
+  readonly actionError: string | null;
+  readonly asks: readonly WorkspaceBarTrustAsk[];
+  /** The `path` of the ask whose answer is being recorded. */
+  readonly busyPath: string | null;
+  readonly onDecide: (ask: WorkspaceBarTrustAsk, decision: 'restricted' | 'trusted') => void;
+  /** Present while trust could not be read: the chip says so and offers this retry. */
+  readonly onRetry: (() => void) | undefined;
+}
+
 export interface WorkspaceBarProps {
   /**
    * Non-null disables "Add folder…" and every Recent row instead of letting
@@ -235,16 +270,21 @@ export interface WorkspaceBarProps {
   /** Present only when the platform can reveal a path in its file manager. */
   readonly reveal?: WorkspaceBarReveal | undefined;
   readonly secondaryRoots: readonly WorkspaceBarRoot[];
+  /**
+   * The thread's folders whose agent configuration is held until the person
+   * answers (ADR-0032). Absent ⇒ no chip: nothing is held, or no host owns trust.
+   */
+  readonly trust?: WorkspaceBarTrust | undefined;
   /** The workspace's mounted folders that are not this thread's. */
   readonly workspaceFolders: readonly WorkspaceBarRecentRoot[];
 }
 
 /**
  * The composer workspace bar: Folder chip (this thread's primary + secondary
- * folders, recents, Add folder…) and a read-only Branch chip (desktop). Always
+ * folders, recents, Add folder…), a Branch chip and a checkout chip (desktop),
+ * and the workspace trust chip while a folder's answer is missing. Always
  * rendered — its job is orientation, not disambiguation. Pure + prop-driven:
- * app-shell's useWorkspaceBar() supplies everything, so this package stays
- * store-free.
+ * app-shell supplies everything, so this package stays store-free.
  */
 export const WorkspaceBar = ({
   branchMenu,
@@ -252,6 +292,7 @@ export const WorkspaceBar = ({
   checkoutState = 'resolved',
   mode,
   onDropItems,
+  trust,
   ...folder
 }: WorkspaceBarProps): ReactElement => {
   const bar = (
@@ -266,6 +307,7 @@ export const WorkspaceBar = ({
       <FolderChip {...folder} />
       {checkout ? <BranchChip branchMenu={branchMenu} checkout={checkout} /> : null}
       {mode ? <ModeChip mode={mode} /> : null}
+      {trust ? <TrustChip trust={trust} /> : null}
     </div>
   );
   // Capability gating by omission (desktop only): no handler ⇒ no wrapper, no

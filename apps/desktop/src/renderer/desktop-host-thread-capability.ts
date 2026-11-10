@@ -422,7 +422,7 @@ export function createWindowThreadCapability(
       scanSkills: async () => await (await client()).request('workspace/skills', {}),
       setTrust: async (path, trust) => {
         await (await client()).request('workspace/trust', { path, trust });
-        // The composer's prompt and the "/" menu read the lists this answer changed.
+        // The composer's chip and the "/" menu read the lists this answer changed.
         notifyWorkspaceTrustChanged();
       },
     },

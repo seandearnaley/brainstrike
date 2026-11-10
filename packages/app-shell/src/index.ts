@@ -54,7 +54,6 @@ export { useComposerDraftChannel } from './use-composer-draft-channel';
 export * from './verify-provider-credential';
 export { WorkspaceBarHost, type WorkspaceBarHostProps } from './workspace-bar/workspace-bar-host';
 export * from './workspace-connect/workspace-connect-host';
-export { WorkspaceTrustPrompt } from './workspace-trust/workspace-trust-prompt';
 export {
   notifyWorkspaceTrustChanged,
   useWorkspaceTrustRevision,

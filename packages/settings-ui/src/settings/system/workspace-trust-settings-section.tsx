@@ -1,7 +1,9 @@
 /**
- * Settings › Workspace Trust (ADR-0032): every mounted folder, whether the
- * person trusts it, and what trusting it loads. The composer asks once for a
- * folder that brings agent configuration; this panel changes the answer.
+ * Settings › Workspace Trust (ADR-0032): each answer behind the mounted
+ * folders, whether the person trusts it, and what trusting it loads. A
+ * repository and its worktrees share one answer, so they are one row. The
+ * composer asks once for a folder that brings agent configuration; this panel
+ * changes the answer.
  */
 
 import {
@@ -17,9 +19,11 @@ import {
 import { useEffect, useState } from 'react';
 import {
   describeWorkspaceAgentConfiguration,
+  type WorkspaceTrustAnswer,
   type WorkspaceTrustCapability,
   type WorkspaceTrustDecision,
   type WorkspaceTrustRoot,
+  workspaceTrustAnswers,
 } from './workspace-trust';
 
 type ListState =
@@ -41,6 +45,67 @@ const TRUST_VARIANT: Record<WorkspaceTrustRoot['trust'], 'default' | 'secondary'
 
 const errorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error ? error.message : fallback;
+
+/** "AGENTS.md and 2 skills", or that the folder holds none. */
+const holdings = (root: WorkspaceTrustRoot): string =>
+  describeWorkspaceAgentConfiguration(root.agentConfiguration) || 'no agent configuration';
+
+/** One answer: the folder it is recorded for, what it loads, and the worktrees that share it. */
+function AnswerRow({
+  answer,
+  busy,
+  onDecide,
+}: {
+  readonly answer: WorkspaceTrustAnswer;
+  readonly busy: boolean;
+  readonly onDecide: (answer: WorkspaceTrustAnswer, decision: WorkspaceTrustDecision) => void;
+}): React.JSX.Element {
+  // The answering folder's own entry: absent while only its worktrees are open.
+  const own = answer.roots.find((root) => root.answeredBy === undefined);
+  const worktrees = answer.roots.filter((root) => root.answeredBy !== undefined);
+  return (
+    <li
+      className="flex items-center justify-between gap-4 rounded-md border p-3"
+      data-testid={`workspace-trust-root-${(own ?? answer.roots[0])?.rootId}`}
+    >
+      <div className="min-w-0 space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium">{answer.displayName}</span>
+          <Badge variant={TRUST_VARIANT[answer.trust]}>{TRUST_LABEL[answer.trust]}</Badge>
+        </div>
+        <p className="text-muted-foreground truncate text-xs">{answer.path}</p>
+        {own ? <p className="text-muted-foreground text-xs">Holds {holdings(own)}.</p> : null}
+        {worktrees.length > 0 ? (
+          <div className="text-muted-foreground text-xs">
+            <p>Its worktrees share this answer:</p>
+            <ul className="list-disc pl-4">
+              {worktrees.map((worktree) => (
+                <li key={worktree.rootId}>
+                  <span className="font-medium">{worktree.displayName}</span> holds{' '}
+                  {holdings(worktree)}.
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+      {answer.trust === 'trusted' ? (
+        <Button
+          disabled={busy}
+          onClick={() => onDecide(answer, 'restricted')}
+          size="sm"
+          variant="outline"
+        >
+          Restrict
+        </Button>
+      ) : (
+        <Button disabled={busy} onClick={() => onDecide(answer, 'trusted')} size="sm">
+          Trust
+        </Button>
+      )}
+    </li>
+  );
+}
 
 export interface WorkspaceTrustSettingsSectionProps {
   /** The agent host's workspace trust; absent where no host owns folders (web). */
@@ -86,13 +151,14 @@ export function WorkspaceTrustSettingsSection({
 
   const reload = () => setGeneration((value) => value + 1);
 
-  const decide = async (root: WorkspaceTrustRoot, decision: WorkspaceTrustDecision) => {
+  // An answer is given for the folder it is recorded for: the repository, not one of its worktrees.
+  const decide = async (answer: WorkspaceTrustAnswer, decision: WorkspaceTrustDecision) => {
     if (!trust) {
       return;
     }
-    setBusyPath(root.path);
+    setBusyPath(answer.path);
     try {
-      await trust.setTrust(root.path, decision);
+      await trust.setTrust(answer.path, decision);
       setActionError(null);
     } catch (error: unknown) {
       setActionError(errorMessage(error, 'The agent host refused the change'));
@@ -108,8 +174,8 @@ export function WorkspaceTrustSettingsSection({
         <CardDescription>
           A folder’s <code>AGENTS.md</code>, skills, slash commands and subagents can steer the
           assistant, so Brainstrike loads them only from folders you trust. A folder you haven’t
-          trusted still works: the assistant can read and edit it under your permission settings.
-          Project hooks keep their own approval in Hooks.
+          trusted still works: the assistant can read and edit it under your permission settings. A
+          repository’s worktrees share its answer. Project hooks keep their own approval in Hooks.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -124,42 +190,14 @@ export function WorkspaceTrustSettingsSection({
         ) : null}
         {list.kind === 'ready' && list.roots.length > 0 ? (
           <ul className="space-y-3">
-            {list.roots.map((root) => {
-              const holds = describeWorkspaceAgentConfiguration(root.agentConfiguration);
-              const busy = busyPath === root.path;
-              return (
-                <li
-                  className="flex items-center justify-between gap-4 rounded-md border p-3"
-                  data-testid={`workspace-trust-root-${root.rootId}`}
-                  key={root.rootId}
-                >
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium">{root.displayName}</span>
-                      <Badge variant={TRUST_VARIANT[root.trust]}>{TRUST_LABEL[root.trust]}</Badge>
-                    </div>
-                    <p className="text-muted-foreground truncate text-xs">{root.path}</p>
-                    <p className="text-muted-foreground text-xs">
-                      {holds ? `Holds ${holds}.` : 'Holds no agent configuration.'}
-                    </p>
-                  </div>
-                  {root.trust === 'trusted' ? (
-                    <Button
-                      disabled={busy}
-                      onClick={() => void decide(root, 'restricted')}
-                      size="sm"
-                      variant="outline"
-                    >
-                      Restrict
-                    </Button>
-                  ) : (
-                    <Button disabled={busy} onClick={() => void decide(root, 'trusted')} size="sm">
-                      Trust
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
+            {workspaceTrustAnswers(list.roots).map((answer) => (
+              <AnswerRow
+                answer={answer}
+                busy={busyPath === answer.path}
+                key={answer.path}
+                onDecide={(target, decision) => void decide(target, decision)}
+              />
+            ))}
           </ul>
         ) : null}
         {actionError ? (

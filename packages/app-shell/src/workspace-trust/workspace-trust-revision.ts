@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react';
 /**
  * ADR-0032: an answer about a folder's trust changes which skills, slash
  * commands and instructions load. The host owns the answer; this renderer-only
- * counter tells every list read from it (the "/" menu, the composer's prompt)
+ * counter tells every list read from it (the "/" menu, the composer's chip)
  * to read again.
  */
 let revision = 0;

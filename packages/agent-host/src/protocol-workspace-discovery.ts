@@ -121,7 +121,10 @@ const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 /**
  * What trusting a live root would load: its workspace instructions file and
  * its project skills, slash commands and personas, found by the same scans a
- * run uses.
+ * run uses. `answeredBy` is the folder whose answer the root shares when it is
+ * not its own, a managed worktree's repository (ADR-0034 decision 6): its
+ * `path` and `displayName` are that folder's own entry's when it is listed
+ * too, so entries that share an answer group by it.
  */
 const WorkspaceTrustRootSchema = Schema.Struct({
   agentConfiguration: Schema.Struct({
@@ -130,6 +133,7 @@ const WorkspaceTrustRootSchema = Schema.Struct({
     personas: Count,
     skills: Count,
   }),
+  answeredBy: Schema.optionalKey(Schema.Struct({ displayName: Text, path: AbsolutePath })),
   displayName: Text,
   path: AbsolutePath,
   rootId: Id,
