@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import {
   type AssistantMemoryThread,
   useAssistantThreadGroupsStore,
@@ -7,6 +9,7 @@ import {
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { act } from '@brainstrike/test-utils/react-act';
+import type { WorktreeListEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -26,10 +29,11 @@ import {
 } from '../assistant-thread-presentation';
 import { SidebarHeaderContext } from '../sidebar-header';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
-import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
+import { NO_WORKSPACE_GIT_SERVICES, WorkspaceGitServicesProvider } from '../workspace-git-services';
+import { stubWorktreesBridge } from './helpers/workspace-git-services-wrapper';
 
 const virtualizerState = vi.hoisted(() => ({
   estimatedSizes: [] as number[],
@@ -89,16 +93,11 @@ const {
     metadataFailureMessage: 'Metadata update failed.',
     metadataFailureThreadId: null as string | null,
   },
+  // The host's worktree listing, which folder grouping reads once for the panel.
   gitMocks: {
+    /** False renders the panel as a host with no worktrees bridge does. */
     available: true,
-    deferredLoads: [] as boolean[],
-    worktrees: [] as {
-      branch: string | null;
-      /** Workspace root ids containing this worktree; defaults to none. */
-      containment?: readonly string[];
-      detached: boolean;
-      path: string;
-    }[],
+    list: vi.fn<() => Promise<BoundaryResult<readonly WorktreeListEntry[]>>>(),
   },
   groupRows: [] as Record<string, unknown>[],
   // The default fake host's operations; their implementations are installed per test.
@@ -330,46 +329,9 @@ vi.mock('../thread-search-service', () => ({
   }),
 }));
 
-// The branch chips' inventory: `deferInitialLoad` keeps `inventory` null, the
-// same observable pre-first-load state the real hook reports, so the folder-mode
-// gate stays visible to these tests.
-vi.mock('../changes/use-git-inventory', () => ({
-  useGitInventory: (options?: {
-    readonly active?: boolean;
-    readonly deferInitialLoad?: boolean;
-  }) => {
-    const deferred = Boolean(options?.deferInitialLoad);
-    gitMocks.deferredLoads.push(deferred);
-    return {
-      available: gitMocks.available,
-      error: null,
-      inventory:
-        deferred || !gitMocks.available
-          ? null
-          : {
-              errors: [],
-              repositories: [
-                {
-                  identity: {
-                    gitCommonDir: '/tmp/workspace-a/.git',
-                    repositoryRoot: '/tmp/workspace-a',
-                  },
-                  worktrees: gitMocks.worktrees.map(({ containment, ...worktree }) => ({
-                    ...worktree,
-                    containment: containment ?? 'outside-roots',
-                    provenance: 'primary',
-                    trust: 'validated',
-                  })),
-                },
-              ],
-            },
-      loading: false,
-      refresh: vi.fn(),
-    };
-  },
-}));
-
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  // The live-refresh subscription the worktree listing holds listens for it.
+  FILE_EXPLORER_REFRESH_EVENT: 'brainstrike:file-explorer-refreshed',
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
   useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
@@ -417,13 +379,19 @@ function renderThreadsPanel(
   host: AssistantThreadHostCapability = createDefaultHost()
 ): ReturnType<typeof createTestActionRegistry> & { rerender(): void } {
   const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
+  const gitServices = {
+    ...NO_WORKSPACE_GIT_SERVICES,
+    worktrees: gitMocks.available ? stubWorktreesBridge({ list: gitMocks.list }) : null,
+  };
   const view = () => (
     <ActionRegistryProvider registry={actionRegistry.registry}>
-      <AssistantThreadHostContext.Provider value={host}>
-        <SidebarHeader>
-          <ThreadsPanel />
-        </SidebarHeader>
-      </AssistantThreadHostContext.Provider>
+      <WorkspaceGitServicesProvider services={gitServices}>
+        <AssistantThreadHostContext.Provider value={host}>
+          <SidebarHeader>
+            <ThreadsPanel />
+          </SidebarHeader>
+        </AssistantThreadHostContext.Provider>
+      </WorkspaceGitServicesProvider>
       <Toaster />
     </ActionRegistryProvider>
   );
@@ -470,8 +438,8 @@ beforeEach(() => {
   fixture.metadataFailureMessage = 'Metadata update failed.';
   fixture.metadataFailureThreadId = null;
   gitMocks.available = true;
-  gitMocks.deferredLoads = [];
-  gitMocks.worktrees = [];
+  // No open folder is a repository unless a test lists one.
+  gitMocks.list.mockReset().mockResolvedValue({ ok: true, value: [] });
   rootRows.splice(0, rootRows.length);
   runMocks.listeners.clear();
   runMocks.runs = new Map();
@@ -1847,8 +1815,7 @@ describe('ThreadsPanel dates and pins', () => {
     useAssistantThreadGroupsStore.setState({ groupBy: 'date' });
   });
 
-  it('groups by date by default, newest conversation first', async () => {
-    useAssistantThreadGroupsStore.getState().reset();
+  it('groups by date, newest conversation first', async () => {
     threadRows.unshift({
       createdAt: new Date(),
       id: 'thread-today',
@@ -1861,7 +1828,6 @@ describe('ThreadsPanel dates and pins', () => {
     renderThreadsPanel();
 
     await screen.findByText('Fresh thread');
-    expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('date');
     const sections = screen.getAllByTestId('thread-date-section');
     expect(sections.map((section) => section.textContent)).toEqual([
       expect.stringContaining('Today'),
@@ -1933,6 +1899,74 @@ describe('ThreadsPanel folders', () => {
     }
   }
 
+  const WORKTREE_ROOT = {
+    displayName: 'swift-badger',
+    id: 'root-worktree',
+    path: '/tmp/worktrees/swift-badger',
+  };
+  const WORKTREE_ID = 'worktree-1';
+
+  /** Moves a thread into the managed worktree, as the host's binding records it. */
+  function bindThreadToWorktree(threadId: string): void {
+    bindThreadToRoot(threadId, WORKTREE_ROOT);
+    const row = threadRows.find((candidate) => candidate['id'] === threadId);
+    if (!row) {
+      throw new Error(`Cannot bind unknown thread ${threadId}.`);
+    }
+    row['metadata'] = JSON.stringify({
+      ...parseMetadataObject(row['metadata']),
+      checkoutLocalRootId: WORKSPACE_ROOT.id,
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: WORKTREE_ID,
+      checkoutWorktreePath: WORKTREE_ROOT.path,
+    });
+  }
+
+  /** One entry of the host's worktree listing; `workspace-a` is the repository. */
+  function listed(overrides: Partial<WorktreeListEntry>): WorktreeListEntry {
+    return {
+      branch: 'main',
+      containment: 'outside-roots',
+      createdAt: null,
+      detached: false,
+      disabledReason: null,
+      externalTool: null,
+      id: null,
+      lockedReason: null,
+      managed: false,
+      name: 'workspace-a',
+      path: WORKSPACE_ROOT.path,
+      primary: false,
+      provenance: 'scanned',
+      remedy: null,
+      repoCommonDir: `${WORKSPACE_ROOT.path}/.git`,
+      repositoryRoot: WORKSPACE_ROOT.path,
+      rootId: null,
+      rootIdIsExactMount: false,
+      setupReason: null,
+      setupStatus: 'none',
+      trust: 'validated',
+      trustReason: null,
+      usable: true,
+      ...overrides,
+    };
+  }
+  const OWN_CHECKOUT = listed({
+    primary: true,
+    rootId: WORKSPACE_ROOT.id,
+    rootIdIsExactMount: true,
+  });
+  const MANAGED_WORKTREE = listed({
+    branch: 'swift-badger',
+    id: WORKTREE_ID,
+    managed: true,
+    name: 'swift-badger',
+    path: WORKTREE_ROOT.path,
+    provenance: 'both',
+    rootId: WORKTREE_ROOT.id,
+    rootIdIsExactMount: true,
+  });
+
   function rowFor(title: string): HTMLElement {
     const row = screen.getByText(title).closest<HTMLElement>('[data-testid="thread-row"]');
     if (!row) {
@@ -1943,11 +1977,28 @@ describe('ThreadsPanel folders', () => {
 
   async function enterFolderGrouping(): Promise<void> {
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    fireEvent.click(await screen.findByRole('radio', { name: 'Folder' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Project' }));
     await screen.findAllByTestId('thread-folder-count');
   }
 
-  it('groups threads by their bound workspace folder with a trailing No folder section', async () => {
+  it('lists threads by where they work until another view is chosen', async () => {
+    // What a person who has never touched View options sees.
+    useAssistantThreadGroupsStore.getState().reset();
+    bindThreadToRoot('thread-a');
+
+    renderThreadsPanel();
+
+    const sections = await screen.findAllByTestId('thread-folder-header');
+    expect(sections.map((section) => section.textContent)).toEqual([
+      expect.stringContaining('workspace-a'),
+      expect.stringContaining('No project'),
+    ]);
+    expect(screen.queryByTestId('thread-date-section')).toBeNull();
+    // The default view is not a changed one.
+    expect(screen.queryByTestId('threads-view-options-dot')).toBeNull();
+  });
+
+  it('groups threads by their bound workspace folder with a trailing No project section', async () => {
     bindThreadToRoot('thread-a');
     renderThreadsPanel();
     await waitFor(() => {
@@ -1962,10 +2013,10 @@ describe('ThreadsPanel folders', () => {
     const unassignedSection = sections[1] as HTMLElement;
     expect(within(folderSection).getByText('workspace-a')).toBeVisible();
     expect(within(folderSection).getByTestId('thread-folder-count')).toHaveTextContent('1');
-    expect(within(unassignedSection).getByText('No folder')).toBeVisible();
+    expect(within(unassignedSection).getByText('No project')).toBeVisible();
     expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
     expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('folder');
-    // A folder is not a custom group, and "No folder" is not a folder: there is
+    // A folder is not a custom group, and "No project" is not a folder: there is
     // nothing for a new thread there to be bound to.
     expect(
       within(unassignedSection).queryByTestId('thread-folder-new-thread')
@@ -2029,7 +2080,7 @@ describe('ThreadsPanel folders', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
     expect(await screen.findByRole('radio', { name: 'Custom' })).toBeVisible();
-    fireEvent.click(screen.getByRole('radio', { name: 'Folder' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Project' }));
 
     // Folder sections have no manual order, so Custom is not on offer there.
     expect(screen.queryByRole('radio', { name: 'Custom' })).not.toBeInTheDocument();
@@ -2170,77 +2221,155 @@ describe('ThreadsPanel folders', () => {
     expect(within(rowFor('First thread')).getByTestId('thread-unseen-glyph')).toBeInTheDocument();
   });
 
-  it('chips the folder branch on the bound row only, and only in folder grouping', async () => {
+  it('chips where each thread works in every grouping, without reading git', async () => {
     bindThreadToRoot('thread-a');
-    gitMocks.worktrees = [
-      {
-        branch: 'main',
-        containment: ['root-1'],
-        detached: false,
-        path: '/tmp/workspace-a/',
-      },
-    ];
-    renderThreadsPanel();
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-
-    // Grouped mode never pays for the repo/worktree scan, so it shows no chip.
-    expect(screen.queryByText('main')).not.toBeInTheDocument();
-    expect(gitMocks.deferredLoads.at(-1)).toBe(true);
-
-    await enterFolderGrouping();
-
-    expect(gitMocks.deferredLoads.at(-1)).toBe(false);
-    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
-    expect(within(badges).getByText('main')).toBeVisible();
-    // First badge: the one the container query keeps at narrow panel widths.
-    expect(badges.firstElementChild).toHaveTextContent('main');
-    expect(within(rowFor('Second thread')).queryByText('main')).not.toBeInTheDocument();
-  });
-
-  it('falls back to the normalized display path only when a thread has no durable root id', () => {
-    const legacyThread: AssistantMemoryThread = {
-      createdAt: new Date('2026-04-22T09:00:00Z'),
-      id: 'legacy-thread',
-      metadata: { operatingRootPath: '/tmp/workspace-a/' },
+    bindThreadToWorktree('thread-b');
+    threadRows.push({
+      createdAt: new Date('2026-04-22T08:00:00Z'),
+      id: 'thread-c',
+      metadata: null,
       resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      title: 'Legacy thread',
-      updatedAt: new Date('2026-04-22T09:00:00Z'),
-    };
+      title: 'Third thread',
+      updatedAt: new Date('2026-04-22T08:00:00Z'),
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
+    });
 
+    // Custom groups here; the chip is the thread's own binding, so no grouping
+    // has to pay for a repository scan to show it.
+    expect(within(rowFor('First thread')).getByTestId('thread-checkout-chip')).toHaveTextContent(
+      'Local'
+    );
+    expect(within(rowFor('Second thread')).getByTestId('thread-checkout-chip')).toHaveTextContent(
+      'swift-badger'
+    );
+    // No folder, so nowhere it works yet.
+    expect(within(rowFor('Third thread')).queryByTestId('thread-checkout-chip')).toBeNull();
+    expect(gitMocks.list).not.toHaveBeenCalled();
+  });
+
+  it("lists a worktree's thread under its repository, beside the thread in the repository's own checkout", async () => {
+    bindThreadToRoot('thread-a');
+    bindThreadToWorktree('thread-b');
+    gitMocks.list.mockResolvedValue({ ok: true, value: [OWN_CHECKOUT, MANAGED_WORKTREE] });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    // ONE section: the repository, not its checkout and its worktree apart.
+    const headers = screen.getAllByTestId('thread-folder-header');
+    expect(headers).toHaveLength(1);
+    const repository = headers[0] as HTMLElement;
+    expect(within(repository).getByText('workspace-a')).toBeVisible();
+    expect(within(repository).getByTestId('thread-folder-count')).toHaveTextContent('2');
+    // The header carries the branch the repository's own checkout is on.
+    expect(within(repository).getByTestId('thread-folder-branch')).toHaveTextContent('main');
+    expect(within(rowFor('First thread')).getByTestId('thread-checkout-chip')).toHaveTextContent(
+      'Local'
+    );
+    expect(within(rowFor('Second thread')).getByTestId('thread-checkout-chip')).toHaveTextContent(
+      'swift-badger'
+    );
+    // One listing for the whole panel, however many rows it places.
+    expect(gitMocks.list).toHaveBeenCalledTimes(1);
+
+    // "New thread here" starts in the repository's own checkout.
+    fireEvent.click(within(repository).getByTestId('thread-folder-new-thread'));
     expect(
-      lookupThreadBranch(legacyThread, {
-        byRootId: new Map(),
-        byRootIdAndPath: new Map(),
-        byRootPath: new Map([
-          [
-            '/tmp/workspace-a',
-            {
-              branch: 'legacy-branch',
-              detached: false,
-              gitCommonDir: '/tmp/workspace-a/.git',
-            },
-          ],
-        ]),
+      useAssistantThreadStore.getState().newThreadMetadataByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toMatchObject({ operatingRootId: WORKSPACE_ROOT.id });
+  });
+
+  it('keeps a worktree as a folder of its own once git no longer joins it to the repository', async () => {
+    bindThreadToRoot('thread-a');
+    bindThreadToWorktree('thread-b');
+    gitMocks.list.mockResolvedValue({
+      ok: true,
+      value: [
+        OWN_CHECKOUT,
+        { ...MANAGED_WORKTREE, trust: 'unvalidated', trustReason: 'names another repository' },
+      ],
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    const names = screen
+      .getAllByTestId('thread-folder-header')
+      .map((header) => header.textContent ?? '');
+    expect(names).toHaveLength(2);
+    expect(names[0]).toContain('swift-badger');
+    expect(names[1]).toContain('workspace-a');
+  });
+
+  it('says the repositories could not be read, and still groups by folder', async () => {
+    bindThreadToRoot('thread-a');
+    bindThreadToWorktree('thread-b');
+    gitMocks.list.mockResolvedValue({
+      error: {
+        category: 'internal',
+        code: 'git.command-failed',
+        kind: 'fault',
+        message: 'git worktree list failed',
+      },
+      ok: false,
+    });
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    await enterFolderGrouping();
+
+    expect(await screen.findByTestId('thread-repositories-error')).toHaveTextContent(
+      'git worktree list failed'
+    );
+    // Each thread under the folder it names: nothing is placed by a guess.
+    expect(screen.getAllByTestId('thread-folder-header')).toHaveLength(2);
+    expect(screen.queryByTestId('thread-folder-branch')).toBeNull();
+  });
+
+  it('holds the sections until the repositories have been read', async () => {
+    bindThreadToRoot('thread-a');
+    bindThreadToWorktree('thread-b');
+    let answer: (result: BoundaryResult<readonly WorktreeListEntry[]>) => void = () => undefined;
+    gitMocks.list.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
       })
-    ).toEqual({
-      branch: 'legacy-branch',
-      detached: false,
-      gitCommonDir: '/tmp/workspace-a/.git',
+    );
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
+
+    fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Project' }));
+
+    // Drawing folders first would show the worktree as a section of its own,
+    // then move its thread once the listing answered.
+    expect(await screen.findByTestId('threads-folders-loading-card')).toBeVisible();
+    expect(screen.queryByTestId('thread-folder-header')).toBeNull();
+
+    await act(async () => {
+      answer({ ok: true, value: [OWN_CHECKOUT, MANAGED_WORKTREE] });
+    });
+
+    expect(await screen.findAllByTestId('thread-folder-header')).toHaveLength(1);
   });
 
-  it('does not borrow a same-path replacement root branch when the durable root id differs', async () => {
+  it('groups by folder alone where the host serves no worktrees', async () => {
+    gitMocks.available = false;
     bindThreadToRoot('thread-a');
-    gitMocks.worktrees = [
-      {
-        branch: 'replacement-branch',
-        containment: ['replacement-root'],
-        detached: false,
-        path: '/tmp/workspace-a',
-      },
-    ];
+    bindThreadToWorktree('thread-b');
     renderThreadsPanel();
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -2248,108 +2377,8 @@ describe('ThreadsPanel folders', () => {
 
     await enterFolderGrouping();
 
-    expect(within(rowFor('First thread')).queryByText('replacement-branch')).toBeNull();
-  });
-
-  it('keeps the root checkout branch when a nested worktree shares its durable root id', async () => {
-    bindThreadToRoot('thread-a');
-    gitMocks.worktrees = [
-      {
-        branch: 'main',
-        containment: ['root-1'],
-        detached: false,
-        path: '/tmp/workspace-a',
-      },
-      {
-        branch: 'feature/nested',
-        containment: ['root-1'],
-        detached: false,
-        path: '/tmp/workspace-a/.worktrees/feature',
-      },
-    ];
-    renderThreadsPanel();
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-
-    await enterFolderGrouping();
-
-    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
-    expect(within(badges).getByText('main')).toBeVisible();
-    expect(within(badges).queryByText('feature/nested')).toBeNull();
-  });
-
-  // The symlink skew live e2e found: `roots.path` keeps the MOUNTED path,
-  // git reports the REALPATH, so the exact-path join misses and the chip
-  // silently vanished — while the composer's chip, asking git by rootId,
-  // still said `main` for the same root.
-  it('chips a folder whose mounted path is a symlink of the path git reports', async () => {
-    bindThreadToRoot('thread-a');
-    gitMocks.worktrees = [
-      {
-        branch: 'main',
-        containment: ['root-1'],
-        detached: false,
-        path: '/private/tmp/workspace-a',
-      },
-    ];
-    renderThreadsPanel();
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-
-    await enterFolderGrouping();
-
-    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
-    expect(within(badges).getByText('main')).toBeVisible();
-  });
-
-  // Two worktrees inside the folder: the folder has no branch of its own, and
-  // picking one of them would be a fabricated chip.
-  it('chips nothing when the folder contains more than one worktree', async () => {
-    bindThreadToRoot('thread-a');
-    gitMocks.worktrees = [
-      { branch: 'main', containment: ['root-1'], detached: false, path: '/private/tmp/repo-one' },
-      { branch: 'dev', containment: ['root-1'], detached: false, path: '/private/tmp/repo-two' },
-    ];
-    renderThreadsPanel();
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-
-    await enterFolderGrouping();
-
-    expect(screen.queryByText('main')).not.toBeInTheDocument();
-    expect(screen.queryByText('dev')).not.toBeInTheDocument();
-    // The badges slot still holds the provider/model pills, so the claim is
-    // that the BRANCH is not among them — the first span is the branch when
-    // there is one (that ordering is asserted by the exact-path test above).
-    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
-    expect(badges.firstElementChild).toHaveTextContent('OpenRouter');
-  });
-
-  // `git worktree list --porcelain` emits `bare` with NEITHER a `branch` line
-  // nor a `detached` line, so a bare worktree arrives as {branch: null,
-  // detached: false} — the one shape that is neither a name nor a detached
-  // HEAD. Rendered, it was a GitBranch icon with no label holding the first
-  // badge slot the narrow-panel container query protects.
-  it('chips nothing for a bare worktree, which has neither a branch nor a detached HEAD', async () => {
-    bindThreadToRoot('thread-a');
-    gitMocks.worktrees = [
-      { branch: null, containment: ['root-1'], detached: false, path: '/private/tmp/workspace-a' },
-    ];
-    renderThreadsPanel();
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-
-    await enterFolderGrouping();
-
-    expect(screen.queryByText('detached')).not.toBeInTheDocument();
-    const badges = within(rowFor('First thread')).getByTestId('thread-metadata-badges');
-    // No empty first pill: the provider is back in the slot the branch would
-    // have taken, so the branch chip was not rendered label-less.
-    expect(badges.firstElementChild).toHaveTextContent('OpenRouter');
+    expect(screen.getAllByTestId('thread-folder-header')).toHaveLength(2);
+    expect(screen.queryByTestId('thread-repositories-error')).toBeNull();
   });
 
   // Drag-reorder rewrites the whole listed section's ranks. Under a filter the
@@ -2377,7 +2406,7 @@ describe('ThreadsPanel folders', () => {
   // options" while the popover offered only the three individual boxes.
   it('offers the clear-filters control its filtered-empty card points at', async () => {
     // The default view, so only the filter can light the view options dot.
-    useAssistantThreadGroupsStore.setState({ groupBy: 'date' });
+    useAssistantThreadGroupsStore.setState({ groupBy: 'folder' });
     renderThreadsPanel();
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -2427,7 +2456,7 @@ describe('ThreadsPanel folders', () => {
 
     // Folder mode swaps Sort by's options for the folder-only pair; they are a
     // different setting and must not share the recency/name group either.
-    fireEvent.click(screen.getByRole('radio', { name: 'Folder' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Project' }));
 
     await waitFor(() => {
       expect(namesIn(screen.getByRole('radiogroup', { name: 'Sort by' }))).toEqual(
@@ -2625,7 +2654,7 @@ it('loads host conversations, retained folders and custom groups', async () => {
   expect(screen.queryByText('No child conversations')).toBeNull();
   expect(await screen.findByText('My work')).toBeVisible();
   await userEvent.setup().click(screen.getByRole('button', { name: 'View options' }));
-  await userEvent.setup().click(screen.getByRole('radio', { name: 'Folder' }));
+  await userEvent.setup().click(screen.getByRole('radio', { name: 'Project' }));
   expect(await screen.findByText('Retained')).toBeVisible();
   expect(readRoots).toHaveBeenCalledTimes(1);
 });
