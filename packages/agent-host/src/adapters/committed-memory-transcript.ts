@@ -12,6 +12,10 @@ type CommittedModelRow = HostLogRow & {
   readonly event: Extract<HostLogRow['event'], { type: 'model.step' | 'model.messages' }>;
 };
 
+function isCommittedModelRow(row: HostLogRow): row is CommittedModelRow {
+  return row.event.type === 'model.step' || row.event.type === 'model.messages';
+}
+
 function committedModelMetadata(
   model: unknown
 ): { readonly modelId: string; readonly provider: string } | undefined {
@@ -96,6 +100,56 @@ function withoutApprovals(message: ModelMessage, approvals: ReadonlySet<string>)
   return message;
 }
 
+/**
+ * The earlier segments a row's conversion borrows from: those holding a call
+ * that this row answers without carrying the call itself (a result committed
+ * after an approval pause, a continuation). A step commits its calls with
+ * their results, so most rows borrow none. An approval names its call by
+ * approval ID, not by call, so a row with one borrows every earlier segment.
+ */
+function borrowedSegments(
+  previous: readonly MastraDBMessage[],
+  messages: readonly ModelMessage[]
+): readonly MastraDBMessage[] {
+  if (messages.some((message) => approvalParts(message).length > 0)) {
+    return previous;
+  }
+  const own = toolCallIds(messages, 'tool-call');
+  const borrowed = new Set(
+    [...toolCallIds(messages, 'tool-result')].filter((toolCallId) => !own.has(toolCallId))
+  );
+  if (borrowed.size === 0) {
+    return [];
+  }
+  return previous.filter((segment) =>
+    segment.content.parts.some(
+      (part) => part.type === 'tool-invocation' && borrowed.has(part.toolInvocation.toolCallId)
+    )
+  );
+}
+
+/** The calls a row's messages make (`tool-call`) or answer (`tool-result`). */
+function toolCallIds(
+  messages: readonly ModelMessage[],
+  type: 'tool-call' | 'tool-result'
+): Set<string> {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if (
+      (message.role !== 'assistant' && message.role !== 'tool') ||
+      typeof message.content === 'string'
+    ) {
+      continue;
+    }
+    for (const part of message.content) {
+      if (part.type === type) {
+        ids.add(part.toolCallId);
+      }
+    }
+  }
+  return ids;
+}
+
 /** One committed model segment, as Memory stores it: one assistant message. */
 function assistantSegment(
   row: CommittedModelRow,
@@ -115,8 +169,14 @@ function assistantSegment(
     threadId: row.threadId,
   });
   // Conversion borrows preceding calls to recover result arguments. A
-  // later approval/result row never updates the earlier call segment.
-  native.add(structuredClone([...previous]), 'memory');
+  // later approval/result row never updates the earlier call segment, so the
+  // converter gets its own copy: of the segments this row borrows from only,
+  // since copying every earlier segment for every row made a run's transcript
+  // cost the square of its steps, on each of the reads a step makes.
+  const borrowed = borrowedSegments(previous, messages);
+  if (borrowed.length > 0) {
+    native.add(structuredClone([...borrowed]), 'memory');
+  }
   messages
     // A message that held only an automatic approval has nothing left to convert.
     .filter((message) => typeof message.content === 'string' || message.content.length > 0)
@@ -213,17 +273,32 @@ function runSegments(
   return converted;
 }
 
+/**
+ * Each committed row's messages, validated once. A row never changes and Core
+ * hands every read the same row objects (`HostCommittedRows`), where
+ * validating every row again on each of a step's reads cost a run the square
+ * of its steps. A reader gets its own copy, as it did from a fresh parse.
+ */
+const validatedMessages = new WeakMap<HostLogRow, readonly ModelMessage[]>();
+
+function committedModelMessages(row: CommittedModelRow): ModelMessage[] {
+  let messages = validatedMessages.get(row);
+  if (!messages) {
+    messages = row.event.messages.map((message) => modelMessageSchema.parse(message));
+    validatedMessages.set(row, messages);
+  }
+  return structuredClone([...messages]);
+}
+
 /** Immutable native segments address existing rows; there is no message-ID writer. */
 export function committedMemoryTranscript(
   rows: readonly HostLogRow[],
   resourceId: string
 ): MastraDBMessage[] {
   const committed = new Map(
-    rows.flatMap((row): [HostLogRow, ModelMessage[]][] =>
-      row.event.type === 'model.step' || row.event.type === 'model.messages'
-        ? [[row, row.event.messages.map((message) => modelMessageSchema.parse(message))]]
-        : []
-    )
+    rows
+      .filter(isCommittedModelRow)
+      .map((row): [HostLogRow, ModelMessage[]] => [row, committedModelMessages(row)])
   );
   const automaticAllows = automaticAllowApprovals([...committed.values()]);
   const messages: MastraDBMessage[] = [];
@@ -255,9 +330,7 @@ export function committedMemoryTranscript(
     }
     const segments = rows.filter(
       (row): row is CommittedModelRow =>
-        row.threadId === started.threadId &&
-        (row.event.type === 'model.step' || row.event.type === 'model.messages') &&
-        row.event.runId === runId
+        isCommittedModelRow(row) && row.threadId === started.threadId && row.event.runId === runId
     );
     for (const segment of runSegments(segments, committed, automaticAllows, resourceId)) {
       append(segment);
