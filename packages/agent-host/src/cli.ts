@@ -66,7 +66,13 @@ type CliStringOption =
   | 'skills'
   | 'workspace-instructions'
   | 'thread';
-type CliBooleanOption = 'help' | 'interactive' | 'json' | 'non-interactive' | 'yes';
+type CliBooleanOption =
+  | 'help'
+  | 'interactive'
+  | 'json'
+  | 'non-interactive'
+  | 'trust-parent'
+  | 'yes';
 interface HostCliArguments {
   readonly command: string;
   readonly interactive: boolean;
@@ -136,6 +142,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       since: { type: 'string' },
       skills: { type: 'string' },
       thread: { type: 'string' },
+      'trust-parent': { type: 'boolean' },
       until: { type: 'string' },
       workspace: { multiple: true, type: 'string' },
       'workspace-instructions': { type: 'string' },
@@ -415,7 +422,7 @@ mcp input read --thread <id> --run <id> --interaction <id>
 mcp input settle --thread <id> --run <id> --interaction <id> --action accept|decline|cancel [--content <json>]
 auth login --provider <id> [--region <aws region> [--aws-profile <name>]]
 hooks trust [<root dir>] [--sha256 <hash>]
-workspace trust [<root dir>] [--yes]
+workspace trust [<root dir>] [--yes] [--trust-parent]
 
 auth login reads the API key or AWS bearer key from stdin, never from arguments.
 --aws-profile stores a named AWS profile chain and reads no secret.
@@ -423,8 +430,12 @@ hooks trust shows a standalone root's .brainstrike/hooks.json (default: the curr
 and its SHA-256 for review; the host runs its project hooks only at that hash. --sha256
 confirms without a prompt. Desktop roots are approved in Settings > Hooks.
 workspace trust lets a standalone root's agent configuration (its AGENTS.md, skills and
-personas) load; until then the root runs restricted. --yes confirms without a prompt. Desktop folders
-are trusted from the composer or Settings > Workspace Trust.
+personas) load; until then the root runs restricted. --yes confirms without a prompt.
+--trust-parent also makes the root's parent a trusted location, so every folder in it, now and
+later, is trusted without an ask; it is never added unless you pass it. For a worktree that is
+the folder its repository is kept in. The top of the filesystem, your home directory, a folder
+that holds it and a folder other people can write to are refused. Desktop folders are trusted
+from the composer or Settings > Workspace Trust.
 
 threads search is lexical: words in committed messages and thread titles, fused into one
 ranked list; with no thread holding every word, it matches any word and says so. --scope-root
@@ -508,7 +519,12 @@ Run signals stop and join its execution; attach signals detach.
         break;
       case 'workspace trust':
         print(
-          await trustCliWorkspace(client, { interactive, root: positionals[2], yes: values.yes })
+          await trustCliWorkspace(client, {
+            interactive,
+            root: positionals[2],
+            trustParent: values['trust-parent'],
+            yes: values.yes,
+          })
         );
         break;
       case 'auth login': {

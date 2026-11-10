@@ -26,15 +26,26 @@ export interface WorkspaceTrustRoot {
    */
   readonly answeredBy?: { readonly displayName: string; readonly path: string } | undefined;
   readonly displayName: string;
+  /**
+   * The parent the folder's trust ask may offer as a trusted location, as the
+   * host names it. Absent when the host offers none: the folder is trusted, the
+   * parent is a trusted location already, or it is the top of the filesystem,
+   * the home directory or a folder that holds it.
+   */
+  readonly offeredLocation?: string | undefined;
   /** The folder's absolute path; the host resolves the answer it shares from it. */
   readonly path: string;
   readonly rootId: string;
   readonly trust: WorkspaceTrustDecision | 'undecided';
+  /** The trusted location a folder with no answer of its own is trusted through. */
+  readonly trustedThrough?: string | undefined;
 }
 
 /** One answer the person gives: the folder it is recorded for and the open folders it covers. */
 export interface WorkspaceTrustAnswer {
   readonly displayName: string;
+  /** The parent a trust ask for this answer may offer as a trusted location. */
+  readonly offeredLocation: string | undefined;
   /** The answering folder's absolute path; an answer is set through it. */
   readonly path: string;
   /** The open folders this answer covers, in the host's order. */
@@ -42,12 +53,27 @@ export interface WorkspaceTrustAnswer {
   /** A repository's answer, which a managed worktree among `roots` shares. */
   readonly sharedWithWorktrees: boolean;
   readonly trust: WorkspaceTrustRoot['trust'];
+  /** The trusted location the answer comes from, when the person gave none for the folder. */
+  readonly trustedThrough: string | undefined;
+}
+
+/** A folder the person marked so that every folder inside it is trusted without an ask. */
+export interface WorkspaceTrustedLocation {
+  /** The location's absolute path, as the host keeps it; it is removed by this path. */
+  readonly path: string;
 }
 
 /** The agent host's trust reads and its one writer; absent where no host owns folders (web). */
 export interface WorkspaceTrustCapability {
   listTrust(): Promise<readonly WorkspaceTrustRoot[]>;
-  setTrust(path: string, trust: WorkspaceTrustDecision): Promise<void>;
+  listTrustedLocations(): Promise<readonly WorkspaceTrustedLocation[]>;
+  /** Folders' own answers stay; a folder trusted only through the location asks again. */
+  removeTrustedLocation(path: string): Promise<void>;
+  /**
+   * Records the answer for the folder at `path`. `location` also records that
+   * folder's parent as a trusted location: the `offeredLocation` the ask showed.
+   */
+  setTrust(path: string, trust: WorkspaceTrustDecision, location?: string): Promise<void>;
 }
 
 const LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
@@ -100,10 +126,13 @@ export function workspaceTrustAnswers(
     const first = covered[0] as WorkspaceTrustRoot;
     return {
       displayName: first.answeredBy?.displayName ?? first.displayName,
+      // Folders that share an answer share its folder, so the host offers each the same parent.
+      offeredLocation: first.offeredLocation,
       path,
       roots: covered,
       sharedWithWorktrees: covered.some((root) => root.answeredBy !== undefined),
       trust: first.trust,
+      trustedThrough: first.trustedThrough,
     };
   });
 }

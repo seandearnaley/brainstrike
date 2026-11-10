@@ -106,5 +106,9 @@
 // compares the root's own path with the worktree's, which differ by spelling for a root opened
 // through a symbolic link. The required field is why this is a version bump. Additive since: a
 // `thread/list` thread's latest run carries `waitingOn`, the kinds of unanswered request it waits
-// on, present while `needsInput` is true (for the thread list's Needs you strip).
+// on, present while `needsInput` is true (for the thread list's Needs you strip); trusted
+// locations (ADR-0032): `workspace/trust` takes an optional `location`, a `workspace/trust/list`
+// root carries `trustedThrough` and `offeredLocation`, `workspace/trust/read` answers
+// `offeredLocation`, and `workspace/trust/locations` and `workspace/trust/locations/remove` are
+// new methods.
 export const AGENT_HOST_PROTOCOL_VERSION = 24;

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -9,15 +9,24 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
 import { homeEnvironment } from './utils/node-command';
+import { seedRoots } from './utils/seed-root';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const CONVENTIONS = 'CLONED_CONVENTIONS_2338';
+const LATER_CONVENTIONS = 'LATER_CONVENTIONS_0032';
 const SKILL = 'cloned-release-skill';
 
 // ADR-0032: a freshly cloned folder's AGENTS.md and skills steer nothing until
 // the person trusts the folder. HOME holds no global skills or instructions.
 const home = mkdtempSync(join(tmpdir(), 'bs-e2e-workspace-trust-home-'));
-const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-workspace-trust-root-'));
+// The person keeps their repositories in one folder, which a trust ask may
+// offer as a trusted location. Its real path is the one the app shows.
+const projects = realpathSync(mkdtempSync(join(tmpdir(), 'bs-e2e-workspace-trust-projects-')));
+const workspace = join(projects, 'cloned');
+const later = join(projects, 'later');
+mkdirSync(workspace);
+mkdirSync(later);
+writeFileSync(join(later, 'AGENTS.md'), `# Conventions\n${LATER_CONVENTIONS}\n`);
 writeFileSync(join(workspace, 'AGENTS.md'), `# Conventions\n${CONVENTIONS}\n`);
 mkdirSync(join(workspace, '.brainstrike', 'skills', SKILL), { recursive: true });
 writeFileSync(
@@ -34,8 +43,11 @@ test.use({
 });
 test.afterAll(() => {
   rmSync(home, { force: true, recursive: true });
-  rmSync(workspace, { force: true, recursive: true });
+  rmSync(projects, { force: true, recursive: true });
 });
+
+/** The ask's box that would also trust every folder in the projects folder. */
+const PARENT_BOX = { exact: true, name: `Also trust every folder in ${projects}` };
 
 /** Sends `prompt` and returns what the run showed the model: its instructions and messages. */
 async function send(page: Page, modelProvider: ModelProviderShim, prompt: string): Promise<string> {
@@ -78,6 +90,8 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
   const ask = window.getByRole('dialog', { exact: true, name: 'Workspace trust' });
   await expect(ask).toContainText(`Trust the files in ${basename(workspace)}?`);
   await expect(ask).toContainText('AGENTS.md and 1 skill');
+  // Trusting its parent too is offered, and left alone unless the person ticks it.
+  await expect(ask.getByRole('checkbox', PARENT_BOX)).not.toBeChecked();
   await ask.getByRole('button', { exact: true, name: 'Trust folder' }).click();
   await expect(chip).toHaveCount(0);
   const after = await send(window, modelProvider, 'After trust');
@@ -92,6 +106,8 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
   );
   const row = settings.getByRole('listitem').filter({ hasText: basename(workspace) });
   await expect(row).toContainText('Trusted');
+  // Trusting the folder alone made no trusted location.
+  await expect(settings).toContainText('No trusted locations.');
   await row.getByRole('button', { exact: true, name: 'Restrict' }).click();
   await expect(row).toContainText('Restricted');
   await ensureAssistantShellVisible(window);
@@ -100,5 +116,64 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
   const restricted = await send(window, modelProvider, 'After restricting');
   expect(restricted).not.toContain(CONVENTIONS);
   expect(restricted).not.toContain(SKILL);
+  expect(modelProvider.refusals()).toEqual([]);
+});
+
+test('ticking the box trusts every folder in the parent, and removing that location makes the others ask again', async ({
+  modelProvider,
+  window,
+}) => {
+  // Two folders kept in the projects folder are open; a new thread reads both.
+  await seedRoots(
+    window,
+    [
+      { path: workspace, rootId: 'root-trust-cloned' },
+      { path: later, rootId: 'root-trust-later' },
+    ],
+    { reloadReason: 'ADR-0032 trusted location' }
+  );
+  await configureAssistantProvider(window);
+  await ensureAssistantShellVisible(window);
+  const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
+  const chip = panel.getByRole('button', { name: /^Workspace trust:/u });
+  await expect(chip).toHaveAccessibleName('Workspace trust: 3 held');
+
+  // One answer, with the box ticked, covers both: the other folder is never asked about.
+  await chip.click();
+  const ask = window.getByRole('dialog', { exact: true, name: 'Workspace trust' });
+  const cloned = ask.getByTestId('workspace-bar-trust-ask-root-trust-cloned');
+  await expect(cloned).toContainText(`Trust the files in ${basename(workspace)}?`);
+  await cloned.getByRole('checkbox', PARENT_BOX).check();
+  await cloned.getByRole('button', { exact: true, name: 'Trust folder' }).click();
+  await expect(chip).toHaveCount(0);
+  const trusted = await send(window, modelProvider, 'Inside the location');
+  expect(trusted).toContain(CONVENTIONS);
+  expect(trusted).toContain(LATER_CONVENTIONS);
+
+  // Settings lists the location and says why the other folder is trusted.
+  await new HomePage(window).openSettings();
+  const settings = await new SettingsPage(window).openCategory(
+    /Workspace trust/iu,
+    'workspace-trust'
+  );
+  const laterRow = settings.getByRole('listitem').filter({ hasText: join(projects, 'later') });
+  await expect(laterRow).toContainText(
+    `Trusted because it is in the trusted location ${projects}.`
+  );
+  const locations = settings.getByRole('list', { exact: true, name: 'Trusted locations' });
+  await expect(locations.getByRole('listitem')).toHaveText([new RegExp(`^${projects}`, 'u')]);
+
+  // Removing it keeps the answer given for the first folder; the other is undecided again.
+  await locations.getByRole('button', { exact: true, name: `Remove ${projects}` }).click();
+  await expect(settings).toContainText('No trusted locations.');
+  await expect(laterRow).toContainText('Not trusted yet');
+  await expect(
+    settings.getByRole('listitem').filter({ hasText: join(projects, 'cloned') })
+  ).toContainText('Trusted');
+  await ensureAssistantShellVisible(window);
+  await expect(chip).toHaveAccessibleName('Workspace trust: 1 held');
+  const removed = await send(window, modelProvider, 'After removing the location');
+  expect(removed).toContain(CONVENTIONS);
+  expect(removed).not.toContain(LATER_CONVENTIONS);
   expect(modelProvider.refusals()).toEqual([]);
 });

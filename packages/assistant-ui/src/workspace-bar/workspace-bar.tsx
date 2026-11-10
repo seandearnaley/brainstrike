@@ -189,6 +189,11 @@ export interface WorkspaceBarTrustAsk {
   }[];
   /** How many instructions files, skills, slash commands and subagents those folders hold. */
   readonly held: number;
+  /**
+   * The parent of the folder the answer is for, when the ask may offer to trust
+   * every folder in it too (a trusted location). Absent when none is offered.
+   */
+  readonly offeredLocation?: string | undefined;
   /** The absolute path the answer is recorded for. */
   readonly path: string;
   /** The answer is a repository's, which its worktrees share (ADR-0034 decision 6). */
@@ -202,7 +207,12 @@ export interface WorkspaceBarTrust {
   readonly asks: readonly WorkspaceBarTrustAsk[];
   /** The `path` of the ask whose answer is being recorded. */
   readonly busyPath: string | null;
-  readonly onDecide: (ask: WorkspaceBarTrustAsk, decision: 'restricted' | 'trusted') => void;
+  /** `location` is the ask's `offeredLocation`, passed only when the person ticked its box. */
+  readonly onDecide: (
+    ask: WorkspaceBarTrustAsk,
+    decision: 'restricted' | 'trusted',
+    location?: string
+  ) => void;
   /** Present while trust could not be read: the chip says so and offers this retry. */
   readonly onRetry: (() => void) | undefined;
 }

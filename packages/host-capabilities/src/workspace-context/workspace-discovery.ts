@@ -14,7 +14,9 @@
  *
  * ADR-0032: the project tiers come only from roots the person trusted, and
  * `workspace/trust/list` counts what each live root would contribute once
- * trusted, with the same scans, and names the folder that answers for it.
+ * trusted, with the same scans, names the folder that answers for it and the
+ * trusted location it is trusted through, and says which parent its ask may
+ * offer as a trusted location.
  */
 
 import { homedir } from 'node:os';
@@ -23,7 +25,10 @@ import type { SkillContentDeps, SkillScanEntry } from '@brainstrike/agent';
 import { MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
 import type { HostWorkspaceDiscovery, HostWorkspaceTrustRoot } from '@brainstrike/agent-host';
 import {
+  type HostWorkspaceTrustAnswer,
   type HostWorkspaceTrustStore,
+  hostTrustedLocationOffer,
+  readHostTrustedLocations,
   readHostWorkspaceTrustAnswer,
   trustedHostWorkspaceRoots,
 } from '@brainstrike/agent-host/workspace-trust';
@@ -167,6 +172,24 @@ function countByRoot(
 }
 
 /**
+ * The parent a trust ask for a root may offer as a trusted location: the
+ * parent of the folder that answers for it. None for a root that is trusted
+ * already, and none when that parent is a trusted location already.
+ */
+function offeredLocation(
+  answer: HostWorkspaceTrustAnswer,
+  locations: readonly string[],
+  home: string
+): string | undefined {
+  const answering = answer.answeredBy ?? answer.folder;
+  if (answer.trust === 'trusted' || answering === undefined) {
+    return;
+  }
+  const offer = hostTrustedLocationOffer(answering, home);
+  return offer === undefined || locations.includes(offer) ? undefined : offer;
+}
+
+/**
  * Each live root's trust, the folder that answers for it and what trusting it
  * would load. Counting reads a restricted root's files with the scans' own
  * bounded readers, but nothing read here reaches a prompt or a tool.
@@ -203,6 +226,7 @@ export async function discoverWorkspaceTrust(
   const answers = await Promise.all(
     live.map((root) => readHostWorkspaceTrustAnswer(deps.trust, root.path))
   );
+  const locations = await readHostTrustedLocations(deps.trust);
   signal.throwIfAborted();
   // A repository that is open too is named as its own entry names it.
   const openByFolder = new Map(
@@ -224,6 +248,7 @@ export async function discoverWorkspaceTrust(
                 displayName: basename(answer.answeredBy),
                 path: answer.answeredBy,
               });
+        const offered = offeredLocation(answer, locations, deps.homedir());
         return {
           agentConfiguration: {
             commands: commandCounts.get(root.rootId) ?? 0,
@@ -241,9 +266,11 @@ export async function discoverWorkspaceTrust(
             ? { answeredBy: { displayName: answering.displayName, path: answering.path } }
             : {}),
           displayName: root.displayName,
+          ...(offered === undefined ? {} : { offeredLocation: offered }),
           path: root.path,
           rootId: root.rootId,
           trust: answer.trust,
+          ...(answer.trustedThrough === undefined ? {} : { trustedThrough: answer.trustedThrough }),
         };
       })
     ),
