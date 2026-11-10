@@ -121,6 +121,39 @@ describe('a provider that streams its tool input incrementally', () => {
     expect(projection.getSnapshot()).toMatchObject({ activeRunId: runId, isRunning: true });
   });
 
+  it('waits for the committed input when a delta outruns the committed start of its call', () => {
+    const projection = projector();
+    const opened = rows.findIndex(
+      ({ event }) =>
+        event['type'] === 'stream.chunk' &&
+        (event['chunk'] as Record<string, unknown>)['type'] === 'tool-input-start'
+    );
+    // The step is open, but the row that opens the call hasn't been folded:
+    // telemetry and committed rows reach the view on separate channels.
+    projection.acceptCommitted(rows.slice(0, opened));
+    projection.acceptLive(runId, { delta: '', id: 'call_incremental_1', type: 'tool-input-delta' });
+    projection.acceptLive(runId, {
+      delta: '{',
+      id: 'call_incremental_1',
+      type: 'tool-input-delta',
+    });
+    expect(projection.getSnapshot()).toMatchObject({ activeRunId: runId, isRunning: true });
+
+    projection.acceptCommitted(rows.slice(opened, opened + 1));
+    const call = () => answer(projection).content.find((part) => part.type === 'tool-call');
+    // Its first deltas are gone, so the rest would be a broken tail: no live input.
+    projection.acceptLive(runId, {
+      delta: '"path":"README',
+      id: 'call_incremental_1',
+      type: 'tool-input-delta',
+    });
+    expect(call()).toMatchObject({ args: {}, argsText: '', toolName: 'read_fixture' });
+
+    projection.acceptCommitted(rows.slice(opened + 1));
+    expect(call()).toMatchObject({ args: { path: 'README.md' }, argsText: '{"path":"README.md"}' });
+    expect(answer(projection).status).toEqual({ reason: 'stop', type: 'complete' });
+  });
+
   it("waits for the committed input when a replay dropped the call's first deltas", () => {
     const projection = projector();
     const opened = rows.findIndex(

@@ -613,6 +613,14 @@ export class CommittedAssistantLogProjection {
     const live = record(chunk);
     if (live?.['type'] === 'tool-input-delta') {
       const id = requiredString(live, 'id');
+      if (!run.partIndexes.has(`tool:${id}`)) {
+        // Telemetry can outrun the committed `tool-input-start` that opens the
+        // call: they reach the view on separate channels. Without its first
+        // deltas the rest is no input, so the call waits for its committed
+        // `tool-call`, as after a replay that dropped them.
+        run.closedInputs.add(id);
+        return this.view;
+      }
       this.updateTool(run, id, (part) =>
         run.closedInputs.has(id) ? part : withLiveInputDelta(part, requiredText(live, 'delta'))
       );
