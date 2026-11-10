@@ -73,8 +73,8 @@ const MODELS = [
     sortOrder: 2,
   }),
   makeDbModel({
-    id: 'claude-sonnet-4-6',
-    name: 'Claude Sonnet 4.6',
+    id: 'claude-haiku-4-5',
+    name: 'Claude Haiku 4.5',
     providerId: 'anthropic',
     sortOrder: 3,
   }),
@@ -189,7 +189,7 @@ describe('ModelCatalog default view', () => {
       Array.from(anthropic.querySelectorAll('[data-testid^="model-row-"]'), (element) =>
         element.getAttribute('data-testid')
       )
-    ).toEqual(['model-row-claude-sonnet-4-6', 'model-row-claude-opus-5']);
+    ).toEqual(['model-row-claude-haiku-4-5', 'model-row-claude-opus-5']);
   });
 
   it('renders every expanded section inside the one catalog scroller', async () => {
@@ -249,7 +249,7 @@ describe('ModelCatalog filtering', () => {
     await screen.findByTestId('model-row-claude-opus-5');
     await userEvent.click(sectionToggle('anthropic'));
     expect(sectionToggle('anthropic')).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.type(search(), ' sonnet');
+    await userEvent.type(search(), ' haiku');
     await waitFor(() => {
       expect(screen.getByTestId('model-catalog-summary')).toHaveTextContent('1 of 5 models match');
     });
@@ -257,7 +257,7 @@ describe('ModelCatalog filtering', () => {
   });
 
   it('bulk-enables only the shown rows that would change', async () => {
-    const props = catalogProps({ models: withEnabled('claude-sonnet-4-6', true) });
+    const props = catalogProps({ models: withEnabled('claude-haiku-4-5', true) });
     render(<ModelCatalog {...props} />);
     await userEvent.type(search(), 'claude');
     await userEvent.click(await screen.findByRole('button', { name: 'Enable 2 shown' }));
@@ -269,22 +269,22 @@ describe('ModelCatalog filtering', () => {
   });
 
   it('bulk-disables only the rows that are enabled, never re-writing unchanged rows', async () => {
-    const props = catalogProps({ models: withEnabled('claude-sonnet-4-6', true) });
+    const props = catalogProps({ models: withEnabled('claude-haiku-4-5', true) });
     render(<ModelCatalog {...props} />);
     await userEvent.click(sectionToggle('anthropic'));
     await userEvent.click(screen.getByTestId('model-catalog-disable-anthropic'));
     expect(props.onBulkChange).toHaveBeenCalledTimes(1);
     expect(props.onBulkChange).toHaveBeenCalledWith({
       enabled: false,
-      modelIds: ['claude-sonnet-4-6'],
+      modelIds: ['claude-haiku-4-5'],
       scopeLabel: 'Anthropic',
     });
   });
 
   it('disables both bulk buttons while a shown row in the section is busy', async () => {
     const props = catalogProps({
-      busyModelIds: new Set(['claude-sonnet-4-6']),
-      models: withEnabled('claude-sonnet-4-6', true),
+      busyModelIds: new Set(['claude-haiku-4-5']),
+      models: withEnabled('claude-haiku-4-5', true),
     });
     render(<ModelCatalog {...props} />);
     await userEvent.click(sectionToggle('anthropic'));
@@ -293,10 +293,10 @@ describe('ModelCatalog filtering', () => {
   });
 
   it('never lets a bulk action reach a row the filter hides', async () => {
-    const props = catalogProps({ models: withEnabled('claude-sonnet-4-6', true) });
+    const props = catalogProps({ models: withEnabled('claude-haiku-4-5', true) });
     render(<ModelCatalog {...props} />);
     await userEvent.type(search(), 'opus');
-    // Sonnet is enabled but hidden by the search, so "Disable 1 shown" has nothing to do.
+    // Haiku is enabled but hidden by the search, so "Disable 1 shown" has nothing to do.
     expect(await screen.findByRole('button', { name: 'Disable 1 shown' })).toBeDisabled();
   });
 

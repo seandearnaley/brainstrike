@@ -774,6 +774,45 @@
     "keyFormatHint": "sk-ant-...",
     "models": [
       {
+        "_note": "Added 2026-11-10. Vendor model table, pricing and effort ladder, retrieved 2026-11-10:\nhttps://platform.claude.com/docs/en/about-claude/models/overview\nhttps://platform.claude.com/docs/en/about-claude/pricing\n$8 input / $40 output; cache reads are 0.025x base input ($0.20/MTok),\nas on Fable 5.1; the cache-write rate is the 5-minute one ($10; 1-hour is $16).\nAdaptive thinking is ALWAYS ON (`thinking` disabled or a budget returns 400),\nso `mandatory: true`, same shape as Fable 5/5.1; default effort is high.\nForced tool use (tool_choice any/tool) returns 400 on this model; auto and\nnone are supported. The catalog cannot express that constraint.",
+        "anthropicReasoning": {
+          "defaultEffort": "high",
+          "mandatory": true,
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "catalog": {
+          "bestFor": [
+            "Long-horizon agentic coding",
+            "Multistep research",
+            "Document, spreadsheet, and slide work"
+          ],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Claude Fable 5.2",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "For the most demanding reasoning and long-horizon agentic work"
+        },
+        "contextWindow": 1000000,
+        "id": "claude-fable-5-2",
+        "label": "Claude Fable 5.2",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "anthropic",
+        "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 10,
+          "inputPerMTok": 8,
+          "outputPerMTok": 40
+        },
+        "promptCaching": "anthropic",
+        "supportsStreaming": true,
+        "tagline": "For the most demanding reasoning and long-horizon agentic work",
+        "type": "llm",
+        "vendor": "anthropic",
+        "vision": "supported"
+      },
+      {
         "_note": "Vendor overview and pricing, retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://platform.claude.com/docs/en/about-claude/pricing\nCache reads are 0.025x base input on Fable 5.1 ($0.25/MTok), not the\n0.1x multiplier every other Claude model uses.\nAdaptive thinking on this model is ALWAYS ON and cannot be disabled; only\nthe effort level is configurable. This row declares the ordinary ladder —\nbyte-identical to the Fable 5 row that has carried the same constraint\nsince BST-847 — with `mandatory: true` (BST-1706): the Thinking toggle is\nsuppressed and the wire shape never carries budget-`enabled` or `disabled`.",
         "anthropicReasoning": {
           "defaultEffort": "high",
@@ -791,7 +830,7 @@
           "icon": null,
           "name": "Claude Fable 5.1",
           "parameters": null,
-          "sortOrder": 1,
+          "sortOrder": 2,
           "tagline": "For demanding reasoning and long-horizon agentic work"
         },
         "contextWindow": 1000000,
@@ -826,7 +865,7 @@
           "icon": null,
           "name": "Claude Fable 5",
           "parameters": null,
-          "sortOrder": 2,
+          "sortOrder": 3,
           "tagline": "Highest-capability Claude 5 tier"
         },
         "contextWindow": 1000000,
@@ -860,7 +899,7 @@
           "icon": null,
           "name": "Claude Opus 5.5",
           "parameters": null,
-          "sortOrder": 3,
+          "sortOrder": 4,
           "tagline": "For long-running agentic coding and knowledge work"
         },
         "contextWindow": 1000000,
@@ -895,7 +934,7 @@
           "icon": null,
           "name": "Claude Opus 5",
           "parameters": null,
-          "sortOrder": 4,
+          "sortOrder": 5,
           "tagline": "For complex agentic coding and enterprise work"
         },
         "contextWindow": 1000000,
@@ -917,7 +956,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
+        "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview\nLIMITS 2026-11-10: 1,000,000 context and 128,000 max output per the vendor\nmodel table (https://platform.claude.com/docs/en/about-claude/models/overview);\nthe 200K/64K pair recorded before was the pre-GA standard tier.",
         "anthropicReasoning": {
           "defaultEffort": "high",
           "mandatory": false,
@@ -930,13 +969,13 @@
           "icon": null,
           "name": "Claude Opus 4.8",
           "parameters": null,
-          "sortOrder": 5,
+          "sortOrder": 6,
           "tagline": "Most capable Claude model"
         },
-        "contextWindow": 200000,
+        "contextWindow": 1000000,
         "id": "claude-opus-4-8",
         "label": "Claude Opus 4.8",
-        "maxOutputTokens": 64000,
+        "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
           "cacheReadPerMTok": 0.5,
@@ -965,7 +1004,7 @@
           "icon": null,
           "name": "Claude Sonnet 5.5",
           "parameters": null,
-          "sortOrder": 6,
+          "sortOrder": 7,
           "tagline": "Current Claude Sonnet"
         },
         "contextWindow": 1000000,
@@ -1001,7 +1040,7 @@
           "icon": null,
           "name": "Claude Sonnet 5",
           "parameters": null,
-          "sortOrder": 7,
+          "sortOrder": 8,
           "tagline": "Balanced Claude 5 model"
         },
         "contextWindow": 1000000,
@@ -1023,7 +1062,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview",
+        "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview\nLIMITS 2026-11-10: 1,000,000 context and 128,000 max output per the vendor\nmodel table (https://platform.claude.com/docs/en/about-claude/models/overview);\nthe 200K/64K pair recorded before was the pre-GA standard tier.",
         "anthropicReasoning": {
           "defaultEffort": "high",
           "mandatory": false,
@@ -1036,13 +1075,13 @@
           "icon": null,
           "name": "Claude Sonnet 4.6",
           "parameters": null,
-          "sortOrder": 8,
+          "sortOrder": 9,
           "tagline": "Best balance of speed and intelligence"
         },
-        "contextWindow": 200000,
+        "contextWindow": 1000000,
         "id": "claude-sonnet-4-6",
         "label": "Claude Sonnet 4.6",
-        "maxOutputTokens": 64000,
+        "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
           "cacheReadPerMTok": 0.3,
@@ -1070,7 +1109,7 @@
           "icon": null,
           "name": "Claude Haiku 5.5",
           "parameters": null,
-          "sortOrder": 9,
+          "sortOrder": 10,
           "tagline": "Fastest Claude model for high-volume work"
         },
         "contextWindow": 1000000,
@@ -1109,7 +1148,7 @@
           "icon": null,
           "name": "Claude Haiku 4.5",
           "parameters": null,
-          "sortOrder": 10,
+          "sortOrder": 11,
           "tagline": "Fastest Claude model"
         },
         "contextWindow": 200000,
@@ -1846,6 +1885,38 @@
         "supportsStreaming": true,
         "type": "llm",
         "vendor": "google",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-11-10. Standard route (anthropic) rates and 1,000,000 / 128,000\nceilings from https://openrouter.ai/api/v1/models/anthropic/claude-fable-5.2/endpoints;\ntext, image and file input. 1-hour write $16 is not modelled (Brainstrike\nsends 5-minute breakpoints). The anthropic/fast route bills 2x and is not this row.\nPROMPT CACHING: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
+        "catalog": {
+          "bestFor": [
+            "Agentic coding",
+            "Long-running agentic workflows",
+            "Knowledge work"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Fable 5.2 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 49,
+          "tagline": "Anthropic's most capable model for demanding technical work"
+        },
+        "contextWindow": 1000000,
+        "id": "anthropic/claude-fable-5.2",
+        "label": "Claude Fable 5.2 (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 10,
+          "inputPerMTok": 8,
+          "outputPerMTok": 40
+        },
+        "promptCaching": "openrouter",
+        "supportsStreaming": true,
+        "type": "llm",
+        "vendor": "anthropic",
         "vision": "supported"
       },
       {
@@ -3591,6 +3662,34 @@
         "vision": "supported"
       },
       {
+        "_note": "Added 2026-11-10. Released 2026-11-04. 1,048,576 / 65,536 ceilings, text and\nimage input, text output and rates from the OpenRouter Models API\n(https://openrouter.ai/api/v1/models), retrieved 2026-11-10. The model page\n(https://openrouter.ai/tencent/hy4) shows these rates as 50% off $0.834 /\n$2.501 (cache read $0.042) with no end date: re-check when it changes.\nNo cache-write price is published. Tencent publishes no effort ladder for\nthis route, so no `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": ["Coding agents", "Tool use", "Visual understanding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Hy4 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 51,
+          "tagline": "Mixture-of-experts model for coding agents, now with image input"
+        },
+        "contextWindow": 1048576,
+        "id": "tencent/hy4",
+        "inputModalities": ["text", "image"],
+        "label": "Hy4 (OpenRouter)",
+        "maxOutputTokens": 65536,
+        "outputModalities": ["text"],
+        "pricing": {
+          "cacheReadPerMTok": 0.021,
+          "inputPerMTok": 0.417,
+          "outputPerMTok": 1.2505
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vendor": "tencent",
+        "vision": "supported"
+      },
+      {
         "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n64,000 ceilings, text-only input modality and gateway pricing\n(0.000000834 / 0.000002501 per token), retrieved 2026-09-08\n(BST-1696). Tencent publishes no effort ladder on this preview route,\nso no `reasoning` block is declared: absence is never guessed as\nsupport. Re-confirm the preview rate when the route leaves preview.\nPRICING REFRESH 2026-10-28: cheapest clock band (UTC 16:00-24:00) is 0.7506/2.2509; 0.834/2.501 is the 00:00-16:00 band. Cache read $0.0378. Standard route base rate from https://openrouter.ai/api/v1/models/tencent/hy4-preview/endpoints.",
         "catalog": {
           "bestFor": ["Coding agents", "Tool use", "Productivity tasks"],
@@ -4130,6 +4229,33 @@
         "vision": "supported"
       },
       {
+        "_note": "Added 2026-11-10. Standard route (meta, its only route) rates and\n1,048,576 / 943,718 ceilings from https://openrouter.ai/api/v1/models/meta/muse-ember/endpoints.\nText, image, video, file and audio input. The route accepts reasoning_effort\nbut publishes no ladder or default, so no `reasoning` block is declared.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Agents", "High-volume work"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Muse Ember (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 83,
+          "tagline": "Meta's smallest, most efficient Muse model"
+        },
+        "contextWindow": 1048576,
+        "id": "meta/muse-ember",
+        "label": "Muse Ember (OpenRouter)",
+        "maxOutputTokens": 943718,
+        "pricing": {
+          "cacheReadPerMTok": 0.004,
+          "cacheWritePerMTok": 0.125,
+          "inputPerMTok": 0.1,
+          "outputPerMTok": 0.5
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vendor": "meta",
+        "vision": "supported"
+      },
+      {
         "_note": "Added 2026-10-28. Standard route (alibaba) rates, limits and tool support from https://openrouter.ai/api/v1/models/qwen/qwen3.8-max-prime/endpoints. Text, image and video input; max prompt 983,616. The route lists cache reads but no write price, so it declares no breakpoint dialect.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Agents"],
@@ -4228,6 +4354,41 @@
     "id": "bedrock",
     "keyNotes": "Use an Amazon Bedrock API key (bearer token) from the AWS console. IAM SigV4 credentials and AWS profiles are not supported yet. Requests also need an AWS region: set AWS_REGION or store it with the key.",
     "models": [
+      {
+        "_note": "Added 2026-11-10. Model id, 1M context, 128K output and inference profiles\nfrom the AWS model card, retrieved 2026-11-10:\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-2.html\nThe card links to the Bedrock pricing page, which did not render its\nAnthropic table; rates are OpenRouter's amazon-bedrock endpoint for this\nmodel (https://openrouter.ai/api/v1/models/anthropic/claude-fable-5.2/endpoints),\nwhich match Anthropic's first-party rates as every Claude row here does.",
+        "bedrockReasoning": "adaptive",
+        "bedrockReasoningMandatory": true,
+        "catalog": {
+          "bestFor": [
+            "Long-horizon agentic coding",
+            "Multistep research",
+            "Document, spreadsheet, and slide work"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Fable 5.2 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 18,
+          "tagline": "For the most demanding reasoning and long-horizon agentic work"
+        },
+        "contextWindow": 1000000,
+        "id": "anthropic.claude-fable-5-2",
+        "label": "Claude Fable 5.2 (Bedrock)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 10,
+          "inputPerMTok": 8,
+          "outputPerMTok": 40
+        },
+        "promptCaching": "bedrock",
+        "supportsStreaming": true,
+        "tagline": "For the most demanding reasoning and long-horizon agentic work",
+        "type": "llm",
+        "vendor": "anthropic",
+        "vision": "supported"
+      },
       {
         "_note": "Bedrock model id from the vendor model-ID table, pricing/limits from\nmodels.dev (amazon-bedrock provider, the id source for this block),\nboth retrieved 2026-09-08:\nhttps://platform.claude.com/docs/en/models/fable-5-1/overview\nhttps://models.dev/api.json",
         "bedrockReasoning": "adaptive",
@@ -4445,7 +4606,7 @@
         "vision": "supported"
       },
       {
-        "_note": "models.dev lists a 1M context for this Bedrock route; the registry\npins the vendor's standard tier (200K), consistent with the direct\nAnthropic and OpenRouter rows for the same model.",
+        "_note": "1M context and 64K max output per the AWS model card, retrieved 2026-11-10:\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-4-6.html\nThe 200K pin recorded before matched the direct and OpenRouter rows, which\nnow carry the vendor's 1M window too. Bedrock publishes 64K output, below\nAnthropic's 128K, so this route keeps its own card's limit.",
         "bedrockReasoning": "adaptive",
         "catalog": {
           "bestFor": ["Coding", "Analysis"],
@@ -4457,7 +4618,7 @@
           "sortOrder": 4,
           "tagline": "Balanced Claude model"
         },
-        "contextWindow": 200000,
+        "contextWindow": 1000000,
         "id": "anthropic.claude-sonnet-4-6",
         "label": "Claude Sonnet 4.6 (Bedrock)",
         "maxOutputTokens": 64000,
