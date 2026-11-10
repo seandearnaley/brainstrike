@@ -17,15 +17,14 @@ export const HOOK_TRUST_METHOD_SCHEMAS = {
    */
   'hooks/trust': Schema.Struct({ ...HookRoot, sha256: HostHookSha256Schema }),
   'hooks/trust/read': Schema.Struct(HookRoot),
-  /** Revoke every version approved for the root's repository. */
+  /** Revoke the version approved for the root's repository, from every checkout. */
   'hooks/untrust': Schema.Struct(HookRoot),
 } as const;
 export const HOOK_TRUST_RESULT_SCHEMAS = {
   'hooks/trust': Schema.Struct({ trusted: Schema.Literal(true) }),
   /**
-   * The hash the root's hooks may run at: its file's own hash when those bytes
-   * are approved, otherwise the newest approved hash (the file has changed
-   * since), and null when nothing is approved.
+   * The hash the root's hooks may run at: the one version approved for its
+   * repository, which a new approval replaces. Null when nothing is approved.
    */
   'hooks/trust/read': Schema.Struct({ approvedSha256: Schema.NullOr(HostHookSha256Schema) }),
   /** Whether an approval was revoked; false when the root's repository had none. */

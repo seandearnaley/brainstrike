@@ -4,13 +4,17 @@ import { isAbsolute, join } from 'node:path';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
-import { hostAnsweringFolder, hostFolderIdentity } from './answering-folder.ts';
+import {
+  hostAnsweringFolder,
+  hostFolderIdentity,
+  hostRepositoryWorktrees,
+} from './answering-folder.ts';
 import type { HostMethodHandler } from './auth-connection.ts';
 import { HostHookSha256Schema, type HostParams } from './protocol.ts';
 /**
- * The host's StateStore: its settings, where it alone records which versions
- * of a hooks file are approved, and its worktree ledger, which says whose
- * checkout a folder is.
+ * The host's StateStore: its settings, where it alone records which version of
+ * a hooks file is approved, and its worktree ledger, which says whose checkout
+ * a folder is.
  */
 export type HostHookTrustStore = Pick<
   StateStore,
@@ -29,15 +33,14 @@ export class HostHookTrustRefusal extends BoundaryFailureError {
 }
 /**
  * Approval belongs to a folder's location and to exact bytes: the record holds
- * the hashes of the hooks file versions a person reviewed there, newest last.
- * A managed worktree shares its repository's record (ADR-0034 decision 6), so
- * a version approved in one checkout runs in every checkout holding the same
- * bytes, and a root re-pointed at another folder starts unapproved.
+ * the hash of the one hooks file version a person last reviewed there, and a
+ * new approval replaces it. A managed worktree shares its repository's record
+ * (ADR-0034 decision 6), so a repository has one approved version, which runs
+ * in every checkout holding those bytes. A root re-pointed at another folder
+ * starts unapproved.
  */
-const approvalsKey = (folder: string): string => `hooks.approved/${folder}`;
-const decodeApprovedHashes = Schema.decodeUnknownSync(Schema.Array(HostHookSha256Schema), {
-  errors: 'all',
-});
+const approvalKey = (folder: string): string => `hooks.approved/${folder}`;
+const decodeApprovedHash = Schema.decodeUnknownSync(HostHookSha256Schema);
 /** A root's project hooks file; the hooks loader reads the same path. */
 export function hostProjectHooksPath(rootPath: string): string {
   return join(rootPath, '.brainstrike', 'hooks.json');
@@ -52,13 +55,6 @@ function rootFolder(path: string): string | undefined {
     throw new HostHookTrustRefusal(`A hooks trust needs the root's absolute path, not ${path}`);
   }
   return hostFolderIdentity(path);
-}
-async function approvedHashes(
-  store: HostHookTrustStore,
-  folder: string
-): Promise<readonly string[]> {
-  const value = await store.getSetting(approvalsKey(folder));
-  return value === undefined ? [] : decodeApprovedHashes(JSON.parse(value));
 }
 /** The SHA-256 of the file's raw bytes, or why it cannot be read. */
 async function hooksFileSha256(
@@ -75,11 +71,10 @@ async function hooksFileSha256(
   }
 }
 /**
- * The hash the project hooks of the root at `absPath` may run at. When the
- * file's bytes are a version approved for the root's repository, it is their
- * hash. Otherwise it is the newest approved hash, which the file no longer
- * matches, so the loader reports the file as changed. None when nothing is
- * approved. The loader still re-hashes the file's raw bytes on every run.
+ * The hash the project hooks of the root at `absPath` may run at: the version
+ * approved for the root's repository, none when nothing is. The loader
+ * re-hashes the file's raw bytes on every run and skips a file that differs,
+ * reporting it as changed.
  */
 export async function readHostHookApproval(
   store: HostHookTrustStore,
@@ -87,23 +82,9 @@ export async function readHostHookApproval(
 ): Promise<string | undefined> {
   const folder = rootFolder(absPath);
   const answering = folder === undefined ? undefined : await hostAnsweringFolder(store, folder);
-  const approved = answering === undefined ? [] : await approvedHashes(store, answering);
-  if (folder === undefined || approved.length === 0) {
-    return;
-  }
-  const onDisk = await hooksFileSha256(hostProjectHooksPath(folder));
-  return 'sha256' in onDisk && approved.includes(onDisk.sha256) ? onDisk.sha256 : approved.at(-1);
-}
-/**
- * Approving and revoking each read a repository's record and rewrite it, so
- * they run one at a time: an approval can neither drop another approval nor
- * bring back one that was just revoked.
- */
-let lastWrite: Promise<unknown> = Promise.resolve();
-function oneAtATime<T>(write: () => Promise<T>): Promise<T> {
-  const result = lastWrite.then(write);
-  lastWrite = result.catch(() => undefined);
-  return result;
+  const value =
+    answering === undefined ? undefined : await store.getSetting(approvalKey(answering));
+  return value === undefined ? undefined : decodeApprovedHash(value);
 }
 /** Records an approval only for the exact bytes on disk now, which the reviewer hashed. */
 export async function trustHostHooks(
@@ -122,42 +103,45 @@ export async function trustHostHooks(
   if (onDisk.sha256 !== sha256) {
     throw new HostHookTrustRefusal(`${file} changed since it was reviewed; review it again`);
   }
-  await oneAtATime(async () => {
-    const answering = folder === undefined ? undefined : await hostAnsweringFolder(store, folder);
-    if (answering === undefined) {
-      // The file was read a moment ago: the folder or its repository went away since.
-      throw new HostHookTrustRefusal(`${path} does not exist`);
-    }
-    // Newest last: the hash an edited file is held against.
-    const earlier = (await approvedHashes(store, answering)).filter((hash) => hash !== sha256);
-    await store.setSetting(approvalsKey(answering), JSON.stringify([...earlier, sha256]));
-  });
+  const answering = folder === undefined ? undefined : await hostAnsweringFolder(store, folder);
+  if (folder === undefined || answering === undefined) {
+    // The file was read a moment ago: the folder or its repository went away since.
+    throw new HostHookTrustRefusal(`${path} does not exist`);
+  }
+  await store.setSetting(approvalKey(answering), sha256);
+  if (answering !== folder) {
+    // This replaces what was approved for the folder alone before it was a managed worktree.
+    await store.deleteSetting(approvalKey(folder));
+  }
   return { trusted: true };
 }
 /**
- * Revokes every version approved for the repository of the root at `path`, and
- * every version approved for the root's own folder. A folder approved before
- * it became a managed worktree keeps that record and answers for itself again
- * once it stops being one, so a revoke there must not leave it behind.
+ * Revokes the version approved for the repository of the root at `path`, from
+ * every checkout. A folder approved before the ledger listed it as a worktree
+ * keeps a record of its own and answers for itself again once it stops being
+ * one, so the revoke removes those too: the root's own, and that of every
+ * worktree the ledger lists for the repository.
  */
-export function untrustHostHooks(
+export async function untrustHostHooks(
   store: HostHookTrustStore,
   path: string
 ): Promise<{
   untrusted: boolean;
 }> {
-  return oneAtATime(async () => {
-    const folder = rootFolder(path);
-    if (folder === undefined) {
-      return { untrusted: false };
-    }
-    const answering = await hostAnsweringFolder(store, folder);
-    const folders = new Set(answering === undefined ? [folder] : [answering, folder]);
-    const revoked = await Promise.all(
-      [...folders].map((each) => store.deleteSetting(approvalsKey(each)))
-    );
-    return { untrusted: revoked.includes(true) };
-  });
+  const folder = rootFolder(path);
+  if (folder === undefined) {
+    return { untrusted: false };
+  }
+  const answering = await hostAnsweringFolder(store, folder);
+  const folders = new Set(
+    answering === undefined
+      ? [folder]
+      : [answering, folder, ...(await hostRepositoryWorktrees(store, answering))]
+  );
+  const revoked = await Promise.all(
+    [...folders].map((each) => store.deleteSetting(approvalKey(each)))
+  );
+  return { untrusted: revoked.includes(true) };
 }
 /** Trust methods on one authenticated connection, for every client origin. */
 export function bindHostHookTrustMethods(

@@ -83,3 +83,20 @@ export async function hostAnsweringFolder(
     ? hostFolderIdentity(repositoryRootFromCommonDir(worktree.repoCommonDir))
     : folder;
 }
+/**
+ * The folders of every worktree the ledger lists, active or archived, for the
+ * repository that `answering` (a canonical path) answers for. The ledger keeps
+ * a repository by its common dir: its primary checkout's `.git`, or the folder
+ * itself for a repository whose git directory is not inside a checkout.
+ */
+export async function hostRepositoryWorktrees(
+  store: HostAnsweringFolderStore,
+  answering: string
+): Promise<readonly string[]> {
+  const listed = await Promise.all(
+    [join(answering, '.git'), answering].map((repoCommonDir) =>
+      store.worktreeLedger({ operation: 'list-repository', repoCommonDir })
+    )
+  );
+  return listed.flatMap(({ rows }) => rows.map((row) => row.path));
+}

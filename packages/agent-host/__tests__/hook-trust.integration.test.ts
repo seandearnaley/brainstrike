@@ -171,12 +171,16 @@ test('an approval belongs to the folder it was given in, and an edited file is h
     // After an edit the approval is still the reviewed hash, so the loader reports the file as changed.
     await writeHooks(workspace, EDITED);
     await expect(readHostHookApproval(store, workspace)).resolves.toBe(sha256);
+    // Approving the edit replaces the earlier version: going back to it needs a new review.
+    await trustHostHooks(store, { path: workspace, sha256: sha256Of(EDITED) });
+    await writeHooks(workspace, REVIEWED);
+    await expect(readHostHookApproval(store, workspace)).resolves.toBe(sha256Of(EDITED));
   } finally {
     await store.close();
   }
 });
 
-test('a managed worktree runs the hooks its repository approved, and each approved version stays approved (ADR-0034)', async () => {
+test('a managed worktree runs the hooks its repository approved, and a repository has one approved version (ADR-0034)', async () => {
   const store = await StateStore.open(await tempDir('bs-m3-hook-worktree-'));
   try {
     const repository = await repositoryWithHooks(REVIEWED);
@@ -190,15 +194,16 @@ test('a managed worktree runs the hooks its repository approved, and each approv
     // An edit in the worktree asks again: those bytes were never reviewed.
     await writeHooks(worktree, EDITED);
     await expect(readHostHookApproval(store, worktree)).resolves.toBe(sha256Of(REVIEWED));
+    // Approved there, the edit is the repository's version for every checkout. The repository's
+    // own checkout still holds the earlier bytes, which the loader now reports as changed.
     await trustHostHooks(store, { path: worktree, sha256: sha256Of(EDITED) });
     await expect(readHostHookApproval(store, worktree)).resolves.toBe(sha256Of(EDITED));
-    // The repository's own checkout still holds the first version, which stays approved.
-    await expect(readHostHookApproval(store, repository.path)).resolves.toBe(sha256Of(REVIEWED));
-    // A later worktree holding either version runs without asking.
+    await expect(readHostHookApproval(store, repository.path)).resolves.toBe(sha256Of(EDITED));
+    // A later worktree holding the approved version runs without asking.
     const later = await managedWorktreeWithHooks(store, repository, EDITED);
     await expect(readHostHookApproval(store, later)).resolves.toBe(sha256Of(EDITED));
 
-    // Revoking in any checkout revokes the repository's approvals, for every checkout.
+    // Revoking in any checkout revokes the repository's approval, for every checkout.
     await expect(untrustHostHooks(store, worktree)).resolves.toEqual({ untrusted: true });
     await expect(readHostHookApproval(store, repository.path)).resolves.toBeUndefined();
     await expect(readHostHookApproval(store, later)).resolves.toBeUndefined();
@@ -231,6 +236,63 @@ test('a revoke in a worktree also revokes what was approved there before the led
       operation: 'archive',
       snapshotRef: `refs/brainstrike/worktree-archive/${row.id}`,
     });
+    await expect(readHostHookApproval(store, worktree)).resolves.toBeUndefined();
+  } finally {
+    await store.close();
+  }
+});
+
+test('a revoke at the repository also revokes what a worktree was approved at before the ledger listed it', async () => {
+  const store = await StateStore.open(await tempDir('bs-m3-hook-revoke-repo-'));
+  try {
+    const repository = await repositoryWithHooks(REVIEWED);
+    const sha256 = sha256Of(REVIEWED);
+    // A worktree made outside Brainstrike is approved as its own folder, then adopted.
+    const worktree = linkWorktree(
+      repository,
+      await realpath(await tempDir('bs-m3-hook-trust-worktrees-'))
+    );
+    await writeHooks(worktree, REVIEWED);
+    await trustHostHooks(store, { path: worktree, sha256 });
+    const row = await recordWorktree(store, worktree, repository.commonDir);
+    await trustHostHooks(store, { path: repository.path, sha256 });
+
+    await expect(untrustHostHooks(store, repository.path)).resolves.toEqual({ untrusted: true });
+
+    // Archived, the worktree's folder answers for itself again: nothing approves it.
+    await store.worktreeLedger({
+      id: row.id,
+      operation: 'archive',
+      snapshotRef: `refs/brainstrike/worktree-archive/${row.id}`,
+    });
+    await expect(readHostHookApproval(store, worktree)).resolves.toBeUndefined();
+  } finally {
+    await store.close();
+  }
+});
+
+test('an approval given in a managed worktree replaces what was approved for that folder alone', async () => {
+  const store = await StateStore.open(await tempDir('bs-m3-hook-replace-'));
+  try {
+    const repository = await repositoryWithHooks(REVIEWED);
+    // A worktree made outside Brainstrike is approved as its own folder, then adopted.
+    const worktree = linkWorktree(
+      repository,
+      await realpath(await tempDir('bs-m3-hook-trust-worktrees-'))
+    );
+    await writeHooks(worktree, REVIEWED);
+    await trustHostHooks(store, { path: worktree, sha256: sha256Of(REVIEWED) });
+    const row = await recordWorktree(store, worktree, repository.commonDir);
+    await writeHooks(worktree, EDITED);
+    await trustHostHooks(store, { path: worktree, sha256: sha256Of(EDITED) });
+
+    // Archived and back on the earlier bytes, the folder asks again: that approval was replaced.
+    await store.worktreeLedger({
+      id: row.id,
+      operation: 'archive',
+      snapshotRef: `refs/brainstrike/worktree-archive/${row.id}`,
+    });
+    await writeHooks(worktree, REVIEWED);
     await expect(readHostHookApproval(store, worktree)).resolves.toBeUndefined();
   } finally {
     await store.close();
