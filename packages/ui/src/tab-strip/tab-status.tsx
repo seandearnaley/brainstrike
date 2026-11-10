@@ -10,11 +10,16 @@ export function TabStatusIcon({ status }: { readonly status: TabStatus }): React
     case 'running':
     case 'loading':
       return (
-        <Loader2
+        // The spin is on an HTML box around the icon: Chromium runs a transform
+        // animation on an <svg> itself on the main thread, every frame, for as
+        // long as the thread runs.
+        <span
           aria-hidden="true"
-          className={cn(TAB_ICON_CLASS_NAME, 'animate-spin motion-reduce:animate-none')}
+          className={cn(TAB_ICON_CLASS_NAME, 'inline-flex animate-spin motion-reduce:animate-none')}
           data-tab-status={status}
-        />
+        >
+          <Loader2 className="size-full" />
+        </span>
       );
     case 'attention':
       return (
