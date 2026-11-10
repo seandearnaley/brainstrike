@@ -1,6 +1,8 @@
 # ADR-0032: Workspace trust: a folder's agent configuration loads only once trusted
 
 - **Status:** Accepted
+  - 2026-11-10 (BST-2340, [ADR-0034](0034-worktrees-are-thread-checkouts.md) decision 6): a managed
+    worktree shares its repository's answer.
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -37,7 +39,10 @@ location, and none lets a folder approve itself.
   `workspace.trust/<canonical path>` as `trusted` or `restricted`. No record means
   `undecided`. The path is the folder's canonical path (`canonicalRoot`, the
   identity data roots use), so a symlink, a trailing slash or another case
-  spelling of one folder shares one answer. A subfolder has its own answer. The
+  spelling of one folder shares one answer. A subfolder has its own answer. A
+  managed worktree shares its repository's answer: the answer is kept for the
+  repository's primary checkout, and reading or recording it through the
+  worktree's path reaches that one record. The
   host is the only writer (`workspace/trust`), for every client origin, as
   `hooks/trust` is, so the desktop and the CLI record answers the same way.
   Factory reset clears answers with every other setting.
@@ -75,7 +80,23 @@ location, and none lets a folder approve itself.
 - An answer recorded by another client, such as the CLI, reaches an open
   desktop's "/" menu and prompt on their next reload, such as when a folder is
   added or the thread is reopened (BST-2344).
-- A managed worktree is a different folder, so it asks again (BST-2340).
+- A managed worktree of a trusted repository is trusted, and one of a restricted
+  repository is restricted, so a new worktree does not ask again (BST-2340).
+  - A folder is a managed worktree only while two records agree: the host's
+    worktree ledger lists it, and git's two links still join it to that
+    repository (the folder's `.git` names an admin directory under the
+    repository's common dir, which names the folder's `.git` back). A folder
+    cannot write the repository's link and a repository cannot write the
+    folder's, so neither can claim the other.
+  - Otherwise the folder has its own answer: an archived worktree, a folder the
+    ledger lists but git no longer links, and another repository put where a
+    worktree was.
+  - The answer is kept for the folder that holds the repository's `.git`. A
+    repository whose git directory lives elsewhere (a bare repository, a
+    submodule, `--separate-git-dir`) keeps one answer for its worktrees, apart
+    from its primary checkout's.
+  - The composer's prompt and Settings still list a mounted worktree as its own
+    folder. An answer given there is the repository's.
 - Whether an untrusted folder should also cap the access mode at Ask is a
   separate owner decision (BST-2341). This ADR leaves access modes (ADR-0031)
   unchanged.

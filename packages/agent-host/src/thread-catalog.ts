@@ -3,6 +3,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
 import type { HostHookTrustStore } from './hook-trust.ts';
 import type { HostLogRow, HostResults } from './protocol.ts';
+import type { HostWorkspaceTrustStore } from './workspace-trust.ts';
 
 const logger = createLogger('HostThreadCatalog');
 
@@ -36,6 +37,7 @@ class HostThreadDamagedRefusal extends BoundaryFailureError {
 
 /** The Root store Core opens over and commits to. */
 export type HostEventStore = HostHookTrustStore &
+  HostWorkspaceTrustStore &
   Pick<
     StateStore,
     'append' | 'health' | 'holdBlobGc' | 'read' | 'readHydration' | 'root' | 'syncBoundary'
