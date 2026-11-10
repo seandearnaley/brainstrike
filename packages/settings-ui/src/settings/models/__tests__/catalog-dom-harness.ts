@@ -28,12 +28,43 @@ export function createMockCatalogVirtualizer({ count }: { readonly count: number
   };
 }
 
+function reportWidth(
+  callback: ResizeObserverCallback,
+  observer: ResizeObserver,
+  target: Element,
+  width: number
+): void {
+  const entry = {
+    borderBoxSize: [],
+    contentBoxSize: [],
+    contentRect: { bottom: 600, height: 600, left: 0, right: width, top: 0, width, x: 0, y: 0 },
+    devicePixelContentBoxSize: [],
+    target,
+  } as unknown as ResizeObserverEntry;
+  callback([entry], observer);
+}
+
+export interface CatalogDomStubs {
+  /** Reports a new content width to every observed element, as a window resize would. */
+  readonly resize: (width: number) => void;
+}
+
 /**
  * ResizeObserver stub. With a `width`, every observed element immediately
  * reports that content width — this is how tests mock the catalog container
  * width (design §11: "container width mocked"). With `null` it never reports.
  */
-export function installCatalogDomStubs({ width }: { readonly width: number | null }): void {
+export function installCatalogDomStubs({
+  width,
+}: {
+  readonly width: number | null;
+}): CatalogDomStubs {
+  const observed: {
+    callback: ResizeObserverCallback;
+    observer: ResizeObserver;
+    target: Element;
+  }[] = [];
+
   class StubResizeObserver {
     private readonly callback: ResizeObserverCallback;
 
@@ -46,17 +77,11 @@ export function installCatalogDomStubs({ width }: { readonly width: number | nul
     }
 
     observe(target: Element): void {
-      if (width === null) {
-        return;
+      const observer = this as unknown as ResizeObserver;
+      observed.push({ callback: this.callback, observer, target });
+      if (width !== null) {
+        reportWidth(this.callback, observer, target, width);
       }
-      const entry = {
-        borderBoxSize: [],
-        contentBoxSize: [],
-        contentRect: { bottom: 600, height: 600, left: 0, right: width, top: 0, width, x: 0, y: 0 },
-        devicePixelContentBoxSize: [],
-        target,
-      } as unknown as ResizeObserverEntry;
-      this.callback([entry], this as unknown as ResizeObserver);
     }
 
     unobserve(): void {
@@ -67,6 +92,13 @@ export function installCatalogDomStubs({ width }: { readonly width: number | nul
   Element.prototype.scrollIntoView = () => undefined;
   Element.prototype.hasPointerCapture = () => false;
   Element.prototype.releasePointerCapture = () => undefined;
+  return {
+    resize: (next) => {
+      for (const { callback, observer, target } of observed) {
+        reportWidth(callback, observer, target, next);
+      }
+    },
+  };
 }
 
 export function makeRowActions(overrides: Partial<CatalogRowActions> = {}): CatalogRowActions {
