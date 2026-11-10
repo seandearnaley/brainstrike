@@ -31,8 +31,9 @@ export interface HostRunHooksOptions {
 }
 
 /**
- * A run's roots, each with the hash the host trusted its project hooks file at
- * (none when untrusted). The loader still re-hashes the file on disk.
+ * A run's roots, each with the hash the host approves its project hooks file at
+ * (none when its repository has approved nothing). The loader still re-hashes
+ * the file on disk.
  */
 export function trustedHookRoots(
   trust: HostHookTrustStore,
@@ -40,7 +41,7 @@ export function trustedHookRoots(
 ): Promise<HostRunHooksOptions['roots']> {
   return Promise.all(
     roots.map(async ({ path, rootId }) => {
-      const approvedSha256 = await readHostHookApproval(trust, { absPath: path, rootId });
+      const approvedSha256 = await readHostHookApproval(trust, path);
       return approvedSha256 === undefined
         ? { absPath: path, rootId }
         : { absPath: path, approvedSha256, rootId };

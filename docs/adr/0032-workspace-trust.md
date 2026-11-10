@@ -3,6 +3,8 @@
 - **Status:** Accepted
   - 2026-11-10 (BST-2340, [ADR-0034](0034-worktrees-are-thread-checkouts.md) decision 6): a managed
     worktree shares its repository's answer.
+  - 2026-11-10 (BST-2340): project hook approval is recorded for the repository and the file's
+    hash, so a managed worktree shares it too.
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -67,6 +69,17 @@ location, and none lets a folder approve itself.
   file hash. Their content runs commands, so editing them must ask again. Workspace
   trust gates instructions, which were never pinned to content, in the same way
   the vendors above gate them.
+  - A hook approval is recorded for the folder that answers for the root (the
+    same folder as for workspace trust, so a managed worktree shares its
+    repository's) and for the file's hash: `hooks.approved/<canonical path>`
+    holds the hashes of the versions the person reviewed there, newest last.
+  - A root's hooks run when its file's bytes are one of those versions. So a
+    new worktree holding reviewed bytes does not ask, an edited file asks
+    wherever it is, and approving the edit in one checkout leaves the other
+    checkouts' versions approved.
+  - Revoking removes every version for the repository, from any checkout. It
+    also removes what was approved for that checkout's own folder before it
+    became a managed worktree, so the revoke still holds if it stops being one.
 
 ## Consequences
 
@@ -97,6 +110,10 @@ location, and none lets a folder approve itself.
     from its primary checkout's.
   - The composer's prompt and Settings still list a mounted worktree as its own
     folder. An answer given there is the repository's.
+- Hook approvals recorded before 2026-11-10 were kept per root id
+  (`hooks.trust/<rootId>`) and are no longer read, so each repository's hooks
+  are reviewed once more. A version stays approved until it is revoked, so a
+  checkout that returns to earlier reviewed bytes runs them without asking.
 - Whether an untrusted folder should also cap the access mode at Ask is a
   separate owner decision (BST-2341). This ADR leaves access modes (ADR-0031)
   unchanged.

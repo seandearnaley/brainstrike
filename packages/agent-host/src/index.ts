@@ -47,10 +47,8 @@ export { HostCore, type HostEventStore } from './core.ts';
 export { readHostRow } from './event-storage.ts';
 export {
   type HostHookTrustStore,
-  hostHookApprovalFor,
   hostProjectHooksPath,
   readHostHookApproval,
-  readHostHookTrust,
   trustHostHooks,
   untrustHostHooks,
 } from './hook-trust.ts';
