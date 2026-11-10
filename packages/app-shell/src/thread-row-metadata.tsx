@@ -5,7 +5,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
 import { AlertTriangle, GitBranch } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -136,52 +135,106 @@ function ThreadDetail({
   );
 }
 
+/**
+ * Where a thread works (ADR-0034 decision 3): in a worktree, or in its folder
+ * itself ("Local", the composer's own word for it).
+ *
+ * Read from the thread's committed binding and nothing else. The host writes
+ * `checkoutMode: 'worktree'` with the ledger's worktree id and path when a
+ * thread moves into a worktree, so the row needs no git call and the chip
+ * shows in every grouping. A thread with no folder works nowhere yet and gets
+ * no chip.
+ */
+type ThreadRowCheckout =
+  | { readonly kind: 'local' }
+  | { readonly kind: 'worktree'; readonly name: string; readonly path: string };
+
+function resolveThreadRowCheckout(thread: AssistantMemoryThread): ThreadRowCheckout | null {
+  const metadata = thread.metadata;
+  if (!metadata?.operatingRootId) {
+    return null;
+  }
+  const path = metadata.checkoutMode === 'worktree' ? metadata.checkoutWorktreePath : undefined;
+  if (!path) {
+    return { kind: 'local' };
+  }
+  // A worktree is named by its folder, as the Explorer's header names it.
+  const name = path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
+  return { kind: 'worktree', name, path };
+}
+
 export function ThreadMetadataBadges({
-  branch,
   thread,
 }: {
-  /** Only ever set in folder grouping, and only on desktop. */
-  readonly branch: ThreadBranchInfo | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement | null {
+  const checkout = resolveThreadRowCheckout(thread);
   const providerLabel = getProviderLabel(thread.latestRun?.provider);
   const modelLabel = getThreadModelLabel(thread);
   const reasoningLabel = getReasoningLabel(thread);
   const maxOutputLabel = getMaxOutputLabel(thread);
-  if (!(branch || providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
+  const hasRunBadges = Boolean(providerLabel || modelLabel || reasoningLabel || maxOutputLabel);
+  if (!(checkout || hasRunBadges)) {
     return null;
   }
-  // Whether the badge the narrow band unconditionally protects (branch) is
-  // actually rendering. When it is not, the provider badge takes over that
-  // protected slot instead of also hiding until 560px — see the `wideOnly`
-  // note on ThreadBadge.
-  const protectedBadgePresent = Boolean(branch);
   return (
-    <div
-      className="hidden min-w-0 shrink items-center gap-1 overflow-hidden @[420px]/threads:flex"
-      data-testid="thread-metadata-badges"
-    >
-      {/* Branch first: in folder grouping it is the row's most local fact, and
-          it is always visible once the container clears 420px — see the
-          `wideOnly` note on ThreadBadge for the rest. */}
-      <ThreadBranchBadge branch={branch} />
-      <OptionalThreadBadge value={providerLabel} wideOnly={protectedBadgePresent} />
-      <OptionalThreadBadge value={modelLabel} wideOnly />
-      <OptionalThreadBadge value={reasoningLabel} wideOnly />
-      <OptionalThreadBadge value={maxOutputLabel} wideOnly />
-    </div>
+    <>
+      {/* The checkout leads, outside the run badges' container, because it
+          keeps its own widths: see ThreadCheckoutBadge. */}
+      <ThreadCheckoutBadge checkout={checkout} />
+      {hasRunBadges ? (
+        <div
+          className="hidden min-w-0 shrink items-center gap-1 overflow-hidden @[420px]/threads:flex"
+          data-testid="thread-metadata-badges"
+        >
+          {/* With no checkout chip the provider is the row's first badge and
+              shows from 420px; behind one it waits for 560px like the rest. */}
+          <OptionalThreadBadge value={providerLabel} wideOnly={checkout !== null} />
+          <OptionalThreadBadge value={modelLabel} wideOnly />
+          <OptionalThreadBadge value={reasoningLabel} wideOnly />
+          <OptionalThreadBadge value={maxOutputLabel} wideOnly />
+        </div>
+      ) : null}
+    </>
   );
 }
 
-function ThreadBranchBadge({
-  branch,
+/**
+ * The checkout chip. A Threads panel at its default width leaves a row about
+ * 100px for the title and its badges together, and a text chip there cuts the
+ * title to a few letters. So under 420px:
+ *
+ * - a worktree chip is its branch icon alone, which still tells a worktree
+ *   thread from a Local one, and its name is on hover;
+ * - "Local", the unmarked case, gives way to the title.
+ *
+ * From 420px both read in full, where the run badges open too.
+ */
+function ThreadCheckoutBadge({
+  checkout,
 }: {
-  readonly branch: ThreadBranchInfo | null;
+  readonly checkout: ThreadRowCheckout | null;
 }): ReactElement | null {
-  if (!branch) {
+  if (!checkout) {
     return null;
   }
-  return <ThreadBadge icon={GitBranch}>{branch.detached ? 'detached' : branch.branch}</ThreadBadge>;
+  if (checkout.kind === 'local') {
+    return (
+      <ThreadBadge band="narrow" testId="thread-checkout-chip" title="Works in the folder itself">
+        Local
+      </ThreadBadge>
+    );
+  }
+  return (
+    <ThreadBadge
+      band="always"
+      icon={GitBranch}
+      testId="thread-checkout-chip"
+      title={`Worktree ${checkout.name} at ${checkout.path}`}
+    >
+      <span className="hidden max-w-24 truncate @[420px]/threads:inline">{checkout.name}</span>
+    </ThreadBadge>
+  );
 }
 
 function OptionalThreadBadge({
@@ -189,45 +242,55 @@ function OptionalThreadBadge({
   wideOnly = false,
 }: {
   readonly value: string | null;
+  /**
+   * Hidden until the panel clears 560px, INSTEAD of the 420px the run badges'
+   * container opens at. Only the provider badge ever passes a computed value
+   * here (whether a checkout chip leads the row): with none, provider is the
+   * row's first badge and shows from 420px. Model, reasoning and max output
+   * are never the row's first badge and always wait for 560px.
+   */
   readonly wideOnly?: boolean;
 }): ReactElement | null {
   if (!value) {
     return null;
   }
-  return <ThreadBadge wideOnly={wideOnly}>{value}</ThreadBadge>;
+  return <ThreadBadge band={wideOnly ? 'wide' : 'always'}>{value}</ThreadBadge>;
 }
 
+/**
+ * The narrowest Threads-panel width a badge shows at. Carried per badge rather
+ * than as a positional `nth-child` selector on a container: `nth-child` counts
+ * RENDERED children and every badge is conditional, so a positional rule's
+ * meaning shifted with whichever badges happened to render.
+ *
+ * Whole class strings, so Tailwind's scanner emits each container query.
+ */
+const THREAD_BADGE_BAND_CLASS_NAME = {
+  always: 'inline-flex',
+  narrow: 'hidden @[420px]/threads:inline-flex',
+  wide: 'hidden @[560px]/threads:inline-flex',
+} as const;
+
 function ThreadBadge({
+  band,
   children,
   icon: Icon,
-  wideOnly,
+  testId,
+  title,
 }: {
+  readonly band: keyof typeof THREAD_BADGE_BAND_CLASS_NAME;
   readonly children: ReactNode;
   readonly icon?: LucideIcon;
-  /**
-   * Hidden until the container clears 560px, INSTEAD of the 420px every other
-   * badge in this row gets. Carried per-badge rather than as a positional
-   * `nth-child` selector on the container: `nth-child` counts RENDERED
-   * children, and the branch badge is conditional, so a positional rule's
-   * meaning shifted with whichever optional badges happened to render. A
-   * class the badge carries itself is correct regardless of what else in the
-   * row rendered.
-   *
-   * SPARINGLY conditional: only the provider badge ever passes a computed
-   * value here (`protectedBadgePresent` — whether the branch rendered). When
-   * it did not, provider is the row's first badge and takes over the "always
-   * visible in the narrow band" slot the branch would otherwise hold.
-   * Model/reasoning/max-output stay unconditionally `wideOnly`: they are
-   * never the row's first badge, so there is no protected slot for them to
-   * inherit.
-   */
-  readonly wideOnly?: boolean;
+  readonly testId?: string;
+  readonly title?: string;
 }): ReactElement {
   return (
     <span
-      className={`${wideOnly ? 'hidden @[560px]/threads:inline-flex' : 'inline-flex'} border-border/70 bg-background/70 text-muted-foreground text-2xs shrink-0 items-center gap-0.5 rounded-full border px-1.5 py-0 leading-4`}
+      className={`${THREAD_BADGE_BAND_CLASS_NAME[band]} border-border/70 bg-background/70 text-muted-foreground text-2xs shrink-0 items-center gap-0.5 rounded-full border px-1.5 py-0 leading-4`}
+      data-testid={testId}
+      title={title}
     >
-      {Icon ? <Icon aria-hidden="true" className="size-2.5" /> : null}
+      {Icon ? <Icon aria-hidden="true" className="size-2.5 shrink-0" /> : null}
       {children}
     </span>
   );

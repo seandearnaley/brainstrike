@@ -48,11 +48,9 @@ export interface ThreadFolderRowsState {
    */
   readonly loading: boolean;
   /**
-   * Keyed by RAW `roots.id`, and each row's `path` is the RAW `roots.path`.
-   * `useThreadBranchByRootPath` keys its map by NORMALIZED path instead
-   * (`normalizeRootPathForLookup`), so a consumer joining the two MUST
-   * normalize this `path` before that lookup — an un-normalized key silently
-   * matches nothing and the branch chip simply never appears.
+   * Keyed by RAW `roots.id`, and each row's `path` is the RAW `roots.path`:
+   * the path the folder was mounted through, which git may report under
+   * another spelling. Join on the id, never on this path.
    */
   readonly rowsByRootId: ReadonlyMap<string, ThreadFolderRow>;
 }

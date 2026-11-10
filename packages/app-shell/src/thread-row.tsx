@@ -56,7 +56,6 @@ import {
   THREAD_PANEL_ROW_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
-import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { ThreadColorFamilyPreview } from './thread-color-family-preview';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import {
@@ -80,7 +79,6 @@ export interface ThreadMoveTarget {
 }
 
 export interface ThreadRowProps {
-  readonly branch: ThreadBranchInfo | null;
   readonly draggable: boolean;
   readonly groupId: string | null;
   readonly moveTargets: readonly ThreadMoveTarget[];
@@ -103,7 +101,6 @@ export interface ThreadRowProps {
 export type ThreadPinHandler = (threadId: string, pinned: boolean) => Promise<void>;
 
 export function ThreadRow({
-  branch,
   draggable,
   groupId,
   moveTargets,
@@ -150,7 +147,6 @@ export function ThreadRow({
   return (
     <ThreadRowDragScope draggable={draggable} groupId={groupId} threadId={thread.id}>
       <ThreadRowItem
-        branch={branch}
         confirmingDelete={confirmingDelete}
         customizing={customizing}
         deleteError={deleteError}
@@ -251,7 +247,6 @@ function ThreadRowDragScope({
 }
 
 function ThreadRowItem({
-  branch,
   confirmingDelete,
   customizing,
   deleteError,
@@ -286,7 +281,6 @@ function ThreadRowItem({
   status,
   thread,
 }: {
-  readonly branch: ThreadBranchInfo | null;
   readonly confirmingDelete: boolean;
   readonly customizing: boolean;
   readonly deleteError: string | null;
@@ -535,7 +529,6 @@ function ThreadRowItem({
             onContextMenuCapture={() => setContextMenuTarget(null)}
           >
             <ThreadRowDisplay
-              branch={branch}
               customizing={customizing}
               deleteError={confirmingDelete ? deleteError : null}
               deleting={deleting}
@@ -649,7 +642,6 @@ function ThreadRenameForm({
 }
 
 function ThreadRowDisplay({
-  branch,
   customizing,
   deleteError,
   deleting,
@@ -671,7 +663,6 @@ function ThreadRowDisplay({
   status,
   thread,
 }: {
-  readonly branch: ThreadBranchInfo | null;
   readonly customizing: boolean;
   readonly deleteError: string | null;
   readonly deleting: boolean;
@@ -727,7 +718,7 @@ function ThreadRowDisplay({
               <div className={THREAD_CONTROL_TITLE_CLASS_NAME} title={thread.title}>
                 {thread.title}
               </div>
-              <ThreadMetadataBadges branch={branch} thread={thread} />
+              <ThreadMetadataBadges thread={thread} />
             </div>
           </div>
         </button>
