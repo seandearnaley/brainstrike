@@ -6,7 +6,7 @@ Implementation: `packages/types/src/changeset.ts` and `packages/host-capabilitie
 
 - Use the existing ChangesetDiffService, Git inventory and WorktreeService.
 - Root and repository common-dir identity authorize operations; a path, one-way `.git` pointer or ledger row does not.
-  - Resolve real containment and validate outside-root worktrees in both directions.
+  - Resolve real containment and validate every linked worktree in both directions, inside an open folder or not. Containment says the app may reach a path, not that the repository listing it owns it.
   - Report unvalidated or prunable entries with a reason instead of hiding them.
 - Mounting and adoption are separate operations; mount before binding a thread.
 - Setup hooks run only for the explicitly granted checkout and consent.
