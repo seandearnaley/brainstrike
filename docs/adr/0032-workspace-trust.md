@@ -86,9 +86,25 @@ location, and none lets a folder approve itself.
     given in a managed worktree removes that folder's own record, and a revoke
     removes the own record of every worktree the ledger lists for the
     repository.
+- **A repository's own git filters wait for trust too** (BST-2454, owner
+  decision 2026-11-10). A repository's config can name `filter.<driver>`
+  clean, smudge and process commands that git runs whenever it reads or
+  writes the working tree. Every git command the host runs in a folder that is
+  not trusted, or not inside a trusted one, empties the filter commands that
+  came from the repository's own config and marks those drivers not required.
+  Filters from the person's global or system config, such as Git LFS, still
+  run, and a trusted folder's run as git runs them. The overrides go in as
+  `GIT_CONFIG_KEY_<n>`, which git takes whole, so no driver name can split
+  one. Git also runs `git status` inside each checked-out submodule and each
+  repository cloned inside this one, so their own filter commands are emptied
+  the same way. The nearest mounted folder with an answer decides, so a folder
+  kept restricted inside a trusted one stays restricted.
 
 ## Consequences
 
+- A repository whose filter lives only in its own config, such as git-crypt or
+  `git lfs install --local`, shows its stored form in Changes until the folder
+  is trusted.
 - A cloned repository steers nothing until the person trusts it. Every existing
   folder starts undecided, so its instructions and skills stop loading until it
   is trusted once. The composer prompt says so where the person works.

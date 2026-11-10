@@ -28,8 +28,10 @@ import { createHostThreadTurns } from './changeset-host-turns.ts';
 import { createGitInventoryService, type GitInventoryService } from './git-inventory-service.ts';
 import { watchGitCommonDirNatively } from './git-inventory-watcher.ts';
 import { createGitMethods, execFileGitRunner } from './git-methods.ts';
+import type { GitCommandRunner } from './git-service.ts';
 import { createHostRewindFiles } from './host-rewind-files.ts';
 import { startSnapshotStartupMaintenance } from './host-snapshot-maintenance.ts';
+import { createTrustedFolderCheck, guardRepositoryFilters } from './repo-filter-guard.ts';
 import { execFileSnapshotGitRunner } from './snapshot-git.ts';
 import { FAILED_SNAPSHOT_CAPTURE_OID } from './snapshot-repository.ts';
 import { createSnapshotService } from './snapshot-service.ts';
@@ -73,6 +75,11 @@ export interface WorktreeWorkspace {
   inventory(): GitInventoryService;
   readonly loadRoots: () => Promise<{ id: string; path: string }[]>;
   readonly readSettings: () => ReturnType<typeof readWorktreeSettings>;
+  /**
+   * Git as the host runs it in the person's folders: a repository's own filter
+   * commands stay off until its folder is trusted (BST-2454).
+   */
+  readonly run: GitCommandRunner;
   /** Thread reads once attached; throws before the host has opened its threads. */
   threadReads(): HostThreadReads;
   /** The worktree services the host's own tools borrow per run. */
@@ -95,10 +102,14 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
   };
   const loadRoots = async (): Promise<{ id: string; path: string }[]> =>
     (await roots.listRoots()).map((root) => ({ id: root.rootId, path: root.path }));
+  const run = guardRepositoryFilters({
+    isTrusted: createTrustedFolderCheck(store, roots),
+    run: execFileGitRunner,
+  });
   const gitInventoryService = createGitInventoryService({
     loadRoots,
     ...(options.onInvalidate ? { onInvalidate: options.onInvalidate } : {}),
-    run: execFileGitRunner,
+    run,
     // `stop()` resolves only after every subscribe and unsubscribe it started
     // has settled (BST-2244).
     watchDirectory: watchGitCommonDirNatively,
@@ -135,7 +146,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
     },
     resolveRootCwd: (rootId) => resolveRootCwd(roots, rootId, 'worktrees', logger),
     resolveRootPaths: loadRoots,
-    run: execFileGitRunner,
+    run,
     runSetup: (setupInput) => runWorktreeSetup(setupInput),
   });
   return {
@@ -156,6 +167,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
     inventory,
     loadRoots,
     readSettings,
+    run,
     threadReads,
     tools: { resolveWorktreeService: () => worktrees },
     worktrees,
@@ -257,7 +269,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
   };
   const inventory = (): GitInventoryService => workspace.inventory();
 
-  const git = createGitMethods({ resolver: roots });
+  const git = createGitMethods({ resolver: roots, run: workspace.run });
   const changes = createChangesMethods({
     // BST-1977: host threads' agent-run changesets resolve from Core's log.
     hostThreadTurns: createHostThreadTurns({
@@ -271,6 +283,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     resolveInventoryService: inventory,
     resolver: roots,
     resolveSnapshotService: () => snapshotService,
+    run: workspace.run,
   });
   const worktrees = createWorktreesMethods({
     readSettings,
