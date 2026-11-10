@@ -130,7 +130,12 @@ interface CallCost {
   readonly cacheSavingsUsd: number | null;
   readonly costUsd: number | null;
 }
-function priceCall(model: CatalogModel, tokens: Tokens, withCache: boolean): number | null {
+function priceCall(
+  model: CatalogModel,
+  tokens: Tokens,
+  atMs: number | undefined,
+  withCache: boolean
+): number | null {
   if (tokens.inputTokens + tokens.outputTokens === 0) {
     return 0;
   }
@@ -141,18 +146,24 @@ function priceCall(model: CatalogModel, tokens: Tokens, withCache: boolean): num
       withCache ? tokens.cacheReadTokens : 0,
       withCache ? tokens.cacheWriteTokens : 0
     ),
-    resolveModelPricing(model.provider, model.model)
+    resolveModelPricing(model.provider, model.model, atMs)
   );
   return cost.available ? cost.usdAmount : null;
 }
 /**
- * Prices one call on its own: a long-context tier applies to a single
- * request's prompt, so a sum of calls priced as one would cross tiers that no
- * request reached. The savings compare the same call billed without its cache.
+ * Prices one call on its own, at the rates in force when it ran (`atMs`): a
+ * long-context tier applies to a single request's prompt, so a sum of calls
+ * priced as one would cross tiers that no request reached, and a dated price
+ * change reprices only the calls after it. The savings compare the same call
+ * billed without its cache.
  */
-export function costOfCall(model: CatalogModel, tokens: Tokens): CallCost {
-  const costUsd = priceCall(model, tokens, true);
-  const uncachedUsd = priceCall(model, tokens, false);
+export function costOfCall(
+  model: CatalogModel,
+  tokens: Tokens,
+  atMs: number | undefined
+): CallCost {
+  const costUsd = priceCall(model, tokens, atMs, true);
+  const uncachedUsd = priceCall(model, tokens, atMs, false);
   return {
     cacheSavingsUsd: costUsd === null || uncachedUsd === null ? null : uncachedUsd - costUsd,
     costUsd,
@@ -599,7 +610,7 @@ export class ThreadLedgerFold {
     }
     // Each call is priced under its own model: an observer's call is not the run's.
     // Its native searches bill beside its tokens.
-    const priced = costOfCall(model, tokens);
+    const priced = costOfCall(model, tokens, row.ts);
     const cacheSavingsUsd = priced.cacheSavingsUsd;
     const costUsd = addCost(priced.costUsd, webSearchCost(model, searches));
     // A billed call costs what the provider billed; only the rest is estimated.

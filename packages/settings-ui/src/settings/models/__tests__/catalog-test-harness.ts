@@ -35,6 +35,7 @@ export function makeCatalogRow(
       cacheReadPerMTok: null,
       cacheWritePerMTok: null,
       inputPerMTok: 3,
+      nextChange: null,
       outputPerMTok: 15,
     },
     providerId: 'anthropic',

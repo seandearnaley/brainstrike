@@ -24,10 +24,15 @@ export interface CrossRootCostRow {
   readonly totalTokens: number;
 }
 
-/** Resolves a model's pricing from the registry (undefined when unknown). */
+/**
+ * Resolves the rates a model billed at `atMs` (epoch milliseconds) from the
+ * registry; undefined when the model is unknown, or when the call's time is
+ * unknown and the model's price changed over time.
+ */
 export type ModelPricingResolver = (
   provider: string,
-  model: string
+  model: string,
+  atMs: number | undefined
 ) => ModelTokenPricing | undefined;
 
 interface RootAggregate {
