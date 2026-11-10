@@ -28,6 +28,7 @@
     "./browser": "./src/browser-client.ts",
     "./test-fixtures/scripted-model": "./src/test-fixtures/scripted-model.ts",
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
+    "./test-fixtures/managed-worktree": "./__tests__/fixtures/managed-worktree.ts",
     "./thread-view": "./src/thread-view.ts",
     "./ledger-projection": "./src/ledger-projection.ts",
     "./desktop-run-configuration": "./src/desktop-run-configuration.ts",

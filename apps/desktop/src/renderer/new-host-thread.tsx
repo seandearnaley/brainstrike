@@ -1,7 +1,7 @@
 import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostRunSelection } from '@brainstrike/agent-host/protocol';
-import { useBudgetGuardrailBinding, WorkspaceTrustPrompt } from '@brainstrike/app-shell';
+import { useBudgetGuardrailBinding } from '@brainstrike/app-shell';
 import {
   createHostAssistantThreadRepository,
   useAssistantThreadHost,
@@ -196,7 +196,6 @@ export function NewHostThread({
         store={store}
         welcome
         workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-        workspaceNotice={<WorkspaceTrustPrompt />}
       />
     </BudgetGuardrailProvider>
   );

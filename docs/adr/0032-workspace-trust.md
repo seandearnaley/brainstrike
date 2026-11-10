@@ -5,6 +5,8 @@
     worktree shares its repository's answer.
   - 2026-11-10 (BST-2340): project hook approval is recorded for the repository and the file's
     hash, so a managed worktree shares it too.
+  - 2026-11-10 (BST-2340): the composer asks with a chip, only about the thread's own folders and
+    once per answer.
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -56,14 +58,21 @@ location, and none lets a folder approve itself.
   directory tiers (`~/.brainstrike`, `~/.claude`) are the person's own and load
   as before.
 - **Ask once, restricted rather than refused.** The composer of a root thread
-  shows a non-blocking prompt for each mounted folder that holds agent
-  configuration and has no answer yet. The prompt names what trusting the folder
-  would load, counted by the same scans a run uses (`workspace/trust/list`).
-  "Trust folder" and "Keep restricted" both record an answer, so the prompt
-  doesn't come back. Nothing waits on the prompt: a run sent before an answer
-  simply leaves the folder's configuration out. Settings › Workspace trust lists
-  every mounted folder and changes the answer. The standalone CLI records it
-  with `workspace trust [<dir>] [--yes]`.
+  shows a chip in its workspace bar while one of the thread's own folders holds
+  agent configuration and has no answer yet. The chip counts what is held, by
+  the same scans a run uses (`workspace/trust/list`), and opens to the question:
+  what trusting the folder would load, with "Trust folder" and "Keep
+  restricted". Both record an answer, so the chip doesn't come back. Nothing
+  waits on it: a run sent before an answer simply leaves the folder's
+  configuration out. Settings › Workspace trust lists every answer behind the
+  mounted folders and changes it. The standalone CLI records it with
+  `workspace trust [<dir>] [--yes]`.
+  - A thread's own folders are the ones its runs read configuration from: its
+    operating folder and secondaries, or every open folder while it has none. A
+    folder open for another thread is not asked about.
+  - There is one question per answer. A managed worktree and its repository
+    share one, so they are asked about once, under the repository's name, and
+    Settings shows the worktree under its repository's row.
 - **Hooks and setup scripts keep their own pins.** Project hooks
   (`hooks/trust`) and the worktree setup script stay approved by their exact
   file hash. Their content runs commands, so editing them must ask again. Workspace
@@ -107,13 +116,13 @@ location, and none lets a folder approve itself.
   is trusted.
 - A cloned repository steers nothing until the person trusts it. Every existing
   folder starts undecided, so its instructions and skills stop loading until it
-  is trusted once. The composer prompt says so where the person works.
+  is trusted once. The composer's chip says so where the person works.
 - The "/" menu and Settings › Skills list only trusted folders' project skills and
   commands. Settings › Subagents and Settings › Workspace instructions still list
   every mounted folder's files (Main reads them). Marking the files that won't
   load is follow-up work (BST-2344).
 - An answer recorded by another client, such as the CLI, reaches an open
-  desktop's "/" menu and prompt on their next reload, such as when a folder is
+  desktop's "/" menu and chip on their next reload, such as when a folder is
   added or the thread is reopened (BST-2344).
 - A managed worktree of a trusted repository is trusted, and one of a restricted
   repository is restricted, so a new worktree does not ask again (BST-2340).
@@ -130,8 +139,10 @@ location, and none lets a folder approve itself.
     repository whose git directory lives elsewhere (a bare repository, a
     submodule, `--separate-git-dir`) keeps one answer for its worktrees, apart
     from its primary checkout's.
-  - The composer's prompt and Settings still list a mounted worktree as its own
-    folder. An answer given there is the repository's.
+  - `workspace/trust/list` names the folder that answers for each mounted
+    folder (`answeredBy`), read with the answer it shows, so the composer and
+    Settings group a mounted worktree under its repository and give the answer
+    for the repository.
 - Hook approvals recorded before 2026-11-10 were kept per root id
   (`hooks.trust/<rootId>`) and are no longer read, so each repository's hooks
   are reviewed once more.

@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   WorkspaceTrustCapability,
   WorkspaceTrustDecision,
@@ -24,12 +24,28 @@ const NOTES: WorkspaceTrustRoot = {
   trust: 'trusted',
 };
 
-/** The agent host's trust, kept in memory: each answer replaces the folder's record. */
+/** A managed worktree of cloned-repo: its repository answers for it. */
+const BADGER: WorkspaceTrustRoot = {
+  agentConfiguration: { commands: 0, instructions: 'AGENTS.md', personas: 0, skills: 2 },
+  answeredBy: { displayName: 'cloned-repo', path: '/work/cloned-repo' },
+  displayName: 'swift-badger',
+  path: '/managed/cloned-repo/swift-badger',
+  rootId: 'root-badger',
+  trust: 'undecided',
+};
+
+/**
+ * The agent host's trust, kept in memory: each answer replaces the record of
+ * the folder that answers, and every folder that shares it reads it.
+ */
 function hostTrust(roots: readonly WorkspaceTrustRoot[]): WorkspaceTrustCapability {
   const answers = new Map<string, WorkspaceTrustDecision>();
   return {
     listTrust: async () =>
-      roots.map((root) => ({ ...root, trust: answers.get(root.path) ?? root.trust })),
+      roots.map((root) => ({
+        ...root,
+        trust: answers.get(root.answeredBy?.path ?? root.path) ?? root.trust,
+      })),
     setTrust: async (path, trust) => {
       answers.set(path, trust);
     },
@@ -59,6 +75,41 @@ describe('WorkspaceTrustSettingsSection', () => {
     await user.click(within(row).getByRole('button', { name: 'Restrict' }));
     await waitFor(() => expect(row).toHaveTextContent('Restricted'));
     expect(within(row).getByRole('button', { name: 'Trust' })).toBeEnabled();
+  });
+
+  it('shows a worktree under its repository’s one answer, never as a decision of its own', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceTrustSettingsSection trust={hostTrust([CLONED, BADGER, NOTES])} />);
+
+    const repository = await screen.findByTestId('workspace-trust-root-root-cloned');
+    expect(screen.queryByTestId('workspace-trust-root-root-badger')).not.toBeInTheDocument();
+    expect(repository).toHaveTextContent('Not trusted yet');
+    expect(repository).toHaveTextContent('Holds AGENTS.md, 2 skills, and 1 slash command.');
+    expect(repository).toHaveTextContent('Its worktrees share this answer');
+    expect(repository).toHaveTextContent('swift-badger holds AGENTS.md and 2 skills.');
+    expect(within(repository).getAllByRole('button')).toHaveLength(1);
+
+    await user.click(within(repository).getByRole('button', { name: 'Trust' }));
+    await waitFor(() => expect(repository).toHaveTextContent('Trusted'));
+    expect(within(repository).getByRole('button', { name: 'Restrict' })).toBeEnabled();
+  });
+
+  it('names the repository a worktree shares its answer with when only the worktree is open', async () => {
+    const user = userEvent.setup();
+    const trust = hostTrust([BADGER]);
+    const setTrust = vi.spyOn(trust, 'setTrust');
+    render(<WorkspaceTrustSettingsSection trust={trust} />);
+
+    const repository = await screen.findByTestId('workspace-trust-root-root-badger');
+    expect(repository).toHaveTextContent('cloned-repo');
+    expect(repository).toHaveTextContent('/work/cloned-repo');
+    expect(repository).toHaveTextContent('Its worktrees share this answer');
+    expect(repository).toHaveTextContent('swift-badger holds AGENTS.md and 2 skills.');
+
+    await user.click(within(repository).getByRole('button', { name: 'Trust' }));
+    await waitFor(() => expect(repository).toHaveTextContent('Trusted'));
+    // The answer is the repository's, so it is given for the repository.
+    expect(setTrust).toHaveBeenCalledExactlyOnceWith('/work/cloned-repo', 'trusted');
   });
 
   it('shows a refused answer and keeps the folder as it was', async () => {

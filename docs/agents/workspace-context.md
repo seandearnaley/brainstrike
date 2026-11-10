@@ -29,6 +29,7 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
   - The host records each answer by canonical path (`packages/agent-host/src/workspace-trust.ts`) and is its only writer.
   - A managed worktree shares its repository's answer (ADR-0034 decision 6). A folder is one only while the worktree ledger lists it and git's two links still join it to that repository; neither a ledger row nor a folder's own `.git` is enough alone.
   - Pass a run's or listing's roots through `trustedHostWorkspaceRoots` before scanning project tiers.
+  - The composer's chip asks only about the thread's own folders (the binding's operating folder and secondaries; every open folder while it has none), once per answer. `workspace/trust/list` names the answering folder (`answeredBy`); group by it rather than matching paths in the renderer.
   - An untrusted folder still mounts and stays readable and editable.
   - Home tiers load regardless; hooks keep their own hash pins.
     - A hook approval is for exact bytes, recorded under the same answering folder as workspace trust (`hostAnsweringFolder`, `packages/agent-host/src/answering-folder.ts`), so a managed worktree runs the one version its repository approved.

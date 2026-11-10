@@ -98,5 +98,7 @@
 // `path` and no longer take a `rootId`, because an approval is recorded for the root's repository
 // and the file's hash, which a managed worktree shares (BST-2340, ADR-0034 decision 6).
 // `hooks/trust/read` answers `approvedSha256` in place of the stored trust. The required
-// parameter is why this is a version bump.
+// parameter is why this is a version bump. Additive since: a `workspace/trust/list` root carries
+// `answeredBy`, the folder whose answer it shares when that is not itself (a managed worktree's
+// repository).
 export const AGENT_HOST_PROTOCOL_VERSION = 23;
