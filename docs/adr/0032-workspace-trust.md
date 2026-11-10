@@ -74,9 +74,13 @@ location, and none lets a folder approve itself.
     not change what the location covers.
   - A folder is judged by where it really is. Paths are canonical, so a
     symlink inside a location that points outside it is not covered. A managed
-    worktree counts by where its repository is, not where its own folder is.
-    A folder that only claims a repository, through its own `.git` or a ledger
-    row, answers for itself and is judged by its own path.
+    worktree counts by where its repository is, not where its own folder is,
+    and so does a folder inside a managed worktree. A folder that only claims
+    a repository, through its own `.git` or a ledger row, answers for itself
+    and is judged by its own path.
+  - A managed worktree the person once kept restricted as a folder of its own
+    keeps that record until an answer is given through it. A location does not
+    trust past it either: the worktree is undecided and asks.
   - Every reader shares the one read (`readHostWorkspaceTrustAnswer`): the
     roots a run loads configuration from, discovery, `workspace/trust/list`
     and the git filter guard.
@@ -85,16 +89,29 @@ location, and none lets a folder approve itself.
     unticked by default, in the composer's ask and on the Settings row, or the
     CLI's `workspace trust --trust-parent`. A run, a read, a headless start and
     the files in a folder never record one.
-  - The request names the parent the person was shown (`workspace/trust`
-    `location`). The host works out the parent of the folder the answer is for
-    from its own records and records the location only when the two are the
-    same folder. Anything else is refused, and the answer is not recorded
-    either.
-  - The parent is not offered, and is refused, when it is the top of the
-    filesystem, the person's home directory or a folder that holds the home
-    directory. Each would cover every download. Sean's brief named the
-    filesystem root and the home directory for this first version; a folder
-    that holds the home directory is treated the same way.
+  - The host says which parent that is (`offeredLocation` on
+    `workspace/trust/list` and `workspace/trust/read`), so the ask and the
+    CLI's prompt name the folder that will be recorded: for a managed
+    worktree, the folder its repository is kept in. The request names that
+    parent back (`workspace/trust` `location`). The host works out the parent
+    of the folder the answer is for from its own records and records the
+    location only when the two are the same folder. Anything else is refused,
+    and the answer is not recorded either.
+  - The parent is not offered, and is refused, when trusting everything in it
+    would reach past the person's own work:
+    - the top of the filesystem;
+    - the person's home directory or a folder that holds it, which would cover
+      every download, including under the second spelling macOS gives the same
+      folder (`/System/Volumes/Data/Users/...`);
+    - a folder other people can put things in: one the person does not own, or
+      one open to everyone, such as `/tmp` or `/Users/Shared`. Git refuses a
+      repository another user owns for the same reason (`safe.directory`).
+      Windows reports neither an owner nor these mode bits, so this is not
+      checked there.
+
+    Sean's brief named the filesystem root and the home directory for this
+    first version. The others were added while building, for the same reason,
+    and he has not ruled on them.
   - Settings › Workspace Trust lists the locations and removes one
     (`workspace/trust/locations`, `workspace/trust/locations/remove`), and says
     which location a folder is trusted through (`trustedThrough`). Removing
@@ -203,6 +220,13 @@ location, and none lets a folder approve itself.
   BST-2341). This ADR leaves access modes (ADR-0031) unchanged.
 - A repository cloned by hand into a trusted location is trusted the moment its
   folder is opened, with no ask. That is the accepted cost of a location.
+- Trust through a location is the same trust everywhere it is read. So a
+  folder in a trusted location also runs its own git filters (BST-2454) with
+  no ask: a folder unpacked there from an archive, with filter commands in its
+  own `.git/config`, runs them when the app runs git in it. A clone does not
+  carry such commands.
+- A volume's top folder, such as `/Volumes/Work`, can be offered on macOS and
+  Linux when the person owns it, while a Windows drive root cannot.
 - A folder inside a restricted folder is still asked about on its own, as
   before. A trusted location around both does not answer for it.
 - A location is kept by the path it had when it was added. If that folder is
@@ -220,6 +244,11 @@ They supersede the text above where they differ.
   restricted, still wins. Accepted cost: a hostile repository cloned into a
   trusted location by hand is trusted. Built 2026-11-10: the **Trusted
   locations** decision above says how.
+  - The build is narrower than this answer in three places, which the
+    **Trusted locations** decision records and which stand until Sean rules
+    otherwise: a location does not reach into a folder kept restricted; what
+    is in a managed worktree counts by where its repository is; and some
+    parents are never offered.
 - **Folders the app makes are trusted with no question**: a project created in
   the app or a scratch folder, which has no repository answer to inherit. Never
   a folder that already existed. A managed worktree is not one of these: it

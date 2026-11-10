@@ -206,6 +206,29 @@ describe('WorkspaceTrustSettingsSection', () => {
     expect(within(row).queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
+  it('offers the box unticked again after the person backs out of the location', async () => {
+    const user = userEvent.setup();
+    const trust = hostTrust([{ ...CLONED, offeredLocation: WORK }]);
+    const setTrust = vi.spyOn(trust, 'setTrust');
+    render(<WorkspaceTrustSettingsSection trust={trust} />);
+    const row = await screen.findByTestId('workspace-trust-root-root-cloned');
+    const parentBox = { name: 'Also trust every folder in /work' };
+
+    // Trust with the box ticked, then take it all back: remove the location and restrict the folder.
+    await user.click(within(row).getByRole('checkbox', parentBox));
+    await user.click(within(row).getByRole('button', { name: 'Trust' }));
+    const location = await screen.findByTestId('workspace-trust-location-/work');
+    await user.click(within(location).getByRole('button', { name: 'Remove /work' }));
+    await user.click(await within(row).findByRole('button', { name: 'Restrict' }));
+
+    // The offer is back, and it starts unticked: trusting again trusts the folder alone.
+    expect(await within(row).findByRole('checkbox', parentBox)).not.toBeChecked();
+    await user.click(within(row).getByRole('button', { name: 'Trust' }));
+    await waitFor(() => expect(row).toHaveTextContent('Trusted'));
+    expect(setTrust).toHaveBeenLastCalledWith('/work/cloned-repo', 'trusted');
+    expect(screen.getByTestId('workspace-trust-no-locations')).toBeInTheDocument();
+  });
+
   it('trusts the folder alone when its box stays unticked', async () => {
     const user = userEvent.setup();
     const trust = hostTrust([{ ...CLONED, offeredLocation: WORK }]);

@@ -87,6 +87,15 @@ function AnswerRow({
   const parentBoxId = useId();
   // Unticked until the person ticks it: trusting a folder never widens to its parent by itself.
   const [alsoParent, setAlsoParent] = useState(false);
+  // Each decision starts the box over, so a tick never carries into a later offer.
+  const decide = (decision: WorkspaceTrustDecision, location?: string): void => {
+    setAlsoParent(false);
+    if (location === undefined) {
+      onDecide(answer, decision);
+    } else {
+      onDecide(answer, decision, location);
+    }
+  };
   // The answering folder's own entry: absent while only its worktrees are open.
   const own = answer.roots.find((root) => root.answeredBy === undefined);
   const worktrees = answer.roots.filter((root) => root.answeredBy !== undefined);
@@ -138,12 +147,7 @@ function AnswerRow({
         ) : null}
       </div>
       {answer.trust === 'trusted' ? (
-        <Button
-          disabled={busy}
-          onClick={() => onDecide(answer, 'restricted')}
-          size="sm"
-          variant="outline"
-        >
+        <Button disabled={busy} onClick={() => decide('restricted')} size="sm" variant="outline">
           Restrict
         </Button>
       ) : (
@@ -151,9 +155,7 @@ function AnswerRow({
           disabled={busy}
           // The parent is trusted only with the folder, and only when its box is ticked.
           onClick={() =>
-            offeredLocation && alsoParent
-              ? onDecide(answer, 'trusted', offeredLocation)
-              : onDecide(answer, 'trusted')
+            decide('trusted', offeredLocation && alsoParent ? offeredLocation : undefined)
           }
           size="sm"
         >

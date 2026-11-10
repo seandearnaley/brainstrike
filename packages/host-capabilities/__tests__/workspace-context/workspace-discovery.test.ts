@@ -238,8 +238,11 @@ describe('workspace trust (ADR-0032)', () => {
   }
 
   it('says what each live folder would load and the answer the person gave', async () => {
-    // Trust is kept for folders that exist; B is a real, empty one.
-    const folder = await realpath(await mkdtemp(path.join(tmpdir(), 'bs-trust-list-')));
+    // Trust is kept for folders that exist; B is a real, empty one, kept in a folder of the
+    // person's own (the machine's shared temp folder is never offered as a location).
+    const kept = await realpath(await mkdtemp(path.join(tmpdir(), 'bs-trust-list-')));
+    const folder = path.join(kept, 'b');
+    await mkdir(folder);
     const rootB: RuntimeWorkspaceRoot = { displayName: 'B', path: folder, rootId: 'root-b' };
     const trust = memoryTrust();
     try {
@@ -275,14 +278,14 @@ describe('workspace trust (ADR-0032)', () => {
           agentConfiguration: { commands: 0, instructions: null, personas: 0, skills: 0 },
           displayName: 'B',
           // Trusting B could also trust everything in the folder it is kept in.
-          offeredLocation: path.dirname(folder),
+          offeredLocation: kept,
           path: folder,
           rootId: 'root-b',
           trust: 'restricted',
         },
       ]);
     } finally {
-      await rm(folder, { force: true, recursive: true });
+      await rm(kept, { force: true, recursive: true });
     }
   });
 

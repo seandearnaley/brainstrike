@@ -129,7 +129,8 @@ const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  * `offeredLocation` is the parent a trust ask for the root may offer as a
  * trusted location, named so the ask can show it and send it back: absent for
  * a trusted root, for a parent that is one already, and for the top of the
- * filesystem, the home directory or a folder that holds it.
+ * filesystem, the home directory or a folder that holds it, and a folder
+ * other people can write to.
  */
 const WorkspaceTrustRootSchema = Schema.Struct({
   agentConfiguration: Schema.Struct({
@@ -195,5 +196,13 @@ export const WORKSPACE_DISCOVERY_RESULT_SCHEMAS = {
     locations: Schema.mutable(Schema.Array(Schema.Struct({ path: AbsolutePath }))),
   }),
   'workspace/trust/locations/remove': Schema.Struct({ removed: Schema.Boolean }),
-  'workspace/trust/read': Schema.Struct({ trust: HostWorkspaceTrustSchema }),
+  /**
+   * `offeredLocation` is the parent a `workspace/trust` for the folder may name
+   * as its `location`, whatever the folder's trust is now. Absent when the host
+   * offers none.
+   */
+  'workspace/trust/read': Schema.Struct({
+    offeredLocation: Schema.optionalKey(AbsolutePath),
+    trust: HostWorkspaceTrustSchema,
+  }),
 } as const;

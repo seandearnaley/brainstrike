@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, sep } from 'node:path';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
@@ -53,7 +54,15 @@ export async function readHostTrustedLocations(
   store: HostWorkspaceTrustStore
 ): Promise<readonly string[]> {
   const value = await store.getSetting(LOCATIONS_KEY);
-  return value === undefined ? [] : decodeLocations(JSON.parse(value));
+  if (value === undefined) {
+    return [];
+  }
+  const locations = decodeLocations(JSON.parse(value));
+  if (!locations.every((location) => isAbsolute(location))) {
+    // The host records canonical paths only, so this value is not one it wrote.
+    throw new Error('The stored trusted locations hold a path that is not absolute');
+  }
+  return locations;
 }
 /** One change at a time per store: an addition and a removal never drop each other's. */
 const locationChanges = new WeakMap<HostWorkspaceTrustStore, Promise<unknown>>();
@@ -80,18 +89,60 @@ function changeHostTrustedLocations<T>(
   );
   return next;
 }
+/** S_IWOTH: anyone on the machine may add entries to the folder. */
+const WORLD_WRITABLE = 0o002n;
+/** A folder as the disk identifies it, whatever path spells it; undefined when none is there. */
+const folderOnDisk = (folder: string) => statSync(folder, { bigint: true, throwIfNoEntry: false });
+/**
+ * True when `parent` is the home directory or holds it: by path, or because
+ * the disk says it is the same folder as the home directory or one above it.
+ * macOS shows one folder under two spellings (`/Users/...` and
+ * `/System/Volumes/Data/Users/...`), and neither is a symlink to resolve.
+ */
+function holdsHome(parent: string, onDisk: { dev: bigint; ino: bigint }, home: string): boolean {
+  const homeFolder = hostFolderIdentity(home) ?? home;
+  if (isWithin(homeFolder, parent)) {
+    return true;
+  }
+  for (let above = homeFolder; ; above = dirname(above)) {
+    const each = folderOnDisk(above);
+    if (each !== undefined && each.dev === onDisk.dev && each.ino === onDisk.ino) {
+      return true;
+    }
+    if (dirname(above) === above) {
+      return false;
+    }
+  }
+}
 /**
  * The folder a trust ask may offer as a trusted location for the folder that
- * answers (`answering`, a canonical path): its parent. Undefined when that is
- * the top of the filesystem, or the person's home directory or a folder that
- * holds it, where trusting everything inside would cover every download.
+ * answers (`answering`, a canonical path): its parent. Undefined when trusting
+ * everything inside would reach past the person's own work:
+ * - the top of the filesystem;
+ * - the home directory or a folder that holds it, which would cover every download;
+ * - a folder other people can put things in: one the person does not own, or
+ *   one open to everyone, such as `/tmp` or `/Users/Shared`. Git refuses a
+ *   repository another user owns for the same reason (`safe.directory`).
+ *   Windows reports neither an owner id nor these mode bits, so nothing is
+ *   checked there.
  */
 export function hostTrustedLocationOffer(answering: string, home: string): string | undefined {
   const parent = dirname(answering);
   if (dirname(parent) === parent) {
     return;
   }
-  return isWithin(hostFolderIdentity(home) ?? home, parent) ? undefined : parent;
+  const onDisk = folderOnDisk(parent);
+  if (onDisk === undefined || holdsHome(parent, onDisk, home)) {
+    return;
+  }
+  const person = process.getuid?.();
+  if (
+    person !== undefined &&
+    (onDisk.uid !== BigInt(person) || (onDisk.mode & WORLD_WRITABLE) !== 0n)
+  ) {
+    return;
+  }
+  return parent;
 }
 /**
  * Removes a trusted location, by the path Settings lists it under. The answers
@@ -107,10 +158,9 @@ export async function removeHostTrustedLocation(
       `A trusted location is a folder's absolute path, not ${path}`
     );
   }
-  // The listed path names it even when its folder is gone; another spelling names it while it exists.
-  const folder = hostFolderIdentity(path);
+  // By the listed path alone, so a location whose folder is gone or unreadable still goes.
   return await changeHostTrustedLocations(store, (locations) => {
-    const kept = locations.filter((location) => location !== path && location !== folder);
+    const kept = locations.filter((location) => location !== path);
     return { locations: kept, result: kept.length < locations.length };
   });
 }
@@ -160,16 +210,21 @@ export interface HostWorkspaceTrustAnswer {
 }
 /**
  * The trusted location that covers `answering` (a canonical path): the nearest
- * one it lies inside, unless a folder between the two is one the person kept
- * restricted. A restricted folder's contents then ask, as they did before the
- * location, instead of being trusted past the person's answer. Each folder on
- * the way is read through the folder that answers for it, so a worktree of a
- * restricted repository restricts what is in it too. The location's own answer
- * is about its own files and does not change what it covers.
+ * one it lies inside, unless a folder between the two says otherwise. Each
+ * folder on the way is read through the folder that answers for it.
+ * - One the person kept restricted: its contents ask, as they did before the
+ *   location, instead of being trusted past the person's answer. A worktree of
+ *   a restricted repository restricts what is in it too.
+ * - A managed worktree: what is in it belongs to its repository, so it is
+ *   covered only where that repository is. `inWorktree` is false for that one
+ *   further look, which never follows a second worktree.
+ * The location's own answer is about its own files and does not change what
+ * it covers.
  */
 async function coveringLocation(
   store: HostWorkspaceTrustStore,
-  answering: string
+  answering: string,
+  inWorktree = true
 ): Promise<string | undefined> {
   const location = (await readHostTrustedLocations(store))
     .filter((each) => isWithin(answering, each))
@@ -183,8 +238,12 @@ async function coveringLocation(
     between = dirname(between)
   ) {
     const answers = await hostAnsweringFolder(store, between);
-    if (answers !== undefined && (await store.getSetting(trustKey(answers))) === 'restricted') {
+    // Undefined: the repository's folder went away while this ran, so nothing vouches for it.
+    if (answers === undefined || (await store.getSetting(trustKey(answers))) === 'restricted') {
       return;
+    }
+    if (answers !== between) {
+      return inWorktree ? await coveringLocation(store, answers, false) : undefined;
     }
   }
   return location;
@@ -213,8 +272,16 @@ export async function readHostWorkspaceTrustAnswer(
       trustedThrough: undefined,
     };
   }
+  // A managed worktree the person once kept restricted as a folder of its own keeps that
+  // record until an answer is given through it; a location never trusts past it.
+  const keptRestricted =
+    folder !== undefined &&
+    answering !== folder &&
+    (await store.getSetting(trustKey(folder))) === 'restricted';
   const trustedThrough =
-    answering === undefined ? undefined : await coveringLocation(store, answering);
+    answering === undefined || keptRestricted
+      ? undefined
+      : await coveringLocation(store, answering);
   return {
     answeredBy,
     folder,
@@ -271,7 +338,7 @@ function requestedLocation(
   }
   if (hostTrustedLocationOffer(answering, home) === undefined) {
     throw new HostWorkspaceTrustRefusal(
-      `${requested} is the top of the filesystem or holds your home directory, so Brainstrike does not trust everything in it; nothing was trusted`
+      `Brainstrike does not trust everything in ${requested}: it is the top of the filesystem, holds your home directory, or is a folder other people can write to. Nothing was trusted`
     );
   }
   return requested;
@@ -336,7 +403,12 @@ export function bindHostWorkspaceTrustMethods(
   handle('workspace/trust/locations/remove', async ({ path }) => ({
     removed: await removeHostTrustedLocation(store, path),
   }));
-  handle('workspace/trust/read', async ({ path }) => ({
-    trust: await readHostWorkspaceTrust(store, path),
-  }));
+  handle('workspace/trust/read', async ({ path }) => {
+    const answer = await readHostWorkspaceTrustAnswer(store, path);
+    // The parent a `workspace/trust` for this folder may name, so a client shows it before asking.
+    const answering = answer.answeredBy ?? answer.folder;
+    const offeredLocation =
+      answering === undefined ? undefined : hostTrustedLocationOffer(answering, homedir());
+    return { ...(offeredLocation === undefined ? {} : { offeredLocation }), trust: answer.trust };
+  });
 }

@@ -106,6 +106,7 @@
 // compares the root's own path with the worktree's, which differ by spelling for a root opened
 // through a symbolic link. The required field is why this is a version bump. Additive since:
 // trusted locations (ADR-0032): `workspace/trust` takes an optional `location`, a
-// `workspace/trust/list` root carries `trustedThrough` and `offeredLocation`, and
-// `workspace/trust/locations` and `workspace/trust/locations/remove` are new methods.
+// `workspace/trust/list` root carries `trustedThrough` and `offeredLocation`,
+// `workspace/trust/read` answers `offeredLocation`, and `workspace/trust/locations` and
+// `workspace/trust/locations/remove` are new methods.
 export const AGENT_HOST_PROTOCOL_VERSION = 24;

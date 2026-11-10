@@ -5,8 +5,8 @@
  * answer still wins; and a folder is judged by where it really is, through the
  * host's own records, never by what it contains.
  */
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
@@ -23,7 +23,12 @@ import {
   trustedHostWorkspaceRoots,
   writeHostWorkspaceTrust,
 } from '../src/workspace-trust.js';
-import { addManagedWorktree, recordWorktree, repositoryAt } from './fixtures/managed-worktree.js';
+import {
+  addManagedWorktree,
+  linkWorktree,
+  recordWorktree,
+  repositoryAt,
+} from './fixtures/managed-worktree.js';
 
 const dirs: string[] = [];
 const stores: StateStore[] = [];
@@ -184,6 +189,107 @@ test("the answer given for the location's own folder does not change what the lo
   await expect(readHostWorkspaceTrust(store, later)).resolves.toBe('trusted');
 });
 
+test('a folder inside a managed worktree is judged by the repository too, like the worktree', async () => {
+  const store = await openStore();
+  const { code, home } = await codeFolder();
+  const cloned = await folderIn(code, 'cloned');
+  await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
+
+  // A repository kept outside the location, with its worktree inside it: both still ask.
+  const outside = await repositoryAt(await tempDir('bs-trusted-locations-repo-'));
+  const worktree = await addManagedWorktree(store, outside, await folderIn(code, 'worktrees'));
+  await expect(readHostWorkspaceTrust(store, worktree.path)).resolves.toBe('undecided');
+  await expect(
+    readHostWorkspaceTrust(store, await folderIn(worktree.path, 'packages/tool'))
+  ).resolves.toBe('undecided');
+
+  // A repository inside the location: a folder in its worktree is covered, as the worktree is.
+  const inside = await repositoryAt(await folderIn(code, 'app'));
+  const insideWorktree = await addManagedWorktree(store, inside, await folderIn(code, 'checkouts'));
+  await expect(
+    readHostWorkspaceTrustAnswer(store, await folderIn(insideWorktree.path, 'packages/tool'))
+  ).resolves.toMatchObject({ trust: 'trusted', trustedThrough: code });
+});
+
+test('a folder kept restricted before it became a worktree is not trusted through a location', async () => {
+  const store = await openStore();
+  const { code, home } = await codeFolder();
+  const cloned = await folderIn(code, 'cloned');
+  await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
+  const repository = await repositoryAt(await folderIn(code, 'app'));
+  // A worktree made outside Brainstrike is kept restricted as its own folder, then adopted.
+  const worktree = linkWorktree(repository, await tempDir('bs-trusted-locations-worktrees-'));
+  await writeHostWorkspaceTrust(store, worktree, 'restricted');
+  await recordWorktree(store, worktree, repository.commonDir);
+
+  // Its repository has no answer and sits in the location, but the person's answer here was no.
+  await expect(readHostWorkspaceTrust(store, repository.path)).resolves.toBe('trusted');
+  await expect(readHostWorkspaceTrust(store, worktree)).resolves.toBe('undecided');
+});
+
+test.skipIf(process.platform === 'win32')(
+  'a folder other people can write to is never offered as a location',
+  async () => {
+    const store = await openStore();
+    const { home } = await codeFolder();
+    // Open to everyone, as /tmp and /Users/Shared are.
+    const shared = await folderIn(await tempDir('bs-trusted-locations-shared-'), 'shared');
+    await chmod(shared, 0o1777);
+    const dropped = await folderIn(shared, 'dropped');
+
+    expect(hostTrustedLocationOffer(dropped, home)).toBeUndefined();
+    // The machine's shared temporary folder is not the person's either.
+    expect(
+      hostTrustedLocationOffer(join(await realpath('/tmp'), 'anything'), home)
+    ).toBeUndefined();
+    await expect(
+      writeHostWorkspaceTrust(store, dropped, 'trusted', { home, location: shared })
+    ).rejects.toThrow(/other people can write/u);
+    await expect(readHostTrustedLocations(store)).resolves.toEqual([]);
+    await expect(readHostWorkspaceTrust(store, dropped)).resolves.toBe('undecided');
+  }
+);
+
+test.skipIf(process.platform !== 'darwin')(
+  'the home directory is refused under its other macOS spelling too',
+  () => {
+    // macOS shows the same folder at /Users/... and /System/Volumes/Data/Users/...
+    const home = homedir();
+    expect(
+      hostTrustedLocationOffer(join('/System/Volumes/Data', home, 'notes'), home)
+    ).toBeUndefined();
+  }
+);
+
+test('two locations added at the same moment are both kept', async () => {
+  const store = await openStore();
+  const first = await codeFolder();
+  const second = await codeFolder();
+  const one = await folderIn(first.code, 'one');
+  const two = await folderIn(second.code, 'two');
+
+  await Promise.all([
+    writeHostWorkspaceTrust(store, one, 'trusted', { home: first.home, location: first.code }),
+    writeHostWorkspaceTrust(store, two, 'trusted', { home: first.home, location: second.code }),
+  ]);
+
+  await expect(readHostTrustedLocations(store)).resolves.toHaveLength(2);
+  await expect(readHostTrustedLocations(store)).resolves.toEqual(
+    expect.arrayContaining([first.code, second.code])
+  );
+});
+
+test('a stored locations value the host did not write fails the read instead of trusting through it', async () => {
+  const store = await openStore();
+  const { code } = await codeFolder();
+  const cloned = await folderIn(code, 'cloned');
+  // Edited by hand: a location is always an absolute path.
+  await store.setSetting('workspace.trust.locations', JSON.stringify(['']));
+
+  await expect(readHostWorkspaceTrust(store, cloned)).rejects.toThrow(/absolute/u);
+  await expect(trustedHostWorkspaceRoots(store, [{ path: cloned }])).rejects.toThrow(/absolute/u);
+});
+
 test('a symlink is judged by where it really is, not by where the link sits', async () => {
   const store = await openStore();
   const { code, home } = await codeFolder();
@@ -226,7 +332,7 @@ test("a managed worktree is trusted through a location by its repository's place
   await expect(readHostWorkspaceTrust(store, outsideWorktree.path)).resolves.toBe('undecided');
 });
 
-test('nothing a folder contains makes it trusted through a location or records one', async () => {
+test('a folder that only claims a repository inside a location is not trusted through it', async () => {
   const store = await openStore();
   const { code, home } = await codeFolder();
   const repository = await repositoryAt(await folderIn(code, 'app'));
@@ -234,16 +340,9 @@ test('nothing a folder contains makes it trusted through a location or records o
 
   // A downloaded folder whose .git names the repository inside the location, as a worktree's does,
   // and which the ledger lists: the repository does not link it back.
-  const downloaded = await tempDir('bs-trusted-locations-downloaded-');
-  const claimed = await folderIn(downloaded, 'claimed');
+  const claimed = await folderIn(await tempDir('bs-trusted-locations-downloaded-'), 'claimed');
   await writeFile(join(claimed, '.git'), `gitdir: ${repository.commonDir}/worktrees/claimed\n`);
   await recordWorktree(store, claimed, repository.commonDir);
-  // It also carries files that name its own parent as a trusted location.
-  await mkdir(join(claimed, '.brainstrike'));
-  await writeFile(
-    join(claimed, '.brainstrike', 'settings.json'),
-    JSON.stringify({ trustedLocations: [downloaded], 'workspace.trust.locations': [downloaded] })
-  );
 
   await expect(readHostWorkspaceTrust(store, claimed)).resolves.toBe('undecided');
   await expect(readHostTrustedLocations(store)).resolves.toEqual([code]);
@@ -375,14 +474,16 @@ test('a client records a location with its answer, lists it after a host restart
     failure: { code: 'workspace.trust-refused', kind: 'refusal' },
     message: /is not the folder that holds/u,
   });
+  // The read names the parent the host would record, so a client shows it before asking.
   await expect(client.request('workspace/trust/read', { path: cloned })).resolves.toEqual({
+    offeredLocation: code,
     trust: 'undecided',
   });
 
   await expect(
     client.request('workspace/trust', { location: code, path: cloned, trust: 'trusted' })
   ).resolves.toEqual({ trust: 'trusted' });
-  await expect(client.request('workspace/trust/read', { path: later })).resolves.toEqual({
+  await expect(client.request('workspace/trust/read', { path: later })).resolves.toMatchObject({
     trust: 'trusted',
   });
 
@@ -391,17 +492,17 @@ test('a client records a location with its answer, lists it after a host restart
   await expect(client.request('workspace/trust/locations', {})).resolves.toEqual({
     locations: [{ path: code }],
   });
-  await expect(client.request('workspace/trust/read', { path: later })).resolves.toEqual({
+  await expect(client.request('workspace/trust/read', { path: later })).resolves.toMatchObject({
     trust: 'trusted',
   });
 
   await expect(client.request('workspace/trust/locations/remove', { path: code })).resolves.toEqual(
     { removed: true }
   );
-  await expect(client.request('workspace/trust/read', { path: later })).resolves.toEqual({
+  await expect(client.request('workspace/trust/read', { path: later })).resolves.toMatchObject({
     trust: 'undecided',
   });
-  await expect(client.request('workspace/trust/read', { path: cloned })).resolves.toEqual({
+  await expect(client.request('workspace/trust/read', { path: cloned })).resolves.toMatchObject({
     trust: 'trusted',
   });
 });

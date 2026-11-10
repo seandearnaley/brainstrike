@@ -432,8 +432,10 @@ confirms without a prompt. Desktop roots are approved in Settings > Hooks.
 workspace trust lets a standalone root's agent configuration (its AGENTS.md, skills and
 personas) load; until then the root runs restricted. --yes confirms without a prompt.
 --trust-parent also makes the root's parent a trusted location, so every folder in it, now and
-later, is trusted without an ask; it is never added unless you pass it. Desktop folders are
-trusted from the composer or Settings > Workspace Trust.
+later, is trusted without an ask; it is never added unless you pass it. For a worktree that is
+the folder its repository is kept in. The top of the filesystem, your home directory, a folder
+that holds it and a folder other people can write to are refused. Desktop folders are trusted
+from the composer or Settings > Workspace Trust.
 
 threads search is lexical: words in committed messages and thread titles, fused into one
 ranked list; with no thread holding every word, it matches any word and says so. --scope-root

@@ -31,6 +31,7 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
   - Pass a run's or listing's roots through `trustedHostWorkspaceRoots` before scanning project tiers.
   - A folder with no answer is trusted when the folder that answers for it lies inside a trusted location (ADR-0032). Read trust only through `readHostWorkspaceTrustAnswer` or `readHostWorkspaceTrust`, never from the `workspace.trust/…` settings, so every reader agrees.
     - `writeHostWorkspaceTrust` is the only writer of a location: with a `trusted` answer, on the person's explicit request, as the parent of the folder being trusted. Never add one from a run, a scan, a headless start or anything a folder contains.
+    - The host says which parent may be named (`offeredLocation`, from `hostTrustedLocationOffer`). Show that path and send it back; never work a parent out in a client.
     - A folder the app itself creates is recorded as trusted through the same writer when it is created, and never a folder that already existed. No such action exists yet.
   - The composer's chip asks only about the thread's own folders (the binding's operating folder and secondaries; every open folder while it has none), once per answer. `workspace/trust/list` names the answering folder (`answeredBy`); group by it rather than matching paths in the renderer.
   - An untrusted folder still mounts and stays readable and editable.
