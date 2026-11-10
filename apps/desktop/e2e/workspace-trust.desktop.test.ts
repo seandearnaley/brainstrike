@@ -1,12 +1,14 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
 import { homeEnvironment } from './utils/node-command';
 import { seedRoots } from './utils/seed-root';
@@ -18,36 +20,53 @@ const SKILL = 'cloned-release-skill';
 
 // ADR-0032: a freshly cloned folder's AGENTS.md and skills steer nothing until
 // the person trusts the folder. HOME holds no global skills or instructions.
-const home = mkdtempSync(join(tmpdir(), 'bs-e2e-workspace-trust-home-'));
-// The person keeps their repositories in one folder, which a trust ask may
-// offer as a trusted location. Its real path is the one the app shows.
-const projects = realpathSync(mkdtempSync(join(tmpdir(), 'bs-e2e-workspace-trust-projects-')));
-const workspace = join(projects, 'cloned');
-const later = join(projects, 'later');
-mkdirSync(workspace);
-mkdirSync(later);
-writeFileSync(join(later, 'AGENTS.md'), `# Conventions\n${LATER_CONVENTIONS}\n`);
-writeFileSync(join(workspace, 'AGENTS.md'), `# Conventions\n${CONVENTIONS}\n`);
-mkdirSync(join(workspace, '.brainstrike', 'skills', SKILL), { recursive: true });
-writeFileSync(
-  join(workspace, '.brainstrike', 'skills', SKILL, 'SKILL.md'),
-  `---\nname: ${SKILL}\ndescription: Shipped by the cloned repository.\n---\nFollow the clone.`
-);
-
+// A shard's worker can run this file's tests one after another, with these
+// hooks around each, so the folder is made before every test and only its
+// name is fixed here.
+const home = join(tmpdir(), `bs-e2e-workspace-trust-home-${randomUUID()}`);
+test.beforeAll(() => {
+  mkdirSync(home, { recursive: true });
+});
+test.afterAll(() => {
+  rmSync(home, { force: true, recursive: true });
+});
 test.use({
   electronEnv: {
-    BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
     BRAINSTRIKE_OPENROUTER_API_KEY: 'test-api-key-for-e2e-tests',
     ...homeEnvironment(home),
   },
 });
-test.afterAll(() => {
-  rmSync(home, { force: true, recursive: true });
-  rmSync(projects, { force: true, recursive: true });
-});
+
+/**
+ * This test's own folders: two kept in one `projects` folder, as a person keeps
+ * their repositories, which a trust ask may offer as a trusted location. They
+ * sit in the workspace root the harness makes for the test and removes after
+ * its app closes, so no test finds another's folders or loses its own.
+ */
+function projectFolders(electron: ElectronHarness): {
+  readonly later: string;
+  readonly projects: string;
+  readonly workspace: string;
+} {
+  const projects = join(electron.getWorkspaceRoot(), 'projects');
+  const workspace = join(projects, 'cloned');
+  const later = join(projects, 'later');
+  mkdirSync(join(workspace, '.brainstrike', 'skills', SKILL), { recursive: true });
+  mkdirSync(later);
+  writeFileSync(join(later, 'AGENTS.md'), `# Conventions\n${LATER_CONVENTIONS}\n`);
+  writeFileSync(join(workspace, 'AGENTS.md'), `# Conventions\n${CONVENTIONS}\n`);
+  writeFileSync(
+    join(workspace, '.brainstrike', 'skills', SKILL, 'SKILL.md'),
+    `---\nname: ${SKILL}\ndescription: Shipped by the cloned repository.\n---\nFollow the clone.`
+  );
+  return { later, projects, workspace };
+}
 
 /** The ask's box that would also trust every folder in the projects folder. */
-const PARENT_BOX = { exact: true, name: `Also trust every folder in ${projects}` };
+const parentBox = (projects: string) => ({
+  exact: true,
+  name: `Also trust every folder in ${projects}`,
+});
 
 /** Sends `prompt` and returns what the run showed the model: its instructions and messages. */
 async function send(page: Page, modelProvider: ModelProviderShim, prompt: string): Promise<string> {
@@ -70,10 +89,14 @@ async function send(page: Page, modelProvider: ModelProviderShim, prompt: string
 }
 
 test("a cloned folder's AGENTS.md and skills load only after the person trusts it", async ({
+  electron,
   modelProvider,
   window,
 }) => {
-  await ensureMockWorkspaceOpen(window);
+  const { projects, workspace } = projectFolders(electron);
+  await seedRoots(window, [{ path: workspace, rootId: 'root-trust-cloned' }], {
+    reloadReason: 'ADR-0032 cloned folder',
+  });
   await configureAssistantProvider(window);
   await ensureAssistantShellVisible(window);
   const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
@@ -91,7 +114,7 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
   await expect(ask).toContainText(`Trust the files in ${basename(workspace)}?`);
   await expect(ask).toContainText('AGENTS.md and 1 skill');
   // Trusting its parent too is offered, and left alone unless the person ticks it.
-  await expect(ask.getByRole('checkbox', PARENT_BOX)).not.toBeChecked();
+  await expect(ask.getByRole('checkbox', parentBox(projects))).not.toBeChecked();
   await ask.getByRole('button', { exact: true, name: 'Trust folder' }).click();
   await expect(chip).toHaveCount(0);
   const after = await send(window, modelProvider, 'After trust');
@@ -120,9 +143,11 @@ test("a cloned folder's AGENTS.md and skills load only after the person trusts i
 });
 
 test('ticking the box trusts every folder in the parent, and removing that location makes the others ask again', async ({
+  electron,
   modelProvider,
   window,
 }) => {
+  const { later, projects, workspace } = projectFolders(electron);
   // Two folders kept in the projects folder are open; a new thread reads both.
   await seedRoots(
     window,
@@ -143,7 +168,7 @@ test('ticking the box trusts every folder in the parent, and removing that locat
   const ask = window.getByRole('dialog', { exact: true, name: 'Workspace trust' });
   const cloned = ask.getByTestId('workspace-bar-trust-ask-root-trust-cloned');
   await expect(cloned).toContainText(`Trust the files in ${basename(workspace)}?`);
-  await cloned.getByRole('checkbox', PARENT_BOX).check();
+  await cloned.getByRole('checkbox', parentBox(projects)).check();
   await cloned.getByRole('button', { exact: true, name: 'Trust folder' }).click();
   await expect(chip).toHaveCount(0);
   const trusted = await send(window, modelProvider, 'Inside the location');
