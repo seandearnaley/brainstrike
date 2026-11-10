@@ -84,8 +84,9 @@ async function isLinkedWorktreeOf(worktree: string, repoCommonDir: string): Prom
   }
 }
 /**
- * The folder whose answer the folder at `path` shares; undefined when nothing
- * exists at `path`. ADR-0034 decision 6: a managed worktree is a checkout of
+ * The folder whose answer the folder at `path` shares: itself, by the canonical
+ * path the checks below ran on, or its repository's primary checkout. Undefined
+ * when nothing exists at `path`. ADR-0034 decision 6: a managed worktree is a checkout of
  * its repository, so it shares the repository's answer and never asks on its
  * own. A folder is one only while two records agree: the host's worktree
  * ledger lists it, and git's links still join it to that repository. A ledger
@@ -106,7 +107,7 @@ async function answeringFolder(
   const worktree = rows[0];
   return worktree?.archivedAt === null && (await isLinkedWorktreeOf(folder, worktree.repoCommonDir))
     ? repositoryRootFromCommonDir(worktree.repoCommonDir)
-    : path;
+    : folder;
 }
 /** The person's answer for the folder at `path`; undecided until they give one. */
 export async function readHostWorkspaceTrust(
@@ -130,7 +131,7 @@ export async function writeHostWorkspaceTrust(
   const folder = (await answeringFolder(store, path)) ?? path;
   const identity = folderIdentity(folder);
   if (identity === undefined) {
-    // For a managed worktree this names its repository, the folder that is missing.
+    // Nothing is at `path`, or the answering folder went away while this request ran.
     throw new HostWorkspaceTrustRefusal(`${folder} does not exist`);
   }
   await store.setSetting(trustKey(identity), trust);
