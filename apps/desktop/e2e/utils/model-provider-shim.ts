@@ -60,7 +60,7 @@ export interface ModelProviderScript {
   readonly beforeFinalText?: Promise<void>;
   /** Hold a streaming tool finish at a deterministic external-provider boundary. */
   readonly beforeToolFinish?: Promise<void>;
-  /** What OpenRouter's usage accounting reports the final streamed turn cost (`usage.cost`). */
+  /** What OpenRouter's usage accounting reports each final turn cost (`usage.cost`). */
   readonly billedCost?: number;
   /**
    * Refuse the request as a provider refuses one that does not fit: HTTP 400
@@ -566,7 +566,11 @@ async function writeStreamingFinalText(
   response.end('data: [DONE]\n\n');
 }
 
-function writeJsonCompletion(response: ServerResponse, turn: ResolvedTurn): void {
+function writeJsonCompletion(
+  response: ServerResponse,
+  turn: ResolvedTurn,
+  script: ModelProviderScript
+): void {
   const { created, id } = completionIdentity();
   const finalTurn = 'finalText' in turn;
   const message = finalTurn
@@ -593,6 +597,7 @@ function writeJsonCompletion(response: ServerResponse, turn: ResolvedTurn): void
         ['completion_tokens']: finalTurn ? 3 : 0,
         ['prompt_tokens']: 4,
         ['total_tokens']: finalTurn ? 7 : 4,
+        ...(finalTurn && script.billedCost !== undefined ? { cost: script.billedCost } : {}),
       },
     })
   );
@@ -713,7 +718,7 @@ async function writeTurn(
     if (script.streamedBeforeHold !== undefined && 'finalText' in turn) {
       throw new Error('streamedBeforeHold is served on a streaming turn only.');
     }
-    writeJsonCompletion(response, turn);
+    writeJsonCompletion(response, turn, script);
     return;
   }
   if ('finalText' in turn) {

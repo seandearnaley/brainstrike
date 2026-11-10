@@ -111,7 +111,9 @@ export function foldHostHookContextEvent(
 /**
  * A run's terminal rows, in the append that finishes it: its Stop hooks see
  * how it ended and may label it, then its turn ends with the workspace's
- * snapshots, after any Stop hook that may still change it.
+ * snapshots, after any Stop hook that may still change it. Side-call usage
+ * no finished step carried (a review whose step a Stop cut off) commits
+ * first, while the run is still open.
  */
 export async function hostRunTerminalEvents(
   run: HostRunState,
@@ -120,7 +122,7 @@ export async function hostRunTerminalEvents(
   const label = await hostStopLabel(run, finished);
   // A store that could not commit the start cannot commit this end either: it fails the same way.
   await joinHostTurnStart(run);
-  return [...label, ...(await hostTurnEnd(run)), finished];
+  return [...run.pendingUsage.splice(0), ...label, ...(await hostTurnEnd(run)), finished];
 }
 
 /** The run's Stop hooks see how it ended; a verdict they report labels the run. */

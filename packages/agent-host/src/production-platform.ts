@@ -43,6 +43,7 @@ import type {
   HostMcpRuntime,
   HostMcpToolSelection,
   HostPlatform,
+  HostReviewModel,
   HostRunAdmission,
   HostRunAdmissionRequest,
   HostRunContext,
@@ -230,7 +231,7 @@ function admittedReviewModel(
   options: Pick<ProductionHostPlatformOptions, 'resolveModel' | 'resolveProviderAuth'>,
   selected: Pick<ProductionHostRunConfiguration, 'resolveProviderAuth'>,
   chatProvider: string
-): (target: string) => Promise<LanguageModel> {
+): (target: string) => Promise<HostReviewModel> {
   return async (target) => {
     const resolved =
       target === AUTO_REVIEW_MODEL_AUTO ? resolveQuickModelTarget(chatProvider) : target;
@@ -247,9 +248,12 @@ function admittedReviewModel(
       provider: resolved.slice(0, separator),
     };
     const auth = await admittedProviderAuth(options, selected, configuration.provider);
-    return options.resolveModel
-      ? await options.resolveModel(configuration, auth)
-      : rootModel(configuration, auth);
+    return {
+      model: options.resolveModel
+        ? await options.resolveModel(configuration, auth)
+        : rootModel(configuration, auth),
+      modelId: `${configuration.provider}::${configuration.model}`,
+    };
   };
 }
 function unavailableMcpServers(

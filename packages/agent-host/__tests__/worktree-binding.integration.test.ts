@@ -113,7 +113,9 @@ async function host(
         ...(rootId
           ? { configuration: { ...admission.configuration, boundWorkspaceRootId: rootId } }
           : {}),
-        ...(review ? { reviewModel: async () => review } : {}),
+        ...(review
+          ? { reviewModel: async () => ({ model: review, modelId: 'openai::gpt-5.4-mini' }) }
+          : {}),
       };
     },
   };
