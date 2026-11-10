@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/assistant-data/model-pricing';
 import { createLogger } from '@brainstrike/logging';
 import { buildTokenUsageCounts, computeCost } from '@brainstrike/tokenization';
-import { Schema } from 'effect';
+import { Option, Schema } from 'effect';
 import { readDesktopRunConfiguration } from './desktop-run-configuration.ts';
 import type { HostLatestRun, HostLedgerThread } from './ledger-wire.ts';
 import type { HostEvent, HostLogRow } from './protocol.ts';
@@ -165,6 +165,7 @@ const StepMessagesSchema = Schema.Array(
       Schema.String,
       Schema.Array(
         Schema.Struct({
+          output: Schema.optional(Schema.Struct({ type: Schema.String })),
           providerExecuted: Schema.optional(Schema.Boolean),
           toolName: Schema.optional(Schema.String),
           type: Schema.String,
@@ -174,28 +175,50 @@ const StepMessagesSchema = Schema.Array(
     role: Schema.String,
   })
 );
+/** Anthropic's own count of the searches it billed for a call (`usage.server_tool_use`). */
+const ReportedSearchesSchema = Schema.Struct({
+  raw: Schema.optional(
+    Schema.Struct({
+      // biome-ignore lint/style/useNamingConvention: Anthropic's usage key.
+      server_tool_use: Schema.optional(
+        Schema.Struct({
+          // biome-ignore lint/style/useNamingConvention: Anthropic's usage key.
+          web_search_requests: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+        })
+      ),
+    })
+  ),
+});
 /**
- * The searches the provider ran for a step: its native web search's calls,
- * which the provider executed (`native-web-search.ts` swaps that tool in under
- * the catalog tool's name). Anthropic and OpenAI bill each one beside tokens.
+ * The searches a step was billed for: the count the provider reported when it
+ * reports one (Anthropic), else its native web search's results that did not
+ * fail (`native-web-search.ts` swaps that tool in under the catalog tool's
+ * name; the provider executed it). A failed search is not billed.
  */
-export function nativeWebSearchCalls(messages: unknown): number {
-  let calls = 0;
+export function nativeWebSearchCalls(messages: unknown, usage: unknown): number {
+  const reported = Schema.decodeUnknownOption(ReportedSearchesSchema)(usage).pipe(
+    Option.flatMapNullishOr((decoded) => decoded.raw?.server_tool_use?.web_search_requests)
+  );
+  if (Option.isSome(reported)) {
+    return reported.value;
+  }
+  let searches = 0;
   for (const message of Schema.decodeUnknownSync(StepMessagesSchema)(messages)) {
     if (message.role !== 'assistant' || typeof message.content === 'string') {
       continue;
     }
     for (const part of message.content) {
       if (
-        part.type === 'tool-call' &&
+        part.type === 'tool-result' &&
         part.providerExecuted === true &&
-        part.toolName === NATIVE_WEB_SEARCH_TOOL_NAME
+        part.toolName === NATIVE_WEB_SEARCH_TOOL_NAME &&
+        !part.output?.type.startsWith('error')
       ) {
-        calls += 1;
+        searches += 1;
       }
     }
   }
-  return calls;
+  return searches;
 }
 /** What a step's native searches cost; null when its provider declares no price for them. */
 function webSearchCost(model: CatalogModel, searches: number): number | null {
@@ -379,7 +402,14 @@ export class ThreadLedgerFold {
     }
     run.toolCalls.apply(event);
     if (event.type === 'model.step') {
-      this.count(run, row, run, event.usage, 'chat', nativeWebSearchCalls(event.messages));
+      this.count(
+        run,
+        row,
+        run,
+        event.usage,
+        'chat',
+        nativeWebSearchCalls(event.messages, event.usage)
+      );
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
       const model = observerUsageModel(event.modelId);

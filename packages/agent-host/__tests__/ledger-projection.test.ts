@@ -162,49 +162,61 @@ test("a compaction summarizer's side call counts within its run and as a provide
     provider: 'openrouter',
   });
 });
-test("a step's native web searches bill beside its tokens, at its provider's price per search", () => {
+describe("a step's native web searches bill beside its tokens, at its provider's price per search", () => {
   // Anthropic's web search, swapped in under the catalog tool's sanitized name.
   const log = startedWith({ modelId: 'anthropic::claude-haiku-4-5' });
-  const search = { toolCallId: 'srvtoolu_1', toolName: 'brainstrike_webSearch' };
-  const searched = Schema.decodeSync(HostLogRowSchema, {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })({
-    event: {
-      messages: [
-        {
-          content: [
-            { ...search, input: { query: 'q' }, providerExecuted: true, type: 'tool-call' },
-            {
-              ...search,
-              output: { type: 'json', value: [] },
-              providerExecuted: true,
-              type: 'tool-result',
-            },
-            // A client tool's call is the host's own work, never a provider search.
-            {
-              input: {},
-              toolCallId: 'call_2',
-              toolName: 'brainstrike_webSearch',
-              type: 'tool-call',
-            },
-          ],
-          role: 'assistant',
-        },
-      ],
-      model: { modelId: 'claude-haiku-4-5', provider: 'anthropic.messages' },
-      runId,
-      stepNumber: 9,
-      type: 'model.step',
-      usage: { inputTokens: 1000, outputTokens: 100 },
-    },
-    seq: log.length + 1,
-    threadId,
-    ts: BASE + (log.length + 1) * 1000,
+  const result = (toolCallId: string, outputType: string) => ({
+    output: { type: outputType, value: [] },
+    providerExecuted: true,
+    toolCallId,
+    toolName: 'brainstrike_webSearch',
+    type: 'tool-result',
   });
-  const { usage } = folded([...log, searched]);
+  const stepCost = (content: readonly Record<string, unknown>[], usage: Record<string, unknown>) =>
+    folded([
+      ...log,
+      Schema.decodeSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
+        event: {
+          messages: [{ content, role: 'assistant' }],
+          model: { modelId: 'claude-haiku-4-5', provider: 'anthropic.messages' },
+          runId,
+          stepNumber: 9,
+          type: 'model.step',
+          usage: { inputTokens: 1000, outputTokens: 100, ...usage },
+        },
+        seq: log.length + 1,
+        threadId,
+        ts: BASE + (log.length + 1) * 1000,
+      }),
+    ]).usage.at(-1)?.costUsd;
   // Claude Haiku 4.5 lists at $1 input / $5 output per million tokens; a search is $0.01.
-  expect(usage.at(-1)?.costUsd).toBeCloseTo((1000 * 1 + 100 * 5) / 1e6 + 0.01, 12);
+  const tokens = (1000 * 1 + 100 * 5) / 1e6;
+  const searched = [
+    {
+      input: { query: 'q' },
+      providerExecuted: true,
+      toolCallId: 'srvtoolu_1',
+      toolName: 'brainstrike_webSearch',
+      type: 'tool-call',
+    },
+    result('srvtoolu_1', 'json'),
+    // A client tool's call is the host's own work, never a provider search.
+    { input: {}, toolCallId: 'call_2', toolName: 'brainstrike_webSearch', type: 'tool-call' },
+  ];
+
+  test('each search that returned results, when the provider reports no count', () => {
+    expect(stepCost(searched, {})).toBeCloseTo(tokens + 0.01, 12);
+  });
+  test('a failed search is not billed', () => {
+    expect(stepCost([...searched, result('srvtoolu_2', 'error-json')], {})).toBeCloseTo(
+      tokens + 0.01,
+      12
+    );
+  });
+  test("the provider's own count wins when it reports one", () => {
+    const reported = { raw: { server_tool_use: { web_search_requests: 3 } } };
+    expect(stepCost(searched, reported)).toBeCloseTo(tokens + 0.03, 12);
+  });
 });
 test('a run still open folds as running', () => {
   const second = started[1];
