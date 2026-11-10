@@ -34,8 +34,9 @@ export interface ThreadRepositoryRow {
   readonly folder: ThreadFolderRow | null;
   /**
    * What its section is keyed on. Opaque here: the caller derives it in one
-   * place, today from the repository's realpath'd git common dir, so a project
-   * id can replace it there (ADR-0034, owner decisions 2026-11-10).
+   * place, today from the repository's realpath'd git common dir, where a
+   * project id will replace it (ADR-0034, owner decisions 2026-11-10). The
+   * section id is built from it, so a new key means new section ids.
    */
   readonly key: string;
   /** Its own checkout's path. */

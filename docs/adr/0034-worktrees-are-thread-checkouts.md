@@ -118,12 +118,15 @@ supersede the decisions above where they differ.
   Its default grouping, labelled Project, puts a thread in a managed worktree
   under its repository, beside the threads in the repository's own checkout; a
   folder outside a repository is its own section and threads with no folder
-  come last. Each row carries a checkout chip, the worktree's name or Local,
-  read from the thread's binding. A Needs you strip above the sections lists
-  every thread waiting on the person, from the run state the host commits. A
-  section is keyed on the repository's `repoCommonDir` through one function
-  (`threadProjectKey`), which the project record's id will replace; until then
-  a second clone is a section of its own. A saved grouping is kept.
+  come last. A worktree joins its repository only while the ledger lists it
+  and git's two links join it, the rule decision 6 uses. Each row carries a
+  checkout chip, the worktree's name or Local, read from the thread's binding.
+  A Needs you strip above the sections lists every thread waiting on the
+  person, from the run state the host commits; a thread leaves it when its
+  request is answered or it has been shown. A section is keyed on the
+  repository's `repoCommonDir` through one function (`threadProjectKey`),
+  where the project record's id will replace it; until then a second clone is
+  a section of its own. A saved grouping is kept.
 
 ## Consequences
 

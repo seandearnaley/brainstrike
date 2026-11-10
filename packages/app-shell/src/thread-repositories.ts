@@ -42,7 +42,8 @@ const NO_REPOSITORY_BY_THREAD_ID: ReadonlyMap<string, ThreadRepositoryRow> = new
  * THE ONE PLACE that knows this. The host-owned project record (ADR-0034,
  * owner decisions 2026-11-10; not built) gives a project an id of its own that
  * survives a move and can join a second clone; when the listing carries it,
- * it replaces the common dir here and nothing else changes.
+ * it replaces the common dir here. `repositoryRow` then has to choose among
+ * several own checkouts, and section ids (and so saved collapse state) change.
  */
 function threadProjectKey(entry: WorktreeListEntry): string {
   return entry.repoCommonDir;
