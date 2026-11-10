@@ -41,3 +41,4 @@ The merge queue runs the smoke, regression and packaged MCP lanes on hosted runn
 - Read the runner's artifact paths and main/renderer logs.
 - Open recorded artifacts with `pnpm exec playwright show-report` or `pnpm exec playwright show-trace <trace.zip>`.
 - A retry is not a diagnosis; report missing verdicts and cleanup failures.
+- Every graceful close of the app (`closeElectronApp`, the harness's `dispose` and `closeForStateSeeding`) fails when Main logs `Graceful shutdown completed with cleanup failures`: exit 0 alone does not prove a clean quit (ADR-0026 R4). The error carries Main's record, which names each failed step.
