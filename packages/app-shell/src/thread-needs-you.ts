@@ -8,9 +8,9 @@
  * - a run held on an unanswered request (`needsYouThreadIds`), which the host
  *   folds from its committed `interaction.requested` / `interaction.responded`
  *   rows for every thread it lists, with the kinds it waits on (`waitingOn`);
- * - a run that finished, or failed, and has not been looked at since
- *   (`unseenThreadIds`, `failedUnseenThreadIds`): the host's committed finish
- *   time against the watermark the on-screen transcript advances.
+ * - a run that finished, failed or was stopped, and has not been looked at
+ *   since (`unseenThreadIds`, `failedUnseenThreadIds`): the host's committed
+ *   finish time against the watermark the on-screen transcript advances.
  *
  * So a thread leaves the strip exactly when its glyph clears: the request is
  * answered, or the thread is shown.
@@ -20,9 +20,18 @@ import type { AssistantThreadHostRun } from './assistant-thread-host-context';
 
 /**
  * Why a thread is in the strip. `input` is a held run whose host names no
- * kind, so the row says only that it waits.
+ * kind, so the row says only that it waits. `stopped` is a run the person
+ * stopped and has not looked at since: unseen like a finished one, but there
+ * is no result to call ready.
  */
-export type ThreadNeedsYouReason = 'approval' | 'failed' | 'input' | 'plan' | 'question' | 'review';
+export type ThreadNeedsYouReason =
+  | 'approval'
+  | 'failed'
+  | 'input'
+  | 'plan'
+  | 'question'
+  | 'review'
+  | 'stopped';
 
 export interface ThreadNeedsYouRow {
   readonly reason: ThreadNeedsYouReason;
@@ -48,7 +57,7 @@ function heldReason(run: AssistantThreadHostRun | undefined): ThreadNeedsYouReas
   return HELD_REASON_ORDER.find(([kind]) => waitingOn.includes(kind))?.[1] ?? 'input';
 }
 
-/** Held runs lead (they are blocked), then failures, then results to review. */
+/** Held runs lead (they are blocked), then failures, then results to review, then stops. */
 const REASON_RANK: Readonly<Record<ThreadNeedsYouReason, number>> = {
   approval: 0,
   failed: 1,
@@ -56,6 +65,7 @@ const REASON_RANK: Readonly<Record<ThreadNeedsYouReason, number>> = {
   plan: 0,
   question: 0,
   review: 2,
+  stopped: 3,
 };
 
 export function buildThreadNeedsYouRows({
@@ -77,12 +87,15 @@ export function buildThreadNeedsYouRows({
 }): readonly ThreadNeedsYouRow[] {
   const rows: ThreadNeedsYouRow[] = [];
   for (const thread of threads) {
+    const run = hostRuns.get(thread.id);
     if (needsYouThreadIds.has(thread.id)) {
-      rows.push({ reason: heldReason(hostRuns.get(thread.id)), thread });
+      rows.push({ reason: heldReason(run), thread });
     } else if (failedUnseenThreadIds.has(thread.id)) {
       rows.push({ reason: 'failed', thread });
     } else if (unseenThreadIds.has(thread.id)) {
-      rows.push({ reason: 'review', thread });
+      // The same run the unseen rule read: the host's, else the thread's own row.
+      const stopped = (run ?? thread.latestRun)?.status === 'cancelled';
+      rows.push({ reason: stopped ? 'stopped' : 'review', thread });
     }
   }
   return rows.sort(

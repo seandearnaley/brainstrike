@@ -17,6 +17,7 @@ const ROWS: readonly ThreadNeedsYouRow[] = [
   { reason: 'input', thread: thread('input', 'Older host thread') },
   { reason: 'failed', thread: thread('failed', 'Nightly sync') },
   { reason: 'review', thread: thread('review', 'Fix the flaky test') },
+  { reason: 'stopped', thread: thread('stopped', 'Abandoned spike') },
 ];
 
 describe('ThreadsNeedsYouStrip', () => {
@@ -30,7 +31,7 @@ describe('ThreadsNeedsYouStrip', () => {
     render(<ThreadsNeedsYouStrip onSelectThread={vi.fn()} rows={ROWS} />);
 
     const strip = screen.getByRole('region', { name: 'Needs you' });
-    expect(within(strip).getByTestId('threads-needs-you-count')).toHaveTextContent('6');
+    expect(within(strip).getByTestId('threads-needs-you-count')).toHaveTextContent('7');
     expect(
       within(strip)
         .getAllByTestId('threads-needs-you-row')
@@ -42,6 +43,7 @@ describe('ThreadsNeedsYouStrip', () => {
       'Older host threadWaiting on you',
       'Nightly syncFailed',
       'Fix the flaky testReady to review',
+      'Abandoned spikeStopped',
     ]);
     // One name for a screen reader: the thread and why it is here.
     expect(

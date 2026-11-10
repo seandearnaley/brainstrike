@@ -30,6 +30,7 @@ const REASON_LABEL = {
   plan: 'Plan to review',
   question: 'Asked a question',
   review: 'Ready to review',
+  stopped: 'Stopped',
 } as const satisfies Record<ThreadNeedsYouReason, string>;
 
 export function ThreadsNeedsYouStrip({

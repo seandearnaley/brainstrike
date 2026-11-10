@@ -83,9 +83,9 @@ for it.
    - **A Needs you strip leads the panel** (2026-11-10), in every grouping and
      whatever the list is filtered by. It lists every thread waiting on the
      person, across all projects, and says which wait it is: a question, an
-     approval, a plan to review, or a run that finished or failed and has not
-     been looked at. A row opens its thread, which also keeps its own row
-     below. The strip is absent when nothing waits.
+     approval, a plan to review, or a run that finished, failed or was stopped
+     and has not been looked at. A row opens its thread, which also keeps its
+     own row below. The strip is absent when nothing waits.
    - It reads the state the row glyphs read, and adds no source: the host's
      fold of each thread's committed `interaction.requested` and
      `interaction.responded` rows (the latest run's `needsInput`, with the

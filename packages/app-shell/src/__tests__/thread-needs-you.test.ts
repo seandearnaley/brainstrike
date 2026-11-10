@@ -103,6 +103,33 @@ describe('buildThreadNeedsYouRows', () => {
     ]);
   });
 
+  it('says a run the person stopped was stopped, not that it is ready to review', () => {
+    const stopped: AssistantThreadHostRun = {
+      completedAt: new Date('2026-11-10T12:05:00Z'),
+      needsInput: false,
+      startedAt: null,
+      status: 'cancelled',
+    };
+    expect(
+      rows({
+        hostRuns: new Map([['stopped', stopped]]),
+        threads: [thread('stopped', 1), thread('finished', 2)],
+        unseen: ['stopped', 'finished'],
+      })
+    ).toEqual([
+      ['finished', 'review'],
+      ['stopped', 'stopped'],
+    ]);
+  });
+
+  it("reads a stop from the thread's own run row when the host lists none", () => {
+    const listed: AssistantMemoryThread = {
+      ...thread('stopped', 1),
+      latestRun: { status: 'cancelled' } as NonNullable<AssistantMemoryThread['latestRun']>,
+    };
+    expect(rows({ threads: [listed], unseen: ['stopped'] })).toEqual([['stopped', 'stopped']]);
+  });
+
   it('lists a thread once, as waiting, when it is also unseen', () => {
     expect(
       rows({
