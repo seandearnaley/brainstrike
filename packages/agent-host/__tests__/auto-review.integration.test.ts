@@ -98,15 +98,24 @@ const AUTO_POLICY = {
 async function runCommand(
   reviewModel: (target: string) => Promise<LanguageModel>,
   input: Readonly<Record<string, unknown>> = { command: 'pnpm test' },
-  policy: CommandPolicy = AUTO_POLICY
+  policy: CommandPolicy = AUTO_POLICY,
+  /** Stop the run once the reviewed call is running, which then never returns. */
+  stopWhileRunning = false
 ): Promise<{ events: HostEvent[]; executed: unknown[]; targets: string[] }> {
   const executed: unknown[] = [];
   const targets: string[] = [];
   const personApproval = shippedPersonApproval();
+  const running = Promise.withResolvers<void>();
   const commandTool: HostTool = {
     description: 'command fixture',
-    execute: async (input) => {
+    execute: async (input, { signal }) => {
       executed.push(input);
+      if (stopWhileRunning) {
+        running.resolve();
+        await new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
       return { ok: true };
     },
     identity: 'command-generation-1',
@@ -145,12 +154,16 @@ async function runCommand(
     await rm(root, { force: true, recursive: true });
   });
   const { threadId } = await core.startThread({ commandId: randomUUID() });
-  await core.startRun({
+  const { runId } = await core.startRun({
     commandId: randomUUID(),
     modelId: 'scripted',
     prompt: 'Run the tests.',
     threadId,
   });
+  if (stopWhileRunning) {
+    await running.promise;
+    await core.stop({ commandId: randomUUID(), runId, threadId });
+  }
   let events: HostEvent[] = [];
   await expect
     .poll(async () => {
@@ -379,6 +392,33 @@ test('Full access runs a command outside the sandbox without asking', async () =
 
   expect(requested(events)).toBeUndefined();
   expect(executed).toEqual([ESCAPE]);
+});
+
+test("a review whose call a Stop cuts off still commits what it cost, before the run's end", async () => {
+  const { events, executed } = await runCommand(
+    async () =>
+      reviewer(
+        {
+          decision: 'approve',
+          rationale: 'The user asked to run the tests.',
+          risk: 'low',
+          userAuthorization: 'high',
+        },
+        []
+      ),
+    undefined,
+    AUTO_POLICY,
+    true
+  );
+
+  expect(executed).toEqual([{ command: 'pnpm test' }]);
+  const finished = events.findIndex((event) => event.type === 'run.finished');
+  expect(events[finished]).toMatchObject({ outcome: 'stopped' });
+  const reviewed = events.findIndex(
+    (event) => event.type === 'model.usage' && event.kind === 'auto-review'
+  );
+  expect(reviewed).toBeGreaterThan(-1);
+  expect(reviewed).toBeLessThan(finished);
 });
 
 test('a review that fails asks the user instead of approving', async () => {
