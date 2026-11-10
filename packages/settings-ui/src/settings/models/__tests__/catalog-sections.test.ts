@@ -3,6 +3,7 @@ import { DEFAULT_CATALOG_FILTERS, describeActiveFilters } from '../catalog-filte
 import type { CatalogRow } from '../catalog-projection';
 import {
   buildCatalogView,
+  type CatalogSortColumn,
   sortCatalogRows,
   UNKNOWN_PROVIDER_NAME,
   UNKNOWN_PROVIDER_SECTION_ID,
@@ -196,13 +197,32 @@ describe('sortCatalogRows', () => {
     expect(desc.map((row) => row.id)).toEqual(['a', 'b', 'c', 'n']);
   });
 
-  it('sorts names case-insensitively and price by the input rate', () => {
+  it('sorts names case-insensitively and each rate column by its own rate', () => {
     expect(
       sortCatalogRows(sortable, { column: 'name', direction: 'asc' }).map((row) => row.id)
     ).toEqual(['a', 'b', 'c', 'n']);
     expect(
-      sortCatalogRows(sortable, { column: 'price', direction: 'desc' }).map((row) => row.id)
+      sortCatalogRows(sortable, { column: 'input', direction: 'desc' }).map((row) => row.id)
     ).toEqual(['n', 'a', 'c', 'b']);
+    const priced = (id: string, input: number, output: number, cacheRead: number | null) =>
+      makeCatalogRow({
+        id,
+        pricing: {
+          cacheReadPerMTok: cacheRead,
+          cacheWritePerMTok: null,
+          inputPerMTok: input,
+          longContextTiers: [],
+          nextChange: null,
+          outputPerMTok: output,
+        },
+      });
+    const rates = [priced('x', 3, 15, 0.3), priced('y', 5, 10, null), priced('z', 1, 25, 0.1)];
+    const order = (column: CatalogSortColumn, direction: 'asc' | 'desc') =>
+      sortCatalogRows(rates, { column, direction }).map((row) => row.id);
+    expect(order('input', 'asc')).toEqual(['z', 'x', 'y']);
+    expect(order('output', 'asc')).toEqual(['y', 'x', 'z']);
+    expect(order('cacheRead', 'asc')).toEqual(['z', 'x', 'y']);
+    expect(order('cacheRead', 'desc')).toEqual(['x', 'z', 'y']);
   });
 
   it('sorts inside each section only', () => {

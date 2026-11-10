@@ -91,7 +91,21 @@ export function CatalogColumnHeader({
                       onClick={() => handleSort(sortColumn)}
                       type="button"
                     >
-                      {column.label}
+                      {column.unit === null ? (
+                        column.label
+                      ) : (
+                        <span
+                          className={cn(
+                            'flex flex-col leading-tight',
+                            column.align === 'right' && 'items-end'
+                          )}
+                        >
+                          <span>{column.label}</span>
+                          <span className="text-muted-foreground/70 tracking-normal normal-case">
+                            {column.unit}
+                          </span>
+                        </span>
+                      )}
                       {sortState.columnId === sortColumn && sortState.direction ? (
                         <span aria-hidden="true">{sortState.direction === 'asc' ? '↑' : '↓'}</span>
                       ) : null}

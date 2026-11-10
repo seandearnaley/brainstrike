@@ -14,7 +14,14 @@ import type { CatalogRow } from './catalog-projection';
 export const UNKNOWN_PROVIDER_SECTION_ID = '__unknown-provider__';
 export const UNKNOWN_PROVIDER_NAME = 'Unknown provider';
 
-export type CatalogSortColumn = 'context' | 'maxOutput' | 'name' | 'price';
+export type CatalogSortColumn =
+  | 'cacheRead'
+  | 'cacheWrite'
+  | 'context'
+  | 'input'
+  | 'maxOutput'
+  | 'name'
+  | 'output';
 
 export interface CatalogSort {
   readonly column: CatalogSortColumn;
@@ -66,14 +73,20 @@ function resolveRuntimeLabel(providerId: string): string | null {
 
 function sortValue(row: CatalogRow, column: CatalogSortColumn): number | string | null {
   switch (column) {
+    case 'cacheRead':
+      return row.pricing?.cacheReadPerMTok ?? null;
+    case 'cacheWrite':
+      return row.pricing?.cacheWritePerMTok ?? null;
     case 'context':
       return row.contextWindow;
+    case 'input':
+      return row.pricing?.inputPerMTok ?? null;
     case 'maxOutput':
       return row.maxOutputTokens;
     case 'name':
       return row.name;
-    case 'price':
-      return row.pricing?.inputPerMTok ?? null;
+    case 'output':
+      return row.pricing?.outputPerMTok ?? null;
     default: {
       const exhaustive: never = column;
       throw new Error(`Unknown catalog sort column: ${String(exhaustive)}`);

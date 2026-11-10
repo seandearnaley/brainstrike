@@ -183,7 +183,7 @@ describe('ModelCatalog default view', () => {
   it('sorts rows within a section from the column header', async () => {
     render(<ModelCatalog {...catalogProps()} />);
     await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
-    await userEvent.click(screen.getByRole('button', { name: 'Price: sort ascending' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Input price: sort ascending' }));
     const anthropic = screen.getByTestId('model-catalog-section-anthropic');
     expect(
       Array.from(anthropic.querySelectorAll('[data-testid^="model-row-"]'), (element) =>
