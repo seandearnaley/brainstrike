@@ -86,9 +86,12 @@ export const GOOGLE_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
 export const GOOGLE_PRO_THINKING_LEVELS: readonly GoogleThinkingLevel[] = ['low', 'high'];
 
 /**
- * Gemini 3.8 Flash and Gemini 4 Argon accept low/medium/high and reject minimal.
+ * Gemini 3.8 Flash, Gemini 4 Argon and Gemini 4 Carbon accept low/medium/high
+ * and reject minimal.
  * https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash (retrieved 2026-10-28)
  * https://ai.google.dev/gemini-api/docs/models/gemini-4-argon (retrieved 2026-10-28)
+ * Carbon: models.dev's google/gemini-4-carbon entry records a live call on 2026-11-10
+ * where thinkingLevel minimal returned a 400 (retrieved 2026-11-10).
  */
 const GOOGLE_NO_MINIMAL_THINKING_LEVELS: readonly GoogleThinkingLevel[] = ['low', 'medium', 'high'];
 
@@ -114,7 +117,9 @@ export function getGoogleThinkingLevels(
   }
   // Keep this exact. Aliases and sibling variants require their own evidence;
   // prefix matching could incorrectly narrow a future Flash-Lite ladder.
-  return modelName === 'gemini-3.8-flash' || modelName === 'gemini-4-argon'
+  return modelName === 'gemini-3.8-flash' ||
+    modelName === 'gemini-4-argon' ||
+    modelName === 'gemini-4-carbon'
     ? GOOGLE_NO_MINIMAL_THINKING_LEVELS
     : GOOGLE_FLASH_THINKING_LEVELS;
 }
