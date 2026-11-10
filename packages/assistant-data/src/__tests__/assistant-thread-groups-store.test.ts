@@ -614,6 +614,23 @@ describe('useAssistantThreadGroupsStore', () => {
     });
   });
 
+  it('keeps the grouping a person already saved when the default changes', () => {
+    for (const groupBy of ['custom-groups', 'date', 'none'] as const) {
+      expect(
+        migrateAssistantThreadGroupsPersistedState(
+          {
+            collapsedGroupIds: {},
+            flatSortBy: 'recency',
+            folderSortBy: 'recency',
+            groupBy,
+            groupedSortBy: 'recency',
+          },
+          3
+        ).groupBy
+      ).toBe(groupBy);
+    }
+  });
+
   it('rejects a malformed persisted folder sort instead of guessing', () => {
     expect(() =>
       migrateAssistantThreadGroupsPersistedState(
@@ -720,7 +737,8 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(state.flatSortBy).toBe('recency');
     expect(state.groupedSortBy).toBe('recency');
     expect(state.folderSortBy).toBe('recency');
-    expect(state.groupBy).toBe('date');
+    // Threads are listed by where they work unless the person picks another view.
+    expect(state.groupBy).toBe('folder');
     expect(state.pinnedAtByThreadId).toEqual({});
     expect(state.collapsedGroupIds).toEqual({});
     expect(state.threadFilters).toEqual({

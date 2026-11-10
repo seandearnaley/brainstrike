@@ -12,7 +12,7 @@ export interface WorkspaceRootRow {
   readonly path: string | null;
 }
 
-/** One thread to seed. `folder: null` seeds an UNBOUND thread ("No folder"). */
+/** One thread to seed. `folder: null` seeds an UNBOUND thread ("No project"). */
 export interface SeedThreadSpec {
   readonly folder: WorkspaceRootRow | null;
   readonly title: string;

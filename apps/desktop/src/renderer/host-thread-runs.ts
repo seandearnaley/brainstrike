@@ -17,13 +17,21 @@ interface LatestRun {
   readonly seq: number;
 }
 
-function latestRun({ completedAt, needsInput, seq, startedAt, status }: HostLatestRun): LatestRun {
+function latestRun({
+  completedAt,
+  needsInput,
+  seq,
+  startedAt,
+  status,
+  waitingOn,
+}: HostLatestRun): LatestRun {
   return {
     run: {
       completedAt: completedAt === null ? null : new Date(completedAt),
       needsInput,
       startedAt: startedAt === null ? null : new Date(startedAt),
       status,
+      ...(waitingOn === undefined ? {} : { waitingOn }),
     },
     seq,
   };

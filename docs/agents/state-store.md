@@ -26,6 +26,7 @@ Implementation: `packages/state-store` and `packages/agent-host`.
 - Liveness is the worker's exit, never a clock. A retired worker's exit is joined and the next request starts a new one; three consecutive replacements with none served stop it (`state-index.retired`).
 - Catch-up sends bounded `catchUpStateStep` requests before a catch-up, rebuild or thread-scoped read. The worker projects at most one more step and otherwise refuses as `state-behind`, so no request carries a backlog.
 - The only clock is the close window (ADR-0030 `closeMs`): a worker still running at its end gets one kill, and its exit is still joined.
+- Close asks the index's writer thread to close, whether it is ready or still starting; a starting writer answers once it has opened its database. Close never terminates a starting writer: a thread terminated inside better-sqlite3's native initialisation aborts the whole host process, before the state DB is closed (BST-2472). Only the close window's kill still ends one.
 
 ## Memory calculation
 
