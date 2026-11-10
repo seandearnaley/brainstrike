@@ -381,6 +381,49 @@ describe('ModelCatalog archived models', () => {
     expect(screen.getByTestId('model-lifecycle-claude-opus-5')).toHaveTextContent('Archived');
   });
 
+  it('keeps an archived model listed after the user switches it off', async () => {
+    const props = catalogProps({ models: ARCHIVED });
+    const { rerender } = render(<ModelCatalog {...props} />);
+    await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
+    const fable = screen.getByRole('switch', { name: 'Enable Claude Fable 5.1' });
+    expect(fable).toBeChecked();
+    await userEvent.click(fable);
+    expect(props.onToggle).toHaveBeenCalledWith('claude-fable-5-1', false);
+    // The store applies the switch optimistically: the row is now off.
+    rerender(
+      <ModelCatalog
+        {...props}
+        models={ARCHIVED.map((model) =>
+          model.id === 'claude-fable-5-1' ? { ...model, isEnabled: false } : model
+        )}
+      />
+    );
+    expect(screen.getByRole('switch', { name: 'Enable Claude Fable 5.1' })).not.toBeChecked();
+    expect(screen.getByTestId('model-lifecycle-claude-fable-5-1')).toHaveTextContent('Archived');
+    // An archived model the user never had on stays hidden.
+    expect(screen.queryByTestId('model-row-claude-opus-5')).not.toBeInTheDocument();
+  });
+
+  it('counts only the rows Enable can switch on while filtering', async () => {
+    render(<ModelCatalog {...catalogProps({ models: ARCHIVED })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Show archived' }));
+    await userEvent.type(search(), 'claude');
+    const header = await screen.findByTestId('model-catalog-section-anthropic');
+    expect(within(header).getByText('3 shown')).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Enable 1 shown' })).toBeInTheDocument();
+  });
+
+  it('offers Show archived when only archived models match', async () => {
+    render(<ModelCatalog {...catalogProps({ models: ARCHIVED })} />);
+    await userEvent.type(search(), 'opus 5');
+    const empty = await screen.findByTestId('model-catalog-no-matches');
+    expect(
+      within(empty).getByText('Only archived models match. Show archived lists them.')
+    ).toBeInTheDocument();
+    await userEvent.click(within(empty).getByRole('button', { name: 'Show archived' }));
+    expect(await screen.findByTestId('model-row-claude-opus-5')).toBeInTheDocument();
+  });
+
   it("names a deprecated model's retirement day", async () => {
     render(<ModelCatalog {...catalogProps({ models: ARCHIVED })} />);
     expect(await screen.findByTestId('model-lifecycle-gpt-5.4-nano')).toHaveTextContent(

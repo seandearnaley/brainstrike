@@ -128,11 +128,14 @@ export function bulkEnableRows(rows: readonly CatalogRow[]): readonly CatalogRow
 
 export function buildCatalogView({
   filters,
+  keptArchivedIds,
   providers,
   rows,
   sort,
 }: {
   readonly filters: CatalogFilters;
+  /** Archived rows that stay listed after they're switched off (`keepEnabledArchived`). */
+  readonly keptArchivedIds?: ReadonlySet<string>;
   readonly providers: readonly DbProvider[];
   readonly rows: readonly CatalogRow[];
   readonly sort: CatalogSort | null;
@@ -171,7 +174,9 @@ export function buildCatalogView({
     if (filters.providerIds.size > 0 && !filters.providerIds.has(provider.id)) {
       continue;
     }
-    const matching = providerRows.filter((row) => matchesCatalogFilters(row, filters));
+    const matching = providerRows.filter((row) =>
+      matchesCatalogFilters(row, filters, keptArchivedIds)
+    );
     if (matching.length === 0) {
       continue;
     }

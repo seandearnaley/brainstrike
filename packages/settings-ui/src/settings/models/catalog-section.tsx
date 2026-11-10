@@ -125,7 +125,9 @@ export function CatalogSection({
   // in-flight toggle of a shown row could snapshot an uncommitted optimistic
   // state for Undo. Both bulk actions wait until the shown rows settle.
   const anyShownBusy = section.rows.some((row) => busyModelIds.has(row.id));
-  const canEnable = !anyShownBusy && bulkEnableRows(section.rows).some((row) => !row.enabled);
+  // Enable skips archived rows, so its count names only the rows it can act on.
+  const enableable = bulkEnableRows(section.rows);
+  const canEnable = !anyShownBusy && enableable.some((row) => !row.enabled);
   const canDisable = !anyShownBusy && section.rows.some((row) => row.enabled);
   const { providerId } = section;
 
@@ -201,7 +203,7 @@ export function CatalogSection({
             size="xs"
             variant="ghost"
           >
-            {filtering ? `Enable ${shown} shown` : 'Enable all'}
+            {filtering ? `Enable ${enableable.length} shown` : 'Enable all'}
           </Button>
           <Button
             data-testid={`model-catalog-disable-${providerId}`}

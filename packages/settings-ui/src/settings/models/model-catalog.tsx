@@ -14,6 +14,7 @@ import {
   clearCatalogFilter,
   DEFAULT_CATALOG_FILTERS,
   describeActiveFilters,
+  keepEnabledArchived,
 } from './catalog-filters';
 import { createCatalogNodeCache } from './catalog-nodes';
 import { createCatalogProjector } from './catalog-projection';
@@ -117,9 +118,17 @@ export function ModelCatalog({
       ),
     [models, project, providerNames]
   );
+  // An archived row the user had on stays listed for as long as the catalog is
+  // open, so switching it off (or Disable all) never removes it from under the
+  // pointer. Grown during render, like the provider selection below.
+  const [storedKeptArchived, setStoredKeptArchived] = useState<ReadonlySet<string>>(NO_IDS);
+  const keptArchivedIds = keepEnabledArchived(storedKeptArchived, rows);
+  if (keptArchivedIds !== storedKeptArchived) {
+    setStoredKeptArchived(keptArchivedIds);
+  }
   const view = useMemo(
-    () => buildCatalogView({ filters: effectiveFilters, providers, rows, sort }),
-    [effectiveFilters, providers, rows, sort]
+    () => buildCatalogView({ filters: effectiveFilters, keptArchivedIds, providers, rows, sort }),
+    [effectiveFilters, keptArchivedIds, providers, rows, sort]
   );
 
   // A selected provider can leave the catalog. Its id would then be unnamed,
@@ -186,6 +195,9 @@ export function ModelCatalog({
   const clearAll = (): void => {
     setFilters(DEFAULT_CATALOG_FILTERS);
   };
+  const showArchived = (): void => {
+    setFilters((current) => ({ ...current, showArchived: true }));
+  };
 
   const rowActions = useMemo<CatalogRowActions>(
     () => ({
@@ -247,7 +259,27 @@ export function ModelCatalog({
       </p>
     );
   } else if (view.sections.length === 0) {
-    body = (
+    const onlyArchivedMatch =
+      !filters.showArchived &&
+      buildCatalogView({
+        filters: { ...effectiveFilters, showArchived: true },
+        keptArchivedIds,
+        providers,
+        rows,
+        sort: null,
+      }).sections.length > 0;
+    body = onlyArchivedMatch ? (
+      <EmptyState
+        action={
+          <Button onClick={showArchived} size="sm" variant="outline">
+            Show archived
+          </Button>
+        }
+        data-testid="model-catalog-no-matches"
+        description="Only archived models match. Show archived lists them."
+        title="No models match"
+      />
+    ) : (
       <EmptyState
         action={
           <Button onClick={clearAll} size="sm" variant="outline">
