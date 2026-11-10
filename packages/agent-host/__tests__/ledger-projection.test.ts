@@ -168,7 +168,7 @@ describe('a call a Stop cut off, which the provider billed but never reported', 
     throw new Error('The recording has no second run');
   }
   const secondRunId = second.event.runId;
-  const decode = Schema.decodeSync(HostLogRowSchema, {
+  const decode = Schema.decodeUnknownSync(HostLogRowSchema, {
     errors: 'all',
     onExcessProperty: 'error',
   });
@@ -222,10 +222,21 @@ describe('a call a Stop cut off, which the provider billed but never reported', 
     expect(usage.at(-1)).toMatchObject({ inputTokens: 1500, outputTokens: 100 });
   });
 
-  test('a request refused before it streamed is never counted', () => {
+  test('a request refused before the provider answered is never counted', () => {
     const failed = { ...stopped, outcome: 'failed' };
     const before = folded(cut(failed)).usage.length;
     expect(folded(cut(prepared(1000), failed)).usage).toHaveLength(before);
+  });
+
+  test('a failure after the provider started answering counts its prompt, kept reply or not', () => {
+    const answered = {
+      chunk: { request: {}, type: 'start-step', warnings: [] },
+      runId: secondRunId,
+      type: 'stream.chunk',
+    };
+    const failed = { ...stopped, outcome: 'failed' };
+    const { usage } = folded(cut(prepared(1000), answered, failed));
+    expect(usage.at(-1)).toMatchObject({ inputTokens: 1000, outputTokens: 0 });
   });
 });
 test('a run still open folds as running', () => {

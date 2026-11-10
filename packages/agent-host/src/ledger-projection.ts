@@ -213,7 +213,14 @@ interface RunFold {
    * or a failure mid-reply never gets the provider's usage, though the
    * provider billed it.
    */
-  pending: { readonly promptTokens: number; outputTokens: number } | undefined;
+  pending:
+    | {
+        outputTokens: number;
+        readonly promptTokens: number;
+        /** The provider answered: its stream started, so it billed the prompt. */
+        streamed: boolean;
+      }
+    | undefined;
   readonly provider: string;
   revertedEditCount: number;
   readonly root: RunRoot;
@@ -325,10 +332,18 @@ export class HostToolCallCount {
 }
 
 /** A streamed tool error counts toward its run's failure total. */
-function countToolError(run: RunFold, streamed: unknown): void {
+function countStreamedChunk(run: RunFold, streamed: unknown): void {
   const chunk = Schema.decodeUnknownResult(StreamedChunkSchema)(streamed);
-  if (chunk._tag === 'Success' && chunk.success.type === 'tool-error') {
+  if (chunk._tag !== 'Success') {
+    return;
+  }
+  if (chunk.success.type === 'tool-error') {
     run.failedToolCallCount += 1;
+  }
+  // Core commits a step's start, which the SDK emits once the provider answers;
+  // a refused request never starts one.
+  if (chunk.success.type === 'start-step' && run.pending !== undefined) {
+    run.pending.streamed = true;
   }
 }
 /**
@@ -369,7 +384,7 @@ export class ThreadLedgerFold {
     run.toolCalls.apply(event);
     if (event.type === 'provider.request.prepared') {
       const { totalTokens } = Schema.decodeUnknownSync(PreparedAccountingSchema)(event.accounting);
-      run.pending = { outputTokens: 0, promptTokens: totalTokens };
+      run.pending = { outputTokens: 0, promptTokens: totalTokens, streamed: false };
     } else if (event.type === 'model.step') {
       this.calibrate(run, event.usage);
       this.count(run, row, run, event.usage, 'chat');
@@ -385,7 +400,7 @@ export class ThreadLedgerFold {
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
       this.count(run, row, model, event.usage, 'compaction-summary');
     } else if (event.type === 'stream.chunk') {
-      countToolError(run, event.chunk);
+      countStreamedChunk(run, event.chunk);
     } else if (event.type === 'run.finished') {
       this.estimateCutOffCall(run, row, event.outcome);
       run.status = STATUS_BY_OUTCOME[event.outcome];
@@ -506,19 +521,20 @@ export class ThreadLedgerFold {
     run.pending = undefined;
   }
   /**
-   * A run that a Stop or a close cut off mid-call, or that failed after its
-   * call streamed, was billed for its prompt and what it streamed. Without the
-   * provider's usage, the ledger counts the host's measure of both, scaled by
-   * the thread's last reported call on that model; never billed, so it stays
-   * an estimate. A call that failed before streaming (a refused request) is
-   * not counted: providers bill none.
+   * A run that a Stop or a close cut off mid-call, or that failed after the
+   * provider started answering, was billed for its prompt and what it
+   * streamed. Without the provider's usage, the ledger counts the host's
+   * measure of both (the reply only as far as the host kept it), scaled by the
+   * thread's last reported call on that model; never billed, so it stays an
+   * estimate. A request refused before the provider answered is not counted:
+   * providers bill none.
    */
   private estimateCutOffCall(run: RunFold, row: HostLogRow, outcome: RunOutcome): void {
     const pending = run.pending;
     run.pending = undefined;
     if (
       pending === undefined ||
-      (outcome !== 'stopped' && outcome !== 'interrupted' && pending.outputTokens === 0)
+      (outcome !== 'stopped' && outcome !== 'interrupted' && !pending.streamed)
     ) {
       return;
     }
