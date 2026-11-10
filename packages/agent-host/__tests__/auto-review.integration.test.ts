@@ -43,6 +43,14 @@ const usage = {
   inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
   outputTokens: { reasoning: 0, text: 1, total: 1 },
 };
+const REVIEW_MODEL_ID = 'openai::gpt-5.4-mini';
+
+/** The review calls the run committed, as the ledger costs them. */
+const reviewUsage = (events: readonly HostEvent[]) =>
+  events.filter(
+    (event): event is Extract<HostEvent, { type: 'model.usage' }> =>
+      event.type === 'model.usage' && event.kind === 'auto-review'
+  );
 
 /** A quick model that answers every review with `answer`, recording each prompt. */
 function reviewer(answer: Record<string, string>, prompts: string[]): MockLanguageModelV4 {
@@ -90,15 +98,24 @@ const AUTO_POLICY = {
 async function runCommand(
   reviewModel: (target: string) => Promise<LanguageModel>,
   input: Readonly<Record<string, unknown>> = { command: 'pnpm test' },
-  policy: CommandPolicy = AUTO_POLICY
+  policy: CommandPolicy = AUTO_POLICY,
+  /** Stop the run once the reviewed call is running, which then never returns. */
+  stopWhileRunning = false
 ): Promise<{ events: HostEvent[]; executed: unknown[]; targets: string[] }> {
   const executed: unknown[] = [];
   const targets: string[] = [];
   const personApproval = shippedPersonApproval();
+  const running = Promise.withResolvers<void>();
   const commandTool: HostTool = {
     description: 'command fixture',
-    execute: async (input) => {
+    execute: async (input, { signal }) => {
       executed.push(input);
+      if (stopWhileRunning) {
+        running.resolve();
+        await new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
       return { ok: true };
     },
     identity: 'command-generation-1',
@@ -118,7 +135,7 @@ async function runCommand(
       model: scriptedToolSequence([{ input, toolId: 'execute_command' }]),
       reviewModel: async (target) => {
         targets.push(target);
-        return await reviewModel(target);
+        return { model: await reviewModel(target), modelId: REVIEW_MODEL_ID };
       },
       snapshot: {
         configuration: {},
@@ -137,12 +154,16 @@ async function runCommand(
     await rm(root, { force: true, recursive: true });
   });
   const { threadId } = await core.startThread({ commandId: randomUUID() });
-  await core.startRun({
+  const { runId } = await core.startRun({
     commandId: randomUUID(),
     modelId: 'scripted',
     prompt: 'Run the tests.',
     threadId,
   });
+  if (stopWhileRunning) {
+    await running.promise;
+    await core.stop({ commandId: randomUUID(), runId, threadId });
+  }
   let events: HostEvent[] = [];
   await expect
     .poll(async () => {
@@ -178,6 +199,13 @@ test('a call the quick model approves runs without asking, and the review sees t
   expect(requested(events)).toBeUndefined();
   expect(executed).toEqual([{ command: 'pnpm test' }]);
   expect(targets).toEqual(['auto']);
+  // The review's own call is costed under the model it ran on.
+  expect(reviewUsage(events)).toEqual([
+    expect.objectContaining({
+      modelId: REVIEW_MODEL_ID,
+      usage: expect.objectContaining({ inputTokens: 1, outputTokens: 1 }),
+    }),
+  ]);
   expect(prompts).toHaveLength(1);
   expect(prompts[0]).toContain('Run the tests.');
   expect(prompts[0]).toContain('brainstrike.executeCommand');
@@ -200,6 +228,8 @@ test('a call the quick model flags asks the user and says why', async () => {
   expect(requested(events)?.reason).toBe(
     'Auto-review flagged this: It deletes files outside the task.'
   );
+  // A flagged call still cost its review, which commits with the paused step.
+  expect(reviewUsage(events)).toHaveLength(1);
 });
 
 test('an approve the quick model itself calls high risk still asks the user', async () => {
@@ -364,6 +394,33 @@ test('Full access runs a command outside the sandbox without asking', async () =
   expect(executed).toEqual([ESCAPE]);
 });
 
+test("a review whose call a Stop cuts off still commits what it cost, before the run's end", async () => {
+  const { events, executed } = await runCommand(
+    async () =>
+      reviewer(
+        {
+          decision: 'approve',
+          rationale: 'The user asked to run the tests.',
+          risk: 'low',
+          userAuthorization: 'high',
+        },
+        []
+      ),
+    undefined,
+    AUTO_POLICY,
+    true
+  );
+
+  expect(executed).toEqual([{ command: 'pnpm test' }]);
+  const finished = events.findIndex((event) => event.type === 'run.finished');
+  expect(events[finished]).toMatchObject({ outcome: 'stopped' });
+  const reviewed = events.findIndex(
+    (event) => event.type === 'model.usage' && event.kind === 'auto-review'
+  );
+  expect(reviewed).toBeGreaterThan(-1);
+  expect(reviewed).toBeLessThan(finished);
+});
+
 test('a review that fails asks the user instead of approving', async () => {
   const { events, executed } = await runCommand(async () => {
     throw new Error('No quick model is known for this provider');
@@ -423,7 +480,10 @@ test("a delegated child's review sees the person's request, and its task never r
       if (!admission) {
         throw new Error('No admission');
       }
-      return { ...admission, reviewModel: async () => quick };
+      return {
+        ...admission,
+        reviewModel: async () => ({ model: quick, modelId: REVIEW_MODEL_ID }),
+      };
     }
   );
 

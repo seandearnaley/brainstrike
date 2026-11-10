@@ -9,6 +9,8 @@ describe('run-usage contract', () => {
       'compaction-summary',
       'om-observation',
       'om-reflection',
+      'thread-title',
+      'auto-review',
     ]);
   });
 

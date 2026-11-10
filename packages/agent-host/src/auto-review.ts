@@ -16,9 +16,16 @@
 import { effectToolInputSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
-import { generateText, type LanguageModel, type ModelMessage, Output } from 'ai';
+import {
+  generateText,
+  type LanguageModelUsage,
+  type ModelMessage,
+  NoObjectGeneratedError,
+  Output,
+} from 'ai';
 import { Schema } from 'effect';
 import type { HostRunState } from './core-state.ts';
+import type { HostReviewModel } from './ports.ts';
 import { hostRunAncestors } from './run-branch.ts';
 import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.ts';
 
@@ -182,16 +189,21 @@ function outcome(assessment: HostAutoReviewAssessment): HostAutoReviewOutcome {
  */
 export async function reviewHostToolCall(input: {
   readonly action: HostAutoReviewAction;
-  readonly model: () => Promise<LanguageModel>;
+  readonly model: () => Promise<HostReviewModel>;
+  /** What the provider reported for the review's call, costed under its model. */
+  readonly recordUsage: (modelId: string, usage: LanguageModelUsage) => void;
   readonly run: HostTelemetryIds;
   readonly signal: AbortSignal;
   readonly turns: readonly HostAutoReviewTurn[];
 }): Promise<HostAutoReviewOutcome> {
+  let modelId: string | undefined;
   try {
+    const review = await input.model();
+    modelId = review.modelId;
     const result = await generateText({
       abortSignal: input.signal,
       maxRetries: 1,
-      model: await input.model(),
+      model: review.model,
       output: Output.object({ schema: effectToolInputSchema(AutoReviewAssessmentSchema) }),
       prompt: hostAutoReviewPrompt(input.turns, input.action),
       reasoning: 'low',
@@ -199,8 +211,13 @@ export async function reviewHostToolCall(input: {
       timeout: { totalMs: HOST_AUTO_REVIEW_TIMEOUT_MS },
       ...hostTelemetry('brainstrike.auto-review', input.run),
     });
+    input.recordUsage(review.modelId, result.totalUsage);
     return outcome(result.output);
   } catch (cause) {
+    // An answer that did not parse was still billed; the SDK keeps its usage.
+    if (modelId !== undefined && NoObjectGeneratedError.isInstance(cause) && cause.usage) {
+      input.recordUsage(modelId, cause.usage);
+    }
     input.signal.throwIfAborted();
     const errorName = cause instanceof Error ? cause.name : typeof cause;
     logger.warn('Auto-review failed; the call asks the user', {

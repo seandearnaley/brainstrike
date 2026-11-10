@@ -855,6 +855,16 @@ async function hostAskDecision(
             toolId: registered.permissionToolId ?? call.toolName,
           },
           model: () => reviewModel(autoReview.model),
+          // Committed with the run's next step, which carries this call.
+          recordUsage: (modelId, usage) => {
+            run.pendingUsage.push({
+              kind: 'auto-review',
+              modelId,
+              runId: run.id,
+              type: 'model.usage',
+              usage: jsonValue(usage),
+            });
+          },
           run,
           signal: run.controller.signal,
           turns: hostAutoReviewTurns(step.runs, run),
@@ -989,7 +999,10 @@ export async function decideHostSdkApproval(
   run.permits.set(call.toolCallId, action);
   return 'approved';
 }
-/** One model step and its answerable interactions, committed together by Core. */
+/**
+ * One model step, its answerable interactions and the side calls it made
+ * (an Auto-review of one of its tool calls), committed together by Core.
+ */
 export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
   // The same fields Hosted Web returns for a browser-recorded run (BST-1940).
   const { messages, model, usage } = modelStepFields(step);
@@ -1003,6 +1016,7 @@ export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>
       usage: jsonValue(usage),
     },
     ...hostStepInteractions(run, step.content),
+    ...run.pendingUsage.splice(0),
   ];
 }
 /** One committed admission batch; recovery reads the log rather than rereading references. */
