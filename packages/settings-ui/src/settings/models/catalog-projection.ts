@@ -8,6 +8,8 @@ import {
 import { type ModelVendor, modelVendor } from '@brainstrike/assistant-contract/model-vendors';
 import {
   findProviderDefinition,
+  isArchivedModel,
+  type ModelLifecycleStatus,
   type ModelPricingRates,
   type ModelVisionSupport,
   nextPricingChangeAfter,
@@ -32,6 +34,17 @@ export interface CatalogPricing extends CatalogRates {
   readonly nextChange: CatalogPriceChange | null;
 }
 
+/** Where the model stands with its vendor, from the registry's `lifecycle`. */
+export interface CatalogLifecycle {
+  /** Legacy or deprecated: hidden unless Show archived is on or the row is enabled. */
+  readonly archived: boolean;
+  /** The successor's display name, when the vendor names one. */
+  readonly replacedBy: string | null;
+  /** The vendor's shutdown day (`YYYY-MM-DD`), when announced. */
+  readonly retiresAt: string | null;
+  readonly status: ModelLifecycleStatus;
+}
+
 /**
  * One Model Catalog row: the DB row (the catalog of record — name, copy,
  * enabled state, order) joined with the static registry's facts (context,
@@ -44,6 +57,8 @@ export interface CatalogRow {
   readonly description: string | null;
   readonly enabled: boolean;
   readonly id: string;
+  /** `null` for a row the static registry doesn't list. */
+  readonly lifecycle: CatalogLifecycle | null;
   readonly maxOutputTokens: number | null;
   readonly name: string;
   readonly pricing: CatalogPricing | null;
@@ -96,6 +111,27 @@ function toPricing(
   };
 }
 
+function toLifecycle(
+  providerId: string,
+  definition: ProviderModelDefinition | undefined
+): CatalogLifecycle | null {
+  if (!definition) {
+    return null;
+  }
+  const { lifecycle } = definition;
+  const successorId = lifecycle?.replacedBy;
+  const successor =
+    successorId === undefined
+      ? undefined
+      : findProviderDefinition(providerId)?.models.find((model) => model.id === successorId);
+  return {
+    archived: isArchivedModel(definition),
+    replacedBy: successor === undefined ? null : (successor.catalog?.name ?? successor.id),
+    retiresAt: lifecycle?.retiresAt ?? null,
+    status: lifecycle?.status ?? 'active',
+  };
+}
+
 function effortLadder(controls: ReasoningControlsAvailability): readonly string[] {
   if (!controls.available) {
     return [];
@@ -119,6 +155,7 @@ export function projectCatalogRow(model: DbModel, providerName: string, nowMs: n
     description: model.description,
     enabled: model.isEnabled,
     id: model.id,
+    lifecycle: toLifecycle(model.providerId, definition),
     maxOutputTokens: definition?.maxOutputTokens ?? null,
     name: model.name,
     pricing: toPricing(definition, nowMs),

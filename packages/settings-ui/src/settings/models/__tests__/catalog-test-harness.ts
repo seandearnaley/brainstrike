@@ -29,6 +29,7 @@ export function makeCatalogRow(
     contextWindow: 200_000,
     description: null,
     enabled: false,
+    lifecycle: null,
     maxOutputTokens: 64_000,
     name: overrides.id,
     pricing: {

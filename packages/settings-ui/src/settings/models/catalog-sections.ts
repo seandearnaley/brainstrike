@@ -22,6 +22,8 @@ export interface CatalogSort {
 }
 
 export interface CatalogProviderStat {
+  /** Archived models of this provider, over ALL its rows (never filtered). */
+  readonly archivedCount: number;
   /** Enabled models of this provider, over ALL its rows (never filtered). */
   readonly enabledCount: number;
   readonly providerId: string;
@@ -116,13 +118,24 @@ export function sortCatalogRows(
   return keyed.map((entry) => entry.row);
 }
 
+/**
+ * The rows a section's bulk Enable may switch on: never an archived one. An
+ * archived model is turned on one row at a time, on purpose.
+ */
+export function bulkEnableRows(rows: readonly CatalogRow[]): readonly CatalogRow[] {
+  return rows.filter((row) => row.lifecycle?.archived !== true);
+}
+
 export function buildCatalogView({
   filters,
+  keptArchivedIds,
   providers,
   rows,
   sort,
 }: {
   readonly filters: CatalogFilters;
+  /** Archived rows that stay listed after they're switched off (`keepEnabledArchived`). */
+  readonly keptArchivedIds?: ReadonlySet<string>;
   readonly providers: readonly DbProvider[];
   readonly rows: readonly CatalogRow[];
   readonly sort: CatalogSort | null;
@@ -151,6 +164,7 @@ export function buildCatalogView({
       continue;
     }
     const stat: CatalogProviderStat = {
+      archivedCount: providerRows.filter((row) => row.lifecycle?.archived === true).length,
       enabledCount: providerRows.filter((row) => row.enabled).length,
       providerId: provider.id,
       providerName: provider.name,
@@ -160,7 +174,9 @@ export function buildCatalogView({
     if (filters.providerIds.size > 0 && !filters.providerIds.has(provider.id)) {
       continue;
     }
-    const matching = providerRows.filter((row) => matchesCatalogFilters(row, filters));
+    const matching = providerRows.filter((row) =>
+      matchesCatalogFilters(row, filters, keptArchivedIds)
+    );
     if (matching.length === 0) {
       continue;
     }

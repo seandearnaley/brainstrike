@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@brainstrike/ui';
 import {
+  Archive,
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -289,6 +290,14 @@ export function CatalogToolbar({
       pressed={filters.reasoning}
     />
   );
+  const archivedChip = (
+    <ToggleChip
+      icon={<Archive aria-hidden="true" className="size-3.5" />}
+      label="Show archived"
+      onPressedChange={(pressed) => update('showArchived', pressed)}
+      pressed={filters.showArchived}
+    />
+  );
   const contextSelect = (
     <ContextSelect onChange={(band) => update('context', band)} value={filters.context} />
   );
@@ -366,6 +375,7 @@ export function CatalogToolbar({
                 {visionChip}
                 {reasoningChip}
                 {contextSelect}
+                {archivedChip}
               </div>
               <div className="space-y-1">
                 <p className="text-muted-foreground text-xs font-medium">Providers</p>
@@ -387,6 +397,7 @@ export function CatalogToolbar({
               options={providerOptions}
               selected={filters.providerIds}
             />
+            {archivedChip}
           </>
         )}
       </div>

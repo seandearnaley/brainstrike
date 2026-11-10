@@ -1,4 +1,6 @@
 import {
+  findProviderDefinition,
+  isArchivedModel,
   type ModelCatalogCapability,
   type ModelCatalogSnapshot,
   projectModelCatalog,
@@ -19,9 +21,14 @@ export function createDesktopModelCatalog(store: ModelChoicePort): ModelCatalogC
     initializeProviderDefaults: async (providerId, policy) => {
       requireProvider(providerId);
       const catalog = initial.models.filter((model) => model.providerId === providerId);
+      // `all` never turns on an archived model; one the user enabled stays enabled.
+      const definitions = findProviderDefinition(providerId)?.models ?? [];
+      const archived = new Set(definitions.filter(isArchivedModel).map((model) => model.id));
       const modelIds =
         policy.kind === 'all'
-          ? catalog.filter((model) => !model.isEnabled).map((model) => model.id)
+          ? catalog
+              .filter((model) => !(model.isEnabled || archived.has(model.id)))
+              .map((model) => model.id)
           : [...new Set(policy.modelIds)];
       if (policy.kind === 'seed' && modelIds.length === 0) {
         throw new Error('Recommended model defaults are empty.');

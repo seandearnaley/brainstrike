@@ -1,8 +1,13 @@
 import { Badge, CopyTextButton } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import { Absent } from './catalog-cells';
-import { formatUsd } from './catalog-format';
-import type { CatalogPriceChange, CatalogPricing, CatalogRow } from './catalog-projection';
+import { formatCalendarDay, formatUsd } from './catalog-format';
+import type {
+  CatalogLifecycle,
+  CatalogPriceChange,
+  CatalogPricing,
+  CatalogRow,
+} from './catalog-projection';
 
 const fullNumber = new Intl.NumberFormat('en-US');
 
@@ -79,6 +84,29 @@ function scheduledChangeLine(change: CatalogPriceChange): string {
   return `From ${change.effectiveFrom} (UTC): ${[rates, ...cache].join(', ')}`;
 }
 
+const LIFECYCLE_COPY = {
+  active: 'Current',
+  deprecated: 'Deprecated by the vendor',
+  legacy: 'Superseded by a newer model',
+  preview: 'Preview',
+} as const satisfies Record<CatalogLifecycle['status'], string>;
+
+/** "Superseded by a newer model · replaced by Claude Fable 5.2", plus the shutdown day. */
+function lifecycleLines(lifecycle: CatalogLifecycle): string[] {
+  const lines = [
+    lifecycle.replacedBy === null
+      ? LIFECYCLE_COPY[lifecycle.status]
+      : `${LIFECYCLE_COPY[lifecycle.status]} · replaced by ${lifecycle.replacedBy}`,
+  ];
+  if (lifecycle.retiresAt !== null) {
+    lines.push(`Retires ${formatCalendarDay(lifecycle.retiresAt)}`);
+  }
+  if (lifecycle.archived) {
+    lines.push('Archived: hidden unless enabled or Show archived is on');
+  }
+  return lines;
+}
+
 function ReasoningFact({ row }: { readonly row: CatalogRow }) {
   if (row.reasoning === null) {
     return <Fact label="Reasoning effort">Not published</Fact>;
@@ -127,6 +155,15 @@ export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
           ))}
         </Fact>
         <ReasoningFact row={row} />
+        {row.lifecycle === null || row.lifecycle.status === 'active' ? null : (
+          <Fact label="Status">
+            {lifecycleLines(row.lifecycle).map((line) => (
+              <span className="block" key={line}>
+                {line}
+              </span>
+            ))}
+          </Fact>
+        )}
         {row.bestFor.length > 0 ? (
           <Fact label="Best for">
             <Chips values={row.bestFor} />

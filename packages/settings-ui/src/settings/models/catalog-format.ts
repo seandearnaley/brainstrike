@@ -1,3 +1,5 @@
+import type { CatalogLifecycle } from './catalog-projection';
+
 /** "$15", "$2.50", "$0.075": whole dollars bare, cents to two places, finer rates as published. */
 export function formatUsd(amount: number): string {
   if (Number.isInteger(amount)) {
@@ -17,4 +19,29 @@ export function pluralNoun(count: number, singular: string): string {
 
 export function pluralize(count: number, singular: string): string {
   return `${count} ${pluralNoun(count, singular)}`;
+}
+
+const CALENDAR_DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric',
+});
+
+/** "Apr 1, 2027" for the catalog's `YYYY-MM-DD` day, read in UTC like the catalog writes it. */
+export function formatCalendarDay(day: string): string {
+  return CALENDAR_DAY_FORMAT.format(new Date(`${day}T00:00:00.000Z`));
+}
+
+/** "Archived", "Retires Apr 1, 2027" or "Preview"; nothing for an active model. */
+export function lifecycleBadgeLabel(lifecycle: CatalogLifecycle | null): string | null {
+  if (lifecycle === null) {
+    return null;
+  }
+  if (lifecycle.archived) {
+    return lifecycle.retiresAt === null
+      ? 'Archived'
+      : `Retires ${formatCalendarDay(lifecycle.retiresAt)}`;
+  }
+  return lifecycle.status === 'preview' ? 'Preview' : null;
 }

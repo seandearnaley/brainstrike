@@ -83,6 +83,28 @@ describe('projectCatalogRow', () => {
     });
   });
 
+  it("carries the vendor's lifecycle: archived, its successor and its shutdown day", () => {
+    const lifecycleOf = (id: string, providerId: string) =>
+      projectCatalogRow(makeDbModel({ id, providerId }), providerId, NOV_20_2026).lifecycle;
+    expect(lifecycleOf('claude-fable-5-1', 'anthropic')).toEqual({
+      archived: true,
+      replacedBy: 'Claude Fable 5.2',
+      retiresAt: null,
+      status: 'legacy',
+    });
+    expect(lifecycleOf('gpt-5.4-nano', 'openai')).toMatchObject({
+      archived: true,
+      retiresAt: '2027-04-01',
+      status: 'deprecated',
+    });
+    expect(lifecycleOf('claude-fable-5-2', 'anthropic')).toEqual({
+      archived: false,
+      replacedBy: null,
+      retiresAt: null,
+      status: 'active',
+    });
+  });
+
   it('gives a DB-only row no registry facts at all', () => {
     const row = projectCatalogRow(
       makeDbModel({ id: 'retired-model', providerId: 'openai' }),
@@ -91,6 +113,7 @@ describe('projectCatalogRow', () => {
     );
     expect(row).toMatchObject({
       contextWindow: null,
+      lifecycle: null,
       maxOutputTokens: null,
       pricing: null,
       recommended: false,
