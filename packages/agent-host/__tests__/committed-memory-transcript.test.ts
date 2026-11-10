@@ -1,3 +1,6 @@
+import approved from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
+  type: 'json',
+};
 import granted from '@brainstrike/test-utils/fixtures/committed-host-granted-run.json' with {
   type: 'json',
 };
@@ -5,7 +8,15 @@ import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
+import { committedRowAddress } from '../src/committed-identities.js';
 import { type HostLogRow, HostLogRowSchema } from '../src/protocol.js';
+
+function decodeRows(recorded: unknown): HostLogRow[] {
+  return Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
+    errors: 'all',
+    onExcessProperty: 'error',
+  })(recorded);
+}
 
 /** The recorded run's approval requests, by tool call: answered by the SDK itself or by the user. */
 function approvalRequests(rows: readonly HostLogRow[]): Map<string, boolean> {
@@ -38,10 +49,7 @@ function invocations(rows: readonly HostLogRow[], toolCallId: string): unknown[]
 }
 
 test('a call the policy allowed converts as its result; a user-answered approval keeps its answer', () => {
-  const rows = Schema.decodeUnknownSync(Schema.mutable(Schema.Array(HostLogRowSchema)), {
-    errors: 'all',
-    onExcessProperty: 'error',
-  })(granted);
+  const rows = decodeRows(granted);
   const requests = [...approvalRequests(rows)];
   const allowed = requests.find(([, automatic]) => automatic)?.[0];
   const answered = requests.find(([, automatic]) => !automatic)?.[0];
@@ -68,4 +76,110 @@ test('a call the policy allowed converts as its result; a user-answered approval
       }),
     })
   );
+});
+
+/**
+ * A result the host commits after its call's row (here, once the user has
+ * approved the call) has no call of its own to convert with: it borrows the
+ * earlier segment that holds the call.
+ */
+test('a result committed in a later row than its call converts with that call', () => {
+  const rows = decodeRows(approved);
+  const result = rows.find(
+    (row) =>
+      row.event.type === 'model.messages' &&
+      JSON.stringify(row.event.messages).includes('"tool-result"')
+  );
+  if (!result) {
+    throw new Error('The recorded run commits no result in a row of its own');
+  }
+  const segment = committedMemoryTranscript(rows, 'recorded-resource').find(
+    (message) => message.id === committedRowAddress(result)
+  );
+  expect(segment?.content.parts).toContainEqual(
+    expect.objectContaining({
+      toolInvocation: expect.objectContaining({
+        args: { text: 'written by permitted host tool' },
+        result: expect.anything(),
+        state: 'result',
+        toolCallId: 'recorded-call-1',
+        toolName: 'write_file',
+      }),
+      type: 'tool-invocation',
+    })
+  );
+});
+
+/** A run of `steps` tool steps, each committing its call with its result, after the recorded start. */
+function longRun(steps: number): HostLogRow[] {
+  const recorded = decodeRows(approved);
+  const started = recorded.find((row) => row.event.type === 'run.started');
+  if (started?.event.type !== 'run.started' || started.ts === undefined) {
+    throw new Error('The recorded run has no committed start');
+  }
+  const { runId } = started.event;
+  const { seq, threadId, ts } = started;
+  return decodeRows([
+    ...recorded.filter((row) => row.seq <= seq),
+    ...Array.from({ length: steps }, (_, step) => ({
+      event: {
+        messages: [
+          {
+            content: [
+              {
+                input: { path: `src/file-${step}.ts` },
+                toolCallId: `call-${step}`,
+                toolName: 'read_file',
+                type: 'tool-call',
+              },
+            ],
+            role: 'assistant',
+          },
+          {
+            content: [
+              {
+                output: { type: 'text', value: `file ${step}\n${'x'.repeat(2000)}` },
+                toolCallId: `call-${step}`,
+                toolName: 'read_file',
+                type: 'tool-result',
+              },
+            ],
+            role: 'tool',
+          },
+        ],
+        model: { modelId: 'mock-model-id', provider: 'mock-provider' },
+        runId,
+        stepNumber: step,
+        type: 'model.step',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      },
+      seq: seq + 1 + step,
+      threadId,
+      ts: ts + 1 + step,
+    })),
+  ]);
+}
+
+/**
+ * Memory reads the whole transcript several times a step, so its cost per
+ * read decides how a long run slows down. Converting each row once copied
+ * every earlier segment of its run: a read cost the square of the run's
+ * steps, and a 100-step run spent 26 of its 37 seconds here. A read is now
+ * linear: eight times the steps take about eight times as long, not 64.
+ */
+test('converting a run takes time in proportion to its steps', () => {
+  const fastest = (steps: number): number => {
+    const rows = longRun(steps);
+    return Math.min(
+      ...Array.from({ length: 5 }, () => {
+        const before = performance.now();
+        expect(committedMemoryTranscript(rows, 'recorded-resource')).toHaveLength(steps + 1);
+        return performance.now() - before;
+      })
+    );
+  };
+  const short = fastest(100);
+  const long = fastest(800);
+  console.info(`TRANSCRIPT_CONVERSION_MS ${JSON.stringify({ long, short })}`);
+  expect(long / short).toBeLessThan(24);
 });
