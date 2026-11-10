@@ -165,8 +165,10 @@ They supersede the text above where they differ.
   restricted, still wins. Accepted cost: a hostile repository cloned into a
   trusted location by hand is trusted. Not built yet.
 - **Folders the app makes are trusted with no question**: a project created in
-  the app or a scratch folder, as a managed worktree already is. Never a folder
-  that already existed. Not built yet.
+  the app or a scratch folder, which has no repository answer to inherit. Never
+  a folder that already existed. A managed worktree is not one of these: it
+  still shares its repository's answer, whether trusted, restricted or
+  undecided. Not built yet.
 - **An untrusted folder does not cap the access mode** (BST-2341). A run keeps
   the access mode the composer shows, and the sandbox and permission policy
   still apply. The options not taken were capping at Ask, and capping at Ask
