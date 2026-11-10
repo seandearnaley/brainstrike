@@ -1,7 +1,14 @@
+import type { ModelModality, ModelSource } from '@brainstrike/assistant-contract/provider-registry';
 import { Badge, CopyTextButton } from '@brainstrike/ui';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
+import { openExternalLink } from '../external-link';
 import { Absent } from './catalog-cells';
-import { formatCalendarDay, formatPromptTokens, formatUsd } from './catalog-format';
+import {
+  formatCalendarDay,
+  formatKnowledgeCutoff,
+  formatPromptTokens,
+  formatUsd,
+} from './catalog-format';
 import type {
   CatalogLifecycle,
   CatalogLongContextTier,
@@ -147,6 +154,86 @@ function ReasoningFact({ row }: { readonly row: CatalogRow }) {
   return <Fact label="Reasoning effort">{content}</Fact>;
 }
 
+const MODALITY_LABELS = {
+  audio: 'Audio',
+  image: 'Image',
+  pdf: 'PDF',
+  text: 'Text',
+  video: 'Video',
+} as const satisfies Record<ModelModality, string>;
+
+function ModalitiesFact({
+  label,
+  modalities,
+}: {
+  readonly label: string;
+  readonly modalities: readonly ModelModality[] | null;
+}) {
+  return (
+    <Fact label={label}>
+      {modalities === null ? (
+        'Not published'
+      ) : (
+        <Chips values={modalities.map((modality) => MODALITY_LABELS[modality])} />
+      )}
+    </Fact>
+  );
+}
+
+/** A yes/no capability; `null` means no source says either way. */
+function SupportFact({ label, value }: { readonly label: string; readonly value: boolean | null }) {
+  let content = 'Not published';
+  if (value !== null) {
+    content = value ? 'Supported' : 'Not supported';
+  }
+  return <Fact label={label}>{content}</Fact>;
+}
+
+/** "github.com/sst/models.dev/blob/dev/models/openai/gpt-6-sol.toml": the URL without its scheme. */
+function sourceLabel(url: string): string {
+  return url.replace(/^https:\/\//u, '');
+}
+
+function Sources({ sources }: { readonly sources: readonly ModelSource[] }) {
+  const [linkFailure, setLinkFailure] = useState<string | null>(null);
+  if (sources.length === 0) {
+    return null;
+  }
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground text-2xs">Sources</p>
+      <ul className="space-y-0.5 text-xs">
+        {sources.map((source) => (
+          <li className="flex min-w-0 items-baseline gap-1" key={source.url}>
+            <a
+              className="text-primary truncate underline"
+              href={source.url}
+              onClick={(event) =>
+                void openExternalLink(event, source.url).then((failure) => {
+                  setLinkFailure(failure ?? null);
+                })
+              }
+              rel="noreferrer"
+              target="_blank"
+              title={source.url}
+            >
+              {sourceLabel(source.url)}
+            </a>
+            <span className="text-muted-foreground shrink-0">
+              · read {formatCalendarDay(source.retrievedAt)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {linkFailure === null ? null : (
+        <p className="text-destructive text-xs" role="alert">
+          Couldn't open link: {linkFailure}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The inline details row (a level-2 TreeTable row spanning every column). */
 export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
   return (
@@ -167,6 +254,20 @@ export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
           ))}
         </Fact>
         <ReasoningFact row={row} />
+        <ModalitiesFact label="Input" modalities={row.inputModalities} />
+        <ModalitiesFact label="Output" modalities={row.outputModalities} />
+        <SupportFact label="Tool calling" value={row.toolCalling} />
+        <SupportFact label="Structured outputs" value={row.structuredOutputs} />
+        <Fact label="Released">
+          {row.lifecycle?.releasedAt
+            ? formatCalendarDay(row.lifecycle.releasedAt)
+            : 'Not published'}
+        </Fact>
+        <Fact label="Knowledge cutoff">
+          {row.knowledgeCutoff === null
+            ? 'Not published'
+            : formatKnowledgeCutoff(row.knowledgeCutoff)}
+        </Fact>
         {row.lifecycle === null || row.lifecycle.status === 'active' ? null : (
           <Fact label="Status">
             {lifecycleLines(row.lifecycle).map((line) => (
@@ -187,6 +288,7 @@ export function CatalogModelDetails({ row }: { readonly row: CatalogRow }) {
           {row.description}
         </p>
       ) : null}
+      <Sources sources={row.sources} />
     </div>
   );
 }

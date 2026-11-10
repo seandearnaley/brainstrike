@@ -82,7 +82,6 @@ function projectModel(
       streaming: model.supportsStreaming ?? provider.capabilities.streaming,
       type: 'llm',
       vision: model.vision === 'supported',
-      ...presentation.capabilities,
     },
     description: presentation.description,
     icon: presentation.icon,
