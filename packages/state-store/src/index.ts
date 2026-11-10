@@ -114,3 +114,4 @@ export type {
   WorktreeLedgerReply,
   WorktreeLedgerRequest,
 } from './worktree-ledger-types.ts';
+export { repositoryRootFromCommonDir } from './worktree-repository-root.ts';

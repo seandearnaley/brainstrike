@@ -17,6 +17,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
+import { repositoryRootFromCommonDir } from '@brainstrike/state-store';
 import type {
   GitInventory,
   ManagedWorktreeRow,
@@ -741,9 +742,4 @@ function resolveUsability(
     remedy: 'grant-access',
     usable: false,
   };
-}
-
-/** Non-bare repositories use `<main-worktree>/.git`; bare common dirs stay as-is. */
-function repositoryRootFromCommonDir(repoCommonDir: string): string {
-  return path.basename(repoCommonDir) === '.git' ? path.dirname(repoCommonDir) : repoCommonDir;
 }
