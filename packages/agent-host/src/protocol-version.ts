@@ -104,5 +104,8 @@
 // v24 (2026-11-10): each `changes/resolve-view` entry carries `pathInRoot`, the file's path inside
 // its root, worked out from the root's and the worktree's resolved paths. A client no longer
 // compares the root's own path with the worktree's, which differ by spelling for a root opened
-// through a symbolic link. The required field is why this is a version bump.
+// through a symbolic link. The required field is why this is a version bump. Additive since:
+// trusted locations (ADR-0032): `workspace/trust` takes an optional `location`, a
+// `workspace/trust/list` root carries `trustedThrough` and `offeredLocation`, and
+// `workspace/trust/locations` and `workspace/trust/locations/remove` are new methods.
 export const AGENT_HOST_PROTOCOL_VERSION = 24;

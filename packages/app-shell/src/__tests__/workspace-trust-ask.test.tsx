@@ -71,6 +71,12 @@ function root(overrides: Partial<WorkspaceTrustRoot>): WorkspaceTrustRoot {
   return { ...CLONED, ...overrides };
 }
 
+/** The chip never lists or removes trusted locations; Settings does. */
+const LOCATIONS_NOT_UNDER_TEST = {
+  listTrustedLocations: () => Promise.reject(new Error('The locations list is not under test')),
+  removeTrustedLocation: () => Promise.reject(new Error('Removing a location is not under test')),
+};
+
 /** The thread's folders, as its binding names them; none leaves the thread without a folder. */
 function seedThread(folders: readonly WorkspaceTrustRoot[]): void {
   const [primary, ...secondaries] = folders;
@@ -108,7 +114,11 @@ function setHost(
   refusal?: Error
 ): {
   readonly listTrust: () => Promise<readonly WorkspaceTrustRoot[]>;
-  readonly setTrust: (path: string, trust: WorkspaceTrustDecision) => Promise<void>;
+  readonly setTrust: (
+    path: string,
+    trust: WorkspaceTrustDecision,
+    location?: string
+  ) => Promise<void>;
 } {
   const answers = new Map<string, WorkspaceTrustDecision>();
   const listTrust = vi.fn(async () =>
@@ -117,17 +127,20 @@ function setHost(
       trust: answers.get(entry.answeredBy?.path ?? entry.path) ?? entry.trust,
     }))
   );
-  const setTrust = vi.fn(async (path: string, trust: WorkspaceTrustDecision) => {
-    if (refusal) {
-      throw refusal;
+  const setTrust = vi.fn(
+    async (path: string, trust: WorkspaceTrustDecision, _location?: string) => {
+      if (refusal) {
+        throw refusal;
+      }
+      answers.set(path, trust);
+      notifyWorkspaceTrustChanged();
     }
-    answers.set(path, trust);
-    notifyWorkspaceTrustChanged();
-  });
+  );
   hostState.host = {
     workspaceDiscovery: {
       listCommands: () => Promise.reject(new Error('Commands are not under test')),
       listTrust,
+      ...LOCATIONS_NOT_UNDER_TEST,
       scanSkills: () => Promise.reject(new Error('Skills are not under test')),
       setTrust,
     },
@@ -221,6 +234,8 @@ describe('the composer workspace trust chip', () => {
     seedThread([]);
     const { listTrust } = setHost([
       root({ rootId: 'root-trusted', trust: 'trusted' }),
+      // Trusted with no answer of its own, through the trusted location it is kept in.
+      root({ rootId: 'root-located', trust: 'trusted', trustedThrough: '/work' }),
       root({ rootId: 'root-restricted', trust: 'restricted' }),
       root({
         agentConfiguration: { commands: 0, instructions: null, personas: 0, skills: 0 },
@@ -314,6 +329,7 @@ describe('the composer workspace trust chip', () => {
       workspaceDiscovery: {
         listCommands: () => Promise.reject(new Error('Commands are not under test')),
         listTrust,
+        ...LOCATIONS_NOT_UNDER_TEST,
         scanSkills: () => Promise.reject(new Error('Skills are not under test')),
         setTrust: () => Promise.reject(new Error('Answers are not under test')),
       },
@@ -354,5 +370,75 @@ describe('the composer workspace trust chip', () => {
     expect(
       await screen.findByRole('button', { name: 'Workspace trust: 4 held' })
     ).toBeInTheDocument();
+  });
+});
+
+describe('the offer to also trust everything in the folder’s parent', () => {
+  const parentBox = { name: 'Also trust every folder in /work' };
+
+  it('is unticked, names the parent, and leaves the parent alone unless ticked', async () => {
+    const user = setup();
+    seedThread([CLONED]);
+    const { setTrust } = setHost([root({ offeredLocation: '/work' })]);
+    renderComposerBar();
+
+    const ask = await openTrust(user);
+    expect(within(ask).getByRole('checkbox', parentBox)).not.toBeChecked();
+    await user.click(within(ask).getByRole('button', { name: 'Trust folder' }));
+
+    expect(setTrust).toHaveBeenCalledExactlyOnceWith('/work/cloned-repo', 'trusted');
+  });
+
+  it('records the parent as a trusted location when ticked and the folder is trusted', async () => {
+    const user = setup();
+    seedThread([CLONED]);
+    const { setTrust } = setHost([root({ offeredLocation: '/work' })]);
+    renderComposerBar();
+
+    const ask = await openTrust(user);
+    await user.click(within(ask).getByRole('checkbox', parentBox));
+    expect(within(ask).getByRole('checkbox', parentBox)).toBeChecked();
+    await user.click(within(ask).getByRole('button', { name: 'Trust folder' }));
+
+    expect(setTrust).toHaveBeenCalledExactlyOnceWith('/work/cloned-repo', 'trusted', '/work');
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: chipName })).not.toBeInTheDocument()
+    );
+  });
+
+  it('never records the parent with "Keep restricted", even when ticked', async () => {
+    const user = setup();
+    seedThread([CLONED]);
+    const { setTrust } = setHost([root({ offeredLocation: '/work' })]);
+    renderComposerBar();
+
+    const ask = await openTrust(user);
+    await user.click(within(ask).getByRole('checkbox', parentBox));
+    await user.click(within(ask).getByRole('button', { name: 'Keep restricted' }));
+
+    expect(setTrust).toHaveBeenCalledExactlyOnceWith('/work/cloned-repo', 'restricted');
+  });
+
+  it('for a worktree, offers the parent of the repository the answer is for', async () => {
+    const user = setup();
+    seedThread([BADGER]);
+    const { setTrust } = setHost([{ ...BADGER, offeredLocation: '/work' }]);
+    renderComposerBar();
+
+    const ask = await openTrust(user);
+    await user.click(within(ask).getByRole('checkbox', parentBox));
+    await user.click(within(ask).getByRole('button', { name: 'Trust folder' }));
+
+    expect(setTrust).toHaveBeenCalledExactlyOnceWith('/work/cloned-repo', 'trusted', '/work');
+  });
+
+  it('is absent where the host offers no parent, such as a folder in the home directory', async () => {
+    const user = setup();
+    seedThread([CLONED]);
+    setHost([CLONED]);
+    renderComposerBar();
+
+    const ask = await openTrust(user);
+    expect(within(ask).queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });

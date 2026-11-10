@@ -274,6 +274,8 @@ describe('workspace trust (ADR-0032)', () => {
         {
           agentConfiguration: { commands: 0, instructions: null, personas: 0, skills: 0 },
           displayName: 'B',
+          // Trusting B could also trust everything in the folder it is kept in.
+          offeredLocation: path.dirname(folder),
           path: folder,
           rootId: 'root-b',
           trust: 'restricted',

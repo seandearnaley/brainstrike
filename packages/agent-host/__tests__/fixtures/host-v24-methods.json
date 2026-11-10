@@ -121,6 +121,8 @@
     "workspace/skills",
     "workspace/trust",
     "workspace/trust/list",
+    "workspace/trust/locations",
+    "workspace/trust/locations/remove",
     "workspace/trust/read",
     "worktrees/adopt",
     "worktrees/archive",

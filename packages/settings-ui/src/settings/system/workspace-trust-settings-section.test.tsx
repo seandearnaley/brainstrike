@@ -34,23 +34,55 @@ const BADGER: WorkspaceTrustRoot = {
   trust: 'undecided',
 };
 
+/** The folder cloned-repo and notes are kept in, which a trust ask may offer as a location. */
+const WORK = '/work';
+
 /**
  * The agent host's trust, kept in memory: each answer replaces the record of
- * the folder that answers, and every folder that shares it reads it.
+ * the folder that answers, and every folder that shares it reads it. A folder
+ * with no answer inside a trusted location is trusted through it, and the
+ * parent of a folder not yet trusted is offered until it is a location.
  */
-function hostTrust(roots: readonly WorkspaceTrustRoot[]): WorkspaceTrustCapability {
+function hostTrust(
+  roots: readonly WorkspaceTrustRoot[],
+  trustedLocations: readonly string[] = []
+): WorkspaceTrustCapability {
   const answers = new Map<string, WorkspaceTrustDecision>();
+  const locations = new Set(trustedLocations);
   return {
     listTrust: async () =>
-      roots.map((root) => ({
-        ...root,
-        trust: answers.get(root.answeredBy?.path ?? root.path) ?? root.trust,
-      })),
-    setTrust: async (path, trust) => {
+      roots.map(({ offeredLocation, ...root }) => {
+        const folder = root.answeredBy?.path ?? root.path;
+        const answer = answers.get(folder) ?? (root.trust === 'undecided' ? undefined : root.trust);
+        const through = [...locations].find((location) => folder.startsWith(`${location}/`));
+        const trust = answer ?? (through ? 'trusted' : 'undecided');
+        return {
+          ...root,
+          ...(trust !== 'trusted' && offeredLocation && !locations.has(offeredLocation)
+            ? { offeredLocation }
+            : {}),
+          trust,
+          ...(answer === undefined && through ? { trustedThrough: through } : {}),
+        };
+      }),
+    listTrustedLocations: async () => [...locations].map((path) => ({ path })),
+    removeTrustedLocation: async (path) => {
+      locations.delete(path);
+    },
+    setTrust: async (path, trust, location) => {
       answers.set(path, trust);
+      if (location) {
+        locations.add(location);
+      }
     },
   };
 }
+
+/** A host that answers nothing about locations, for tests that never reach them. */
+const NO_LOCATIONS = {
+  listTrustedLocations: async () => [],
+  removeTrustedLocation: async () => undefined,
+};
 
 describe('WorkspaceTrustSettingsSection', () => {
   it('lists each folder with its answer and what trusting it loads', async () => {
@@ -115,6 +147,7 @@ describe('WorkspaceTrustSettingsSection', () => {
   it('shows a refused answer and keeps the folder as it was', async () => {
     const user = userEvent.setup();
     const trust: WorkspaceTrustCapability = {
+      ...NO_LOCATIONS,
       listTrust: async () => [CLONED],
       setTrust: () => Promise.reject(new Error('Workspace trust needs an absolute folder path')),
     };
@@ -140,6 +173,7 @@ describe('WorkspaceTrustSettingsSection', () => {
         }
         return [CLONED];
       },
+      ...NO_LOCATIONS,
       setTrust: async () => undefined,
     };
     render(<WorkspaceTrustSettingsSection trust={trust} />);
@@ -149,5 +183,95 @@ describe('WorkspaceTrustSettingsSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByTestId('workspace-trust-root-root-cloned')).toBeInTheDocument();
+  });
+
+  it('offers to also trust everything in the folder’s parent, unticked, and records it only when ticked', async () => {
+    const user = userEvent.setup();
+    const trust = hostTrust([{ ...CLONED, offeredLocation: WORK }]);
+    const setTrust = vi.spyOn(trust, 'setTrust');
+    render(<WorkspaceTrustSettingsSection trust={trust} />);
+
+    const row = await screen.findByTestId('workspace-trust-root-root-cloned');
+    const box = within(row).getByRole('checkbox', { name: 'Also trust every folder in /work' });
+    expect(box).not.toBeChecked();
+    expect(await screen.findByTestId('workspace-trust-no-locations')).toBeInTheDocument();
+
+    await user.click(box);
+    await user.click(within(row).getByRole('button', { name: 'Trust' }));
+
+    expect(setTrust).toHaveBeenCalledExactlyOnceWith('/work/cloned-repo', 'trusted', WORK);
+    await waitFor(() => expect(row).toHaveTextContent('Trusted'));
+    // The parent is now listed as a trusted location, and the offer has gone.
+    expect(await screen.findByTestId('workspace-trust-location-/work')).toHaveTextContent(WORK);
+    expect(within(row).queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('trusts the folder alone when its box stays unticked', async () => {
+    const user = userEvent.setup();
+    const trust = hostTrust([{ ...CLONED, offeredLocation: WORK }]);
+    const setTrust = vi.spyOn(trust, 'setTrust');
+    render(<WorkspaceTrustSettingsSection trust={trust} />);
+
+    const row = await screen.findByTestId('workspace-trust-root-root-cloned');
+    await user.click(within(row).getByRole('button', { name: 'Trust' }));
+
+    expect(setTrust).toHaveBeenCalledExactlyOnceWith('/work/cloned-repo', 'trusted');
+    await waitFor(() => expect(row).toHaveTextContent('Trusted'));
+    expect(screen.getByTestId('workspace-trust-no-locations')).toBeInTheDocument();
+  });
+
+  it('says which trusted location a folder is trusted through, and restricting it still works', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceTrustSettingsSection trust={hostTrust([CLONED], [WORK])} />);
+
+    const row = await screen.findByTestId('workspace-trust-root-root-cloned');
+    expect(row).toHaveTextContent('Trusted');
+    expect(row).toHaveTextContent('Trusted because it is in the trusted location /work.');
+
+    await user.click(within(row).getByRole('button', { name: 'Restrict' }));
+    await waitFor(() => expect(row).toHaveTextContent('Restricted'));
+    expect(row).not.toHaveTextContent('Trusted because');
+  });
+
+  it('removes a trusted location: a folder trusted only through it asks again, and an answered one keeps its answer', async () => {
+    const user = userEvent.setup();
+    const answered = { ...NOTES, path: '/work/notes' };
+    render(<WorkspaceTrustSettingsSection trust={hostTrust([CLONED, answered], [WORK])} />);
+
+    const location = await screen.findByTestId('workspace-trust-location-/work');
+    const cloned = await screen.findByTestId('workspace-trust-root-root-cloned');
+    expect(cloned).toHaveTextContent('Trusted');
+    await user.click(within(location).getByRole('button', { name: 'Remove /work' }));
+
+    await waitFor(() => expect(cloned).toHaveTextContent('Not trusted yet'));
+    expect(screen.getByTestId('workspace-trust-root-root-notes')).toHaveTextContent('Trusted');
+    expect(screen.queryByTestId('workspace-trust-location-/work')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-trust-no-locations')).toBeInTheDocument();
+  });
+
+  it('shows a refused removal and keeps the location listed', async () => {
+    const user = userEvent.setup();
+    const trust: WorkspaceTrustCapability = {
+      ...hostTrust([CLONED], [WORK]),
+      removeTrustedLocation: () => Promise.reject(new Error('The agent host is not running')),
+    };
+    render(<WorkspaceTrustSettingsSection trust={trust} />);
+
+    const location = await screen.findByTestId('workspace-trust-location-/work');
+    await user.click(within(location).getByRole('button', { name: 'Remove /work' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The agent host is not running');
+    expect(screen.getByTestId('workspace-trust-location-/work')).toBeInTheDocument();
+  });
+
+  it('reports an unreadable locations list as a failure, never as no locations', async () => {
+    const trust: WorkspaceTrustCapability = {
+      ...hostTrust([CLONED]),
+      listTrustedLocations: () => Promise.reject(new Error('The agent host is not running')),
+    };
+    render(<WorkspaceTrustSettingsSection trust={trust} />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The agent host is not running');
+    expect(screen.queryByTestId('workspace-trust-no-locations')).not.toBeInTheDocument();
   });
 });

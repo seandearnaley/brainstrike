@@ -41,6 +41,8 @@ function setBridge(result: SkillsScanResultSummary | null): void {
         workspaceDiscovery: {
           listCommands: () => Promise.reject(new Error('Commands are not under test')),
           listTrust: () => Promise.reject(new Error('Trust is not under test')),
+          listTrustedLocations: () => Promise.reject(new Error('Trust is not under test')),
+          removeTrustedLocation: () => Promise.reject(new Error('Trust is not under test')),
           scanSkills: () => Promise.resolve(result),
           setTrust: () => Promise.reject(new Error('Trust is not under test')),
         },
@@ -187,6 +189,8 @@ describe('useSkillSlashCommands', () => {
       workspaceDiscovery: {
         listCommands: () => Promise.reject(new Error('Commands are not under test')),
         listTrust: () => Promise.reject(new Error('Trust is not under test')),
+        listTrustedLocations: () => Promise.reject(new Error('Trust is not under test')),
+        removeTrustedLocation: () => Promise.reject(new Error('Trust is not under test')),
         scanSkills,
         setTrust: () => Promise.reject(new Error('Trust is not under test')),
       },

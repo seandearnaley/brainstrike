@@ -294,4 +294,29 @@ describe('which folder decides', () => {
     expect(await isTrusted(restricted)).toBe(false);
     expect(await isTrusted(undecided)).toBe(true);
   });
+
+  it('trusts a mounted folder inside a trusted location, except one kept restricted there', async () => {
+    const home = await tempDir('bs-filter-guard-home-');
+    const code = path.join(await tempDir('bs-filter-guard-location-'), 'code');
+    const cloned = path.join(code, 'cloned');
+    const later = path.join(code, 'later');
+    const kept = path.join(code, 'kept');
+    const outside = await tempDir('bs-filter-guard-outside-');
+    await Promise.all([cloned, later, kept].map((folder) => mkdir(folder, { recursive: true })));
+    const store = settingsStore();
+    await writeHostWorkspaceTrust(store, kept, 'restricted');
+    await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
+    const isTrusted = createTrustedFolderCheck(store, {
+      listRoots: async () => [
+        { displayName: 'later', path: later, rootId: 'later' },
+        { displayName: 'kept', path: kept, rootId: 'kept' },
+        { displayName: 'outside', path: outside, rootId: 'outside' },
+      ],
+    });
+
+    // No answer was given for `later`: the location it is kept in is the answer.
+    expect(await isTrusted(later)).toBe(true);
+    expect(await isTrusted(kept)).toBe(false);
+    expect(await isTrusted(outside)).toBe(false);
+  });
 });
