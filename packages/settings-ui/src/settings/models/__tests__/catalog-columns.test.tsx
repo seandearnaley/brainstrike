@@ -60,6 +60,7 @@ const TERRA = makeCatalogRow({
     cacheReadPerMTok: null,
     cacheWritePerMTok: null,
     inputPerMTok: 2.5,
+    nextChange: null,
     outputPerMTok: 15,
   },
   providerId: 'openai',
@@ -217,6 +218,7 @@ describe('catalog model rows', () => {
           cacheReadPerMTok: null,
           cacheWritePerMTok: null,
           inputPerMTok: 0,
+          nextChange: null,
           outputPerMTok: 0,
         },
       }),
@@ -232,6 +234,7 @@ describe('catalog model rows', () => {
           cacheReadPerMTok: null,
           cacheWritePerMTok: null,
           inputPerMTok: 0,
+          nextChange: null,
           outputPerMTok: 0.4,
         },
       }),
@@ -329,6 +332,7 @@ describe('catalog details row', () => {
             cacheReadPerMTok: 0.5,
             cacheWritePerMTok: 6.25,
             inputPerMTok: 5,
+            nextChange: null,
             outputPerMTok: 25,
           },
           reasoningEfforts: ['low', 'high'],
@@ -352,6 +356,35 @@ describe('catalog details row', () => {
       'colspan',
       String(getCatalogColumnLayout('wide').length)
     );
+  });
+
+  it('names an announced price change below the rates in force', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'gemini-4-argon',
+          pricing: {
+            cacheReadPerMTok: 0.1,
+            cacheWritePerMTok: null,
+            inputPerMTok: 2,
+            nextChange: {
+              cacheReadPerMTok: 0.2,
+              cacheWritePerMTok: null,
+              effectiveFrom: '2026-12-01',
+              inputPerMTok: 4,
+              outputPerMTok: 20,
+            },
+            outputPerMTok: 10,
+          },
+        }),
+      ],
+      { expandedIds: ['gemini-4-argon'] }
+    );
+    const details = screen.getByTestId('model-details-gemini-4-argon');
+    expect(within(details).getByText('Input $2 · Output $10 per 1M tokens')).toBeInTheDocument();
+    expect(
+      within(details).getByText('From 2026-12-01 (UTC): input $4 · output $20, cache read $0.20')
+    ).toBeInTheDocument();
   });
 
   it('says Unverified for an unknown reasoning state and Not published for missing facts', () => {

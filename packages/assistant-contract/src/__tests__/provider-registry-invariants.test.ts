@@ -6,7 +6,10 @@ import {
   type LlmModelDefinition,
   listProviderLlmModels,
   listProviders,
+  nextPricingChangeAfter,
   type ProviderDefinition,
+  pricingChangeStartsAt,
+  pricingInForceAt,
   resolveDefaultModel,
 } from '../provider-registry.js';
 
@@ -128,7 +131,8 @@ describe('model pricing', () => {
       if (pricing === undefined) {
         continue;
       }
-      for (const band of [pricing, ...(pricing.longContextTiers ?? [])]) {
+      const rateSets = [pricing, ...(pricing.changes ?? [])];
+      for (const band of rateSets.flatMap((rates) => [rates, ...(rates.longContextTiers ?? [])])) {
         expect(band.inputPerMTok, `${key} input`).toBeGreaterThan(0);
         expect(band.outputPerMTok, `${key} output`).toBeGreaterThan(0);
         if (band.cacheReadPerMTok !== undefined) {
@@ -142,6 +146,17 @@ describe('model pricing', () => {
       }
       if (model.promptCaching !== undefined) {
         expect(pricing.cacheReadPerMTok, `${key} cache read`).toBeDefined();
+      }
+    }
+  });
+
+  it('lists dated price changes oldest first, one per day', () => {
+    for (const { key, model } of llmRows()) {
+      const starts = (model.pricing?.changes ?? []).map(pricingChangeStartsAt);
+      for (const [index, startsAt] of starts.entries()) {
+        expect(startsAt, `${key} change ${index}`).toBeGreaterThan(
+          starts[index - 1] ?? Number.NEGATIVE_INFINITY
+        );
       }
     }
   });
@@ -243,5 +258,49 @@ describe('reasoning ladders', () => {
         expect(offered, key).toContain(reasoning.defaultEffort);
       }
     }
+  });
+});
+
+describe('pricingInForceAt', () => {
+  const pricing = {
+    cacheReadPerMTok: 0.1,
+    cacheWritePerMTok: 0.2,
+    changes: [
+      { cacheReadPerMTok: 0.2, effectiveFrom: '2026-12-01', inputPerMTok: 4, outputPerMTok: 20 },
+      { effectiveFrom: '2027-03-01', inputPerMTok: 3, outputPerMTok: 15 },
+    ],
+    inputPerMTok: 2,
+    outputPerMTok: 10,
+  };
+
+  it('bills the rates before every change until the first one starts at 00:00 UTC', () => {
+    expect(pricingInForceAt(pricing, Date.UTC(2026, 11, 1) - 1)).toEqual({
+      cacheReadPerMTok: 0.1,
+      cacheWritePerMTok: 0.2,
+      inputPerMTok: 2,
+      outputPerMTok: 10,
+    });
+  });
+
+  it('bills a change as a whole rate set: a rate it leaves out is unknown, not carried over', () => {
+    expect(pricingInForceAt(pricing, Date.UTC(2026, 11, 1))).toEqual({
+      cacheReadPerMTok: 0.2,
+      inputPerMTok: 4,
+      outputPerMTok: 20,
+    });
+    expect(pricingInForceAt(pricing, Date.UTC(2027, 5, 1))).toEqual({
+      inputPerMTok: 3,
+      outputPerMTok: 15,
+    });
+  });
+
+  it('names the next change still to come', () => {
+    expect(nextPricingChangeAfter(pricing, Date.UTC(2026, 10, 20))?.effectiveFrom).toBe(
+      '2026-12-01'
+    );
+    expect(nextPricingChangeAfter(pricing, Date.UTC(2026, 11, 1))?.effectiveFrom).toBe(
+      '2027-03-01'
+    );
+    expect(nextPricingChangeAfter(pricing, Date.UTC(2027, 2, 1))).toBeUndefined();
   });
 });

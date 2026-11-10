@@ -8,15 +8,28 @@ import {
 import { type ModelVendor, modelVendor } from '@brainstrike/assistant-contract/model-vendors';
 import {
   findProviderDefinition,
+  type ModelPricingRates,
   type ModelVisionSupport,
+  nextPricingChangeAfter,
   type ProviderModelDefinition,
+  pricingInForceAt,
 } from '@brainstrike/assistant-contract/provider-registry';
 
-export interface CatalogPricing {
+export interface CatalogRates {
   readonly cacheReadPerMTok: number | null;
   readonly cacheWritePerMTok: number | null;
   readonly inputPerMTok: number;
   readonly outputPerMTok: number;
+}
+
+/** A price change the vendor has announced, from 00:00 UTC on `effectiveFrom` (`YYYY-MM-DD`). */
+export interface CatalogPriceChange extends CatalogRates {
+  readonly effectiveFrom: string;
+}
+
+/** The rates in force when the catalog opened, and the next announced change. */
+export interface CatalogPricing extends CatalogRates {
+  readonly nextChange: CatalogPriceChange | null;
 }
 
 /**
@@ -55,16 +68,31 @@ function findRegistryModel(model: DbModel): ProviderModelDefinition | undefined 
   );
 }
 
-function toPricing(definition: ProviderModelDefinition | undefined): CatalogPricing | null {
-  if (!definition?.pricing) {
-    return null;
-  }
-  const { cacheReadPerMTok, cacheWritePerMTok, inputPerMTok, outputPerMTok } = definition.pricing;
+function toRates({
+  cacheReadPerMTok,
+  cacheWritePerMTok,
+  inputPerMTok,
+  outputPerMTok,
+}: ModelPricingRates): CatalogRates {
   return {
     cacheReadPerMTok: cacheReadPerMTok ?? null,
     cacheWritePerMTok: cacheWritePerMTok ?? null,
     inputPerMTok,
     outputPerMTok,
+  };
+}
+
+function toPricing(
+  definition: ProviderModelDefinition | undefined,
+  nowMs: number
+): CatalogPricing | null {
+  if (!definition?.pricing) {
+    return null;
+  }
+  const next = nextPricingChangeAfter(definition.pricing, nowMs);
+  return {
+    ...toRates(pricingInForceAt(definition.pricing, nowMs)),
+    nextChange: next ? { ...toRates(next), effectiveFrom: next.effectiveFrom } : null,
   };
 }
 
@@ -80,7 +108,8 @@ function effortLadder(controls: ReasoningControlsAvailability): readonly string[
   }
 }
 
-export function projectCatalogRow(model: DbModel, providerName: string): CatalogRow {
+/** `nowMs` picks the rates in force, so a dated price change shows from its day on. */
+export function projectCatalogRow(model: DbModel, providerName: string, nowMs: number): CatalogRow {
   const definition = findRegistryModel(model);
   const providerKnown = findProviderDefinition(model.providerId) !== undefined;
   const reasoning = providerKnown ? resolveModelReasoningSupport(model.providerId, model.id) : null;
@@ -92,7 +121,7 @@ export function projectCatalogRow(model: DbModel, providerName: string): Catalog
     id: model.id,
     maxOutputTokens: definition?.maxOutputTokens ?? null,
     name: model.name,
-    pricing: toPricing(definition),
+    pricing: toPricing(definition, nowMs),
     providerId: model.providerId,
     providerName,
     reasoning,
@@ -112,16 +141,19 @@ export function projectCatalogRow(model: DbModel, providerName: string): Catalog
  * Memoised projection keyed on DbModel IDENTITY. The store replaces only the
  * toggled model's object, so a toggle re-projects one row and every other
  * CatalogRow — and the TreeNodes built from it — keeps its identity (TreeGrid
- * row-identity contract, docs/agents/ui-conventions.md).
+ * row-identity contract, docs/agents/ui-conventions.md). Prices are those in
+ * force at `nowMs`, the moment the catalog opened.
  */
-export function createCatalogProjector(): (model: DbModel, providerName: string) => CatalogRow {
+export function createCatalogProjector(
+  nowMs: number
+): (model: DbModel, providerName: string) => CatalogRow {
   const cache = new WeakMap<DbModel, CatalogRow>();
   return (model, providerName) => {
     const cached = cache.get(model);
     if (cached && cached.providerName === providerName) {
       return cached;
     }
-    const row = projectCatalogRow(model, providerName);
+    const row = projectCatalogRow(model, providerName, nowMs);
     cache.set(model, row);
     return row;
   };

@@ -74,6 +74,96 @@ export interface ModelCatalogPresentation extends ProviderCatalogPresentation {
   readonly tagline: string | null;
 }
 
+/** One rate set, USD per 1,000,000 tokens. */
+export interface ModelPricingRates {
+  /** Published USD per 1M cache-read tokens, including automatic provider caching. */
+  readonly cacheReadPerMTok?: number;
+  /** Published USD per 1M cache-write tokens; absence means the rate is unknown. */
+  readonly cacheWritePerMTok?: number;
+  readonly inputPerMTok: number;
+  /**
+   * Gateway long-context surcharge bands (BST-1708): upstream
+   * `pricing.overrides` entries keyed by `min_prompt_tokens`, recorded
+   * per-MTok. `computeCost` applies the highest tier at or below the
+   * request's total input tokens; cache classes use a tier's cache rates
+   * when declared, else the base rates above.
+   */
+  readonly longContextTiers?: readonly {
+    readonly minPromptTokens: number;
+    readonly inputPerMTok: number;
+    readonly outputPerMTok: number;
+    readonly cacheReadPerMTok?: number;
+    readonly cacheWritePerMTok?: number;
+  }[];
+  readonly outputPerMTok: number;
+}
+
+/**
+ * A price change a vendor has announced: a WHOLE new rate set, in force from
+ * 00:00 UTC on `effectiveFrom` (`YYYY-MM-DD`). Nothing carries over from the
+ * rates before it, so a rate the change leaves out is unknown from that day.
+ */
+export interface ModelPricingChange extends ModelPricingRates {
+  readonly effectiveFrom: string;
+}
+
+export interface ModelPricing extends ModelPricingRates {
+  /**
+   * Dated price changes. A past change stays in the row, so a call made
+   * before it keeps the price it ran at.
+   */
+  readonly changes?: readonly ModelPricingChange[];
+}
+
+/** 00:00 UTC on a change's `effectiveFrom` day, in epoch milliseconds. */
+export function pricingChangeStartsAt(change: ModelPricingChange): number {
+  return Date.parse(`${change.effectiveFrom}T00:00:00.000Z`);
+}
+
+function ratesOf(rates: ModelPricingRates): ModelPricingRates {
+  const { cacheReadPerMTok, cacheWritePerMTok, inputPerMTok, longContextTiers, outputPerMTok } =
+    rates;
+  return {
+    ...(cacheReadPerMTok === undefined ? {} : { cacheReadPerMTok }),
+    ...(cacheWritePerMTok === undefined ? {} : { cacheWritePerMTok }),
+    inputPerMTok,
+    ...(longContextTiers === undefined ? {} : { longContextTiers }),
+    outputPerMTok,
+  };
+}
+
+/**
+ * The rates in force at `atMs` (epoch milliseconds): the latest change that
+ * started at or before then, else the rates before every change.
+ */
+export function pricingInForceAt(pricing: ModelPricing, atMs: number): ModelPricingRates {
+  let inForce: ModelPricingRates = pricing;
+  let startedAt = Number.NEGATIVE_INFINITY;
+  for (const change of pricing.changes ?? []) {
+    const startsAt = pricingChangeStartsAt(change);
+    if (startsAt <= atMs && startsAt > startedAt) {
+      inForce = change;
+      startedAt = startsAt;
+    }
+  }
+  return ratesOf(inForce);
+}
+
+/** The first change that starts after `atMs`, when one is announced. */
+export function nextPricingChangeAfter(
+  pricing: ModelPricing,
+  atMs: number
+): ModelPricingChange | undefined {
+  let next: ModelPricingChange | undefined;
+  for (const change of pricing.changes ?? []) {
+    const startsAt = pricingChangeStartsAt(change);
+    if (startsAt > atMs && (next === undefined || startsAt < pricingChangeStartsAt(next))) {
+      next = change;
+    }
+  }
+  return next;
+}
+
 interface BaseModelDefinition {
   readonly catalog?: ModelCatalogPresentation;
   /**
@@ -150,10 +240,10 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   /** Exact documented input modalities when the route publishes them. */
   inputModalities?: readonly ModelModality[];
   /**
-   * Provider's documented maximum output tokens, when known. Used to reserve
-   * output headroom in the input-budget derivation.
+   * Provider's documented maximum output tokens. REQUIRED, like the context
+   * window: it reserves output headroom in the input-budget derivation.
    */
-  maxOutputTokens?: number;
+  maxOutputTokens: number;
   /**
    * Provider-native tool-search protocol supported by this exact model route.
    * Absence is authoritative: callers may choose a declared non-native adapter,
@@ -167,29 +257,12 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * billed cost remains authoritative. Omit when pricing is unknown. Explicit zeroes are
    * permitted only when current provider evidence supports a reviewed free hosted route;
    * they stay distinct from "cost unavailable."
+   *
+   * The top-level rates are the ones in force before any `changes` entry. A
+   * call is priced at the rates in force when it ran ({@link pricingInForceAt}),
+   * never by reading this object directly.
    */
-  pricing?: {
-    /** Published USD per 1M cache-read tokens, including automatic provider caching. */
-    cacheReadPerMTok?: number;
-    /** Published USD per 1M cache-write tokens; absence means the rate is unknown. */
-    cacheWritePerMTok?: number;
-    inputPerMTok: number;
-    /**
-     * Gateway long-context surcharge bands (BST-1708): upstream
-     * `pricing.overrides` entries keyed by `min_prompt_tokens`, recorded
-     * per-MTok. `computeCost` applies the highest tier at or below the
-     * request's total input tokens; cache classes use a tier's cache rates
-     * when declared, else the base rates above.
-     */
-    longContextTiers?: readonly {
-      readonly minPromptTokens: number;
-      readonly inputPerMTok: number;
-      readonly outputPerMTok: number;
-      readonly cacheReadPerMTok?: number;
-      readonly cacheWritePerMTok?: number;
-    }[];
-    outputPerMTok: number;
-  };
+  pricing?: ModelPricing;
   /**
    * Prompt-cache breakpoint DIALECT this exact route accepts, and the sole
    * input to prompt-caching wrapper selection in the provider factory
