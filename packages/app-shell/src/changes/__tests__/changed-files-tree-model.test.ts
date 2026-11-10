@@ -26,6 +26,7 @@ function makeEntry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry 
     deletions: 1,
     patch: null,
     path: 'src/a.ts',
+    pathInRoot: 'src/a.ts',
     repositoryRoot: '/repo',
     revision: 'r1',
     rootId: 'root-1',

@@ -141,6 +141,13 @@ export interface ChangedFileEntry {
   readonly patch: string | null;
   /** Path relative to the owning worktree root. */
   readonly path: string;
+  /**
+   * The file's path inside its owning root (`rootId`), as the Explorer and an
+   * editor tab name it; null when `rootId` is. The host works it out from the
+   * root's and the worktree's resolved paths, so it holds for a root opened
+   * through a symbolic link, whose own path is spelled differently.
+   */
+  readonly pathInRoot: string | null;
   readonly repositoryRoot: string | null;
   /**
    * Identity of what the view drew for this file: its status, counts, patch
