@@ -155,6 +155,7 @@ describe('buildProviderOptions for always-thinking bedrock routes', () => {
     'anthropic.claude-opus-5-5',
     'anthropic.claude-fable-5',
     'anthropic.claude-fable-5-1',
+    'anthropic.claude-fable-5-2',
   ];
 
   it.each(ALWAYS_ON_MODELS)('sends adaptive thinking with its display at Auto on %s', (model) => {

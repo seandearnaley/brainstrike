@@ -110,6 +110,7 @@ describe('resolveBedrockModelId', () => {
         'amazon.nova-pro-v1:0': ['apac', 'eu', 'us'],
         'anthropic.claude-fable-5': ['us'],
         'anthropic.claude-fable-5-1': ['us'],
+        'anthropic.claude-fable-5-2': ['us'],
         'anthropic.claude-haiku-4-5-20251001-v1:0': ['au', 'eu', 'in', 'jp', 'us'],
         'anthropic.claude-haiku-5-5': ['au', 'eu', 'jp', 'us'],
         'anthropic.claude-opus-4-1-20250805-v1:0': ['us'],

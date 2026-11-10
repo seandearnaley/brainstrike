@@ -135,6 +135,7 @@ describe('bedrock reasoning dialect matches the installed provider', () => {
     expect(marked.map((model) => model.id).sort()).toEqual([
       'anthropic.claude-fable-5',
       'anthropic.claude-fable-5-1',
+      'anthropic.claude-fable-5-2',
       'anthropic.claude-opus-5-5',
       'anthropic.claude-sonnet-5-5',
     ]);

@@ -63,7 +63,7 @@ describe('direct Anthropic provider options', () => {
     ).toEqual({ anthropic: { effort: 'high', thinking: { budgetTokens: 4096, type: 'enabled' } } });
   });
 
-  it.each(['claude-opus-5-5', 'claude-fable-5-1', 'claude-fable-5'] as const)(
+  it.each(['claude-opus-5-5', 'claude-fable-5-2', 'claude-fable-5-1', 'claude-fable-5'] as const)(
     'sends adaptive thinking with its display at Auto effort for always-on %s',
     (modelId) => {
       // BST-1804: these rows think whether or not `thinking` is sent, and
@@ -80,7 +80,7 @@ describe('direct Anthropic provider options', () => {
     }
   );
 
-  it.each(['claude-opus-5-5', 'claude-fable-5-1', 'claude-fable-5'] as const)(
+  it.each(['claude-opus-5-5', 'claude-fable-5-2', 'claude-fable-5-1', 'claude-fable-5'] as const)(
     'sends effort and adaptive thinking with its display for always-on %s',
     (modelId) => {
       expect(buildProviderOptions('anthropic', modelId, { anthropicEffort: 'high' })).toEqual({
@@ -89,7 +89,7 @@ describe('direct Anthropic provider options', () => {
     }
   );
 
-  it.each(['claude-opus-5-5', 'claude-fable-5-1', 'claude-fable-5'] as const)(
+  it.each(['claude-opus-5-5', 'claude-fable-5-2', 'claude-fable-5-1', 'claude-fable-5'] as const)(
     'never serialises budget or disabled thinking for always-on %s',
     (modelId) => {
       // Always-on thinking rejects `disabled`, and the legacy budget `enabled`

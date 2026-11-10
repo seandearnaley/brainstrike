@@ -38,6 +38,7 @@ function llmRows(): readonly LlmRow[] {
  * Keyed without Bedrock's `anthropic.` prefix so both routes share one list.
  */
 const ANTHROPIC_CACHE_READ_MULTIPLIERS = new Map([
+  ['claude-fable-5-2', 0.025],
   ['claude-fable-5-1', 0.025],
   ['claude-opus-5-5', 0.05],
   ['claude-sonnet-5-5', 0.05],
