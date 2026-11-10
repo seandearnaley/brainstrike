@@ -8,7 +8,6 @@ import { ActionRegistryProvider, TooltipProvider, toast } from '@brainstrike/ui'
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ThreadBranchInfo } from '../hooks/use-thread-branch-by-root-path';
 import { ThreadRow, type ThreadRowProps } from '../thread-row';
 import { ThreadMetadataBadges } from '../thread-row-metadata';
 
@@ -31,7 +30,6 @@ const THREAD: AssistantMemoryThread = {
 
 function createProps(overrides: Partial<ThreadRowProps> = {}): ThreadRowProps {
   return {
-    branch: null,
     draggable: false,
     groupId: null,
     moveTargets: [],
@@ -58,12 +56,74 @@ describe('thread metadata badges', () => {
     updatedAt: new Date('2026-08-24T01:00:00Z'),
   };
 
-  describe('provider badge — the wideOnly "protected slot" it can inherit', () => {
-    const branchInfo: ThreadBranchInfo = {
-      branch: 'main',
-      detached: false,
-      gitCommonDir: '/repos/widgets/.git',
-    };
+  const inFolder: AssistantMemoryThread['metadata'] = {
+    operatingRootDisplayName: 'widgets',
+    operatingRootId: 'root-widgets',
+    operatingRootPath: '/repos/widgets',
+  };
+  const inWorktree: AssistantMemoryThread['metadata'] = {
+    checkoutBranch: 'swift-badger',
+    checkoutLocalRootId: 'root-widgets',
+    checkoutMode: 'worktree',
+    checkoutWorktreeId: 'worktree-1',
+    checkoutWorktreePath: '/worktrees/widgets/swift-badger',
+    operatingRootDisplayName: 'swift-badger',
+    operatingRootId: 'root-worktree',
+    operatingRootPath: '/worktrees/widgets/swift-badger',
+  };
+
+  describe('checkout chip: where the thread works', () => {
+    it('says Local for a thread that works in its folder itself', () => {
+      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inFolder }} />);
+
+      expect(screen.getByTestId('thread-checkout-chip')).toHaveTextContent('Local');
+    });
+
+    it('names the worktree for a thread that works in one', () => {
+      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inWorktree }} />);
+
+      const chip = screen.getByTestId('thread-checkout-chip');
+      expect(chip).toHaveTextContent('swift-badger');
+      // The name alone can repeat across repositories; the path tells them apart.
+      expect(chip).toHaveAttribute(
+        'title',
+        'Worktree swift-badger at /worktrees/widgets/swift-badger'
+      );
+    });
+
+    it('shows nothing for a thread with no folder', () => {
+      const { container } = render(<ThreadMetadataBadges thread={thread} />);
+
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    // jsdom evaluates no container query, so these two pin the width gates by
+    // class; the desktop spec checks the painted chips in a wide panel.
+    it('keeps a worktree marked at every panel width, and names it once there is room', () => {
+      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inWorktree }} />);
+
+      // The pill itself is never gated: under 420px it is the branch icon alone,
+      // so a narrow panel still tells a worktree thread from a Local one.
+      const chip = screen.getByTestId('thread-checkout-chip');
+      expect(chip.className.split(' ')).not.toContain('hidden');
+      expect(chip.closest('[data-testid="thread-metadata-badges"]')).toBeNull();
+      // Its name waits for 420px, where it no longer starves the title; until
+      // then hovering the icon gives it.
+      expect(chip).toHaveAttribute('title', expect.stringContaining('swift-badger'));
+      expect(screen.getByText('swift-badger').className).toContain('@[420px]/threads:inline');
+    });
+
+    it('leaves a narrow panel to the title for a Local thread', () => {
+      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inFolder }} />);
+
+      // Local is the unmarked case, so its chip is the one that gives way.
+      expect(screen.getByTestId('thread-checkout-chip').className).toContain(
+        'hidden @[420px]/threads:inline-flex'
+      );
+    });
+  });
+
+  describe('provider badge — the "protected slot" it can inherit', () => {
     const threadWithProvider: AssistantMemoryThread = {
       ...thread,
       latestRun: {
@@ -87,11 +147,10 @@ describe('thread metadata badges', () => {
       return screen.getByText('OpenRouter').className;
     }
 
-    // (a) No branch: provider is the row's first badge, so it takes
-    // over the "always visible in the narrow band" slot instead of also
-    // hiding until 560px.
-    it('does not wide-gate the provider badge when nothing protected renders', () => {
-      render(<ThreadMetadataBadges branch={null} thread={threadWithProvider} />);
+    // (a) No checkout chip: provider is the row's first badge, so it shows
+    // from the narrow band instead of also hiding until 560px.
+    it('does not wide-gate the provider badge when no checkout chip renders', () => {
+      render(<ThreadMetadataBadges thread={threadWithProvider} />);
 
       const className = providerBadgeClassName();
       expect(className).toContain('inline-flex');
@@ -99,18 +158,14 @@ describe('thread metadata badges', () => {
       expect(className).not.toContain('@[560px]/threads:inline-flex');
     });
 
-    // (b) Branch present: branch occupies the protected slot, so provider
-    // reverts to hiding until 560px, same as model/reasoning/max-output.
-    it('wide-gates the provider badge once a branch renders, and keeps the branch visible', () => {
-      render(<ThreadMetadataBadges branch={branchInfo} thread={threadWithProvider} />);
+    // (b) Checkout chip present: it holds the row's first slot, so provider
+    // hides until 560px, same as model/reasoning/max-output.
+    it('wide-gates the provider badge once a checkout chip renders', () => {
+      render(<ThreadMetadataBadges thread={{ ...threadWithProvider, metadata: inFolder }} />);
 
       const providerClassName = providerBadgeClassName();
       expect(providerClassName).toContain('hidden');
       expect(providerClassName).toContain('@[560px]/threads:inline-flex');
-
-      const branchClassName = screen.getByText('main').className;
-      expect(branchClassName).toContain('inline-flex');
-      expect(branchClassName).not.toContain('hidden');
     });
   });
 });
