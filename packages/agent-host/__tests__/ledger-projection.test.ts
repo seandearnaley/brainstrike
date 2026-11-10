@@ -162,6 +162,72 @@ test("a compaction summarizer's side call counts within its run and as a provide
     provider: 'openrouter',
   });
 });
+describe('a call a Stop cut off, which the provider billed but never reported', () => {
+  const second = started[1];
+  if (second?.event.type !== 'run.started') {
+    throw new Error('The recording has no second run');
+  }
+  const secondRunId = second.event.runId;
+  const decode = Schema.decodeSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  });
+  const prepared = (totalTokens: number) => ({
+    accounting: { totalTokens },
+    modelId: MODEL,
+    provider: 'openrouter',
+    runId: secondRunId,
+    type: 'provider.request.prepared',
+  });
+  /** The second run, cut at its last call: `events` replace that call's step and the run's end. */
+  const cut = (...events: Record<string, unknown>[]) => {
+    const lastStep = rows.findLastIndex(
+      ({ event }) => event.type === 'model.step' && event.runId === secondRunId
+    );
+    const kept = rows.slice(0, lastStep);
+    return [...kept, ...events.map((event, index) => ({ event, seq: 0, threadId, ts: index }))].map(
+      (row, index) => decode({ ...row, seq: index + 1, ts: BASE + (index + 1) * 1000 })
+    );
+  };
+  const partial = {
+    messages: [{ content: [{ text: 'x'.repeat(400), type: 'text' }], role: 'assistant' }],
+    runId: secondRunId,
+    type: 'model.messages',
+  };
+  const stopped = { outcome: 'stopped', runId: secondRunId, type: 'run.finished' };
+
+  test("counts the host's measure of its prompt and the reply it kept, as an estimate", () => {
+    const { runs, usage } = folded(cut(prepared(1000), partial, stopped));
+    // 400 characters of kept reply measure 100 tokens.
+    expect(usage.at(-1)).toMatchObject({
+      costUsd: usd(1000, 100),
+      inputTokens: 1000,
+      outputTokens: 100,
+    });
+    expect(usage.at(-1)?.billedCostUsd).toBeUndefined();
+    expect(runs.find((run) => run.runId === secondRunId)).toMatchObject({ status: 'cancelled' });
+  });
+
+  test("scales its prompt by the thread's last call the provider reported on that model", () => {
+    // An earlier call the host measured at 2,000 tokens, which the provider counted as 3,000.
+    const reported = {
+      messages: [],
+      model: { modelId: 'anthropic/claude-sonnet-4.6', provider: 'openrouter' },
+      runId: secondRunId,
+      stepNumber: 7,
+      type: 'model.step',
+      usage: { inputTokens: 3000, outputTokens: 10 },
+    };
+    const { usage } = folded(cut(prepared(2000), reported, prepared(1000), partial, stopped));
+    expect(usage.at(-1)).toMatchObject({ inputTokens: 1500, outputTokens: 100 });
+  });
+
+  test('a request refused before it streamed is never counted', () => {
+    const failed = { ...stopped, outcome: 'failed' };
+    const before = folded(cut(failed)).usage.length;
+    expect(folded(cut(prepared(1000), failed)).usage).toHaveLength(before);
+  });
+});
 test('a run still open folds as running', () => {
   const second = started[1];
   if (!second) {

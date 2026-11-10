@@ -1,7 +1,11 @@
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { resolveModelPricing } from '@brainstrike/assistant-data/model-pricing';
 import { createLogger } from '@brainstrike/logging';
-import { buildTokenUsageCounts, computeCost } from '@brainstrike/tokenization';
+import {
+  buildTokenUsageCounts,
+  computeCost,
+  countTokensHeuristic,
+} from '@brainstrike/tokenization';
 import { Schema } from 'effect';
 import { readDesktopRunConfiguration } from './desktop-run-configuration.ts';
 import type { HostLatestRun, HostLedgerThread } from './ledger-wire.ts';
@@ -203,6 +207,13 @@ interface RunFold {
   inputTokens: number;
   readonly model: string;
   outputTokens: number;
+  /**
+   * The provider call this run sent and has no usage for yet: the host's own
+   * measure of its prompt, and what its kept partial reply streamed. A Stop
+   * or a failure mid-reply never gets the provider's usage, though the
+   * provider billed it.
+   */
+  pending: { readonly promptTokens: number; outputTokens: number } | undefined;
   readonly provider: string;
   revertedEditCount: number;
   readonly root: RunRoot;
@@ -211,6 +222,34 @@ interface RunFold {
   status: LedgerRun['status'];
   readonly threadId: string;
   readonly toolCalls: HostToolCallCount;
+}
+type RunOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+const PreparedAccountingSchema = Schema.Struct({ totalTokens: Schema.Finite });
+const PartialMessagesSchema = Schema.Array(
+  Schema.Struct({
+    content: Schema.Union([
+      Schema.String,
+      Schema.Array(Schema.Struct({ text: Schema.optional(Schema.String), type: Schema.String })),
+    ]),
+    role: Schema.String,
+  })
+);
+/** The reply text and reasoning a cut-off call streamed, as the host keeps its partial message. */
+function partialOutputTokens(messages: unknown): number {
+  let tokens = 0;
+  for (const message of Schema.decodeUnknownSync(PartialMessagesSchema)(messages)) {
+    if (message.role !== 'assistant') {
+      continue;
+    }
+    for (const part of typeof message.content === 'string'
+      ? [{ text: message.content, type: 'text' }]
+      : message.content) {
+      if ((part.type === 'text' || part.type === 'reasoning') && part.text !== undefined) {
+        tokens += countTokensHeuristic(part.text);
+      }
+    }
+  }
+  return tokens;
 }
 /** The observer's calls are one source each; the observer names its own model. */
 const MEMORY_USAGE_KIND = {
@@ -309,6 +348,8 @@ export class ThreadLedgerFold {
   /** Each committed edit's run, so a revert counts against the run that made it. */
   private readonly editRuns = new Map<string, string>();
   private readonly revertedEdits = new Set<string>();
+  /** Per `provider::model`: what the provider counted per token of the host's prompt measure. */
+  private readonly promptScale = new Map<string, number>();
   private perModelSnapshot: LedgerModelUsage[] | undefined;
   apply(row: HostLogRow): void {
     this.seq = row.seq;
@@ -326,8 +367,15 @@ export class ThreadLedgerFold {
       return;
     }
     run.toolCalls.apply(event);
-    if (event.type === 'model.step') {
+    if (event.type === 'provider.request.prepared') {
+      const { totalTokens } = Schema.decodeUnknownSync(PreparedAccountingSchema)(event.accounting);
+      run.pending = { outputTokens: 0, promptTokens: totalTokens };
+    } else if (event.type === 'model.step') {
+      this.calibrate(run, event.usage);
       this.count(run, row, run, event.usage, 'chat');
+    } else if (event.type === 'model.messages' && run.pending !== undefined) {
+      // A Stop keeps the reply the cut-off call had streamed.
+      run.pending.outputTokens += partialOutputTokens(event.messages);
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
       const model = observerUsageModel(event.modelId);
@@ -339,6 +387,7 @@ export class ThreadLedgerFold {
     } else if (event.type === 'stream.chunk') {
       countToolError(run, event.chunk);
     } else if (event.type === 'run.finished') {
+      this.estimateCutOffCall(run, row, event.outcome);
       run.status = STATUS_BY_OUTCOME[event.outcome];
       run.completedAt = row.ts ?? null;
     } else if (event.type === 'workspace.edit.recorded') {
@@ -418,6 +467,7 @@ export class ThreadLedgerFold {
       failedToolCallCount: 0,
       inputTokens: 0,
       outputTokens: 0,
+      pending: undefined,
       revertedEditCount: 0,
       // The legacy attribution: the thread's bound root, else the root focused
       // at Send; the roots table names a focused root.
@@ -442,6 +492,47 @@ export class ThreadLedgerFold {
       threadId: row.threadId,
       toolCalls: new HostToolCallCount(),
     });
+  }
+  /**
+   * A call the provider reported usage for calibrates the host's own prompt
+   * measure for this thread's model: its tokenizer and the provider's tool and
+   * system overhead differ from the host's count.
+   */
+  private calibrate(run: RunFold, usage: unknown): void {
+    const { inputTokens } = tokensOf(usage);
+    if (run.pending !== undefined && run.pending.promptTokens > 0 && inputTokens > 0) {
+      this.promptScale.set(`${run.provider}::${run.model}`, inputTokens / run.pending.promptTokens);
+    }
+    run.pending = undefined;
+  }
+  /**
+   * A run that a Stop or a close cut off mid-call, or that failed after its
+   * call streamed, was billed for its prompt and what it streamed. Without the
+   * provider's usage, the ledger counts the host's measure of both, scaled by
+   * the thread's last reported call on that model; never billed, so it stays
+   * an estimate. A call that failed before streaming (a refused request) is
+   * not counted: providers bill none.
+   */
+  private estimateCutOffCall(run: RunFold, row: HostLogRow, outcome: RunOutcome): void {
+    const pending = run.pending;
+    run.pending = undefined;
+    if (
+      pending === undefined ||
+      (outcome !== 'stopped' && outcome !== 'interrupted' && pending.outputTokens === 0)
+    ) {
+      return;
+    }
+    const scale = this.promptScale.get(`${run.provider}::${run.model}`) ?? 1;
+    this.count(
+      run,
+      row,
+      run,
+      {
+        inputTokens: Math.round(pending.promptTokens * scale),
+        outputTokens: pending.outputTokens,
+      },
+      'chat'
+    );
   }
   private count(
     run: RunFold,
