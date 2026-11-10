@@ -282,17 +282,12 @@ test('the entrance class is sticky: after a wording change, an unchanged rerende
 });
 
 /*
- * The LIVE label is the one element that carries the entrance class and
- * `.bs-thinking-shimmer` at the same time, and BOTH rules declare the
- * `animation` SHORTHAND at equal specificity — so the shimmer, declared later
- * in overrides.css, replaced the entrance outright and the live label's
- * crossfade never ran once (phase-2 defect, found in the Task 6 review). The
- * compound rules compose the two instead of letting one erase the other:
- * static + shimmer resolves to the shimmer alone, entrance + shimmer to both.
- * Measured as the resolved `animation-name` LIST, since that list is exactly
- * where the collision was.
+ * The live label's entrance and its shimmer are separate animations on
+ * separate boxes: the label enters when its wording changes, and the shimmer
+ * is the band inside it, sweeping from the first paint. (They once shared the
+ * label, where the shimmer's `animation` shorthand replaced the entrance.)
  */
-test('the live label composes its entrance with the shimmer: shimmer alone on first paint, both once the wording changes', () => {
+test('the live label enters only once its wording changes, and its shimmer band sweeps from the first paint', () => {
   const row = (liveLabel: string) => (
     <div className="assistant-ui-panel">
       <ActivityTrace
@@ -305,15 +300,73 @@ test('the live label composes its entrance with the shimmer: shimmer alone on fi
       />
     </div>
   );
+  const animationOf = (selector: string): string =>
+    getComputedStyle(mustFind(container, selector)).animationName;
   const { container, rerender } = render(row('Reading app.ts'));
-  const first = getComputedStyle(mustFind(container, '.bs-activity-live-label')).animationName;
-  expect(first).toContain('bs-thinking-shimmer');
-  expect(first).not.toContain('bs-trace-label-enter');
+  expect(animationOf('.bs-activity-live-label')).toBe('none');
+  expect(animationOf('.bs-thinking-shimmer-band')).toBe('bs-thinking-shimmer-band');
 
   rerender(row('Editing app.ts'));
-  const changed = getComputedStyle(mustFind(container, '.bs-activity-live-label')).animationName;
-  expect(changed).toContain('bs-thinking-shimmer');
-  expect(changed).toContain('bs-trace-label-enter');
+  expect(animationOf('.bs-activity-live-label')).toBe('bs-trace-label-enter');
+  expect(animationOf('.bs-thinking-shimmer-band')).toBe('bs-thinking-shimmer-band');
+  // The band's copy is the label's text, and only the label's own text is read.
+  const label = mustFind(container, '.bs-activity-live-label');
+  expect(label).toHaveTextContent('Editing app.ts');
+  expect(getComputedStyle(mustFind(label, '.bs-thinking-shimmer-band'), '::before').content).toBe(
+    '"Editing app.ts"'
+  );
+});
+
+/*
+ * A run in flight shows its mark and its shimmering label for as long as it
+ * lasts: minutes, for an agent working through tools. Chromium animates an
+ * HTML box's transform and opacity on the compositor; anything else (an
+ * element inside an SVG, a `background-position`) it restyles, lays out and
+ * paints on the main thread on every frame. Measured in the built app, a run
+ * that was only waiting kept the main thread 22% busy until its indicators
+ * moved to HTML boxes.
+ */
+test('every animation of a running activity header is a transform or opacity on an HTML box', async () => {
+  render(
+    <div className="assistant-ui-panel">
+      <ActivityTrace
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive
+        restingOverride={null}
+        summary={live}
+        tail={[]}
+      />
+    </div>
+  );
+  const header = screen.getByTestId('assistant-activity-summary');
+  await waitFor(() => expect(header.getAnimations({ subtree: true }).length).toBeGreaterThan(3));
+  const running = header
+    .getAnimations({ subtree: true })
+    .filter(
+      (animation) => animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY
+    );
+  const mainThreadOnly = running.flatMap((animation) => {
+    const effect = animation.effect;
+    if (!(effect instanceof KeyframeEffect && effect.target)) {
+      return ['an animation with no target'];
+    }
+    const properties = [
+      ...new Set(
+        effect
+          .getKeyframes()
+          .flatMap((keyframe) => Object.keys(keyframe))
+          .filter((key) => !['composite', 'computedOffset', 'easing', 'offset'].includes(key))
+      ),
+    ];
+    const composited =
+      effect.target instanceof HTMLElement &&
+      properties.every((property) => property === 'opacity' || property === 'transform');
+    return composited ? [] : [`<${effect.target.localName}> animates ${properties.join(', ')}`];
+  });
+  // Non-vacuous: the mark's rings and core and the label's band are all running.
+  expect(running.length).toBeGreaterThan(3);
+  expect(mainThreadOnly).toEqual([]);
 });
 
 test('collapsed activity releases display subscriptions and restores manual detail state with the latest output', async () => {
