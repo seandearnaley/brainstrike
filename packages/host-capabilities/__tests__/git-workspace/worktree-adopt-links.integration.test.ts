@@ -89,15 +89,74 @@ describe('worktree links inside an open folder (real git + real SQLite)', () => 
     });
   });
 
-  it('refuses to adopt a folder whose own .git does not name the repository, and records no worktree', async () => {
-    const folder = freshRepo('other');
+  it('refuses to adopt a folder that only a listing claims, and records no worktree', async () => {
+    // The inventory never looks inside `node_modules`, so this repository is
+    // not in it: the listing is the only claim on the folder.
+    const folder = path.join(repo, 'node_modules', 'vendored');
+    mkdirSync(folder, { recursive: true });
+    git(folder, ['init', '--quiet', '-b', 'main']);
     listFolderAsWorktree(repo, folder);
-    const { service } = openFolders(repo, folder);
+    const { service } = openFolders(repo);
 
     const adopted = await service.adopt({ createdBy: 'user', path: folder });
 
-    expect(adopted).toMatchObject({ error: { code: 'worktree.unverified' }, ok: false });
+    expect(adopted).toMatchObject({
+      error: {
+        code: 'worktree.unverified',
+        // The refusal says what the folder's own `.git` is.
+        message: expect.stringContaining(path.join(folder, '.git')),
+      },
+      ok: false,
+    });
     await expect(service.listManagedPaths()).resolves.toEqual({ ok: true, value: [] });
+  });
+
+  describe.each([
+    ['the listing repository', (lister: string, owner: string) => [lister, owner]],
+    ['the owning repository', (lister: string, owner: string) => [owner, lister]],
+  ])('when two repositories list one folder and %s is opened first', (_first, opened) => {
+    /** `repo` owns a worktree git created; another repository lists that folder too. */
+    function ownedAndAlsoListed() {
+      const worktreePath = path.join(repo, '.claude', 'worktrees', 'feature');
+      git(repo, ['worktree', 'add', '--quiet', '-b', 'bs/feature', worktreePath, 'HEAD']);
+      const lister = freshRepo('other');
+      listFolderAsWorktree(lister, worktreePath);
+      return { lister, worktreePath, ...openFolders(...opened(lister, repo)) };
+    }
+
+    it('adopts the worktree for the repository its own .git names', async () => {
+      const { lister, resolveInventory, service, worktreePath } = ownedAndAlsoListed();
+
+      const adopted = await service.adopt({ createdBy: 'user', path: worktreePath });
+
+      expect(adopted).toMatchObject({
+        ok: true,
+        value: { path: worktreePath, repoCommonDir: path.join(repo, '.git') },
+      });
+      // The other repository's listing is still reported, for what it is.
+      expect(
+        listedBy(await resolveInventory(), path.join(lister, '.git'), worktreePath)
+      ).toMatchObject({ trust: 'unvalidated' });
+    });
+
+    it("reads the worktree's status", async () => {
+      const { service, worktreePath } = ownedAndAlsoListed();
+
+      const status = await service.checkoutStatus({ path: worktreePath });
+
+      expect(status).toMatchObject({ ok: true, value: { clean: true, path: worktreePath } });
+    });
+
+    it("refuses to adopt another repository's primary checkout, and records no worktree", async () => {
+      const owner = freshRepo('other');
+      listFolderAsWorktree(repo, owner);
+      const { service } = openFolders(...opened(repo, owner));
+
+      const adopted = await service.adopt({ createdBy: 'user', path: owner });
+
+      expect(adopted).toMatchObject({ error: { code: 'worktree.primary-checkout' }, ok: false });
+      await expect(service.listManagedPaths()).resolves.toEqual({ ok: true, value: [] });
+    });
   });
 
   it('adopts a worktree git created inside the open folder', async () => {
