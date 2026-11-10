@@ -109,6 +109,10 @@ location, and none lets a folder approve itself.
       Windows reports neither an owner nor these mode bits, so this is not
       checked there.
 
+    The last rule also holds on the way down from a location. A folder under
+    one that other people can put things in, the location itself included
+    once it is opened to everyone, is not covered and asks.
+
     Sean's brief named the filesystem root and the home directory for this
     first version. The others were added while building, for the same reason,
     and he has not ruled on them.
@@ -227,6 +231,11 @@ location, and none lets a folder approve itself.
   carry such commands.
 - A volume's top folder, such as `/Volumes/Work`, can be offered on macOS and
   Linux when the person owns it, while a Windows drive root cannot.
+- A folder open to a group, or shared through an access control list, is not
+  told apart from the person's own. Telling a shared group from a person's own
+  needs the group's members, and Debian, Ubuntu and Fedora make a person's own
+  folders group-writable by default, so refusing every group-writable folder
+  would remove the offer there.
 - A folder inside a restricted folder is still asked about on its own, as
   before. A trusted location around both does not answer for it.
 - A location is kept by the path it had when it was added. If that folder is

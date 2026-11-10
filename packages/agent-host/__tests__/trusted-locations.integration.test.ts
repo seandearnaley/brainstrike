@@ -250,6 +250,36 @@ test.skipIf(process.platform === 'win32')(
   }
 );
 
+test.skipIf(process.platform === 'win32')(
+  'a location does not cover what is under a folder other people can write to',
+  async () => {
+    const store = await openStore();
+    const { code, home } = await codeFolder();
+    const cloned = await folderIn(code, 'cloned');
+    await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
+    // A drop box inside the location, open to everyone: anyone can put a folder in it.
+    const dropBox = await folderIn(code, 'public');
+    await chmod(dropBox, 0o1777);
+    const dropped = await folderIn(dropBox, 'dropped');
+
+    await expect(readHostWorkspaceTrust(store, dropped)).resolves.toBe('undecided');
+    await expect(readHostWorkspaceTrust(store, await folderIn(dropped, 'deeper'))).resolves.toBe(
+      'undecided'
+    );
+    // The drop box is the person's own folder in the location, and so is everything beside it.
+    await expect(readHostWorkspaceTrust(store, dropBox)).resolves.toBe('trusted');
+    await expect(readHostWorkspaceTrust(store, await folderIn(code, 'later'))).resolves.toBe(
+      'trusted'
+    );
+
+    // A location opened to everyone after it was added covers nothing until it is closed again.
+    await chmod(code, 0o1777);
+    await expect(readHostWorkspaceTrust(store, join(code, 'later'))).resolves.toBe('undecided');
+    await chmod(code, 0o755);
+    await expect(readHostWorkspaceTrust(store, join(code, 'later'))).resolves.toBe('trusted');
+  }
+);
+
 test.skipIf(process.platform !== 'darwin')(
   'the home directory is refused under its other macOS spelling too',
   () => {

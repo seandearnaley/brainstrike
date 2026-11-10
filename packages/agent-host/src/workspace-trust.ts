@@ -94,6 +94,24 @@ const WORLD_WRITABLE = 0o002n;
 /** A folder as the disk identifies it, whatever path spells it; undefined when none is there. */
 const folderOnDisk = (folder: string) => statSync(folder, { bigint: true, throwIfNoEntry: false });
 /**
+ * True when only the person can put folders in the folder: they own it and it
+ * is not open to everyone. A shared folder such as `/tmp` or `/Users/Shared`
+ * fails, as a repository another user owns fails git's `safe.directory`.
+ * Windows reports neither an owner id nor these mode bits, so nothing is
+ * checked there. A folder open to a group is not told apart: that would need
+ * the group's members, and a person's own folders are group-writable by
+ * default where each person has a group of their own.
+ */
+function onlyThePersonAddsTo(onDisk: { mode: bigint; uid: bigint } | undefined): boolean {
+  if (onDisk === undefined) {
+    return false;
+  }
+  const person = process.getuid?.();
+  return (
+    person === undefined || (onDisk.uid === BigInt(person) && (onDisk.mode & WORLD_WRITABLE) === 0n)
+  );
+}
+/**
  * True when `parent` is the home directory or holds it: by path, or because
  * the disk says it is the same folder as the home directory or one above it.
  * macOS shows one folder under two spellings (`/Users/...` and
@@ -120,11 +138,7 @@ function holdsHome(parent: string, onDisk: { dev: bigint; ino: bigint }, home: s
  * everything inside would reach past the person's own work:
  * - the top of the filesystem;
  * - the home directory or a folder that holds it, which would cover every download;
- * - a folder other people can put things in: one the person does not own, or
- *   one open to everyone, such as `/tmp` or `/Users/Shared`. Git refuses a
- *   repository another user owns for the same reason (`safe.directory`).
- *   Windows reports neither an owner id nor these mode bits, so nothing is
- *   checked there.
+ * - a folder other people can put things in (`onlyThePersonAddsTo`).
  */
 export function hostTrustedLocationOffer(answering: string, home: string): string | undefined {
   const parent = dirname(answering);
@@ -132,14 +146,7 @@ export function hostTrustedLocationOffer(answering: string, home: string): strin
     return;
   }
   const onDisk = folderOnDisk(parent);
-  if (onDisk === undefined || holdsHome(parent, onDisk, home)) {
-    return;
-  }
-  const person = process.getuid?.();
-  if (
-    person !== undefined &&
-    (onDisk.uid !== BigInt(person) || (onDisk.mode & WORLD_WRITABLE) !== 0n)
-  ) {
+  if (onDisk === undefined || !onlyThePersonAddsTo(onDisk) || holdsHome(parent, onDisk, home)) {
     return;
   }
   return parent;
@@ -218,6 +225,8 @@ export interface HostWorkspaceTrustAnswer {
  * - A managed worktree: what is in it belongs to its repository, so it is
  *   covered only where that repository is. `inWorktree` is false for that one
  *   further look, which never follows a second worktree.
+ * - One other people can put things in, the location included: what is under
+ *   it may not be the person's, so it asks.
  * The location's own answer is about its own files and does not change what
  * it covers.
  */
@@ -229,7 +238,7 @@ async function coveringLocation(
   const location = (await readHostTrustedLocations(store))
     .filter((each) => isWithin(answering, each))
     .sort((left, right) => right.length - left.length)[0];
-  if (location === undefined) {
+  if (location === undefined || !onlyThePersonAddsTo(folderOnDisk(location))) {
     return;
   }
   for (
@@ -237,6 +246,9 @@ async function coveringLocation(
     between !== location && isWithin(between, location);
     between = dirname(between)
   ) {
+    if (!onlyThePersonAddsTo(folderOnDisk(between))) {
+      return;
+    }
     const answers = await hostAnsweringFolder(store, between);
     // Undefined: the repository's folder went away while this ran, so nothing vouches for it.
     if (answers === undefined || (await store.getSetting(trustKey(answers))) === 'restricted') {
