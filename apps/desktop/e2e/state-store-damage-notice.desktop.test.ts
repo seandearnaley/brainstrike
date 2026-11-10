@@ -5,13 +5,13 @@
  * checks itself again. Neither changes the damaged file. BST-2144: the writes
  * the app attempts meanwhile are typed read-only refusals, never errors.
  */
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostProcess, readHostRoot, waitForAppHost } from './utils/agent-host-log';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedHostThreads } from './utils/seed-threads';
+import { corruptRunIndex } from './utils/state-db-damage';
 
 /**
  * What the app logged as an error about writing to the read-only store: Main's
@@ -34,30 +34,6 @@ function readOnlyWriteErrors(output: { stderr: string[]; stdout: string[] }): st
     ? ['Failed to initialize provider model defaults']
     : [];
   return [...main, ...renderer];
-}
-
-/** The containment proof's damage: one unique-index cell, so the table pages still read. */
-function corruptRunIndex(file: string): { offset: number; value: number } {
-  const db = new DatabaseSync(file, { readOnly: true });
-  let offset: number;
-  try {
-    const pageSize = Number(db.prepare('PRAGMA page_size').get()?.['page_size']);
-    const leaf = Number(
-      db
-        .prepare(
-          "SELECT pageno FROM dbstat WHERE name='sqlite_autoindex_run_events_1' AND pagetype='leaf' ORDER BY pageno"
-        )
-        .get()?.['pageno']
-    );
-    offset = leaf * pageSize - 3;
-  } finally {
-    db.close();
-  }
-  const bytes = readFileSync(file);
-  const value = (bytes[offset] ?? 0) ^ 1;
-  bytes[offset] = value;
-  writeFileSync(file, bytes);
-  return { offset, value };
 }
 
 test.describe('Damaged state store notice (desktop) @desktop-db-storage', () => {
