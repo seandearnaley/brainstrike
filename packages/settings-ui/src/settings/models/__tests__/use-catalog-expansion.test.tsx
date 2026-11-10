@@ -5,8 +5,20 @@ import type { CatalogProviderStat } from '../catalog-sections';
 import { useCatalogExpansion } from '../use-catalog-expansion';
 
 const stats: CatalogProviderStat[] = [
-  { enabledCount: 1, providerId: 'openai', providerName: 'OpenAI', totalCount: 2 },
-  { enabledCount: 0, providerId: 'anthropic', providerName: 'Anthropic', totalCount: 2 },
+  {
+    archivedCount: 0,
+    enabledCount: 1,
+    providerId: 'openai',
+    providerName: 'OpenAI',
+    totalCount: 2,
+  },
+  {
+    archivedCount: 0,
+    enabledCount: 0,
+    providerId: 'anthropic',
+    providerName: 'Anthropic',
+    totalCount: 2,
+  },
 ];
 
 interface Props {

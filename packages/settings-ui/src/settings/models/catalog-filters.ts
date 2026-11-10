@@ -10,6 +10,11 @@ export interface CatalogFilters {
   readonly providerIds: ReadonlySet<string>;
   readonly query: string;
   readonly reasoning: boolean;
+  /**
+   * Lists archived rows the user hasn't enabled; an enabled archived row always
+   * shows, and stays listed after it is switched off (`keepEnabledArchived`).
+   */
+  readonly showArchived: boolean;
   readonly status: CatalogStatusFilter;
   readonly vision: boolean;
 }
@@ -19,6 +24,7 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilters = {
   providerIds: new Set<string>(),
   query: '',
   reasoning: false,
+  showArchived: false,
   status: 'all',
   vision: false,
 };
@@ -76,13 +82,41 @@ function matchesQuery(row: CatalogRow, query: string): boolean {
   );
 }
 
+const NO_KEPT_IDS: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Adds every archived row that is on now to `kept`, the archived rows a catalog
+ * keeps listing once they are switched off, so a row never vanishes under its
+ * own switch. Returns the SAME set when nothing is new, so a caller that stores
+ * it can settle.
+ */
+export function keepEnabledArchived(
+  kept: ReadonlySet<string>,
+  rows: readonly CatalogRow[]
+): ReadonlySet<string> {
+  const added = rows.filter(
+    (row) => row.enabled && row.lifecycle?.archived === true && !kept.has(row.id)
+  );
+  return added.length === 0 ? kept : new Set([...kept, ...added.map((row) => row.id)]);
+}
+
 /**
  * Row-level predicates only. `providerIds` holds SECTION ids (a ghost row's
  * section is `UNKNOWN_PROVIDER_SECTION_ID`, not its raw provider id), so the
- * provider filter is applied per section bucket in `buildCatalogView`.
+ * provider filter is applied per section bucket in `buildCatalogView`. An
+ * archived row is listed when Show archived is on, when it is on, or when it
+ * is in `keptArchivedIds` (see `keepEnabledArchived`).
  */
-export function matchesCatalogFilters(row: CatalogRow, filters: CatalogFilters): boolean {
+export function matchesCatalogFilters(
+  row: CatalogRow,
+  filters: CatalogFilters,
+  keptArchivedIds: ReadonlySet<string> = NO_KEPT_IDS
+): boolean {
   return (
+    (filters.showArchived ||
+      row.enabled ||
+      row.lifecycle?.archived !== true ||
+      keptArchivedIds.has(row.id)) &&
     (filters.status === 'all' || row.enabled === (filters.status === 'enabled')) &&
     (!filters.vision || row.vision === 'supported') &&
     (!filters.reasoning || row.reasoning?.state === 'supported') &&

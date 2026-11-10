@@ -125,6 +125,18 @@ const PricingChangeSchema = Schema.Struct({
   ...PricingRatesFields,
   effectiveFrom: CalendarDaySchema,
 });
+/**
+ * Where a model stands with its vendor. `legacy` and `deprecated` are what the
+ * Model Catalog calls Archived; retirement is not a status (the row is removed
+ * and its id remapped).
+ */
+const ModelLifecycleSchema = Schema.Struct({
+  deprecatedAt: Schema.optional(CalendarDaySchema),
+  releasedAt: Schema.optional(CalendarDaySchema),
+  replacedBy: Schema.optional(Schema.String),
+  retiresAt: Schema.optional(CalendarDaySchema),
+  status: Schema.Literals(['active', 'deprecated', 'legacy', 'preview']),
+});
 const LlmModelSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
   anthropicReasoning: Schema.optional(
@@ -144,6 +156,7 @@ const LlmModelSchema = Schema.Struct({
   id: Schema.String,
   inputModalities: Schema.optional(Schema.mutable(Schema.Array(ModelModalitySchema))),
   label: Schema.optional(Schema.String),
+  lifecycle: Schema.optional(ModelLifecycleSchema),
   maxOutputTokens: TokenLimitSchema,
   nativeToolSearch: Schema.optional(Schema.Literals(['anthropic', 'openai'])),
   outputModalities: Schema.optional(Schema.mutable(Schema.Array(ModelModalitySchema))),

@@ -90,6 +90,10 @@
         "contextWindow": 1050000,
         "id": "gpt-6-sol",
         "label": "GPT-6 Sol",
+        "lifecycle": {
+          "replacedBy": "gpt-6.1-sol",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
@@ -611,7 +615,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-nano\nPRICING REFRESH 2026-10-28: cached input $0.02. DEPRECATED 2026-10-01, shutdown 2027-04-01 (https://developers.openai.com/api/docs/deprecations). Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching).",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-nano\nPRICING REFRESH 2026-10-28: cached input $0.02. DEPRECATED 2026-10-01, shutdown 2027-04-01 (https://developers.openai.com/api/docs/deprecations). Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). LIFECYCLE 2026-11-10: deprecated 2026-10-01, shutdown 2027-04-01, replacement gpt-6-luna (https://developers.openai.com/api/docs/deprecations).",
         "catalog": {
           "bestFor": ["Lightweight", "Classification"],
           "description": null,
@@ -625,6 +629,12 @@
         "contextWindow": 400000,
         "id": "gpt-5.4-nano",
         "label": "GPT-5.4 Nano",
+        "lifecycle": {
+          "deprecatedAt": "2026-10-01",
+          "replacedBy": "gpt-6-luna",
+          "retiresAt": "2027-04-01",
+          "status": "deprecated"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
@@ -648,7 +658,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.3-codex\nPRICING REFRESH 2026-10-28: cached input $0.175. DEPRECATED 2026-10-01, shutdown 2027-04-01 (https://developers.openai.com/api/docs/deprecations). Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching).",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.3-codex\nPRICING REFRESH 2026-10-28: cached input $0.175. DEPRECATED 2026-10-01, shutdown 2027-04-01 (https://developers.openai.com/api/docs/deprecations). Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). LIFECYCLE 2026-11-10: deprecated 2026-10-01, shutdown 2027-04-01 (https://developers.openai.com/api/docs/deprecations). OpenAI names gpt-6-sol as the replacement; this catalog archives gpt-6-sol behind gpt-6.1-sol, so replacedBy points at gpt-6.1-sol.",
         "catalog": {
           "bestFor": ["Coding", "Agentic"],
           "description": null,
@@ -662,6 +672,12 @@
         "contextWindow": 400000,
         "id": "gpt-5.3-codex",
         "label": "GPT-5.3 Codex",
+        "lifecycle": {
+          "deprecatedAt": "2026-10-01",
+          "replacedBy": "gpt-6.1-sol",
+          "retiresAt": "2027-04-01",
+          "status": "deprecated"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.175,
@@ -836,6 +852,10 @@
         "contextWindow": 1000000,
         "id": "claude-fable-5-1",
         "label": "Claude Fable 5.1",
+        "lifecycle": {
+          "replacedBy": "claude-fable-5-2",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
@@ -871,6 +891,10 @@
         "contextWindow": 1000000,
         "id": "claude-fable-5",
         "label": "Claude Fable 5",
+        "lifecycle": {
+          "replacedBy": "claude-fable-5-2",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
@@ -940,6 +964,10 @@
         "contextWindow": 1000000,
         "id": "claude-opus-5",
         "label": "Claude Opus 5",
+        "lifecycle": {
+          "replacedBy": "claude-opus-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
@@ -975,6 +1003,10 @@
         "contextWindow": 1000000,
         "id": "claude-opus-4-8",
         "label": "Claude Opus 4.8",
+        "lifecycle": {
+          "replacedBy": "claude-opus-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
@@ -1046,6 +1078,10 @@
         "contextWindow": 1000000,
         "id": "claude-sonnet-5",
         "label": "Claude Sonnet 5",
+        "lifecycle": {
+          "replacedBy": "claude-sonnet-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
@@ -1081,6 +1117,10 @@
         "contextWindow": 1000000,
         "id": "claude-sonnet-4-6",
         "label": "Claude Sonnet 4.6",
+        "lifecycle": {
+          "replacedBy": "claude-sonnet-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "nativeToolSearch": "anthropic",
         "pricing": {
@@ -1154,6 +1194,10 @@
         "contextWindow": 200000,
         "id": "claude-haiku-4-5",
         "label": "Claude Haiku 4.5",
+        "lifecycle": {
+          "replacedBy": "claude-haiku-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 64000,
         "nativeToolSearch": "anthropic",
         "pricing": {
@@ -1286,6 +1330,10 @@
         "contextWindow": 1048576,
         "id": "gemini-3.6-flash",
         "label": "Gemini 3.6 Flash",
+        "lifecycle": {
+          "replacedBy": "gemini-3.8-flash",
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.075,
@@ -1414,6 +1462,9 @@
         "contextWindow": 1048576,
         "id": "gemini-2.5-pro",
         "label": "Gemini 2.5 Pro",
+        "lifecycle": {
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.125,
@@ -1448,6 +1499,10 @@
         "contextWindow": 1048576,
         "id": "gemini-2.5-flash",
         "label": "Gemini 2.5 Flash",
+        "lifecycle": {
+          "replacedBy": "gemini-3.8-flash",
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.03,
@@ -1474,6 +1529,9 @@
         "contextWindow": 1048576,
         "id": "gemini-2.5-flash-lite",
         "label": "Gemini 2.5 Flash Lite",
+        "lifecycle": {
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.01,
@@ -1564,6 +1622,10 @@
         "contextWindow": 1050000,
         "id": "openai/gpt-6-sol",
         "label": "GPT-6 Sol (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "openai/gpt-6.1-sol",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.2,
@@ -1978,6 +2040,10 @@
         "contextWindow": 1000000,
         "id": "anthropic/claude-fable-5.1",
         "label": "Claude Fable 5.1 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "anthropic/claude-fable-5.2",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.25,
@@ -2043,6 +2109,10 @@
         "contextWindow": 1000000,
         "id": "anthropic/claude-opus-5",
         "label": "Claude Opus 5 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "anthropic/claude-opus-5.5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.5,
@@ -2359,6 +2429,10 @@
         "contextWindow": 1048576,
         "id": "google/gemini-3.7-flash",
         "label": "Gemini 3.7 Flash (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "google/gemini-3.8-flash",
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.075,
@@ -2447,6 +2521,10 @@
         "contextWindow": 1048576,
         "id": "google/gemini-3.6-flash",
         "label": "Gemini 3.6 Flash (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "google/gemini-3.8-flash",
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.075,
@@ -2687,6 +2765,10 @@
         "contextWindow": 500000,
         "id": "x-ai/grok-4.6",
         "label": "Grok 4.6 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "x-ai/grok-4.7",
+          "status": "legacy"
+        },
         "maxOutputTokens": 450000,
         "pricing": {
           "cacheReadPerMTok": 0.5,
@@ -2727,6 +2809,10 @@
         "contextWindow": 500000,
         "id": "x-ai/grok-4.5",
         "label": "Grok 4.5 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "x-ai/grok-4.7",
+          "status": "legacy"
+        },
         "maxOutputTokens": 450000,
         "pricing": {
           "cacheReadPerMTok": 0.3,
@@ -2770,6 +2856,10 @@
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.2",
         "label": "Muse Spark 1.2 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "meta/muse-spark-1.3",
+          "status": "legacy"
+        },
         "maxOutputTokens": 943718,
         "pricing": {
           "cacheReadPerMTok": 0.15,
@@ -2802,6 +2892,10 @@
         "contextWindow": 1048576,
         "id": "meta/muse-spark-1.1",
         "label": "Muse Spark 1.1 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "meta/muse-spark-1.3",
+          "status": "legacy"
+        },
         "maxOutputTokens": 943718,
         "pricing": {
           "cacheReadPerMTok": 0.15,
@@ -3011,6 +3105,10 @@
         "contextWindow": 1000000,
         "id": "anthropic/claude-fable-5",
         "label": "Claude Fable 5 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "anthropic/claude-fable-5.2",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 1,
@@ -3068,6 +3166,10 @@
         "contextWindow": 1000000,
         "id": "anthropic/claude-sonnet-5",
         "label": "Claude Sonnet 5 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "anthropic/claude-sonnet-5.5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.2,
@@ -3259,6 +3361,9 @@
         "contextWindow": 1000000,
         "id": "qwen/qwen3.7-plus",
         "label": "Qwen3.7 Plus (OpenRouter)",
+        "lifecycle": {
+          "status": "legacy"
+        },
         "maxOutputTokens": 131072,
         "pricing": {
           "cacheReadPerMTok": 0.064,
@@ -3295,6 +3400,10 @@
         "contextWindow": 1000000,
         "id": "qwen/qwen3.6-flash",
         "label": "Qwen3.6 Flash (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "qwen/qwen3.8-flash",
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "inputPerMTok": 0.1875,
@@ -3354,6 +3463,9 @@
         "contextWindow": 262144,
         "id": "moonshotai/kimi-k2.6",
         "label": "Kimi K2.6 (OpenRouter)",
+        "lifecycle": {
+          "status": "legacy"
+        },
         "maxOutputTokens": 235929,
         "pricing": {
           "cacheReadPerMTok": 0.16,
@@ -3550,6 +3662,10 @@
         "contextWindow": 1000000,
         "id": "anthropic/claude-opus-4.8",
         "label": "Claude Opus 4.8 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "anthropic/claude-opus-5.5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.5,
@@ -3578,6 +3694,10 @@
         "contextWindow": 1000000,
         "id": "anthropic/claude-sonnet-4.6",
         "label": "Claude Sonnet 4.6 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "anthropic/claude-sonnet-5.5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.3,
@@ -3606,6 +3726,10 @@
         "contextWindow": 200000,
         "id": "anthropic/claude-haiku-4.5",
         "label": "Claude Haiku 4.5 (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "anthropic/claude-haiku-5.5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 64000,
         "pricing": {
           "cacheReadPerMTok": 0.1,
@@ -3635,6 +3759,10 @@
         "contextWindow": 1048576,
         "id": "google/gemini-3.5-flash",
         "label": "Gemini 3.5 Flash (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "google/gemini-3.8-flash",
+          "status": "legacy"
+        },
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.15,
@@ -3697,6 +3825,10 @@
         "contextWindow": 1048576,
         "id": "google/gemini-2.5-flash",
         "label": "Gemini 2.5 Flash (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "google/gemini-3.8-flash",
+          "status": "legacy"
+        },
         "maxOutputTokens": 65535,
         "pricing": {
           "cacheReadPerMTok": 0.03,
@@ -3753,6 +3885,10 @@
         "id": "tencent/hy4-preview",
         "inputModalities": ["text"],
         "label": "Hy4 Preview (OpenRouter)",
+        "lifecycle": {
+          "replacedBy": "tencent/hy4",
+          "status": "legacy"
+        },
         "maxOutputTokens": 64000,
         "outputModalities": ["text"],
         "pricing": {
@@ -3931,6 +4067,9 @@
         "id": "xiaomi/mimo-v2.5",
         "inputModalities": ["text", "audio", "image", "video"],
         "label": "MiMo-V2.5 (OpenRouter)",
+        "lifecycle": {
+          "status": "legacy"
+        },
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
@@ -4458,6 +4597,10 @@
         "contextWindow": 1000000,
         "id": "anthropic.claude-fable-5-1",
         "label": "Claude Fable 5.1 (Bedrock)",
+        "lifecycle": {
+          "replacedBy": "anthropic.claude-fable-5-2",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.25,
@@ -4488,6 +4631,10 @@
         "contextWindow": 1000000,
         "id": "anthropic.claude-fable-5",
         "label": "Claude Fable 5 (Bedrock)",
+        "lifecycle": {
+          "replacedBy": "anthropic.claude-fable-5-2",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 1,
@@ -4548,6 +4695,10 @@
         "contextWindow": 1000000,
         "id": "anthropic.claude-opus-5",
         "label": "Claude Opus 5 (Bedrock)",
+        "lifecycle": {
+          "replacedBy": "anthropic.claude-opus-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.5,
@@ -4577,6 +4728,10 @@
         "contextWindow": 1000000,
         "id": "anthropic.claude-opus-4-8",
         "label": "Claude Opus 4.8 (Bedrock)",
+        "lifecycle": {
+          "replacedBy": "anthropic.claude-opus-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 128000,
         "pricing": {
           "cacheReadPerMTok": 0.5,
@@ -4669,6 +4824,10 @@
         "contextWindow": 1000000,
         "id": "anthropic.claude-sonnet-4-6",
         "label": "Claude Sonnet 4.6 (Bedrock)",
+        "lifecycle": {
+          "replacedBy": "anthropic.claude-sonnet-5-5",
+          "status": "legacy"
+        },
         "maxOutputTokens": 64000,
         "pricing": {
           "cacheReadPerMTok": 0.3,
