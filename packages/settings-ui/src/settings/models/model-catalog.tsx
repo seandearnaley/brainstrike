@@ -102,7 +102,18 @@ export function ModelCatalog({
   const [filters, setFilters] = useState<CatalogFilters>(DEFAULT_CATALOG_FILTERS);
   const deferredQuery = useDeferredValue(filters.query);
   const effectiveFilters = { ...filters, query: deferredQuery };
-  const [sort, setSort] = useState<CatalogSort | null>(null);
+  const [storedSort, setSort] = useState<CatalogSort | null>(null);
+  // A narrower catalog can hide the sorted column, which would leave rows in an
+  // order no header names, so the sort goes with its column. Dropped during
+  // render, like the provider selection below.
+  const columnLayout = getCatalogColumnLayout(tier);
+  const sort =
+    storedSort !== null && columnLayout.some((column) => column.sortColumn === storedSort.column)
+      ? storedSort
+      : null;
+  if (sort !== storedSort) {
+    setSort(sort);
+  }
   const [detailsOpenIds, setDetailsOpenIds] = useState<ReadonlySet<string>>(NO_IDS);
   // One projector and one node cache per catalog instance: both are keyed on
   // object identity, which is what keeps untouched rows (and their TreeNodes)
@@ -334,7 +345,7 @@ export function ModelCatalog({
       />
       <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         <CatalogColumnHeader
-          layout={getCatalogColumnLayout(tier)}
+          layout={columnLayout}
           onSortChange={setSort}
           scrollerRef={scrollRef}
           sort={sort}
