@@ -1,5 +1,8 @@
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { listProviderLlmModels } from '@brainstrike/assistant-contract/provider-registry';
+import {
+  getProviderDefinition,
+  listProviderLlmModels,
+} from '@brainstrike/assistant-contract/provider-registry';
 import type { ModelPricingResolver } from '../assistant-cross-root-cost.ts';
 
 /**
@@ -15,3 +18,13 @@ export const resolveModelPricing: ModelPricingResolver = (provider, model) => {
   }
   return listProviderLlmModels(provider).find((candidate) => candidate.id === model)?.pricing;
 };
+
+/**
+ * What a provider bills for each search its native web search tool runs, from
+ * the same static registry; undefined when the provider declares no price.
+ */
+export function resolveNativeWebSearchUsdPerCall(provider: string): number | undefined {
+  return isSupportedProvider(provider)
+    ? getProviderDefinition(provider).nativeWebSearchUsdPerCall
+    : undefined;
+}

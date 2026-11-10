@@ -1,5 +1,9 @@
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
-import { resolveModelPricing } from '@brainstrike/assistant-data/model-pricing';
+import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  resolveModelPricing,
+  resolveNativeWebSearchUsdPerCall,
+} from '@brainstrike/assistant-data/model-pricing';
 import { createLogger } from '@brainstrike/logging';
 import { buildTokenUsageCounts, computeCost } from '@brainstrike/tokenization';
 import { Schema } from 'effect';
@@ -152,6 +156,54 @@ export function costOfCall(model: CatalogModel, tokens: Tokens): CallCost {
     cacheSavingsUsd: costUsd === null || uncachedUsd === null ? null : uncachedUsd - costUsd,
     costUsd,
   };
+}
+/** The catalog web search tool's name as a provider sees it (dots sanitized). */
+const NATIVE_WEB_SEARCH_TOOL_NAME = WEB_SEARCH_TOOL_ID.replace(/[^a-zA-Z0-9_-]/gu, '_');
+const StepMessagesSchema = Schema.Array(
+  Schema.Struct({
+    content: Schema.Union([
+      Schema.String,
+      Schema.Array(
+        Schema.Struct({
+          providerExecuted: Schema.optional(Schema.Boolean),
+          toolName: Schema.optional(Schema.String),
+          type: Schema.String,
+        })
+      ),
+    ]),
+    role: Schema.String,
+  })
+);
+/**
+ * The searches the provider ran for a step: its native web search's calls,
+ * which the provider executed (`native-web-search.ts` swaps that tool in under
+ * the catalog tool's name). Anthropic and OpenAI bill each one beside tokens.
+ */
+export function nativeWebSearchCalls(messages: unknown): number {
+  let calls = 0;
+  for (const message of Schema.decodeUnknownSync(StepMessagesSchema)(messages)) {
+    if (message.role !== 'assistant' || typeof message.content === 'string') {
+      continue;
+    }
+    for (const part of message.content) {
+      if (
+        part.type === 'tool-call' &&
+        part.providerExecuted === true &&
+        part.toolName === NATIVE_WEB_SEARCH_TOOL_NAME
+      ) {
+        calls += 1;
+      }
+    }
+  }
+  return calls;
+}
+/** What a step's native searches cost; null when its provider declares no price for them. */
+function webSearchCost(model: CatalogModel, searches: number): number | null {
+  if (searches === 0) {
+    return 0;
+  }
+  const perCall = resolveNativeWebSearchUsdPerCall(model.provider);
+  return perCall === undefined ? null : searches * perCall;
 }
 /** A subtotal is priced only while every call in it is. */
 function addCost(total: number | null, cost: number | null): number | null {
@@ -327,7 +379,7 @@ export class ThreadLedgerFold {
     }
     run.toolCalls.apply(event);
     if (event.type === 'model.step') {
-      this.count(run, row, run, event.usage, 'chat');
+      this.count(run, row, run, event.usage, 'chat', nativeWebSearchCalls(event.messages));
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
       const model = observerUsageModel(event.modelId);
@@ -448,7 +500,8 @@ export class ThreadLedgerFold {
     row: HostLogRow,
     model: CatalogModel | undefined,
     usage: unknown,
-    kind: AssistantRunUsageKind
+    kind: AssistantRunUsageKind,
+    searches = 0
   ): void {
     const tokens = tokensOf(usage);
     run.inputTokens += tokens.inputTokens;
@@ -459,7 +512,10 @@ export class ThreadLedgerFold {
       return;
     }
     // Each call is priced under its own model: an observer's call is not the run's.
-    const { cacheSavingsUsd, costUsd } = costOfCall(model, tokens);
+    // Its native searches bill beside its tokens.
+    const priced = costOfCall(model, tokens);
+    const cacheSavingsUsd = priced.cacheSavingsUsd;
+    const costUsd = addCost(priced.costUsd, webSearchCost(model, searches));
     // A billed call costs what the provider billed; only the rest is estimated.
     const billedCostUsd = billedCostOf(model, usage);
     if (row.ts !== undefined) {

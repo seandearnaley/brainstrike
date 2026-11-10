@@ -1,6 +1,6 @@
 [
   {
-    "_note": "Model IDs per OpenAI docs:\nhttps://platform.openai.com/docs/guides/latest-model\nhttps://platform.openai.com/docs/models",
+    "_note": "Model IDs per OpenAI docs:\nhttps://platform.openai.com/docs/guides/latest-model\nhttps://platform.openai.com/docs/models\nWeb search (the non-preview tool native-web-search.ts swaps in): $10.00 per 1,000 calls on every model, plus its content tokens at the model's rates; pricing page Tools table, retrieved 2026-11-09: https://developers.openai.com/api/docs/pricing",
     "authType": "api_key",
     "capabilities": {
       "streaming": true
@@ -750,10 +750,11 @@
         "vision": "supported"
       }
     ],
+    "nativeWebSearchUsdPerCall": 0.01,
     "runtime": "hosted"
   },
   {
-    "_note": "Model aliases per Anthropic docs:\nhttps://www.anthropic.com/claude/sonnet\nhttps://www.anthropic.com/claude/haiku\nhttps://www.anthropic.com/claude/opus",
+    "_note": "Model aliases per Anthropic docs:\nhttps://www.anthropic.com/claude/sonnet\nhttps://www.anthropic.com/claude/haiku\nhttps://www.anthropic.com/claude/opus\nWeb search tool: $10 per 1,000 searches plus standard token costs for its results; a failed search is not billed. Pricing page, retrieved 2026-11-09: https://platform.claude.com/docs/en/about-claude/pricing",
     "authType": "api_key",
     "capabilities": {
       "streaming": true
@@ -1129,6 +1130,7 @@
         "vision": "supported"
       }
     ],
+    "nativeWebSearchUsdPerCall": 0.01,
     "runtime": "hosted"
   },
   {

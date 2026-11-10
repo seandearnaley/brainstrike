@@ -318,6 +318,12 @@ export interface ProviderDefinition {
    * Ordered list of the provider's chat models.
    */
   models: readonly ProviderModelDefinition[];
+  /**
+   * What the provider bills (USD) for each search its native web search tool
+   * runs, beside the tokens its results add. Only the providers whose search
+   * the host swaps in for the catalog tool declare it (`native-web-search.ts`).
+   */
+  nativeWebSearchUsdPerCall?: number;
   runtime: ProviderRuntime;
 }
 
