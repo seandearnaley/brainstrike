@@ -266,8 +266,9 @@ test.skipIf(process.platform === 'win32')(
     await expect(readHostWorkspaceTrust(store, await folderIn(dropped, 'deeper'))).resolves.toBe(
       'undecided'
     );
-    // The drop box is the person's own folder in the location, and so is everything beside it.
-    await expect(readHostWorkspaceTrust(store, dropBox)).resolves.toBe('trusted');
+    // The drop box itself asks too: anyone can write an AGENTS.md into it.
+    await expect(readHostWorkspaceTrust(store, dropBox)).resolves.toBe('undecided');
+    // Everything beside it is still the person's own.
     await expect(readHostWorkspaceTrust(store, await folderIn(code, 'later'))).resolves.toBe(
       'trusted'
     );

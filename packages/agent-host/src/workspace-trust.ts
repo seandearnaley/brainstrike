@@ -225,8 +225,9 @@ export interface HostWorkspaceTrustAnswer {
  * - A managed worktree: what is in it belongs to its repository, so it is
  *   covered only where that repository is. `inWorktree` is false for that one
  *   further look, which never follows a second worktree.
- * - One other people can put things in, the location included: what is under
- *   it may not be the person's, so it asks.
+ * - One other people can put things in, the location and the folder itself
+ *   included: what is in it may not be the person's, so it asks. Git refuses a
+ *   repository on the same ground (`safe.directory`).
  * The location's own answer is about its own files and does not change what
  * it covers.
  */
@@ -238,7 +239,11 @@ async function coveringLocation(
   const location = (await readHostTrustedLocations(store))
     .filter((each) => isWithin(answering, each))
     .sort((left, right) => right.length - left.length)[0];
-  if (location === undefined || !onlyThePersonAddsTo(folderOnDisk(location))) {
+  if (
+    location === undefined ||
+    !onlyThePersonAddsTo(folderOnDisk(location)) ||
+    !onlyThePersonAddsTo(folderOnDisk(answering))
+  ) {
     return;
   }
   for (

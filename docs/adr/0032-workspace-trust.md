@@ -109,9 +109,9 @@ location, and none lets a folder approve itself.
       Windows reports neither an owner nor these mode bits, so this is not
       checked there.
 
-    The last rule also holds on the way down from a location. A folder under
-    one that other people can put things in, the location itself included
-    once it is opened to everyone, is not covered and asks.
+    The last rule also holds on the way down from a location. A folder that
+    other people can put things in, or that sits under one, is not covered and
+    asks. That includes the location itself once it is opened to everyone.
 
     Sean's brief named the filesystem root and the home directory for this
     first version. The others were added while building, for the same reason,
