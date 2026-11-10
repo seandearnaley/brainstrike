@@ -117,6 +117,24 @@ export class StateStoreHostMemory implements HostRunOwner {
   private preparedRewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
   /** The tool calls this run's previous provider request carried; none before its first. */
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
+  /**
+   * Memory's context as the run's first step read it: its system text, the
+   * earlier turns it selected and its continuation hint, kept together. Every
+   * later step sends the same prefix: a working-memory update or a settled
+   * observation mid-run would otherwise rewrite it, and every provider's
+   * prompt cache misses from the first changed token (Anthropic and OpenAI
+   * both ask for dynamic content after the cached prefix). An observation
+   * that covers earlier turns replaces them only from the next run, so no
+   * request drops a turn its observation does not yet carry. The model sees
+   * its own working-memory update as the tool call in its history.
+   */
+  private runContext:
+    | {
+        readonly continuationMessage: MastraDBMessage | undefined;
+        readonly selected: ReadonlySet<string>;
+        readonly system: string;
+      }
+    | undefined;
 
   readonly memory: HostMemory;
   private readonly identity: HostMemoryIdentity;
@@ -326,20 +344,26 @@ export class StateStoreHostMemory implements HostRunOwner {
     if (currentUser < 0) {
       throw new Error('Memory preparation has no current committed user input');
     }
+    // Memory still prepares every step (its observer runs here); only the
+    // context it sends is the run's first.
     const step = await this.memory.prepareStep(request.stepNumber);
-    const selected = new Set(step.messages.map((message) => message.id));
     // Active SDK messages retain their actual validated approval/runtime objects.
     // Public Memory selects previous committed turns, never reconstructs an
     // active call or changes the existing host approval occurrence.
-    const system = [step.context.systemMessage, step.context.otherThreadsContext]
-      .filter((part) => part !== undefined && part.length > 0)
-      .join('\n\n');
+    this.runContext ??= {
+      continuationMessage: step.context.continuationMessage,
+      selected: new Set(step.messages.map((message) => message.id)),
+      system: [step.context.systemMessage, step.context.otherThreadsContext]
+        .filter((part) => part !== undefined && part.length > 0)
+        .join('\n\n'),
+    };
+    const { continuationMessage, selected, system } = this.runContext;
     const continuation = new MessageList({
       resourceId: this.identity.resourceId,
       threadId: this.identity.threadId,
     });
-    if (step.context.continuationMessage) {
-      continuation.add([step.context.continuationMessage], 'memory');
+    if (continuationMessage) {
+      continuation.add([continuationMessage], 'memory');
     }
     return await this.assembleStep({
       active: request.messages.slice(currentUser),
