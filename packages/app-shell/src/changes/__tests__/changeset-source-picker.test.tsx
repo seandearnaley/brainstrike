@@ -28,8 +28,8 @@ const UNVALIDATED_WORKTREE: WorktreeDescriptor = {
   trustReason: 'gitdir did not resolve back to this repository',
 };
 
-// Inside a granted workspace root — `trust` is always 'validated' for an
-// in-root worktree (per `WorktreeDescriptor.trust`'s own doc comment).
+// Inside a granted workspace root, and the repository's primary checkout,
+// which is 'validated' there (per `WorktreeDescriptor.trust`'s doc comment).
 const IN_ROOT_WORKTREE: WorktreeDescriptor = {
   bare: false,
   branch: 'main',
