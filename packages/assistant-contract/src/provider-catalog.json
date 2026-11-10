@@ -1237,6 +1237,45 @@
     "keyNotes": "Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.",
     "models": [
       {
+        "_note": "Added 2026-11-10: Google opened Gemini 4 Carbon to developers on the paid Gemini API tier that day (https://blog.google/innovation-and-ai/technology/developers-tools/gemini-4-carbon-developers/). Model page https://ai.google.dev/gemini-api/docs/models/gemini-4-carbon: 65,536 default output, thinking low/medium/high (minimal rejected), implicit caching only. Pricing is INTRODUCTORY: $2 input / $10 output / $0.10 cached through 2026-11-30, then $4 / $20 / $0.20 (https://ai.google.dev/gemini-api/docs/pricing#gemini-4-carbon), recorded as the 2026-12-01 change. Google's pages could not be loaded from this session on 2026-11-10, so these figures were read from two catalogs that cite them: models.dev (providers/google/models/gemini-4-carbon.toml, which also records the live 400 on minimal) and LiteLLM (gemini/gemini-4-carbon). The 1,048,576 window and the model id match OpenRouter's Google route (google/gemini-4-carbon, https://openrouter.ai/api/v1/models).",
+        "catalog": {
+          "bestFor": [
+            "Agentic coding",
+            "Complex reasoning",
+            "Agentic workflows"
+          ],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "Gemini 4 Carbon",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Google's frontier Gemini model for coding, agents and complex reasoning"
+        },
+        "contextWindow": 1048576,
+        "id": "gemini-4-carbon",
+        "label": "Gemini 4 Carbon",
+        "maxOutputTokens": 65536,
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.2,
+              "effectiveFrom": "2026-12-01",
+              "inputPerMTok": 4,
+              "outputPerMTok": 20
+            }
+          ],
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "supportsStreaming": true,
+        "tagline": "Google's frontier Gemini model for coding, agents and complex reasoning",
+        "type": "llm",
+        "vendor": "google",
+        "vision": "supported"
+      },
+      {
         "_note": "Added 2026-10-28: GA 2026-10-13 (https://ai.google.dev/gemini-api/docs/changelog). Model page https://ai.google.dev/gemini-api/docs/models/gemini-4-argon: 1,048,576 unified window, 65,536 default output, text/image/video/audio/PDF input, function calling, thinking low/medium/high, implicit caching only. Pricing is INTRODUCTORY: $2 input / $10 output / $0.10 cached through 2026-11-30, then $4 / $20 / $0.20 (https://ai.google.dev/gemini-api/docs/pricing), recorded as the 2026-12-01 change.",
         "catalog": {
           "bestFor": ["Complex tasks", "Analysis", "Agentic coding"],
@@ -1245,8 +1284,8 @@
           "icon": null,
           "name": "Gemini 4 Argon",
           "parameters": null,
-          "sortOrder": 1,
-          "tagline": "Google's most capable Gemini model"
+          "sortOrder": 2,
+          "tagline": "Gemini 4 for complex tasks, analysis and agentic coding"
         },
         "contextWindow": 1048576,
         "id": "gemini-4-argon",
@@ -1266,7 +1305,7 @@
           "outputPerMTok": 10
         },
         "supportsStreaming": true,
-        "tagline": "Google's most capable Gemini model",
+        "tagline": "Gemini 4 for complex tasks, analysis and agentic coding",
         "type": "llm",
         "vendor": "google",
         "vision": "supported"
@@ -1284,7 +1323,7 @@
           "icon": null,
           "name": "Gemini 3.8 Flash",
           "parameters": null,
-          "sortOrder": 2,
+          "sortOrder": 3,
           "tagline": "Long-horizon software engineering and autonomous agents at Flash speed"
         },
         "contextWindow": 1048576,
@@ -1324,7 +1363,7 @@
           "icon": null,
           "name": "Gemini 3.6 Flash",
           "parameters": null,
-          "sortOrder": 3,
+          "sortOrder": 4,
           "tagline": "Frontier intelligence for code generation and agentic execution"
         },
         "contextWindow": 1048576,
@@ -1367,7 +1406,7 @@
           "icon": null,
           "name": "Gemini 3.5 Flash-Lite",
           "parameters": null,
-          "sortOrder": 4,
+          "sortOrder": 5,
           "tagline": "Low-latency multimodal for high-throughput subagent tasks and document parsing"
         },
         "contextWindow": 1048576,
@@ -1394,7 +1433,7 @@
           "icon": null,
           "name": "Gemini 3.1 Pro (Preview)",
           "parameters": null,
-          "sortOrder": 5,
+          "sortOrder": 6,
           "tagline": "Advanced reasoning preview"
         },
         "contextWindow": 1048576,
@@ -1429,7 +1468,7 @@
           "icon": null,
           "name": "Gemini 3.1 Flash Lite",
           "parameters": null,
-          "sortOrder": 6,
+          "sortOrder": 7,
           "tagline": "Lightweight low-cost flash"
         },
         "contextWindow": 1048576,
@@ -1456,7 +1495,7 @@
           "icon": null,
           "name": "Gemini 2.5 Pro",
           "parameters": null,
-          "sortOrder": 7,
+          "sortOrder": 8,
           "tagline": "Stable advanced reasoning"
         },
         "contextWindow": 1048576,
@@ -1493,7 +1532,7 @@
           "icon": null,
           "name": "Gemini 2.5 Flash",
           "parameters": null,
-          "sortOrder": 8,
+          "sortOrder": 9,
           "tagline": "Stable fast model"
         },
         "contextWindow": 1048576,
@@ -1523,7 +1562,7 @@
           "icon": null,
           "name": "Gemini 2.5 Flash Lite",
           "parameters": null,
-          "sortOrder": 9,
+          "sortOrder": 10,
           "tagline": "Stable lightweight flash"
         },
         "contextWindow": 1048576,
@@ -1955,6 +1994,45 @@
         "vision": "supported"
       },
       {
+        "_note": "Added 2026-11-10. Standard route rates, 1,048,576 / 943,718 ceilings and text, image, audio, video and file input from https://openrouter.ai/api/v1/models (google/gemini-4-carbon, created 2026-11-10). Google's introductory rate runs through 2026-11-30.\nPRICE CHANGE 2026-12-01: the route bills Google's list price, which rises to $4 / $20 / $0.20 cached when the introductory rate ends (https://ai.google.dev/gemini-api/docs/pricing#gemini-4-carbon). OpenRouter has not published the route's cache-write rate after that day, so the change leaves it out: a cache write after it is unpriced, never guessed. Re-read the route on 2026-12-01.",
+        "catalog": {
+          "bestFor": [
+            "Agentic coding",
+            "Complex reasoning",
+            "Agentic workflows"
+          ],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 4 Carbon (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 48,
+          "tagline": "Google's frontier Gemini model for coding, agents and complex reasoning"
+        },
+        "contextWindow": 1048576,
+        "id": "google/gemini-4-carbon",
+        "label": "Gemini 4 Carbon (OpenRouter)",
+        "maxOutputTokens": 943718,
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 0.1875,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.2,
+              "effectiveFrom": "2026-12-01",
+              "inputPerMTok": 4,
+              "outputPerMTok": 20
+            }
+          ],
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vendor": "google",
+        "vision": "supported"
+      },
+      {
         "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-4-argon/endpoints. google-ai-studio route, 1,048,576 / 943,718. Google's introductory rate runs through 2026-11-30.\nPRICE CHANGE 2026-12-01: the google-ai-studio route bills Google's list price, which rises to $4 / $20 / $0.20 cached when the introductory rate ends (https://ai.google.dev/gemini-api/docs/pricing). OpenRouter has not published the route's cache-write rate after that day, so the change leaves it out: a cache write after it is unpriced, never guessed. Re-read the route on 2026-12-01.",
         "catalog": {
           "bestFor": ["Complex tasks", "Analysis", "Agentic coding"],
@@ -1964,7 +2042,7 @@
           "name": "Gemini 4 Argon (OpenRouter)",
           "parameters": null,
           "sortOrder": 48,
-          "tagline": "Google's most capable Gemini model"
+          "tagline": "Gemini 4 for complex tasks, analysis and agentic coding"
         },
         "contextWindow": 1048576,
         "id": "google/gemini-4-argon",
