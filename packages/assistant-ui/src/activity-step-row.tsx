@@ -3,6 +3,7 @@ import { cn } from '@brainstrike/ui';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 import { StepFamilyIcon, type StepGlyphState, StepStateGlyph } from './activity-step-icons';
+import { ThinkingShimmerBand } from './assistant-thinking-indicator';
 import { useIsLastRunningStep } from './use-is-last-running-step';
 
 export interface StepRowHeaderProps {
@@ -194,6 +195,7 @@ export function StepRowHeader(props: StepRowHeaderProps): ReactNode {
       <span className="bs-step-row-content" id={contentId}>
         <span className={cn('bs-step-row-verb', shimmer && 'bs-thinking-shimmer')}>
           {props.verb}
+          {shimmer ? <ThinkingShimmerBand text={props.verb} /> : null}
         </span>
         {props.target ? (
           <span className="bs-step-row-target" title={props.targetTitle ?? props.target}>

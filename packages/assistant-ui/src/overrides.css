@@ -2490,13 +2490,30 @@ span.bs-composer-chip {
   }
 }
 
-@keyframes bs-thinking-shimmer {
+/*
+ * The shimmer is a window sliding left to right across its label, holding a
+ * brighter copy of the label's text that slides the other way by the same
+ * distance, so the copy stays over the text it repeats. The window is 1.85
+ * times the label wide, as the gradient it replaces was, and the copy is as
+ * wide as the label: each keyframe's percentage is of its own box.
+ */
+@keyframes bs-thinking-shimmer-band {
   from {
-    background-position: 140% 0;
+    transform: translateX(-100%);
   }
 
   to {
-    background-position: -140% 0;
+    transform: translateX(54.054%);
+  }
+}
+
+@keyframes bs-thinking-shimmer-text {
+  from {
+    transform: translateX(185%);
+  }
+
+  to {
+    transform: translateX(-100%);
   }
 }
 
@@ -2513,22 +2530,43 @@ span.bs-composer-chip {
   color: color-mix(in oklab, var(--foreground) 68%, transparent);
   display: block;
   flex: 0 0 auto;
-  overflow: visible;
+  position: relative;
 }
 
-.assistant-ui-panel .bs-thinking-mark :where(circle, path) {
-  vector-effect: non-scaling-stroke;
-}
-
+/*
+ * Each moving piece of the mark is an HTML box over the mark's whole area,
+ * holding its own SVG: an HTML box's transform and opacity animate on the
+ * compositor, where an element inside an SVG is restyled, laid out and
+ * painted on the main thread on every frame.
+ */
 .assistant-ui-panel .bs-thinking-pulse,
 .assistant-ui-panel .bs-thinking-core {
-  transform-box: fill-box;
-  transform-origin: center;
+  display: block;
+  inset: 0;
+  position: absolute;
+}
+
+.assistant-ui-panel .bs-thinking-mark svg {
+  display: block;
+  height: 100%;
+  overflow: visible;
+  width: 100%;
+}
+
+/* Only holds the gradients the pieces' SVGs paint with. */
+.assistant-ui-panel .bs-thinking-mark .bs-thinking-defs {
+  height: 0;
+  position: absolute;
+  width: 0;
 }
 
 .assistant-ui-panel .bs-thinking-pulse {
   animation: bs-thinking-pulse-ring 1.65s ease-out infinite;
+}
+
+.assistant-ui-panel .bs-thinking-pulse circle {
   stroke-width: 4;
+  vector-effect: non-scaling-stroke;
 }
 
 .assistant-ui-panel .bs-thinking-pulse-b {
@@ -2555,44 +2593,37 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-thinking-shimmer {
-  animation: bs-thinking-shimmer 1.45s linear infinite;
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklab, var(--muted-foreground) 52%, transparent) 0%,
-    color-mix(in oklab, var(--foreground) 94%, transparent) 42%,
-    color-mix(in oklab, var(--muted-foreground) 58%, transparent) 84%
-  );
-  background-clip: text;
-  background-size: 220% 100%;
-  color: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
   font-weight: 600;
   letter-spacing: 0;
   min-width: 0;
-  -webkit-background-clip: text;
+  /* The window is wider than the label and slides past both of its ends. */
+  overflow: clip;
+  position: relative;
 }
 
-/*
- * The activity trace's LIVE status label is the one element that carries a
- * `.bs-trace-label*` entrance class and `.bs-thinking-shimmer` at the same
- * time, and both rules declare the `animation` SHORTHAND at equal specificity
- * — so the shimmer, declared later, replaced the entrance outright and the
- * live label's crossfade never ran once (phase-2 defect, found in the Task 6
- * review). These compound rules compose the two rather than letting one erase
- * the other; `animation` takes a comma list, so each keyframe keeps its own
- * duration, easing, fill and iteration count. Both shorthands are repeated
- * verbatim from the single-class rules above — a shorthand cannot be merged,
- * only restated — so a change to either must be mirrored here (pinned by "the
- * live label composes its entrance with the shimmer" in
- * activity-trace.browser.test.tsx).
- */
-.assistant-ui-panel .bs-trace-label.bs-thinking-shimmer {
-  animation:
-    bs-trace-label-enter 250ms cubic-bezier(0.23, 1, 0.32, 1) both,
-    bs-thinking-shimmer 1.45s linear infinite;
+/* The sliding window: its mask fades the copy in and out towards the window's edges. */
+.assistant-ui-panel .bs-thinking-shimmer-band {
+  animation: bs-thinking-shimmer-band 1.45s linear infinite;
+  inset: 0 auto 0 0;
+  mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  user-select: none;
+  width: 185%;
 }
 
-.assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
-  animation: bs-thinking-shimmer 1.45s linear infinite;
+/* The brighter copy of the label's text, from the band's `data-text`. */
+.assistant-ui-panel .bs-thinking-shimmer-band::before {
+  animation: bs-thinking-shimmer-text 1.45s linear infinite;
+  color: color-mix(in oklab, var(--foreground) 94%, transparent);
+  content: attr(data-text);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 54.054%;
 }
 
 .assistant-ui-panel .bs-streaming-thinking {
@@ -2604,18 +2635,14 @@ span.bs-composer-chip {
    while reasoning is collapsed), so aria-controls keeps a valid target. */
 
 @media (prefers-reduced-motion: reduce) {
-  /* The two compound selectors are listed explicitly: the trace's live status
-     label matches all three classes at once, and the compound rules above are
-     (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
-     (0,2,0) — cannot reach it however late the block is declared. Drop either
-     and exactly one element keeps shimmering under a reduced-motion
-     preference. */
   .assistant-ui-panel .bs-thinking-pulse,
-  .assistant-ui-panel .bs-thinking-core,
-  .assistant-ui-panel .bs-thinking-shimmer,
-  .assistant-ui-panel .bs-trace-label.bs-thinking-shimmer,
-  .assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
+  .assistant-ui-panel .bs-thinking-core {
     animation: none;
+  }
+
+  /* No sweep: the label is one steady colour. */
+  .assistant-ui-panel .bs-thinking-shimmer-band {
+    display: none;
   }
 
   .assistant-ui-panel .bs-thinking-pulse {
@@ -2629,25 +2656,20 @@ span.bs-composer-chip {
   }
 
   .assistant-ui-panel .bs-thinking-shimmer {
-    background: none;
     color: color-mix(in oklab, var(--foreground) 78%, transparent);
   }
 }
 
 /* The same, for Reduced motion picked in Settings > Appearance. */
 :root[data-motion="reduce"] {
-  /* The two compound selectors are listed explicitly: the trace's live status
-     label matches all three classes at once, and the compound rules above are
-     (0,3,0), so the plain `.bs-thinking-shimmer` entry in this same list —
-     (0,2,0) — cannot reach it however late the block is declared. Drop either
-     and exactly one element keeps shimmering under a reduced-motion
-     preference. */
   .assistant-ui-panel .bs-thinking-pulse,
-  .assistant-ui-panel .bs-thinking-core,
-  .assistant-ui-panel .bs-thinking-shimmer,
-  .assistant-ui-panel .bs-trace-label.bs-thinking-shimmer,
-  .assistant-ui-panel .bs-trace-label-static.bs-thinking-shimmer {
+  .assistant-ui-panel .bs-thinking-core {
     animation: none;
+  }
+
+  /* No sweep: the label is one steady colour. */
+  .assistant-ui-panel .bs-thinking-shimmer-band {
+    display: none;
   }
 
   .assistant-ui-panel .bs-thinking-pulse {
@@ -2661,16 +2683,17 @@ span.bs-composer-chip {
   }
 
   .assistant-ui-panel .bs-thinking-shimmer {
-    background: none;
     color: color-mix(in oklab, var(--foreground) 78%, transparent);
   }
 }
 
 @media (forced-colors: active) {
   .assistant-ui-panel .bs-thinking-shimmer {
-    background: none;
     color: CanvasText;
-    -webkit-text-fill-color: CanvasText;
+  }
+
+  .assistant-ui-panel .bs-thinking-shimmer-band {
+    display: none;
   }
 }
 

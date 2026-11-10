@@ -15,7 +15,7 @@ import {
   verbMetaFor,
 } from './activity-trace-labels';
 import type { ActivitySummary } from './activity-trace-model';
-import { BrainstrikeThinkingMark } from './assistant-thinking-indicator';
+import { BrainstrikeThinkingMark, ThinkingShimmerBand } from './assistant-thinking-indicator';
 import { formatActivityDuration } from './tool-durations';
 import { useElapsedMs } from './use-activity-trace-clock';
 import { useLabelEnterClass } from './use-label-enter-class';
@@ -93,6 +93,7 @@ function LiveSummary({
     >
       <span className={`bs-activity-live-label bs-thinking-shimmer ${labelClassName}`} key={label}>
         {label}
+        <ThinkingShimmerBand text={label} />
       </span>
     </span>
   );

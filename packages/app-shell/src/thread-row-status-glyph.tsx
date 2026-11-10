@@ -69,12 +69,17 @@ export function ThreadRowStatusGlyph({
   }
   if (state === 'running') {
     return (
-      <LoaderCircle
+      // The spin is on an HTML box around the icon: Chromium runs a transform
+      // animation on an <svg> itself on the main thread, every frame, for as
+      // long as the thread runs.
+      <span
         aria-label={getThreadRowAccessibleName(state, title)}
-        className={`${GLYPH_CLASS_NAME} bg-background animate-spin text-current motion-reduce:animate-none`}
+        className={`${GLYPH_CLASS_NAME} bg-background inline-flex animate-spin text-current motion-reduce:animate-none`}
         data-testid="thread-active-spinner"
         role="img"
-      />
+      >
+        <LoaderCircle aria-hidden="true" className="size-full" />
+      </span>
     );
   }
   const presentation = DOT_PRESENTATION[state];

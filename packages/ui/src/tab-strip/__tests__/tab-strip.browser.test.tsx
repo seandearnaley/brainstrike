@@ -6,6 +6,7 @@ import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import { afterEach, expect, test } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import { ActionRegistryProvider } from '../../context-menu';
+import { TabStatusIcon } from '../tab-status';
 import { TabStrip } from '../tab-strip';
 import type { TabStripItem } from '../types';
 
@@ -165,4 +166,19 @@ test('maps wheel input to horizontal scroll when tabs overflow', async () => {
   scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 120 }));
   expect(scroller.scrollLeft).toBeGreaterThan(0);
   await waitFor(() => expect(scroller.dataset['overflowStart']).toBe('true'));
+});
+
+/*
+ * A running thread's tab spins for as long as the thread runs. Chromium runs a
+ * transform animation on an <svg> itself on the main thread (style and paint
+ * on every frame), and an HTML box's on the compositor, so the spin belongs to
+ * a box around the icon.
+ */
+test("a running tab's spinner turns an HTML box around the icon", async () => {
+  const { container } = render(<TabStatusIcon status="running" />);
+  await waitFor(() => expect(container.getAnimations({ subtree: true })).toHaveLength(1));
+  const [spin] = container.getAnimations({ subtree: true });
+  const target = spin?.effect instanceof KeyframeEffect ? spin.effect.target : null;
+  expect(target).toBeInstanceOf(HTMLElement);
+  expect(target?.querySelector('svg')).not.toBeNull();
 });
