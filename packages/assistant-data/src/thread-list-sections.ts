@@ -28,12 +28,17 @@ export interface ThreadFolderRow {
 export interface ThreadRepositoryRow {
   /** The branch its own checkout is on; null on a detached HEAD. */
   readonly branch: string | null;
-  /** The realpath'd git common dir: the repository's identity, as the worktree ledger keys it. */
-  readonly commonDir: string;
   readonly detached: boolean;
   readonly displayName: string;
   /** Its own checkout as an open folder, where a new thread starts; null while that folder is not open. */
   readonly folder: ThreadFolderRow | null;
+  /**
+   * What its section is keyed on. Opaque here: the caller derives it in one
+   * place, today from the repository's realpath'd git common dir, where a
+   * project id will replace it (ADR-0034, owner decisions 2026-11-10). The
+   * section id is built from it, so a new key means new section ids.
+   */
+  readonly key: string;
   /** Its own checkout's path. */
   readonly path: string;
 }
@@ -116,7 +121,7 @@ interface ThreadListSectionBase {
 export interface ThreadListGroupSection extends ThreadListSectionBase {
   readonly header: ThreadListGroupHeader;
 }
-/** `id` is `repository:${commonDir}`, `folder:${rootId}` or `folder-unassigned`. */
+/** `id` is `repository:${key}`, `folder:${rootId}` or `folder-unassigned`. */
 export interface ThreadListFolderSection extends ThreadListSectionBase {
   readonly header: ThreadListFolderHeader | ThreadListRepositoryHeader | ThreadListUnassignedHeader;
 }
@@ -182,7 +187,7 @@ export function folderSectionId(rootId: string): string {
 
 /**
  * The prefix every repository section id carries. A repository is identified
- * by its git common dir, never by a root id, so its sections have their own
+ * by its own key (see `ThreadRepositoryRow.key`), never by a root id, so its sections have their own
  * id space: a folder that stops being a repository's checkout gets a fresh
  * `folder:` section rather than inheriting the repository's collapse state.
  *
@@ -192,9 +197,9 @@ export function folderSectionId(rootId: string): string {
  */
 const REPOSITORY_SECTION_ID_PREFIX = 'repository:';
 
-/** Section id for the repository whose git common dir is `commonDir`. */
-export function repositorySectionId(commonDir: string): string {
-  return `${REPOSITORY_SECTION_ID_PREFIX}${commonDir}`;
+/** Section id for the repository keyed `key`. */
+export function repositorySectionId(key: string): string {
+  return `${REPOSITORY_SECTION_ID_PREFIX}${key}`;
 }
 
 const EMPTY_THREAD_IDS: readonly string[] = Object.freeze([]);
@@ -290,7 +295,7 @@ function resolveFolderSection(
   if (repository !== undefined) {
     return {
       header: { kind: 'repository', repository },
-      id: repositorySectionId(repository.commonDir),
+      id: repositorySectionId(repository.key),
     };
   }
   const rootId = getThreadPrimaryRootId(thread);
@@ -606,7 +611,7 @@ function resolveSectionThreads(
 
 /**
  * Thread ids belonging to ONE section, addressed by `section.id` (a group id in
- * custom-groups mode, `repository:${commonDir}` / `folder:${rootId}` /
+ * custom-groups mode, `repository:${key}` / `folder:${rootId}` /
  * `folder-unassigned` in folder mode,
  * `date:…` in date mode, {@link PINNED_SECTION_ID} for the Pinned section).
  * `null` addresses the custom-groups Ungrouped section, which has no section id

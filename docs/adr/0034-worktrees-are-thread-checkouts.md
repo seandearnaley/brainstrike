@@ -5,9 +5,6 @@
     reads its repository's index) is void. A worktree's search is live grep on the worktree.
   - 2026-11-10 (owner decisions, below): decision 7's default is replaced by an Automatic default, a
     project gets a host-owned record with its own id, and the interface word is "Project".
-  - 2026-11-10: decision 3 is complete. The Threads panel lists threads by project by
-    default, with a checkout chip on each row and a Needs you strip above the sections
-    (see decision 3).
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -64,34 +61,6 @@ for it.
    checkout (`brainstrike · swift-badger`) and offers Local, the repository's
    worktrees, New worktree and Archive. Choosing one is the thread binding's
    existing action (ADR-0028); the binding stays its only writer.
-   - **The Threads panel lists threads by project** (2026-11-10). Its default
-     grouping, labelled Project, is by where a thread works: a thread in a
-     managed worktree sits under its repository, beside the threads in the
-     repository's own checkout. A folder outside a repository is its own
-     section, and threads with no folder come last under "No project". Date,
-     custom groups and the flat list stay as views, a saved grouping is kept,
-     and every thread stays listed.
-   - A section is keyed by `repoCommonDir`, read from the host's worktree
-     listing once for the panel. A worktree joins its repository only while the
-     ledger lists it and git's two links join it, the rule decision 6 uses.
-     The project record of the owner decisions below is not built, so a second
-     clone is still a section of its own; the record will replace this key.
-   - Each row carries a checkout chip in every grouping: the worktree's name,
-     or Local for a thread working in its folder itself. It reads the thread's
-     binding, so no row asks git. A panel narrower than 420px keeps the title:
-     a worktree shows as its branch icon alone and Local is not shown.
-   - **A Needs you strip leads the panel** (2026-11-10), in every grouping and
-     whatever the list is filtered by. It lists every thread waiting on the
-     person, across all projects, and says which wait it is: a question, an
-     approval, a plan to review, or a run that finished, failed or was stopped
-     and has not been looked at. A row opens its thread, which also keeps its
-     own row below. The strip is absent when nothing waits.
-   - It reads the state the row glyphs read, and adds no source: the host's
-     fold of each thread's committed `interaction.requested` and
-     `interaction.responded` rows (the latest run's `needsInput`, with the
-     kinds in `waitingOn`), and its committed finish time against the
-     watermark the on-screen transcript advances. A thread leaves the strip
-     when its request is answered or it has been shown.
 4. **Open replaces; add is secondary.** "Open Folder…" makes the chosen folder
    the window's project, and Recents is the switcher. "Add Folder to Workspace"
    stays for multi-repository work. Open is one more host method on the
@@ -145,6 +114,19 @@ supersede the decisions above where they differ.
   built yet.
 - **The interface word is "Project".** Labels that say workspace or folder for
   this are renamed as each screen is touched.
+- **Built so far: the Threads panel lists threads by project** (#5329, #5337).
+  Its default grouping, labelled Project, puts a thread in a managed worktree
+  under its repository, beside the threads in the repository's own checkout; a
+  folder outside a repository is its own section and threads with no folder
+  come last. A worktree joins its repository only while the ledger lists it
+  and git's two links join it, the rule decision 6 uses. Each row carries a
+  checkout chip, the worktree's name or Local, read from the thread's binding.
+  A Needs you strip above the sections lists every thread waiting on the
+  person, from the run state the host commits; a thread leaves it when its
+  request is answered or it has been shown. A section is keyed on the
+  repository's `repoCommonDir` through one function (`threadProjectKey`),
+  where the project record's id will replace it; until then a second clone is
+  a section of its own. A saved grouping is kept.
 
 ## Consequences
 

@@ -627,10 +627,10 @@ describe('repository sections in folder grouping', () => {
   ]);
   const repository: ThreadRepositoryRow = {
     branch: 'main',
-    commonDir: '/ws/brainstrike/.git',
     detached: false,
     displayName: 'brainstrike',
     folder: checkout,
+    key: '/ws/brainstrike/.git',
     path: '/ws/brainstrike',
   };
 

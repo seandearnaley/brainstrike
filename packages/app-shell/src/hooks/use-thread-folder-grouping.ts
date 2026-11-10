@@ -1,6 +1,6 @@
 /**
  * Everything the Threads panel's folder grouping reads beyond the threads
- * themselves (ADR-0034 decision 3), made only while that grouping shows:
+ * themselves (ADR-0034, owner decisions 2026-11-10), made only while that grouping shows:
  * entering it is the gesture, and the other groupings place no thread by
  * folder or repository.
  *

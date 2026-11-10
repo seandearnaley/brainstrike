@@ -1,6 +1,6 @@
 /**
  * The host's worktree listing for the Threads panel's folder grouping
- * (ADR-0034 decision 3): the one git read that says which repository each
+ * (ADR-0034, owner decisions 2026-11-10): the one git read that says which repository each
  * checkout belongs to, so a section can be a repository and not a folder.
  *
  * ONE `worktrees.list()` for the whole panel, never one per row or per

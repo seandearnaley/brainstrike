@@ -1,6 +1,7 @@
 /**
- * The "Needs you" strip above the Threads panel's sections (ADR-0034 decision
- * 3): what is waiting on the person shows before where it lives.
+ * The "Needs you" strip above the Threads panel's sections (ADR-0034, owner
+ * decisions 2026-11-10): what is waiting on the person shows before where it
+ * lives.
  *
  * A short list, not a second tree: each row names a waiting thread and says
  * what it waits for, and opens it. The thread keeps its own row in its

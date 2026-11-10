@@ -1,5 +1,5 @@
 /**
- * The Threads panel's "Needs you" strip (ADR-0034 decision 3): every thread
+ * The Threads panel's "Needs you" strip (ADR-0034, owner decisions 2026-11-10): every thread
  * waiting on its person, across all projects, and what each waits for.
  *
  * Pure, and it adds no source of its own. The three waits are the ones the
