@@ -83,6 +83,48 @@ const ModelCatalogPresentationSchema = Schema.Struct({
     tagline: Schema.NullOr(Schema.String),
   },
 });
+/** A token limit: a whole, positive number of tokens. */
+const TokenLimitSchema = Schema.Int.check(Schema.isGreaterThan(0));
+/**
+ * A USD rate per 1M tokens. Zero is allowed for a reviewed free route
+ * (`LlmModelDefinition.pricing`); a negative or non-finite rate never is.
+ */
+const UsdPerMTokSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+const LongContextTierSchema = Schema.Struct({
+  cacheReadPerMTok: Schema.optional(UsdPerMTokSchema),
+  cacheWritePerMTok: Schema.optional(UsdPerMTokSchema),
+  inputPerMTok: UsdPerMTokSchema,
+  minPromptTokens: TokenLimitSchema,
+  outputPerMTok: UsdPerMTokSchema,
+});
+const PricingRatesFields = {
+  cacheReadPerMTok: Schema.optional(UsdPerMTokSchema),
+  cacheWritePerMTok: Schema.optional(UsdPerMTokSchema),
+  inputPerMTok: UsdPerMTokSchema,
+  longContextTiers: Schema.optional(Schema.mutable(Schema.Array(LongContextTierSchema))),
+  outputPerMTok: UsdPerMTokSchema,
+};
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/u;
+function isCalendarDay(value: string): boolean {
+  if (!CALENDAR_DAY.test(value)) {
+    return false;
+  }
+  // Date rolls an impossible day over (2026-02-30 reads as 2026-03-02), so the
+  // day must survive the round trip unchanged.
+  const ms = Date.parse(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(value);
+}
+/** A real calendar day, `YYYY-MM-DD`, read as 00:00 UTC. */
+const CalendarDaySchema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isCalendarDay(value) ? undefined : 'must be a calendar day written YYYY-MM-DD'
+  )
+);
+/** A whole new rate set a vendor has announced, in force from `effectiveFrom`. */
+const PricingChangeSchema = Schema.Struct({
+  ...PricingRatesFields,
+  effectiveFrom: CalendarDaySchema,
+});
 const LlmModelSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
   anthropicReasoning: Schema.optional(
@@ -97,33 +139,18 @@ const LlmModelSchema = Schema.Struct({
   ),
   bedrockReasoningMandatory: Schema.optional(Schema.Literal(true)),
   catalog: Schema.optional(ModelCatalogPresentationSchema),
-  contextWindow: Schema.Finite,
+  contextWindow: TokenLimitSchema,
   default: Schema.optional(Schema.Boolean),
   id: Schema.String,
   inputModalities: Schema.optional(Schema.mutable(Schema.Array(ModelModalitySchema))),
   label: Schema.optional(Schema.String),
-  maxOutputTokens: Schema.optional(Schema.Finite),
+  maxOutputTokens: TokenLimitSchema,
   nativeToolSearch: Schema.optional(Schema.Literals(['anthropic', 'openai'])),
   outputModalities: Schema.optional(Schema.mutable(Schema.Array(ModelModalitySchema))),
   pricing: Schema.optional(
     Schema.Struct({
-      cacheReadPerMTok: Schema.optional(Schema.Finite),
-      cacheWritePerMTok: Schema.optional(Schema.Finite),
-      inputPerMTok: Schema.Finite,
-      longContextTiers: Schema.optional(
-        Schema.mutable(
-          Schema.Array(
-            Schema.Struct({
-              cacheReadPerMTok: Schema.optional(Schema.Finite),
-              cacheWritePerMTok: Schema.optional(Schema.Finite),
-              inputPerMTok: Schema.Finite,
-              minPromptTokens: Schema.Int.check(Schema.isGreaterThan(0)),
-              outputPerMTok: Schema.Finite,
-            })
-          )
-        )
-      ),
-      outputPerMTok: Schema.Finite,
+      ...PricingRatesFields,
+      changes: Schema.optional(Schema.mutable(Schema.Array(PricingChangeSchema))),
     })
   ),
   promptCaching: Schema.optional(
@@ -136,7 +163,7 @@ const LlmModelSchema = Schema.Struct({
       defaultEnabled: Schema.optional(Schema.Boolean),
       mandatory: Schema.Boolean,
       supportedEfforts: Schema.mutable(Schema.Array(OpenAiReasoningEffortSchema)),
-      vendorDefaultOutputTokens: Schema.optional(Schema.Finite),
+      vendorDefaultOutputTokens: Schema.optional(TokenLimitSchema),
     })
   ),
   supportsStreaming: Schema.optional(Schema.Boolean),

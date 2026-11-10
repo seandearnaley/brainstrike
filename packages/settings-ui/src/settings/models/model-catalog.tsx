@@ -105,7 +105,7 @@ export function ModelCatalog({
   // One projector and one node cache per catalog instance: both are keyed on
   // object identity, which is what keeps untouched rows (and their TreeNodes)
   // identical across a toggle (TreeGrid row-identity contract).
-  const [project] = useState(createCatalogProjector);
+  const [project] = useState(() => createCatalogProjector(Date.now()));
   const [getNodes] = useState(createCatalogNodeCache);
 
   const providerNames = new Map(providers.map((provider) => [provider.id, provider.name]));
