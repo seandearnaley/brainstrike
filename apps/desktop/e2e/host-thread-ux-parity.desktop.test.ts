@@ -171,6 +171,10 @@ test('a host question badges its thread as needing input and notifies once', asy
   // The Threads panel row shows the same pending state, from the host's committed runs.
   const needsYou = page.getByTestId('thread-row').getByTestId('thread-needs-you-glyph');
   await expect(needsYou).toHaveCount(1);
+  // …and the Needs you strip above the sections says what it waits for.
+  const waiting = page.getByRole('region', { name: 'Needs you' });
+  await expect(waiting.getByTestId('threads-needs-you-row')).toHaveCount(1);
+  await expect(waiting.getByTestId('threads-needs-you-reason')).toHaveText('Asked a question');
   await expect
     .poll(() => readNotifications(page), { timeout: 30_000 })
     .toEqual([{ body: 'Has a question for you.', title: 'Assistant' }]);
@@ -180,6 +184,9 @@ test('a host question badges its thread as needing input and notifies once', asy
   await expect(region.getByText(ANSWERED_REPLY)).toBeVisible({ timeout: 90_000 });
   await expect(strip.getByRole('tab', { name: /, finished$/u })).toBeVisible({ timeout: 30_000 });
   await expect(needsYou).toHaveCount(0);
+  // Answered: the thread no longer waits on a question. (The window was left,
+  // so its finished reply may still be listed as ready to review.)
+  await expect(waiting.getByText('Asked a question')).toHaveCount(0);
   await expect
     .poll(() => readNotifications(page), { timeout: 30_000 })
     .toEqual([

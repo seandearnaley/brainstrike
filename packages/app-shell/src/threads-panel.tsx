@@ -83,6 +83,7 @@ import {
   getThreadGroupsCapability,
 } from './thread-groups-capability';
 import { ThreadMarkChip } from './thread-identity-mark';
+import { buildThreadNeedsYouRows } from './thread-needs-you';
 import {
   filterThreadsByThreadFilters,
   hasActiveThreadFilters,
@@ -103,6 +104,7 @@ import { mapThreadRepositories } from './thread-repositories';
 import { type ThreadMoveTarget, type ThreadPinHandler, ThreadRow } from './thread-row';
 import { useThreadSearchStore } from './thread-search-store';
 import { ThreadSectionHeader } from './thread-section-header';
+import { ThreadsNeedsYouStrip } from './threads-needs-you-strip';
 import {
   resolveThreadsPanelDrop,
   type ThreadsPanelDragSource,
@@ -143,9 +145,7 @@ function ThreadStateCard({
     variant === 'error'
       ? 'rounded-xl border border-destructive/30 bg-destructive/5 p-4'
       : 'rounded-xl border border-border border-dashed bg-background/70 p-4';
-  // The panel body is a flex row: without its own full-width lane the card
-  // shrinks to its text and stretches to the panel's height. The lane takes
-  // the search field's inset so both edges line up.
+  // The lane takes the search field's inset so both edges line up.
   return (
     <div className="w-full min-w-0 px-3">
       <div className={className} data-testid={testId}>
@@ -1679,6 +1679,16 @@ export function ThreadsPanelCore({
       getThreadLastActivityAt(thread, hostRuns.get(thread.id) ?? thread.latestRun),
     pinnedAtByThreadId,
   };
+  // What waits on the person, across every project: the same projections the
+  // rows' glyphs read, over ALL threads, so no filter or grouping hides a wait.
+  const needsYouRows = buildThreadNeedsYouRows({
+    failedUnseenThreadIds: unseenThreadIds.failedUnseen,
+    hostRuns,
+    lastActivityAt: ordering.lastActivityAt,
+    needsYouThreadIds: threadsAwaitingApproval.threadIds,
+    threads,
+    unseenThreadIds: unseenThreadIds.unseen,
+  });
   const now = useLocalDay();
   // The section builder's input is discriminated on `groupBy`: each grouping
   // takes exactly the inputs it reads, so the modes are separate calls rather
@@ -1997,7 +2007,8 @@ export function ThreadsPanelCore({
         </p>
       ) : null}
 
-      <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 overflow-hidden'}>
+      <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 flex-col overflow-hidden'}>
+        <ThreadsNeedsYouStrip onSelectThread={handleSelectThread} rows={needsYouRows} />
         <ThreadsPanelContent
           activeThreadIds={activeThreads.threadIds}
           failedUnseenThreadIds={unseenThreadIds.failedUnseen}
