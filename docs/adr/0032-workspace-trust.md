@@ -62,9 +62,22 @@ location, and none lets a folder approve itself.
   file hash. Their content runs commands, so editing them must ask again. Workspace
   trust gates instructions, which were never pinned to content, in the same way
   the vendors above gate them.
+- **A repository's own git filters wait for trust too** (BST-2454, owner
+  decision 2026-11-10). A repository's config can name `filter.<driver>`
+  clean, smudge and process commands that git runs whenever it reads or
+  writes the working tree. Every git command the host runs in a folder that is
+  not trusted, or not inside a trusted one, empties the filter commands that
+  came from the repository's own config and marks those drivers not required.
+  Filters from the person's global or system config, such as Git LFS, still
+  run, and a trusted folder's run as git runs them. The overrides go in as
+  `GIT_CONFIG_KEY_<n>`, which git takes whole, so no driver name can split
+  one.
 
 ## Consequences
 
+- A repository whose filter lives only in its own config, such as git-crypt or
+  `git lfs install --local`, shows its stored form in Changes until the folder
+  is trusted.
 - A cloned repository steers nothing until the person trusts it. Every existing
   folder starts undecided, so its instructions and skills stop loading until it
   is trusted once. The composer prompt says so where the person works.
