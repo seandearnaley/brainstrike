@@ -277,6 +277,7 @@ export function crashableStorePort(
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
+    worktreeLedger: (request) => store.worktreeLedger(request),
   };
   return state;
 }
