@@ -231,6 +231,8 @@ describe('workspace trust (ADR-0032)', () => {
       setSetting: async (key, value) => {
         values.set(key, value);
       },
+      // These folders are plain ones: none is a managed worktree.
+      worktreeLedger: async () => ({ rows: [] }),
     };
   }
 
