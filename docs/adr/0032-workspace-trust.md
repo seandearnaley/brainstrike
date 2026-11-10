@@ -46,7 +46,10 @@ location, and none lets a folder approve itself.
   spelling of one folder shares one answer. A subfolder has its own answer. A
   managed worktree shares its repository's answer: the answer is kept for the
   repository's primary checkout, and reading or recording it through the
-  worktree's path reaches that one record. The
+  worktree's path reaches that one record. A folder answered before the ledger
+  listed it as a worktree keeps a record of its own, which would answer again
+  if it stopped being one, so an answer recorded through a managed worktree
+  removes that folder's own record. The
   host is the only writer (`workspace/trust`), for every client origin, as
   `hooks/trust` is, so the desktop and the CLI record answers the same way.
   Factory reset clears answers with every other setting.

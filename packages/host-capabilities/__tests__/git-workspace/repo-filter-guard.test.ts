@@ -65,6 +65,7 @@ async function repoWithOwnFilter(home: string, driver = 'repo'): Promise<string>
 function settingsStore() {
   const settings = new Map<string, string>();
   return {
+    deleteSetting: async (key: string) => settings.delete(key),
     getSetting: async (key: string) => settings.get(key),
     setSetting: async (key: string, value: string) => {
       settings.set(key, value);
