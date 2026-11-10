@@ -26,7 +26,11 @@ describe('CatalogColumnHeader', () => {
     expect(screen.getByRole('button', { name: 'Model: sort ascending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Context: sort ascending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Max output: sort ascending' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Price: sort ascending' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Input price: sort ascending' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Output price: sort ascending' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Cache/u })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Capabilities/u })).not.toBeInTheDocument();
   });
 
@@ -73,7 +77,24 @@ describe('CatalogColumnHeader', () => {
     expect(onSortChange).toHaveBeenLastCalledWith(null);
   });
 
-  it('renders the narrow tier with the compact Caps label and no Price or Max out', () => {
+  it('heads each rate with its unit and sorts by it at the widest tier', async () => {
+    const onSortChange = vi.fn();
+    render(
+      <CatalogColumnHeader
+        layout={getCatalogColumnLayout('xwide')}
+        onSortChange={onSortChange}
+        scrollerRef={scrollerRef}
+        sort={null}
+      />
+    );
+    const cacheWrite = screen.getByRole('button', { name: 'Cache write price: sort ascending' });
+    expect(cacheWrite).toHaveTextContent('Cache write$ / 1M');
+    expect(screen.getAllByText('$ / 1M')).toHaveLength(4);
+    await userEvent.click(screen.getByRole('button', { name: 'Cache read price: sort ascending' }));
+    expect(onSortChange).toHaveBeenLastCalledWith({ column: 'cacheRead', direction: 'asc' });
+  });
+
+  it('renders the narrow tier with the compact Caps label and no rates or Max out', () => {
     render(
       <CatalogColumnHeader
         layout={getCatalogColumnLayout('narrow')}
@@ -83,7 +104,7 @@ describe('CatalogColumnHeader', () => {
       />
     );
     expect(screen.getByText('Caps')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Price/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /price/u })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Max output/u })).not.toBeInTheDocument();
   });
 });

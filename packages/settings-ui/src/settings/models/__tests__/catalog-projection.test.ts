@@ -54,6 +54,7 @@ describe('projectCatalogRow', () => {
       cacheReadPerMTok: 0.5,
       cacheWritePerMTok: 6.25,
       inputPerMTok: 5,
+      longContextTiers: [],
       nextChange: null,
       outputPerMTok: 25,
     });
@@ -67,12 +68,14 @@ describe('projectCatalogRow', () => {
       cacheWritePerMTok: null,
       effectiveFrom: '2026-12-01',
       inputPerMTok: 4,
+      longContextTiers: [],
       outputPerMTok: 20,
     };
     expect(projectCatalogRow(argon, 'Google AI Studio', NOV_20_2026).pricing).toEqual({
       cacheReadPerMTok: 0.1,
       cacheWritePerMTok: null,
       inputPerMTok: 2,
+      longContextTiers: [],
       nextChange: change,
       outputPerMTok: 10,
     });
@@ -81,6 +84,23 @@ describe('projectCatalogRow', () => {
       ...inForce,
       nextChange: null,
     });
+  });
+
+  it('carries long-context tiers, a cache rate the tier leaves out as null', () => {
+    const row = projectCatalogRow(
+      makeDbModel({ id: 'gpt-5.5', providerId: 'openai' }),
+      'OpenAI',
+      NOV_20_2026
+    );
+    expect(row.pricing?.longContextTiers).toEqual([
+      {
+        cacheReadPerMTok: 1,
+        cacheWritePerMTok: null,
+        inputPerMTok: 10,
+        minPromptTokens: 272_000,
+        outputPerMTok: 45,
+      },
+    ]);
   });
 
   it("carries the vendor's lifecycle: archived, its successor and its shutdown day", () => {
