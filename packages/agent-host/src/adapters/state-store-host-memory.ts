@@ -117,6 +117,15 @@ export class StateStoreHostMemory implements HostRunOwner {
   private preparedRewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
   /** The tool calls this run's previous provider request carried; none before its first. */
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
+  /**
+   * Memory's system context as the run's first step read it. Every later step
+   * sends the same text: a working-memory update or a settled observation
+   * mid-run would otherwise rewrite the prompt prefix, and every provider's
+   * prompt cache misses from the first changed token (Anthropic and OpenAI
+   * both ask for dynamic content after the cached prefix). The model sees its
+   * own update as the tool call in its history; the next run reads it.
+   */
+  private runSystem: string | undefined;
 
   readonly memory: HostMemory;
   private readonly identity: HostMemoryIdentity;
@@ -331,9 +340,10 @@ export class StateStoreHostMemory implements HostRunOwner {
     // Active SDK messages retain their actual validated approval/runtime objects.
     // Public Memory selects previous committed turns, never reconstructs an
     // active call or changes the existing host approval occurrence.
-    const system = [step.context.systemMessage, step.context.otherThreadsContext]
+    this.runSystem ??= [step.context.systemMessage, step.context.otherThreadsContext]
       .filter((part) => part !== undefined && part.length > 0)
       .join('\n\n');
+    const system = this.runSystem;
     const continuation = new MessageList({
       resourceId: this.identity.resourceId,
       threadId: this.identity.threadId,

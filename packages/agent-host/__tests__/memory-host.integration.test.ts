@@ -223,11 +223,14 @@ test.each([
         committed.filter((row) => row.event.type === 'provider.request.prepared')
       ).toHaveLength(model.doStreamCalls.length);
       expect(prepared).toEqual(model.doStreamCalls);
-      const systemContext = JSON.stringify(
-        model.doStreamCalls.at(-1)?.prompt.filter((message) => message.role === 'system')
+      // Every step of a run sends the system context its first step read, so the
+      // working-memory update while it waited keeps the provider's cached prefix.
+      const systemContexts = model.doStreamCalls.map((call) =>
+        JSON.stringify(call.prompt.filter((message) => message.role === 'system'))
       );
-      expect(systemContext).toContain(providerSystem);
-      expect(systemContext).toContain('retained working memory');
+      expect(new Set(systemContexts).size).toBe(1);
+      expect(systemContexts[0]).toContain(providerSystem);
+      expect(systemContexts[0]).not.toContain('retained working memory');
       expect(committed.every((row) => row.ts !== undefined)).toBe(true);
       const identity = committedRunIdentity(committed, runId);
       expect(identity).toMatchObject({
@@ -330,6 +333,10 @@ test.each([
       }
       const secondPrompt = model.doStreamCalls.at(-1)?.prompt;
       expect(secondPrompt?.filter((message) => message.role !== 'system')[0]?.role).toBe('user');
+      // The next run reads the working memory the first one updated.
+      expect(
+        JSON.stringify(secondPrompt?.filter((message) => message.role === 'system'))
+      ).toContain('retained working memory');
       if (mode === 'history') {
         expect(JSON.stringify(secondPrompt).includes(command.prompt)).toBe(lastMessages === 40);
       }
