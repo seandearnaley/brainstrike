@@ -87,6 +87,7 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
     status: 'completed',
     threadId,
     toolCallCount: 1,
+    unreportedCallCount: 0,
   });
   expect(runs).toHaveLength(4);
   expect(usage).toHaveLength(8);
