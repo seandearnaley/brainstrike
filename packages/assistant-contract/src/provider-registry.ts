@@ -278,6 +278,13 @@ export type ProviderAuthType = 'api_key' | 'aws';
 
 export interface ProviderDefinition {
   authType: ProviderAuthType;
+  /**
+   * `false` when a stream the client cuts off is not billed (its provider's
+   * record of usage shows no such request). Absent: the provider bills it but
+   * never reports its usage to the client, so the ledger marks the call
+   * "cost not reported by the provider".
+   */
+  billsCutOffStreams?: boolean;
   capabilities: ProviderCapabilities;
   readonly catalog?: ProviderCatalogPresentation;
   /**

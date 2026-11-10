@@ -103,6 +103,8 @@ export const HostLedgerThreadSchema = Schema.Struct({
         status: LedgerRunStatus,
         threadId: Id,
         toolCallCount: Tokens,
+        /** Cut-off calls the provider bills but never reported: not $0, not estimated. */
+        unreportedCallCount: Tokens,
       })
     )
   ),

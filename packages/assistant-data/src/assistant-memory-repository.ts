@@ -278,6 +278,11 @@ export interface RunLedgerRow {
   readonly status: AssistantThreadRunStatus;
   readonly threadId: string;
   readonly toolCallCount: number;
+  /**
+   * Calls a Stop or failure cut off that the provider bills but never
+   * reported to the client: their cost is not in this row, and not $0.
+   */
+  readonly unreportedCallCount: number;
 }
 
 /** Per-(model, run-kind) token subtotal for a single thread. */
