@@ -1,6 +1,6 @@
 /**
  * Desktop E2E for the Threads panel's default view, `Group by → Folder`
- * (BST-1388 W2; ADR-0034 decision 3): threads listed by the repository or
+ * (BST-1388 W2; ADR-0034, owner decisions 2026-11-10): threads listed by the repository or
  * folder they work in.
  *
  * Drives the BUILT Electron app against REAL `git init`'d folders so the whole

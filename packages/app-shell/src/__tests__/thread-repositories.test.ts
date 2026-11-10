@@ -92,10 +92,10 @@ describe('projectThreadRepositories', () => {
     const repository = resolveThreadRepository(inOwnCheckout, lookup);
     expect(repository).toEqual({
       branch: 'main',
-      commonDir: COMMON_DIR,
       detached: false,
       displayName: 'brainstrike',
       folder: repoFolder,
+      key: COMMON_DIR,
       path: '/code/brainstrike',
     });
     // The same repository, so the two threads share one section.
@@ -108,7 +108,7 @@ describe('projectThreadRepositories', () => {
       folderRows
     );
 
-    expect(resolveThreadRepository(inWorktree, lookup)?.commonDir).toBe(COMMON_DIR);
+    expect(resolveThreadRepository(inWorktree, lookup)?.key).toBe(COMMON_DIR);
   });
 
   it('leaves a worktree out of its repository unless the ledger lists it and git joins it', () => {
@@ -124,7 +124,7 @@ describe('projectThreadRepositories', () => {
       const lookup = projectThreadRepositories([ownCheckout, worktree], folderRows);
       expect(resolveThreadRepository(inWorktree, lookup)).toBeUndefined();
       // Its repository's own checkout is unaffected.
-      expect(resolveThreadRepository(inOwnCheckout, lookup)?.commonDir).toBe(COMMON_DIR);
+      expect(resolveThreadRepository(inOwnCheckout, lookup)?.key).toBe(COMMON_DIR);
     }
   });
 
@@ -154,10 +154,10 @@ describe('projectThreadRepositories', () => {
 
     expect(resolveThreadRepository(inWorktree, lookup)).toEqual({
       branch: null,
-      commonDir: COMMON_DIR,
       detached: true,
       displayName: 'brainstrike',
       folder: null,
+      key: COMMON_DIR,
       path: '/code/brainstrike',
     });
   });

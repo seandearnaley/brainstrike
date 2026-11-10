@@ -245,7 +245,7 @@ function appendGroupedSection({
  * Re-derives the section id as a node id WITHOUT a cast, so a section id this
  * module cannot address fails loudly here instead of silently becoming an
  * unreachable treegrid node. The shapes are the ones `thread-list-sections.ts`
- * mints: `repository:${commonDir}`, `folder:${rootId}`, the deliberately
+ * mints: `repository:${key}`, `folder:${rootId}`, the deliberately
  * unemittable `folder-unassigned` sentinel, `date:${bucket}` and the Pinned
  * section's id.
  */

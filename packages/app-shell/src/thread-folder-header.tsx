@@ -1,8 +1,8 @@
 /**
  * Section header for the Threads panel's `groupBy: 'folder'` view (BST-1405,
- * ADR-0034 decision 3): a repository, a folder outside one, or "No project".
- * Each is a project, the interface word for it (ADR-0034, owner decisions
- * 2026-11-10); a folder outside git is a project with one checkout.
+ * ADR-0034, owner decisions 2026-11-10): a repository, a folder outside one, or "No project".
+ * Each is a project, the interface word for it; a folder outside git is a
+ * project with one checkout.
  *
  * Deliberately NOT `ThreadGroupHeader` with a different icon. A custom group is
  * a durable object the user creates, renames, colors, reorders and drops

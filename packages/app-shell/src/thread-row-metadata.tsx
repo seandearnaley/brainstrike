@@ -136,7 +136,7 @@ function ThreadDetail({
 }
 
 /**
- * Where a thread works (ADR-0034 decision 3): in a worktree, or in its folder
+ * Where a thread works (ADR-0034, owner decisions 2026-11-10): in a worktree, or in its folder
  * itself ("Local", the composer's own word for it).
  *
  * Read from the thread's committed binding and nothing else. The host writes
