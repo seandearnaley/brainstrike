@@ -6,7 +6,11 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { toBoundaryFailure } from './boundary-wire.ts';
-import { type HostRunState, hasHostInteractionResponse } from './core-state.ts';
+import {
+  type HostRunState,
+  hasHostInteractionResponse,
+  releaseSettledRunAdmission,
+} from './core-state.ts';
 import { HostMcpInputPersistenceError } from './mcp-input-state.ts';
 import type { HostRunAdmission } from './ports.ts';
 import type { HostEvent } from './protocol.ts';
@@ -559,6 +563,7 @@ export function finishHostRun(
       () => {
         run.terminal = true;
         run.outcome = joinedOutcome;
+        releaseSettledRunAdmission(run);
         // The answer is finished; the owner's background memory settles after
         // it. Begun with the commit, so whoever sees `run.finished` sees it too.
         void owner.settle(run);
