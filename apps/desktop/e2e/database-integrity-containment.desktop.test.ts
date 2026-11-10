@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostRoot, withAppHost } from './utils/agent-host-log';
 import { seedHostThreads } from './utils/seed-threads';
+import { corruptRunIndex } from './utils/state-db-damage';
 
 /** Read intact table pages without trusting the deliberately damaged secondary index. */
 function retainedRows(file: string) {
@@ -17,36 +18,6 @@ function retainedRows(file: string) {
   } finally {
     db.close();
   }
-}
-
-/** Same physical unique-index cell corruption as StateStore's i3-corruption proof. */
-function corruptRunIndex(file: string): { offset: number; value: number } {
-  const db = new DatabaseSync(file, { readOnly: true });
-  let offset: number;
-  try {
-    const pageSize = Number(db.prepare('PRAGMA page_size').get()?.['page_size']);
-    const leaf = Number(
-      db
-        .prepare(
-          "SELECT pageno FROM dbstat WHERE name='sqlite_autoindex_run_events_1' AND pagetype='leaf' ORDER BY pageno"
-        )
-        .get()?.['pageno']
-    );
-    expect(Number.isInteger(pageSize) && pageSize > 0).toBe(true);
-    expect(Number.isInteger(leaf) && leaf > 0).toBe(true);
-    offset = leaf * pageSize - 3;
-  } finally {
-    db.close();
-  }
-  const bytes = readFileSync(file);
-  const previous = bytes[offset];
-  if (previous === undefined) {
-    throw new Error('Native index cell lies outside the disposable database');
-  }
-  const value = previous ^ 1;
-  bytes[offset] = value;
-  writeFileSync(file, bytes);
-  return { offset, value };
 }
 
 function integrity(file: string): { quick: readonly unknown[]; full: readonly unknown[] } {
