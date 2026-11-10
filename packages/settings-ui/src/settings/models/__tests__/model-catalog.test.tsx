@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CatalogSectionProps } from '../catalog-section';
@@ -190,6 +190,39 @@ describe('ModelCatalog default view', () => {
         element.getAttribute('data-testid')
       )
     ).toEqual(['model-row-claude-haiku-5-5', 'model-row-claude-opus-5-5']);
+  });
+
+  it('drops a sort once a narrower catalog hides its column', async () => {
+    const dom = installCatalogDomStubs({ width: 1100 });
+    render(<ModelCatalog {...catalogProps()} />);
+    await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
+    const anthropicOrder = () =>
+      Array.from(
+        screen
+          .getByTestId('model-catalog-section-anthropic')
+          .querySelectorAll('[data-testid^="model-row-"]'),
+        (element) => element.getAttribute('data-testid')
+      );
+    await userEvent.click(screen.getByRole('button', { name: 'Cache read price: sort ascending' }));
+    expect(anthropicOrder()).toEqual(['model-row-claude-haiku-5-5', 'model-row-claude-opus-5-5']);
+
+    // Below 1040px the cache columns leave, and their order goes with them.
+    act(() => {
+      dom.resize(950);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^Cache read price/u })).not.toBeInTheDocument();
+    });
+    expect(anthropicOrder()).toEqual(['model-row-claude-opus-5-5', 'model-row-claude-haiku-5-5']);
+
+    // Widening again brings the column back unsorted.
+    act(() => {
+      dom.resize(1100);
+    });
+    expect(
+      await screen.findByRole('button', { name: 'Cache read price: sort ascending' })
+    ).toBeInTheDocument();
+    expect(anthropicOrder()).toEqual(['model-row-claude-opus-5-5', 'model-row-claude-haiku-5-5']);
   });
 
   it('renders every expanded section inside the one catalog scroller', async () => {
