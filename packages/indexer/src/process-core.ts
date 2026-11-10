@@ -58,18 +58,23 @@ export async function runIndexerProcess(
         try {
           // One way to end the writer, ready or still starting: ask it. A starting
           // writer's port holds the request until it has opened its database, and a
-          // start that fails rejects this call with that failure. BST-2472: the writer
-          // is never terminated here. Terminating a thread inside better-sqlite3's
-          // native initialisation aborts the whole process, which took the agent host
-          // down before it had closed the state DB. The connection's close window
-          // remains the only kill (ADR-0030).
+          // start that fails rejects this call. BST-2472: Close never terminates the
+          // writer. Terminating a thread inside better-sqlite3's native initialisation
+          // aborts the whole process, which took the agent host down before it had
+          // closed the state DB. A writer that outlives the connection's close window
+          // is still killed with its process (ADR-0030).
           await client.call('close', null, decoder(Schema.Boolean));
         } catch (error) {
           failures.push(error);
         }
         await exited;
+        const [failure] = failures;
         if (failures.length > 0) {
-          throw new AggregateError(failures, 'Indexer close failed.');
+          // The answer names its cause: for an early Close that is the start that failed.
+          throw new AggregateError(
+            failures,
+            `Indexer close failed: ${failure instanceof Error ? failure.message : String(failure)}`
+          );
         }
         return true;
       })();
@@ -205,8 +210,8 @@ export async function runIndexerProcess(
     send({ kind: 'ready', value: info });
   } catch (error) {
     if (closing && closePromise !== undefined) {
-      // The early Close's response owns the outcome and already carries a start
-      // that failed; do not report the same startup again as a startup-error.
+      // The early Close's response owns the outcome. A start that failed is answered
+      // there as a failed Close; do not report it again as a startup-error.
       await closePromise.catch(() => undefined);
       return;
     }

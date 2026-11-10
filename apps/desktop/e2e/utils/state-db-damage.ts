@@ -7,7 +7,8 @@ import { DatabaseSync } from 'node:sqlite';
  *
  * Call it only after the app has closed. The store checkpoints its WAL into `state.db` when it
  * closes; a host that ended without closing it leaves the rows in the WAL, where a changed byte
- * of `state.db` damages nothing (BST-2472). That case throws here instead of passing silently.
+ * of `state.db` damages nothing (BST-2472). This throws unless `integrity_check` then reports
+ * the damage, so that case fails here instead of passing silently.
  */
 export function corruptRunIndex(file: string): { offset: number; value: number } {
   const db = new DatabaseSync(file, { readOnly: true });
@@ -40,5 +41,16 @@ export function corruptRunIndex(file: string): { offset: number; value: number }
   const value = previous ^ 1;
   bytes[offset] = value;
   writeFileSync(file, bytes);
+  const damaged = new DatabaseSync(file, { readOnly: true });
+  try {
+    const rows = damaged.prepare('PRAGMA integrity_check').all();
+    if (rows.length === 1 && rows[0]?.['integrity_check'] === 'ok') {
+      throw new Error(
+        `Changing byte ${offset} of the state DB damaged nothing SQLite reads, so that page's current copy is in the WAL: the agent host ended without closing its store.`
+      );
+    }
+  } finally {
+    damaged.close();
+  }
   return { offset, value };
 }

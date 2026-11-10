@@ -108,9 +108,17 @@ it('answers an early Close with the failure of a writer that could not start', a
   });
   writer.emit('exit', 0);
   await indexer.completed;
-  // One answer, the Close's own: no second frame reports the same startup again.
+  // One answer, the Close's own, naming the start that failed: no second frame repeats it.
   expect(indexer.messages).toEqual([
-    expect.objectContaining({ id: 7, kind: 'response', ok: false }),
+    {
+      error: {
+        code: 'indexer-failed',
+        message: expect.stringContaining('The derived index was refused.'),
+      },
+      id: 7,
+      kind: 'response',
+      ok: false,
+    },
   ]);
   expect(indexer.finish).toHaveBeenCalledTimes(1);
 });

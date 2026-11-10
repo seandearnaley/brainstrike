@@ -50,9 +50,10 @@ it('a Close that arrives while the writer is starting leaves it to open and clos
   await finished.promise;
 
   expect(messages).toEqual([{ id: 7, kind: 'response', ok: true, value: true }]);
-  // A writer that was killed never creates its index. One that was asked to close did,
-  // and left a whole database behind.
+  // A writer that was killed never creates its index, or leaves its WAL beside it. One
+  // that was asked to close created it and closed it: a whole database and no WAL.
   expect(existsSync(dbPath)).toBe(true);
+  expect(existsSync(`${dbPath}-wal`)).toBe(false);
   const index = new Database(dbPath, { fileMustExist: true, readonly: true });
   try {
     expect(index.pragma('integrity_check', { simple: true })).toBe('ok');
