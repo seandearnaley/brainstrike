@@ -80,10 +80,11 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
       await region.getByRole('textbox', { name: 'Message input' }).fill('Tell me a joke.');
       await region.getByRole('button', { exact: true, name: 'Send' }).click();
       await expect(region.getByText(reply, { exact: true })).toBeVisible();
-      await expect(region.getByTestId('context-usage-trigger-cost')).toContainText('$0.000017');
+      // The reply and its thread title each report the scripted Luna usage ($0.0000174 apiece).
+      await expect(region.getByTestId('context-usage-trigger-cost')).toContainText('$0.000035');
       await reloadRenderer(context.window, 'dev-app-launch: reload');
       await expect(region.getByText(reply, { exact: true })).toBeVisible();
-      await expect(region.getByTestId('context-usage-trigger-cost')).toContainText('$0.000017');
+      await expect(region.getByTestId('context-usage-trigger-cost')).toContainText('$0.000035');
       expect(provider.refusals()).toEqual([]);
       await expect(context.window.getByTestId('new-agent-button')).toBeVisible();
       expect(errors).toEqual([]);

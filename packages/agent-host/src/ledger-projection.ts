@@ -419,6 +419,9 @@ export class ThreadLedgerFold {
       // Memory's own model calls cost under their own model, within the run.
       const model = observerUsageModel(event.modelId);
       this.count(run, row, model, event.usage, MEMORY_USAGE_KIND[event.kind]);
+    } else if (event.type === 'model.usage') {
+      // A side call costs under the model it ran on, which an Auto-review names.
+      this.count(run, row, observerUsageModel(event.modelId), event.usage, event.kind);
     } else if (event.type === 'context.compacted' && event.usage !== undefined) {
       // A compaction summarizer's side call, when one ran, costs like Memory's.
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);

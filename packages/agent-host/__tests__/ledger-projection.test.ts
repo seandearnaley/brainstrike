@@ -162,6 +162,34 @@ test("a compaction summarizer's side call counts within its run and as a provide
     provider: 'openrouter',
   });
 });
+test("a run's title and Auto-review calls count within it, each under the model it ran on", () => {
+  const title = {
+    kind: 'thread-title',
+    modelId: MODEL,
+    runId,
+    type: 'model.usage',
+    usage: { inputTokens: 120, outputTokens: 8, totalTokens: 128 },
+  };
+  const review = {
+    kind: 'auto-review',
+    modelId: 'openrouter::google/gemini-2.5-flash',
+    runId,
+    type: 'model.usage',
+    usage: { inputTokens: 600, outputTokens: 20, totalTokens: 620 },
+  };
+  const { perModel, runs, usage } = folded(insertAfterStart(title, review));
+  expect(perModel).toMatchObject([
+    { model: 'anthropic/claude-sonnet-4.6', runKind: 'thread-title' },
+    { model: 'google/gemini-2.5-flash', runKind: 'auto-review' },
+    { runKind: 'chat' },
+  ]);
+  expect(runs.find((run) => run.runId === runId)).toMatchObject({
+    inputTokens: 722,
+    outputTokens: 78,
+  });
+  expect(usage[0]).toMatchObject({ costUsd: usd(120, 8), inputTokens: 120, outputTokens: 8 });
+  expect(usage).toHaveLength(6);
+});
 describe("a step's native web searches bill beside its tokens, at its provider's price per search", () => {
   // Anthropic's web search, swapped in under the catalog tool's sanitized name.
   const log = startedWith({ modelId: 'anthropic::claude-haiku-4-5' });

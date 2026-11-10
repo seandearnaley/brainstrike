@@ -92,5 +92,6 @@
 // turn on an idle thread, and a delivery names the inputs it took (`inputs`, `ledger` optional).
 // v22 (2026-11-05): `run/steer` is gone. A person's message to a running thread is `run/input`,
 // which the run reads at its next step, so no run ends early to make room for it. Removing a
-// method is why this is a version bump.
+// method is why this is a version bump. Additive since: `model.usage` (what a run's thread title
+// and Auto-review calls reported, costed under the model each ran on), a new variant.
 export const AGENT_HOST_PROTOCOL_VERSION = 22;

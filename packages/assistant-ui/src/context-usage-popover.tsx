@@ -48,11 +48,13 @@ function subtotalCostLabel(costUsd: number | null): string {
 
 /** Display label per usage source (BST-953). OM figures are local estimates. */
 const SOURCE_LABELS: Record<AssistantRunUsageKind, string> = {
+  'auto-review': 'Auto-review',
   chat: 'Chat',
   'compaction-summary': 'Compaction summaries',
   'om-observation': 'Memory observer (est.)',
   'om-reflection': 'Memory reflection (est.)',
   subagent: 'Subagents',
+  'thread-title': 'Thread titles',
 };
 
 export interface CumulativeUsageSectionProps {

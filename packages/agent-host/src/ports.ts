@@ -449,8 +449,9 @@ export interface HostRunAdmission {
    * Auto access mode's reviewer: the model for a `provider/model` target, or
    * for `auto` the chat provider's quick model, built with that provider's
    * auth. A target it cannot build rejects, and the call asks the user.
+   * `modelId` is the catalog id (`provider::model`) its usage is costed under.
    */
-  readonly reviewModel?: (target: string) => Promise<LanguageModel>;
+  readonly reviewModel?: (target: string) => Promise<HostReviewModel>;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */
@@ -998,3 +999,9 @@ export interface HostPlatform {
   readonly workspaceDiscovery?: HostWorkspaceDiscovery;
 }
 export type HostSdkTools = ToolSet;
+
+/** The model an Auto-review runs on, and the catalog id its usage is costed under. */
+export interface HostReviewModel {
+  readonly model: LanguageModel;
+  readonly modelId: string;
+}
