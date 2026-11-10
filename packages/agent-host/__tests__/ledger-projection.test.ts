@@ -165,9 +165,16 @@ test("a compaction summarizer's side call counts within its run and as a provide
 describe("a step's native web searches bill beside its tokens, at its provider's price per search", () => {
   // Anthropic's web search, swapped in under the catalog tool's sanitized name.
   const log = startedWith({ modelId: 'anthropic::claude-haiku-4-5' });
+  // As the SDK commits them: the call carries `providerExecuted`, its result does not.
+  const call = (toolCallId: string) => ({
+    input: { query: 'q' },
+    providerExecuted: true,
+    toolCallId,
+    toolName: 'brainstrike_webSearch',
+    type: 'tool-call',
+  });
   const result = (toolCallId: string, outputType: string) => ({
     output: { type: outputType, value: [] },
-    providerExecuted: true,
     toolCallId,
     toolName: 'brainstrike_webSearch',
     type: 'tool-result',
@@ -192,26 +199,20 @@ describe("a step's native web searches bill beside its tokens, at its provider's
   // Claude Haiku 4.5 lists at $1 input / $5 output per million tokens; a search is $0.01.
   const tokens = (1000 * 1 + 100 * 5) / 1e6;
   const searched = [
-    {
-      input: { query: 'q' },
-      providerExecuted: true,
-      toolCallId: 'srvtoolu_1',
-      toolName: 'brainstrike_webSearch',
-      type: 'tool-call',
-    },
+    call('srvtoolu_1'),
     result('srvtoolu_1', 'json'),
-    // A client tool's call is the host's own work, never a provider search.
+    // A client tool's call and result are the host's own work, never a provider search.
     { input: {}, toolCallId: 'call_2', toolName: 'brainstrike_webSearch', type: 'tool-call' },
+    result('call_2', 'json'),
   ];
 
   test('each search that returned results, when the provider reports no count', () => {
     expect(stepCost(searched, {})).toBeCloseTo(tokens + 0.01, 12);
   });
   test('a failed search is not billed', () => {
-    expect(stepCost([...searched, result('srvtoolu_2', 'error-json')], {})).toBeCloseTo(
-      tokens + 0.01,
-      12
-    );
+    expect(
+      stepCost([...searched, call('srvtoolu_2'), result('srvtoolu_2', 'error-json')], {})
+    ).toBeCloseTo(tokens + 0.01, 12);
   });
   test("the provider's own count wins when it reports one", () => {
     const reported = { raw: { server_tool_use: { web_search_requests: 3 } } };

@@ -167,6 +167,7 @@ const StepMessagesSchema = Schema.Array(
         Schema.Struct({
           output: Schema.optional(Schema.Struct({ type: Schema.String })),
           providerExecuted: Schema.optional(Schema.Boolean),
+          toolCallId: Schema.optional(Schema.String),
           toolName: Schema.optional(Schema.String),
           type: Schema.String,
         })
@@ -202,23 +203,27 @@ export function nativeWebSearchCalls(messages: unknown, usage: unknown): number 
   if (Option.isSome(reported)) {
     return reported.value;
   }
-  let searches = 0;
-  for (const message of Schema.decodeUnknownSync(StepMessagesSchema)(messages)) {
-    if (message.role !== 'assistant' || typeof message.content === 'string') {
-      continue;
-    }
-    for (const part of message.content) {
-      if (
-        part.type === 'tool-result' &&
-        part.providerExecuted === true &&
-        part.toolName === NATIVE_WEB_SEARCH_TOOL_NAME &&
-        !part.output?.type.startsWith('error')
-      ) {
-        searches += 1;
-      }
-    }
-  }
-  return searches;
+  // The SDK flags the provider's call, not its result: a result is the
+  // search's when its call id is a provider-executed search call's.
+  const parts = Schema.decodeUnknownSync(StepMessagesSchema)(messages).flatMap((message) =>
+    message.role === 'assistant' && typeof message.content !== 'string' ? message.content : []
+  );
+  const searchCalls = new Set(
+    parts
+      .filter(
+        (part) =>
+          part.type === 'tool-call' &&
+          part.providerExecuted === true &&
+          part.toolName === NATIVE_WEB_SEARCH_TOOL_NAME
+      )
+      .map((part) => part.toolCallId)
+  );
+  return parts.filter(
+    (part) =>
+      part.type === 'tool-result' &&
+      searchCalls.has(part.toolCallId) &&
+      !part.output?.type.startsWith('error')
+  ).length;
 }
 /** What a step's native searches cost; null when its provider declares no price for them. */
 function webSearchCost(model: CatalogModel, searches: number): number | null {
