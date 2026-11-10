@@ -129,6 +129,61 @@ test('a folder kept restricted inside a trusted location stays restricted', asyn
   await expect(trustedHostWorkspaceRoots(store, [{ path: suspect }])).resolves.toEqual([]);
 });
 
+test('a location does not reach into a folder the person kept restricted', async () => {
+  const store = await openStore();
+  const { code, home } = await codeFolder();
+  const cloned = await folderIn(code, 'cloned');
+  const suspect = await folderIn(code, 'suspect');
+  const inside = await folderIn(suspect, 'packages/tool');
+  const vendored = await folderIn(suspect, 'vendored');
+  await writeHostWorkspaceTrust(store, suspect, 'restricted');
+  await writeHostWorkspaceTrust(store, vendored, 'trusted');
+  await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
+
+  // A folder inside the restricted one asks, as it did before there was a location.
+  await expect(readHostWorkspaceTrustAnswer(store, inside)).resolves.toMatchObject({
+    trust: 'undecided',
+    trustedThrough: undefined,
+  });
+  await expect(trustedHostWorkspaceRoots(store, [{ path: inside }])).resolves.toEqual([]);
+  // An answer given for a folder in there is that folder's alone.
+  await expect(readHostWorkspaceTrust(store, vendored)).resolves.toBe('trusted');
+  await expect(readHostWorkspaceTrust(store, await folderIn(vendored, 'docs'))).resolves.toBe(
+    'undecided'
+  );
+
+  // A worktree of a restricted repository restricts what is in it too, wherever the repository is.
+  const elsewhere = await repositoryAt(await tempDir('bs-trusted-locations-repo-'));
+  await writeHostWorkspaceTrust(store, elsewhere.path, 'restricted');
+  const worktree = await addManagedWorktree(store, elsewhere, await folderIn(code, 'worktrees'));
+  await expect(readHostWorkspaceTrust(store, await folderIn(worktree.path, 'docs'))).resolves.toBe(
+    'undecided'
+  );
+
+  // Once the person trusts the folder, the location covers what is in it again.
+  await writeHostWorkspaceTrust(store, suspect, 'trusted');
+  await expect(readHostWorkspaceTrust(store, inside)).resolves.toBe('trusted');
+});
+
+test("the answer given for the location's own folder does not change what the location covers", async () => {
+  const store = await openStore();
+  const { code, home } = await codeFolder();
+  const cloned = await folderIn(code, 'cloned');
+  const later = await folderIn(code, 'later');
+  await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
+  // With no answer, the location's own files are trusted like everything in it.
+  await expect(readHostWorkspaceTrustAnswer(store, code)).resolves.toMatchObject({
+    trust: 'trusted',
+    trustedThrough: code,
+  });
+
+  // Restricting the folder itself holds back its own AGENTS.md, not the folders the person listed it for.
+  await writeHostWorkspaceTrust(store, code, 'restricted');
+
+  await expect(readHostWorkspaceTrust(store, code)).resolves.toBe('restricted');
+  await expect(readHostWorkspaceTrust(store, later)).resolves.toBe('trusted');
+});
+
 test('a symlink is judged by where it really is, not by where the link sits', async () => {
   const store = await openStore();
   const { code, home } = await codeFolder();

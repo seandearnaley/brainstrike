@@ -301,8 +301,11 @@ describe('which folder decides', () => {
     const cloned = path.join(code, 'cloned');
     const later = path.join(code, 'later');
     const kept = path.join(code, 'kept');
+    const insideKept = path.join(kept, 'packages', 'tool');
     const outside = await tempDir('bs-filter-guard-outside-');
-    await Promise.all([cloned, later, kept].map((folder) => mkdir(folder, { recursive: true })));
+    await Promise.all(
+      [cloned, later, insideKept].map((folder) => mkdir(folder, { recursive: true }))
+    );
     const store = settingsStore();
     await writeHostWorkspaceTrust(store, kept, 'restricted');
     await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
@@ -310,6 +313,7 @@ describe('which folder decides', () => {
       listRoots: async () => [
         { displayName: 'later', path: later, rootId: 'later' },
         { displayName: 'kept', path: kept, rootId: 'kept' },
+        { displayName: 'tool', path: insideKept, rootId: 'tool' },
         { displayName: 'outside', path: outside, rootId: 'outside' },
       ],
     });
@@ -317,6 +321,8 @@ describe('which folder decides', () => {
     // No answer was given for `later`: the location it is kept in is the answer.
     expect(await isTrusted(later)).toBe(true);
     expect(await isTrusted(kept)).toBe(false);
+    // The location does not reach into the restricted folder, so that folder still decides.
+    expect(await isTrusted(insideKept)).toBe(false);
     expect(await isTrusted(outside)).toBe(false);
   });
 });

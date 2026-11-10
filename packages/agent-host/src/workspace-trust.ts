@@ -98,7 +98,7 @@ export function hostTrustedLocationOffer(answering: string, home: string): strin
  * given for folders stay, so a folder trusted only through the location is
  * undecided again. True when it was one.
  */
-export function removeHostTrustedLocation(
+export async function removeHostTrustedLocation(
   store: HostWorkspaceTrustStore,
   path: string
 ): Promise<boolean> {
@@ -109,7 +109,7 @@ export function removeHostTrustedLocation(
   }
   // The listed path names it even when its folder is gone; another spelling names it while it exists.
   const folder = hostFolderIdentity(path);
-  return changeHostTrustedLocations(store, (locations) => {
+  return await changeHostTrustedLocations(store, (locations) => {
     const kept = locations.filter((location) => location !== path && location !== folder);
     return { locations: kept, result: kept.length < locations.length };
   });
@@ -159,12 +159,43 @@ export interface HostWorkspaceTrustAnswer {
   readonly trustedThrough: string | undefined;
 }
 /**
+ * The trusted location that covers `answering` (a canonical path): the nearest
+ * one it lies inside, unless a folder between the two is one the person kept
+ * restricted. A restricted folder's contents then ask, as they did before the
+ * location, instead of being trusted past the person's answer. Each folder on
+ * the way is read through the folder that answers for it, so a worktree of a
+ * restricted repository restricts what is in it too. The location's own answer
+ * is about its own files and does not change what it covers.
+ */
+async function coveringLocation(
+  store: HostWorkspaceTrustStore,
+  answering: string
+): Promise<string | undefined> {
+  const location = (await readHostTrustedLocations(store))
+    .filter((each) => isWithin(answering, each))
+    .sort((left, right) => right.length - left.length)[0];
+  if (location === undefined) {
+    return;
+  }
+  for (
+    let between = dirname(answering);
+    between !== location && isWithin(between, location);
+    between = dirname(between)
+  ) {
+    const answers = await hostAnsweringFolder(store, between);
+    if (answers !== undefined && (await store.getSetting(trustKey(answers))) === 'restricted') {
+      return;
+    }
+  }
+  return location;
+}
+/**
  * The trust of the folder at `path`, with the folder it was read from,
  * resolved once so a listing never names one folder and shows another's
  * answer. The answer the person gave wins, restricted included. With none, the
- * folder is trusted when the folder that answers for it lies inside a trusted
- * location: so a managed worktree counts by its repository's place, and a
- * symlink by where it really is.
+ * folder is trusted when a trusted location covers the folder that answers for
+ * it: so a managed worktree counts by its repository's place, and a symlink by
+ * where it really is.
  */
 export async function readHostWorkspaceTrustAnswer(
   store: HostWorkspaceTrustStore,
@@ -182,13 +213,8 @@ export async function readHostWorkspaceTrustAnswer(
       trustedThrough: undefined,
     };
   }
-  // The nearest location holding the folder is the one Settings names.
   const trustedThrough =
-    answering === undefined
-      ? undefined
-      : (await readHostTrustedLocations(store))
-          .filter((location) => isWithin(answering, location))
-          .sort((left, right) => right.length - left.length)[0];
+    answering === undefined ? undefined : await coveringLocation(store, answering);
   return {
     answeredBy,
     folder,
