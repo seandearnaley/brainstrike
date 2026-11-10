@@ -124,7 +124,13 @@ const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  * run uses. `answeredBy` is the folder whose answer the root shares when it is
  * not its own, a managed worktree's repository (ADR-0034 decision 6): its
  * `path` and `displayName` are that folder's own entry's when it is listed
- * too, so entries that share an answer group by it.
+ * too, so entries that share an answer group by it. `trustedThrough` is the
+ * trusted location a root with no answer of its own is trusted through.
+ * `offeredLocation` is the parent a trust ask for the root may offer as a
+ * trusted location, named so the ask can show it and send it back: absent for
+ * a trusted root, for a parent that is one already, and for the top of the
+ * filesystem, the home directory or a folder that holds it, and a folder
+ * other people can write to.
  */
 const WorkspaceTrustRootSchema = Schema.Struct({
   agentConfiguration: Schema.Struct({
@@ -135,9 +141,11 @@ const WorkspaceTrustRootSchema = Schema.Struct({
   }),
   answeredBy: Schema.optionalKey(Schema.Struct({ displayName: Text, path: AbsolutePath })),
   displayName: Text,
+  offeredLocation: Schema.optionalKey(AbsolutePath),
   path: AbsolutePath,
   rootId: Id,
   trust: HostWorkspaceTrustSchema,
+  trustedThrough: Schema.optionalKey(AbsolutePath),
 });
 export type HostWorkspaceTrustRoot = (typeof WorkspaceTrustRootSchema)['Type'];
 
@@ -155,9 +163,22 @@ export const WORKSPACE_DISCOVERY_METHOD_SCHEMAS = {
   'workspace/context-files': Schema.Record(Schema.String, Schema.Never),
   'workspace/personas': Schema.Record(Schema.String, Schema.Never),
   'workspace/skills': Schema.Record(Schema.String, Schema.Never),
-  /** Record the person's answer for the folder at an absolute path; the host is the only writer. */
-  'workspace/trust': Schema.Struct({ path: AbsolutePath, trust: HostWorkspaceTrustDecisionSchema }),
+  /**
+   * Record the person's answer for the folder at an absolute path; the host is
+   * the only writer. `location` also records that folder's parent as a trusted
+   * location: it names the parent the ask showed, and the host refuses any
+   * other folder.
+   */
+  'workspace/trust': Schema.Struct({
+    location: Schema.optionalKey(AbsolutePath),
+    path: AbsolutePath,
+    trust: HostWorkspaceTrustDecisionSchema,
+  }),
   'workspace/trust/list': Schema.Record(Schema.String, Schema.Never),
+  /** The trusted locations: every folder inside one is trusted without an ask. */
+  'workspace/trust/locations': Schema.Record(Schema.String, Schema.Never),
+  /** Remove a trusted location by the path it is listed under; folders' own answers stay. */
+  'workspace/trust/locations/remove': Schema.Struct({ path: AbsolutePath }),
   'workspace/trust/read': Schema.Struct({ path: AbsolutePath }),
 } as const;
 export const WORKSPACE_DISCOVERY_RESULT_SCHEMAS = {
@@ -171,5 +192,17 @@ export const WORKSPACE_DISCOVERY_RESULT_SCHEMAS = {
   'workspace/trust/list': Schema.Struct({
     roots: Schema.mutable(Schema.Array(WorkspaceTrustRootSchema)),
   }),
-  'workspace/trust/read': Schema.Struct({ trust: HostWorkspaceTrustSchema }),
+  'workspace/trust/locations': Schema.Struct({
+    locations: Schema.mutable(Schema.Array(Schema.Struct({ path: AbsolutePath }))),
+  }),
+  'workspace/trust/locations/remove': Schema.Struct({ removed: Schema.Boolean }),
+  /**
+   * `offeredLocation` is the parent a `workspace/trust` for the folder may name
+   * as its `location`, whatever the folder's trust is now. Absent when the host
+   * offers none.
+   */
+  'workspace/trust/read': Schema.Struct({
+    offeredLocation: Schema.optionalKey(AbsolutePath),
+    trust: HostWorkspaceTrustSchema,
+  }),
 } as const;
