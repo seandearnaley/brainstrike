@@ -12,12 +12,13 @@
  * action runs at a time.
  *
  * With `rootPathById`, a right-click on a file's header opens the menu its
- * tree row does. With `openFileInTab` too, a line number of a file's new
- * version opens the file at that line.
+ * tree row does. With `openFileInTab`, a line number of a file's new version
+ * opens the file at that line, where the host says it lies in its root
+ * (`pathInRoot`): a root's own path and a worktree's can be spelled
+ * differently, so the two are never compared here.
  */
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import { toRelativePath } from '@brainstrike/context-actions';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type {
   ChangedFileEntry,
@@ -89,26 +90,6 @@ function describeFiles(files: readonly ChangesFileRevision[]): string {
 
 function describeTarget(target: ChangesActionTarget): string {
   return target.kind === 'hunks' ? target.path : describeFiles(target.files);
-}
-
-/**
- * The file's path inside its root, or null when its worktree lies outside
- * every open root. A path no worktree resolved is the root's already.
- */
-function pathInRoot(entry: ChangedFileEntry, rootPath: string | undefined): string | null {
-  if (entry.worktreePath === null) {
-    return entry.path;
-  }
-  if (rootPath === undefined) {
-    return null;
-  }
-  const separator = entry.worktreePath.includes('\\') ? '\\' : '/';
-  const base = entry.worktreePath.endsWith(separator)
-    ? entry.worktreePath
-    : `${entry.worktreePath}${separator}`;
-  const absolute = `${base}${entry.path}`;
-  const relative = toRelativePath(absolute, rootPath);
-  return relative === absolute ? null : relative;
 }
 
 function revisionOf({ path, revision }: ChangedFileEntry): ChangesFileRevision {
@@ -274,8 +255,7 @@ export function ChangesetDiffPane({
     if (!(entry && openFileInTab)) {
       return;
     }
-    const path = entry.rootId === null ? null : pathInRoot(entry, rootPathById?.get(entry.rootId));
-    if (entry.rootId === null || path === null) {
+    if (entry.rootId === null || entry.pathInRoot === null) {
       toast({
         description: 'It lies outside your open folders.',
         title: `Couldn't open ${entry.path}`,
@@ -283,7 +263,7 @@ export function ChangesetDiffPane({
       });
       return;
     }
-    openFileInTab(encodeFileSelection(entry.rootId, path), { line });
+    openFileInTab(encodeFileSelection(entry.rootId, entry.pathInRoot), { line });
   };
 
   const confirmRevert = () => {

@@ -13,13 +13,14 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { GitScope } from '@brainstrike/types';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isPathContained,
   resolveGitScopeChangesetView,
   resolveGitScopeStructuredFileDiffParams,
 } from '../../src/git-workspace/changeset-git-scope.ts';
 import type { GitCommandRun, GitCommandRunner } from '../../src/git-workspace/git-service.ts';
+import { resolveRootCwd } from '../../src/workspace-root-cwd.ts';
 
 const createdRoots: string[] = [];
 
@@ -291,6 +292,62 @@ describe("resolveGitScopeChangesetView — each entry's patch", () => {
       'diff --git a/a.txt b/a.txt\n@@ -1 +1,2 @@\n a\n+b\ndiff --git a/b.txt b/b.txt\n@@ -1 +1 @@\n-x\n+y\n'
     );
     expect(stray.ok).toBe(false);
+  });
+});
+
+describe("resolveGitScopeChangesetView — each entry's path inside its root", () => {
+  /** A view of one changed file, `a.txt`, in `worktree`, asked for through the root at `rootPath`. */
+  async function viewThroughRoot(rootPath: string, worktree: string) {
+    const { run } = createFakeRunner((args) => {
+      const untracked = noUntrackedFiles(args);
+      if (untracked) {
+        return untracked;
+      }
+      if (isDiff(args) && args.includes('--numstat')) {
+        return ok({ stdout: '1\t0\ta.txt\0' });
+      }
+      if (isDiff(args) && args.includes('--raw')) {
+        return ok({ stdout: raw(['M', 'a.txt']) });
+      }
+      if (isDiff(args)) {
+        return ok({ stdout: 'diff --git a/a.txt b/a.txt\n@@ -1 +1,2 @@\n a\n+b\n' });
+      }
+      throw new Error(`unexpected call: ${JSON.stringify(args)}`);
+    });
+    const roots = {
+      listRoots: async () => [{ displayName: 'repo', path: rootPath, rootId: 'root-id' }],
+    };
+    const view = await resolveGitScopeChangesetView(
+      {
+        resolveRootCwd: (rootId) => resolveRootCwd(roots, rootId, 'worktrees', { error: vi.fn() }),
+        run,
+      },
+      'root-id',
+      {
+        kind: 'git-scope',
+        repositoryRoot: worktree,
+        scope: { kind: 'unstaged' },
+        worktreePath: worktree,
+      }
+    );
+    if (!view.ok) {
+      throw new Error(view.error.message);
+    }
+    return view.value.files.map((file) => file.pathInRoot);
+  }
+
+  it("is the file's own path in a folder that was opened through a symbolic link", async () => {
+    const repo = await makeTempDir();
+    const link = path.join(await makeTempDir(), 'link-to-repo');
+    await fsPromises.symlink(repo, link, 'junction');
+    expect(await viewThroughRoot(link, repo)).toEqual(['a.txt']);
+  });
+
+  it("starts with the worktree's folder when the worktree lies inside the root", async () => {
+    const root = await makeTempDir();
+    const worktree = path.join(root, '.worktrees', 'feature');
+    await fsPromises.mkdir(worktree, { recursive: true });
+    expect(await viewThroughRoot(root, worktree)).toEqual(['.worktrees/feature/a.txt']);
   });
 });
 

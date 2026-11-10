@@ -74,6 +74,8 @@ function entriesOfDiffs(
       ...(diff.oldPath === undefined ? {} : { oldPath: diff.oldPath }),
       patch,
       path: diff.path,
+      // A turn's files are listed from the root itself.
+      pathInRoot: diff.path,
       repositoryRoot: null,
       revision: fileRevision({ ...diff, patch }),
       rootId,

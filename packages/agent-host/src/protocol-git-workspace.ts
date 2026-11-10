@@ -177,6 +177,7 @@ const ChangesetViewSchema = Schema.Struct({
       oldPath: Schema.optionalKey(Text),
       patch: NullableText,
       path: Text,
+      pathInRoot: NullableText,
       repositoryRoot: NullableText,
       revision: Text,
       rootId: NullableText,

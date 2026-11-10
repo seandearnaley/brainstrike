@@ -48,6 +48,7 @@ const WITH_PATCH: ChangedFileEntry = {
   deletions: 1,
   patch: patchOf('src/a.ts'),
   path: 'src/a.ts',
+  pathInRoot: 'src/a.ts',
   repositoryRoot: '/repo',
   revision: 'a-1',
   rootId: 'root-1',
@@ -58,6 +59,7 @@ const WITHOUT_PATCH: ChangedFileEntry = {
   ...WITH_PATCH,
   patch: null,
   path: 'src/b.ts',
+  pathInRoot: 'src/b.ts',
   repositoryRoot: '/other',
   revision: 'b-1',
   rootId: 'root-2',
@@ -318,7 +320,7 @@ describe('ChangesetDiffPane file menu and lines', () => {
       withMenu(
         <ChangesetDiffPane
           changesetKey="cs-1"
-          files={[{ ...WITH_PATCH, worktreePath: '/repo/wt' }]}
+          files={[{ ...WITH_PATCH, pathInRoot: 'wt/src/a.ts', worktreePath: '/repo/wt' }]}
           loadFileDiff={unusedLoad}
           openFileInTab={openFileInTab}
           rootPathById={ROOTS}
@@ -329,6 +331,26 @@ describe('ChangesetDiffPane file menu and lines', () => {
     expect(openFileInTab).toHaveBeenCalledWith('root-1|@|wt/src/a.ts', { line: 1 });
   });
 
+  it('opens a line in a folder that was opened through a symbolic link', async () => {
+    // The folder's own path is the link; the host names the worktree by the
+    // path the link resolves to (macOS: /var/… is /private/var/…).
+    const user = userEvent.setup();
+    const openFileInTab = vi.fn();
+    render(
+      withMenu(
+        <ChangesetDiffPane
+          changesetKey="cs-1"
+          files={[{ ...WITH_PATCH, worktreePath: '/private/var/repo' }]}
+          loadFileDiff={unusedLoad}
+          openFileInTab={openFileInTab}
+          rootPathById={new Map([['root-1', '/var/repo']])}
+        />
+      )
+    );
+    await user.click(await newLineNumber(1));
+    expect(openFileInTab).toHaveBeenCalledWith('root-1|@|src/a.ts', { line: 1 });
+  });
+
   it('says a file in a worktree outside every open folder cannot open', async () => {
     const user = userEvent.setup();
     const openFileInTab = vi.fn();
@@ -337,7 +359,9 @@ describe('ChangesetDiffPane file menu and lines', () => {
         <>
           <ChangesetDiffPane
             changesetKey="cs-1"
-            files={[{ ...WITH_PATCH, worktreePath: '/elsewhere/wt' }]}
+            files={[
+              { ...WITH_PATCH, pathInRoot: null, rootId: null, worktreePath: '/elsewhere/wt' },
+            ]}
             loadFileDiff={unusedLoad}
             openFileInTab={openFileInTab}
             rootPathById={ROOTS}

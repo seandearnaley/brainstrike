@@ -137,6 +137,7 @@ const FILE: ChangedFileEntry = {
   deletions: 1,
   patch: null,
   path: 'src/index.ts',
+  pathInRoot: 'src/index.ts',
   repositoryRoot: '/repo',
   revision: 'r1',
   rootId: 'root-1',

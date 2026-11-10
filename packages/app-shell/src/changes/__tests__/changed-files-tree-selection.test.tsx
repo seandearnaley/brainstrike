@@ -44,6 +44,7 @@ function entry(path: string): ChangedFileEntry {
     deletions: 0,
     patch: null,
     path,
+    pathInRoot: path,
     repositoryRoot: '/repo',
     revision: 'r1',
     rootId: 'root-1',

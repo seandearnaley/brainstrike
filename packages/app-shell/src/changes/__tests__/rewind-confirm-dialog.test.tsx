@@ -67,6 +67,7 @@ function file(rootId: string, path: string, repositoryRoot: string | null): Chan
     deletions: null,
     patch: null,
     path,
+    pathInRoot: path,
     repositoryRoot,
     revision: 'r1',
     rootId,

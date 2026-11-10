@@ -12,6 +12,7 @@ function props(status: ChangedFileStatus): TreeTableCellProps<ChangedFilesTreeNo
     deletions: 0,
     patch: null,
     path: 'src/example.ts',
+    pathInRoot: 'src/example.ts',
     repositoryRoot: '/repo',
     revision: 'r1',
     rootId: 'root-1',

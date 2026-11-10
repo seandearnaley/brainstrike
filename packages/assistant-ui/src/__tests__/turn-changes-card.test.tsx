@@ -123,6 +123,7 @@ function changedFile(path: string, overrides: Partial<ChangedFileEntry> = {}): C
     deletions: 1,
     patch: `diff --git a/${path} b/${path}\n`,
     path,
+    pathInRoot: path,
     repositoryRoot: null,
     revision: 'r1',
     rootId: 'root-1',
