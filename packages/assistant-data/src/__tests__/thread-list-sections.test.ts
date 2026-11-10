@@ -12,8 +12,10 @@ import {
   getThreadDateSection,
   getThreadLastActivityAt,
   getThreadPrimaryRootId,
+  repositorySectionId,
   type ThreadFolderRow,
   type ThreadListOrdering,
+  type ThreadRepositoryRow,
   UNASSIGNED_FOLDER_SECTION_ID,
 } from '../thread-list-sections';
 
@@ -441,6 +443,9 @@ describe('getGroupMemberIds', () => {
   });
 });
 
+/** No thread's folder is a repository's checkout: every thread groups by its folder. */
+const NO_REPOSITORIES: ReadonlyMap<string, ThreadRepositoryRow> = new Map();
+
 describe('folder grouping', () => {
   const rows: ReadonlyMap<string, ThreadFolderRow> = new Map([
     ['root-a', { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'root-a' }],
@@ -473,6 +478,7 @@ describe('folder grouping', () => {
       folderSortBy: 'recency',
       groupBy: 'folder',
       ordering,
+      repositoryByThreadId: NO_REPOSITORIES,
       threads: [
         folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
         folderThread('2', 'root-b', '2026-07-02T00:00:00Z'),
@@ -507,6 +513,7 @@ describe('folder grouping', () => {
       folderSortBy: 'recency',
       groupBy: 'folder',
       ordering,
+      repositoryByThreadId: NO_REPOSITORIES,
       threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
     });
 
@@ -521,6 +528,7 @@ describe('folder grouping', () => {
       folderSortBy: 'recency',
       groupBy: 'folder',
       ordering,
+      repositoryByThreadId: NO_REPOSITORIES,
       threads: [folderThread('1', 'root-zzz', '2026-07-01T00:00:00Z')],
     });
 
@@ -537,6 +545,7 @@ describe('folder grouping', () => {
       folderSortBy: 'name',
       groupBy: 'folder',
       ordering,
+      repositoryByThreadId: NO_REPOSITORIES,
       threads: [
         makeThread({ id: '1', operatingRootId: 'root-a', title: 'zeta' }),
         makeThread({ id: '2', operatingRootId: 'root-a', title: 'Alpha' }),
@@ -565,6 +574,7 @@ describe('folder grouping', () => {
       // @ts-expect-error -- folder grouping ignores custom groups, so it takes none.
       groups: [makeGroup({ id: 'group-a', rank: 'a0' })],
       ordering,
+      repositoryByThreadId: NO_REPOSITORIES,
       threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
     });
     expect(ignoringGroups.kind).toBe('folders');
@@ -584,6 +594,7 @@ describe('folder grouping', () => {
       folderSortBy: 'recency',
       groupBy: 'folder',
       ordering,
+      repositoryByThreadId: NO_REPOSITORIES,
       threads: [
         folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
         folderThread('2', null, '2026-07-02T00:00:00Z'),
@@ -600,6 +611,115 @@ describe('folder grouping', () => {
 
   it('never lets a root literally named "unassigned" collide with the No folder sentinel', () => {
     expect(folderSectionId('unassigned')).not.toBe(UNASSIGNED_FOLDER_SECTION_ID);
+  });
+});
+
+describe('repository sections in folder grouping', () => {
+  const checkout: ThreadFolderRow = {
+    displayName: 'brainstrike',
+    path: '/ws/brainstrike',
+    rootId: 'root-a',
+  };
+  const rows: ReadonlyMap<string, ThreadFolderRow> = new Map([
+    ['root-a', checkout],
+    ['root-b', { displayName: 'alpha', path: '/ws/alpha', rootId: 'root-b' }],
+    ['root-wt', { displayName: 'swift-badger', path: '/wt/swift-badger', rootId: 'root-wt' }],
+  ]);
+  const repository: ThreadRepositoryRow = {
+    branch: 'main',
+    commonDir: '/ws/brainstrike/.git',
+    detached: false,
+    displayName: 'brainstrike',
+    folder: checkout,
+    path: '/ws/brainstrike',
+  };
+
+  function at(id: string, rootId: string | null, day: number): AssistantMemoryThread {
+    return makeThread({
+      id,
+      ...(rootId === null ? {} : { operatingRootId: rootId }),
+      updatedAt: `2026-07-0${day}T00:00:00Z`,
+    });
+  }
+
+  it('puts a thread working in a worktree under its repository, beside the threads in its own checkout', () => {
+    const view = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      ordering,
+      repositoryByThreadId: new Map([
+        ['local', repository],
+        ['worktree', repository],
+      ]),
+      threads: [
+        at('local', 'root-a', 1),
+        at('worktree', 'root-wt', 2),
+        at('other-folder', 'root-b', 3),
+        at('no-folder', null, 4),
+      ],
+    });
+
+    if (view.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    // One section for the repository, not one for its checkout and one for the worktree.
+    expect(view.sections.map((section) => section.id)).toEqual([
+      'folder:root-b',
+      'repository:/ws/brainstrike/.git',
+      'folder-unassigned',
+    ]);
+    const section = view.sections[1];
+    if (section?.header.kind !== 'repository') {
+      throw new Error('expected a repository header');
+    }
+    expect(section.header.repository).toBe(repository);
+    expect(section.threads.map((thread) => thread.id)).toEqual(['worktree', 'local']);
+    expect(getGroupMemberIds(view, repositorySectionId('/ws/brainstrike/.git'))).toEqual([
+      'worktree',
+      'local',
+    ]);
+  });
+
+  it('keeps a folder that is no repository checkout as its own section', () => {
+    const view = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      ordering,
+      // The worktree's thread has no repository here: the ledger or git no longer joins it.
+      repositoryByThreadId: new Map([['local', repository]]),
+      threads: [at('local', 'root-a', 1), at('worktree', 'root-wt', 2)],
+    });
+
+    if (view.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    expect(view.sections.map((section) => section.id)).toEqual([
+      'repository:/ws/brainstrike/.git',
+      'folder:root-wt',
+    ]);
+  });
+
+  it('lists a repository whose worktree folder has no folder row of its own', () => {
+    const view = buildThreadListSections({
+      folderRowsByRootId: new Map(),
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      ordering,
+      repositoryByThreadId: new Map([['worktree', { ...repository, folder: null }]]),
+      threads: [at('worktree', 'root-wt', 1)],
+    });
+
+    if (view.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    // Under its repository, never under "No folder": the thread has a folder.
+    expect(view.sections.map((section) => section.id)).toEqual(['repository:/ws/brainstrike/.git']);
+  });
+
+  it('never lets a folder id collide with a repository id', () => {
+    expect(repositorySectionId('root-a')).not.toBe(folderSectionId('root-a'));
   });
 });
 

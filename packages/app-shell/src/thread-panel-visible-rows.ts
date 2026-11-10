@@ -15,16 +15,17 @@ const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
 /**
  * Treegrid node id of a section row. Custom-groups sections keep their
  * `group:` prefix (the Ungrouped section is {@link THREAD_PANEL_UNGROUPED_NODE_ID});
- * folder sections reuse the section ids `thread-list-sections.ts` mints, so one
- * id addresses the row, its disclosure limit, its collapse state, and its
- * membership.
+ * folder and repository sections reuse the section ids `thread-list-sections.ts`
+ * mints, so one id addresses the row, its disclosure limit, its collapse state,
+ * and its membership.
  */
 type ThreadPanelSectionNodeId =
   | typeof PINNED_SECTION_ID
   | typeof UNASSIGNED_FOLDER_SECTION_ID
   | `date:${string}`
   | `folder:${string}`
-  | `group:${string}`;
+  | `group:${string}`
+  | `repository:${string}`;
 
 type ThreadPanelSectionKey = 'flat' | 'ungrouped' | ThreadPanelSectionNodeId;
 
@@ -83,6 +84,7 @@ export function getThreadPanelMemberSectionId(row: ThreadPanelGroupRow): string 
     case 'date':
     case 'folder':
     case 'pinned':
+    case 'repository':
     case 'unassigned':
       return row.id;
     default: {
@@ -102,6 +104,7 @@ export function getThreadPanelCollapseId(row: ThreadPanelGroupRow): string {
     case 'date':
     case 'folder':
     case 'pinned':
+    case 'repository':
     case 'unassigned':
       return row.id;
     default: {
@@ -242,8 +245,9 @@ function appendGroupedSection({
  * Re-derives the section id as a node id WITHOUT a cast, so a section id this
  * module cannot address fails loudly here instead of silently becoming an
  * unreachable treegrid node. The shapes are the ones `thread-list-sections.ts`
- * mints: `folder:${rootId}`, the deliberately unemittable `folder-unassigned`
- * sentinel, `date:${bucket}` and the Pinned section's id.
+ * mints: `repository:${commonDir}`, `folder:${rootId}`, the deliberately
+ * unemittable `folder-unassigned` sentinel, `date:${bucket}` and the Pinned
+ * section's id.
  */
 function requireViewSectionNodeId(
   sectionId: string
@@ -254,7 +258,7 @@ function requireViewSectionNodeId(
   if (sectionId === PINNED_SECTION_ID) {
     return PINNED_SECTION_ID;
   }
-  for (const prefix of ['folder:', 'date:'] as const) {
+  for (const prefix of ['repository:', 'folder:', 'date:'] as const) {
     if (sectionId.startsWith(prefix)) {
       return `${prefix}${sectionId.slice(prefix.length)}`;
     }
