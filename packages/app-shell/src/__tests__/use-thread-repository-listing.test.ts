@@ -60,6 +60,32 @@ describe('useThreadRepositoryListing', () => {
     expect(result.current.entries).toBeNull();
   });
 
+  it('does not redraw its panel for a git change while another grouping shows', async () => {
+    let renders = 0;
+    const { result } = renderHook(
+      () => {
+        renders += 1;
+        return useThreadRepositoryListing({ enabled: false });
+      },
+      { wrapper: workspaceGitWrapper({ worktrees: stubWorktreesBridge({ list: listing() }) }) }
+    );
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    const before = renders;
+
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/code/brainstrike/.git',
+        repositoryRoot: '/code/brainstrike',
+      });
+    });
+
+    // A commit, a branch switch or a new worktree is none of Date's business.
+    expect(renders).toBe(before);
+  });
+
   it('reads the listing once for the panel, then again when git reports a change', async () => {
     const list = listing();
 

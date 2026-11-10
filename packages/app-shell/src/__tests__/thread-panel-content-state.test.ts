@@ -101,10 +101,42 @@ describe('resolveThreadPanelContentState', () => {
         title: 'No threads found',
         variant: 'muted',
       },
-      name: 'no threads in the default date view',
+      name: 'no threads in the date view',
       overrides: {
         threads: [],
         view: { kind: 'dates', pinned: null, sections: [] } as ThreadListView,
+      },
+    },
+    {
+      expected: {
+        description: 'Send a message to start your first thread.',
+        kind: 'card',
+        testId: 'threads-placeholder-card',
+        title: 'No threads found',
+        variant: 'muted',
+      },
+      // What a new profile sees: no thread, so no section, not even "No project".
+      name: 'no threads in the default project view',
+      overrides: {
+        folderGrouping: { error: null, loading: false },
+        threads: [],
+        view: EMPTY_FOLDERS,
+      },
+    },
+    {
+      expected: {
+        description: 'Send a message to start your first thread.',
+        kind: 'card',
+        testId: 'threads-placeholder-card',
+        title: 'No threads found',
+        variant: 'muted',
+      },
+      // An empty list waits on no project: nothing the read returns could fill it.
+      name: 'no threads in the project view while the projects are still being read',
+      overrides: {
+        folderGrouping: { error: null, loading: true },
+        threads: [],
+        view: EMPTY_FOLDERS,
       },
     },
   ])('stands a card in for the treegrid: $name', ({ expected, overrides }) => {
@@ -165,6 +197,19 @@ describe('resolveThreadPanelContentState', () => {
       title: 'Project grouping unavailable',
       variant: 'error',
     });
+  });
+
+  it('names the filters over a project view they emptied, loaded or not', () => {
+    for (const loading of [false, true]) {
+      expect(
+        resolve({
+          folderGrouping: { error: null, loading },
+          threadFiltersActive: true,
+          threads: [],
+          view: EMPTY_FOLDERS,
+        })
+      ).toMatchObject({ testId: 'threads-filtered-empty-card' });
+    }
   });
 
   it('names the filters when they are what emptied the list, instead of "no threads"', () => {

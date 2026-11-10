@@ -51,7 +51,11 @@ export function useThreadRepositoryListing({
 }): ThreadRepositoryListingState {
   const bridge = useWorktreesBridge();
   useChangesLiveRefreshSubscription();
-  const invalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
+  // A constant while disabled, so a git change redraws the panel only in the
+  // grouping that reads the listing.
+  const invalidationNonce = useChangesLiveRefreshStore((state) =>
+    enabled ? state.anyInvalidationNonce : 0
+  );
   const rootIdentity = useOptionalRootIdentity();
   const [settled, setSettled] = useState<Omit<ThreadRepositoryListingState, 'loading'> | null>(
     null

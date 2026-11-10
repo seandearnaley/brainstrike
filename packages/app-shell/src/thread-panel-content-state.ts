@@ -124,6 +124,32 @@ export function resolveThreadPanelContentState({
       variant: 'muted',
     };
   }
+  // An empty list is settled before the folder grouping is: nothing the folder
+  // or repository reads return could put a row in it.
+  if (threads.length === 0 && threadFiltersActive) {
+    // Never the "No threads found" card here: threads exist, the filters are
+    // simply hiding all of them, and that card's remedy (create a thread) would
+    // not bring any of them back.
+    return {
+      description: 'No thread matches Show only. Clear the filters in view options.',
+      kind: 'card',
+      testId: 'threads-filtered-empty-card',
+      title: 'No matching threads',
+      variant: 'muted',
+    };
+  }
+  // Custom groups render even when empty, so their sections stay reachable. A
+  // flat, date or folder list has nothing to show: a folder view makes a
+  // section only for a thread, not even "No project" without one.
+  if (threads.length === 0 && view.kind !== 'grouped') {
+    return {
+      description: 'Send a message to start your first thread.',
+      kind: 'card',
+      testId: 'threads-placeholder-card',
+      title: 'No threads found',
+      variant: 'muted',
+    };
+  }
   if (folderGrouping?.error) {
     return {
       description: folderGrouping.error.message,
@@ -139,28 +165,6 @@ export function resolveThreadPanelContentState({
       kind: 'card',
       testId: 'threads-folders-loading-card',
       title: 'Loading projects…',
-      variant: 'muted',
-    };
-  }
-  if (threads.length === 0 && threadFiltersActive) {
-    // Never the "No threads found" card here: threads exist, the filters are
-    // simply hiding all of them, and that card's remedy (create a thread) would
-    // not bring any of them back.
-    return {
-      description: 'No thread matches Show only. Clear the filters in view options.',
-      kind: 'card',
-      testId: 'threads-filtered-empty-card',
-      title: 'No matching threads',
-      variant: 'muted',
-    };
-  }
-  // Custom groups render even when empty; a flat or date list has nothing to show.
-  if (threads.length === 0 && (view.kind === 'flat' || view.kind === 'dates')) {
-    return {
-      description: 'Send a message to start your first thread.',
-      kind: 'card',
-      testId: 'threads-placeholder-card',
-      title: 'No threads found',
       variant: 'muted',
     };
   }

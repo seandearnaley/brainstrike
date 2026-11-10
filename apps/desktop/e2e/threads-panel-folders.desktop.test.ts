@@ -160,6 +160,9 @@ async function seedFoldersFixture(
   await openThreadsPanel(page);
   await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('thread-row')).toHaveCount(0);
+  // With no thread the default view has no section to draw, so the panel says
+  // there are none rather than showing an empty list.
+  await expect(page.getByTestId('threads-placeholder-card')).toBeVisible();
   await seedHostThreads(userDataDir, [
     { folder: null, title: UNBOUND_THREAD_TITLE },
     { folder: rootRow(repo, ROOT_ID), title: BOUND_THREAD_TITLES[0] },
