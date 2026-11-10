@@ -201,7 +201,7 @@ const DEFAULT_VIEW_STATE = {
   collapsedGroupIds: {} as Record<string, true>,
   flatSortBy: 'recency' as ThreadsPanelSortBy,
   folderSortBy: 'recency' as ThreadsPanelFolderSortBy,
-  // ADR-0034 decision 3: threads are listed by the repository or folder they
+  // ADR-0034, owner decisions 2026-11-10: threads are listed by the repository or folder they
   // work in. A saved grouping is the person's and is never rewritten to this.
   groupBy: 'folder' as ThreadsPanelGroupBy,
   groupedSortBy: 'recency' as ThreadsPanelSortBy,
