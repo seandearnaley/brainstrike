@@ -3,6 +3,8 @@
 - **Status:** Accepted (Sean, 2026-11-01: "Adopt as proposed")
   - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): there is no index, so decision 5 (a worktree
     reads its repository's index) is void. A worktree's search is live grep on the worktree.
+  - 2026-11-10 (owner decisions, below): decision 7's default is replaced by an Automatic default, a
+    project gets a host-owned record with its own id, and the interface word is "Project".
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -84,9 +86,39 @@ for it.
 2026-11-01: the semantic and hybrid read-through of decision 5 is removed with the
 retrieval tools (the retrieval decision, BST-2428).
 
+## Owner decisions, 2026-11-10
+
+Sean's answers to the questions the "Where Threads Live" brief left open. They
+supersede the decisions above where they differ.
+
+- **Decision 7's default is replaced: the default checkout is Automatic.** A
+  new thread starts in the repository's own checkout. A thread works in a
+  worktree instead when it would start writing to a checkout another thread is
+  already writing to, or when the person asks for work in parallel. The
+  worktree is created at that first write, so a thread that only reads creates
+  nothing. The options not taken were a worktree for every thread (decision 7
+  as written) and always Local. Not built yet.
+  - The rest of decision 7 stands: archive keeps its snapshot ref, and a cap
+    archives the oldest idle worktrees that no open thread uses.
+  - Which thread moves was not part of Sean's answer. It is recorded here as
+    the later writer, because the thread already writing has uncommitted work
+    in the checkout. The work that builds this may revisit it.
+- **A project gets a host-owned record with its own id.** The realpath'd git
+  common dir of decision 1 stays the way a repository is found on disk, and
+  becomes a locator of the project instead of its identity. A moved or renamed
+  folder can then be relinked and keep its threads, and a second clone can join
+  the same project in the thread list. Trust follows only on proof that it is
+  the same folder, never on a fingerprint such as a remote URL or a root
+  commit, which a repository can copy. The record is new durable state, so it
+  needs one owner and joins the reset lifecycle (ADR-0015). Not designed or
+  built yet.
+- **The interface word is "Project".** Labels that say workspace or folder for
+  this are renamed as each screen is touched.
+
 ## Consequences
 
-- The duplicate folder goes away without new storage or a new identity.
+- The duplicate folder goes away without new storage. The project record
+  (owner decisions, 2026-11-10) will add an identity of its own.
 - The index stays one copy per repository. Deleted: the `worktrees` map in
   `index/config`, its Settings and Worktree Map toggles, and the worktree branch
   of `isPartitionRoot`.
