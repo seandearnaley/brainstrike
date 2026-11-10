@@ -1,21 +1,24 @@
 /**
- * Desktop E2E for the Threads panel's `Group by → Folder` view (BST-1388 W2).
+ * Desktop E2E for the Threads panel's default view, `Group by → Folder`
+ * (BST-1388 W2; ADR-0034 decision 3): threads listed by the repository or
+ * folder they work in.
  *
- * Drives the BUILT Electron app against a REAL `git init`'d folder so the
- * whole chain under test is production code: main's root registry, renderer
- * root reconciliation into the durable `roots` table, `useThreadFolderRows`'
- * batched `roots` lookup, `useThreadBranchByRootPath`'s host Changes bridge git
- * inventory, `buildThreadListSections`' folder view, and the folder header's
- * "New thread here" bind. Nothing about the panel is mocked.
+ * Drives the BUILT Electron app against REAL `git init`'d folders so the whole
+ * chain under test is production code: the host's root registry, renderer root
+ * reconciliation into the durable `roots` table, `useThreadFolderRows`' batched
+ * `roots` lookup, the host's worktree listing (git's worktree list joined with
+ * the worktree ledger), `buildThreadListSections`' folder view, and the folder
+ * header's "New thread here" bind. Nothing about the panel is mocked.
  *
  * Conversations are created and bound through the public host protocol, using
  * the durable root identity returned by the real registry.
  *
- * Isolation: a fresh temp repo per test plus the fixture's per-test
+ * Isolation: fresh temp repos per test plus the fixture's per-test
  * `userDataDir`, so neither the host's open folders nor its database can
  * leak between tests. Temp dirs are tracked and removed in `afterAll`.
  */
-import { realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -24,28 +27,25 @@ import { freshRepo as createFreshRepo, createTempDirTracker } from './utils/git-
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { startThread } from './utils/new-thread';
-import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
-import { seedHostThreads, waitForSingleWorkspaceRootRow } from './utils/seed-threads';
+import { seedRoots } from './utils/seed-root';
+import { seedHostThreads, type WorkspaceRootRow } from './utils/seed-threads';
 
 const tempDirs = createTempDirTracker();
 
 const ROOT_ID = 'w2-thread-folders-root-00000000-0000-4000-8000-000000000020';
+const OTHER_ROOT_ID = 'w2-thread-folders-root-00000000-0000-4000-8000-000000000021';
 
 const BOUND_THREAD_TITLES = ['W2 bound alpha', 'W2 bound beta'] as const;
+const OTHER_REPOSITORY_THREAD_TITLE = 'W2 other repository delta';
 const UNBOUND_THREAD_TITLE = 'W2 unbound gamma';
 
 /**
  * A real repo, mounted by its REAL path.
  *
- * `realpathSync` is load-bearing, not tidiness. On macOS `os.tmpdir()` is
- * `/var/folders/…`, a symlink to `/private/var/folders/…`; git reports the
- * resolved form, so this fixture resolves the path before seeding `roots.path`.
- * The branch lookup is durable-ID-first. Its unambiguous containment map handles
- * symlink skew directly; when a root checkout and one of its nested worktrees
- * both claim the same root id, an exact durable-id + normalized-path claim
- * selects the root checkout without borrowing a same-path replacement root.
- * Resolving the fixture path therefore keeps the live branch assertion focused
- * on the ordinary real-path checkout rather than platform path spelling.
+ * On macOS `os.tmpdir()` is `/var/folders/…`, a symlink to
+ * `/private/var/folders/…`. The worktree ledger keeps a worktree by its real
+ * path and git reports the resolved form, so the fixture resolves the path once
+ * and every path this spec compares agrees from the start.
  */
 function freshRepo(label: string): string {
   return realpathSync(
@@ -54,15 +54,15 @@ function freshRepo(label: string): string {
 }
 
 /**
- * Seed the workspace ledgers AND a wide left panel, then reload.
+ * Seed a wide left panel; the next reload applies it.
  *
- * The panel width is part of the fixture, not decoration: the row's metadata
- * badges — the branch chip among them — are behind a `@[420px]/threads`
- * container query, and the default 25% left panel is narrower than that on a
- * 1536px window. Seeding the layout store makes the badge's visibility a
- * FACT ABOUT THE BADGE rather than a fact about the panel's default size.
+ * The panel width is part of the fixture, not decoration: a row's text chips
+ * ("Local", a worktree's name) are behind a `@[420px]/threads` container query,
+ * and the default 25% left panel is narrower than that on a 1536px window.
+ * Seeding the layout store makes a chip's visibility a FACT ABOUT THE CHIP
+ * rather than a fact about the panel's default size.
  */
-async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
+async function seedWidePanel(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.setItem(
       'brainstrike:panel-layout-store.v1',
@@ -77,10 +77,11 @@ async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
       })
     );
   });
-  await seedWorkspaceRoot(page, rootPath, {
-    reloadReason: 'w2-thread-folders-seed-root',
-    rootId: ROOT_ID,
-  });
+}
+
+/** The seeded folder as the host lists it. */
+function rootRow(rootPath: string, id: string): WorkspaceRootRow {
+  return { displayName: path.basename(rootPath), id, path: rootPath };
 }
 
 /**
@@ -99,14 +100,14 @@ async function openThreadsPanel(page: Page): Promise<void> {
   await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
 }
 
-/** Switch the view-options popover's `Group by` radiogroup to Folder. */
-async function groupByFolder(page: Page): Promise<void> {
+/** Switch the view-options popover's `Group by` radiogroup to `label`. */
+async function groupBy(page: Page, label: string): Promise<void> {
   await page.getByRole('button', { name: 'View options' }).click();
-  const groupBy = page.getByRole('radiogroup', { name: 'Group by' });
-  await expect(groupBy).toBeVisible({ timeout: 15_000 });
+  const groupByOptions = page.getByRole('radiogroup', { name: 'Group by' });
+  await expect(groupByOptions).toBeVisible({ timeout: 15_000 });
   // The radio input itself is `sr-only`; the label text is the real target and
   // the click reaches the input through the wrapping <label>.
-  await groupBy.getByText('Folder', { exact: true }).click();
+  await groupByOptions.getByText(label, { exact: true }).click();
   await page.keyboard.press('Escape');
 }
 
@@ -129,15 +130,31 @@ function threadRow(page: Page, title: string) {
   return page.getByTestId('thread-row').filter({ hasText: title });
 }
 
+/** The checkout chip on the one row whose title is `title`. */
+function checkoutChip(page: Page, title: string) {
+  return threadRow(page, title).getByTestId('thread-checkout-chip');
+}
+
 /**
- * Seed one git root plus the three threads every test starts from (two bound
- * to that root, one unbound), and land in folder grouping with the panel open.
+ * Seed two repositories and the four threads every test starts from (two in
+ * the first repository, one in the other, one with no folder), and land on the
+ * panel as a person who never opened View options sees it.
  */
-async function seedFoldersFixture(page: Page, userDataDir: string): Promise<{ repo: string }> {
+async function seedFoldersFixture(
+  page: Page,
+  userDataDir: string
+): Promise<{ other: string; repo: string }> {
   const repo = freshRepo('repo');
-  await seedWorkspace(page, repo);
-  const root = await waitForSingleWorkspaceRootRow(page);
-  expect(root.displayName).toBe(path.basename(repo));
+  const other = freshRepo('other');
+  await seedWidePanel(page);
+  await seedRoots(
+    page,
+    [
+      { path: repo, rootId: ROOT_ID },
+      { path: other, rootId: OTHER_ROOT_ID },
+    ],
+    { reloadReason: 'w2-thread-folders-seed-roots' }
+  );
 
   // An empty host catalog creates nothing: the new-thread screen waits for a first send.
   await openThreadsPanel(page);
@@ -145,8 +162,9 @@ async function seedFoldersFixture(page: Page, userDataDir: string): Promise<{ re
   await expect(page.getByTestId('thread-row')).toHaveCount(0);
   await seedHostThreads(userDataDir, [
     { folder: null, title: UNBOUND_THREAD_TITLE },
-    { folder: root, title: BOUND_THREAD_TITLES[0] },
-    { folder: root, title: BOUND_THREAD_TITLES[1] },
+    { folder: rootRow(repo, ROOT_ID), title: BOUND_THREAD_TITLES[0] },
+    { folder: rootRow(repo, ROOT_ID), title: BOUND_THREAD_TITLES[1] },
+    { folder: rootRow(other, OTHER_ROOT_ID), title: OTHER_REPOSITORY_THREAD_TITLE },
   ]);
   // The thread store loads once per resource on mount, so rows inserted behind
   // it only reach the panel after a reload.
@@ -157,32 +175,50 @@ async function seedFoldersFixture(page: Page, userDataDir: string): Promise<{ re
   // Wait for the seeded rows BY NAME rather than by a total count: the count
   // would also have to predict anything else the shell created, and each named
   // row is what the assertions below actually address.
-  for (const title of [...BOUND_THREAD_TITLES, UNBOUND_THREAD_TITLE]) {
+  for (const title of [
+    ...BOUND_THREAD_TITLES,
+    OTHER_REPOSITORY_THREAD_TITLE,
+    UNBOUND_THREAD_TITLE,
+  ]) {
     await expect(threadRow(page, title)).toHaveCount(1, { timeout: 30_000 });
   }
-  await groupByFolder(page);
-  return { repo };
+  return { other, repo };
 }
 
+test.beforeAll(() => {
+  // The ledger keeps a worktree by its real path, so the managed directory is given by one.
+  process.env['BRAINSTRIKE_E2E_WORKTREE_DIR'] = realpathSync(
+    tempDirs.track(mkdtempSync(path.join(tmpdir(), 'bst-threads-folders-worktrees-')))
+  );
+});
+
 test.afterAll(() => {
+  delete process.env['BRAINSTRIKE_E2E_WORKTREE_DIR'];
   tempDirs.removeAll();
 });
 
 test.describe('Threads panel folder grouping (desktop)', () => {
-  test('@smoke groups threads by their folder, trails a No folder section, and badges the branch', async ({
+  test('@smoke lists threads by repository by default, chips where each works, and trails a No folder section', async ({
     electron,
     window: page,
   }) => {
     test.setTimeout(90_000);
-    const { repo } = await seedFoldersFixture(page, electron.getUserDataDir());
+    const { other, repo } = await seedFoldersFixture(page, electron.getUserDataDir());
 
-    // TWO sections: the root's own, and the trailing catch-all. The trailing
-    // section is NOT decoration — it is where a thread with no binding has to
-    // land, and its absence would mean the unbound thread vanished.
-    await expect(page.getByTestId('thread-folder-header')).toHaveCount(2, { timeout: 30_000 });
+    // THREE sections with no view chosen: one per repository, and the trailing
+    // catch-all. The trailing section is NOT decoration — it is where a thread
+    // with no binding has to land, and its absence would mean the unbound
+    // thread vanished.
+    await expect(page.getByTestId('thread-folder-header')).toHaveCount(3, { timeout: 30_000 });
+    await expect(page.getByTestId('thread-date-section')).toHaveCount(0);
     const repoSection = folderHeader(page, path.basename(repo));
     await expect(repoSection).toHaveCount(1);
     await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('2');
+    // The header names the branch the repository's own checkout is on, read
+    // from the host's worktree listing (one read for the whole panel).
+    await expect(repoSection.getByTestId('thread-folder-branch')).toHaveText('main');
+    const otherSection = folderHeader(page, path.basename(other));
+    await expect(otherSection.getByTestId('thread-folder-count')).toHaveText('1');
 
     const unassignedSection = folderHeader(page, 'No folder');
     await expect(unassignedSection).toHaveCount(1);
@@ -190,23 +226,62 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await expect(unassignedSection.getByTestId('thread-folder-count')).toHaveText('1');
     // "New thread here" belongs to a FOLDER, so the catch-all must not offer it.
     await expect(unassignedSection.getByTestId('thread-folder-new-thread')).toHaveCount(0);
+    await expect(unassignedSection.getByTestId('thread-folder-branch')).toHaveCount(0);
 
-    // The branch badge is the row's most local fact in folder grouping, and it
-    // comes from the real host Changes bridge git inventory keyed by the root's
-    // path — a bound row gets `main`, the unbound row has no root to key on and
-    // therefore no badge at all (with no runs seeded there is no provider or
-    // model badge either, so the whole badge strip is absent).
-    for (const title of BOUND_THREAD_TITLES) {
-      await expect(threadRow(page, title).getByTestId('thread-metadata-badges')).toHaveText(
-        'main',
-        {
-          timeout: 30_000,
-        }
-      );
+    // Each row says where its thread works. A thread in its folder itself is
+    // Local; the unbound row works nowhere yet.
+    for (const title of [...BOUND_THREAD_TITLES, OTHER_REPOSITORY_THREAD_TITLE]) {
+      await expect(checkoutChip(page, title)).toBeVisible();
+      await expect(checkoutChip(page, title)).toHaveText('Local');
     }
-    await expect(
-      threadRow(page, UNBOUND_THREAD_TITLE).getByTestId('thread-metadata-badges')
-    ).toHaveCount(0);
+    await expect(checkoutChip(page, UNBOUND_THREAD_TITLE)).toHaveCount(0);
+
+    // Date stays a view to switch to, and the chips go with the rows into it.
+    await groupBy(page, 'Date');
+    await expect(page.getByTestId('thread-folder-header')).toHaveCount(0);
+    await expect(page.getByTestId('thread-date-section').first()).toBeVisible();
+    await expect(checkoutChip(page, BOUND_THREAD_TITLES[0])).toHaveText('Local');
+  });
+
+  test('lists a thread working in a managed worktree under its repository, chipped with the worktree', async ({
+    electron,
+    window: page,
+  }) => {
+    test.setTimeout(180_000);
+    const { repo } = await seedFoldersFixture(page, electron.getUserDataDir());
+    const repoSection = folderHeader(page, path.basename(repo));
+    await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('2', {
+      timeout: 30_000,
+    });
+
+    // A new thread in the repository moves into a new worktree before its first send.
+    await repoSection.getByTestId('thread-folder-new-thread').click();
+    const welcome = page.getByTestId('new-thread-welcome');
+    await welcome.getByTestId('workspace-bar-mode-chip').click();
+    await page.getByTestId('workspace-bar-mode-new-worktree').click();
+    const create = page.getByTestId('worktree-create-dialog');
+    const worktreeName = (await create.getByTestId('worktree-create-name').inputValue()).trim();
+    await create.getByTestId('worktree-create-submit').click();
+    await expect(welcome.getByTestId('workspace-bar-mode-chip')).toContainText(worktreeName, {
+      timeout: 90_000,
+    });
+    await startThread(page, 'Start in the worktree.');
+
+    // The thread sits under its repository, beside the two in the repository's
+    // own checkout: the worktree is a checkout, never a section of its own.
+    await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('3', {
+      timeout: 30_000,
+    });
+    await expect(folderHeader(page, worktreeName)).toHaveCount(0);
+    await expect(page.getByTestId('thread-folder-header')).toHaveCount(3);
+    const worktreeChips = page
+      .getByTestId('thread-checkout-chip')
+      .filter({ hasText: worktreeName });
+    await expect(worktreeChips).toHaveCount(1);
+    await expect(worktreeChips).toBeVisible();
+    for (const title of BOUND_THREAD_TITLES) {
+      await expect(checkoutChip(page, title)).toHaveText('Local');
+    }
   });
 
   test('starts a thread inside a folder and empties the list behind a Show only filter', async ({
@@ -220,6 +295,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
       timeout: 30_000,
     });
     const rowsBefore = await page.getByTestId('thread-row').count();
+    const sectionsBefore = await page.getByTestId('thread-folder-header').count();
 
     // "New thread here" opens the new-thread screen for this folder and creates
     // nothing; the first send is createThread + ONE metadata write carrying the
@@ -255,5 +331,6 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await toggleShowOnly(page, 'Running');
     await expect(page.getByTestId('threads-filtered-empty-card')).toHaveCount(0);
     await expect(page.getByTestId('thread-row')).toHaveCount(rowsBefore + 1, { timeout: 15_000 });
+    await expect(page.getByTestId('thread-folder-header')).toHaveCount(sectionsBefore);
   });
 });
