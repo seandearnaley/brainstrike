@@ -19,7 +19,7 @@ import {
 } from '@brainstrike/agent-host/workspace-trust';
 import { canonicalRoot } from '@brainstrike/state-store';
 import type { WorkspaceRootResolver } from '../workspace-root-cwd.ts';
-import type { GitCommandRunner } from './git-service.ts';
+import type { GitCommandRun, GitCommandRunner } from './git-service.ts';
 import { isPathWithin } from './worktree-paths.ts';
 
 /** Every filter command key, whichever config file set it. */
@@ -28,14 +28,25 @@ const FILTER_COMMAND_KEYS = String.raw`^filter\..*\.(clean|smudge|process)$`;
 /** The person's own config files; every other scope came with the repository. */
 const PERSON_SCOPES = new Set(['global', 'system']);
 
+/** Decodes only valid UTF-8, so a key is never rewritten into another key. */
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
+
 /**
  * The overrides for `git config --null --show-scope --get-regexp` output, one
  * `scope NUL key LF value NUL` per entry: each repository-set filter command
  * emptied, then each of those drivers marked not required. Undefined when the
- * output does not parse, so the caller fails rather than run unguarded.
+ * output is not valid UTF-8 or does not parse, so the caller fails rather than
+ * run unguarded. A driver name with a byte that is not UTF-8 cannot be named
+ * in the environment, where Node passes only UTF-8, so it has no override.
  */
-function repositoryFilterOverrides(probeOutput: string): [string, string][] | undefined {
-  const fields = probeOutput.split('\0');
+function repositoryFilterOverrides(probeOutput: Buffer): [string, string][] | undefined {
+  let text: string;
+  try {
+    text = strictUtf8.decode(probeOutput);
+  } catch {
+    return;
+  }
+  const fields = text.split('\0');
   if (fields.pop() !== '' || fields.length % 2 !== 0) {
     return;
   }
@@ -76,10 +87,34 @@ function withConfigOverrides(
 }
 
 /**
+ * The run returned in place of the command when the repository's filters
+ * cannot be turned off, so nothing runs with them on.
+ */
+const UNGUARDABLE_FILTERS = {
+  exitCode: 128,
+  stderr:
+    "fatal: this folder's own git config names a filter that cannot be turned off, " +
+    'so the command did not run; trust the folder or remove the filter\n',
+  stdout: '',
+  timedOut: false,
+} as const satisfies GitCommandRun;
+
+/** A failed probe as the command's run, without the probe's output. */
+function probeFailure(probe: GitCommandRun): GitCommandRun {
+  return {
+    exitCode: probe.exitCode,
+    ...(probe.failureReason === undefined ? {} : { failureReason: probe.failureReason }),
+    stderr: probe.stderr,
+    stdout: '',
+    timedOut: probe.timedOut,
+  };
+}
+
+/**
  * `run`, with the repository's own filter commands off wherever `isTrusted`
  * says no. Each untrusted command first reads the filter keys in its `cwd`,
- * because the config can change between commands. A failed read is returned
- * as the command's run, never treated as no filters.
+ * because the config can change between commands. A failed or unreadable
+ * probe fails the command, never treated as no filters.
  */
 export function guardRepositoryFilters(options: {
   readonly isTrusted: (cwd: string) => Promise<boolean>;
@@ -92,17 +127,25 @@ export function guardRepositoryFilters(options: {
     }
     const probe = await run({
       args: ['config', '--null', '--show-scope', '--get-regexp', FILTER_COMMAND_KEYS],
+      binaryStdout: true,
       cwd: params.cwd,
       signal: params.signal,
       timeoutMs: params.timeoutMs,
     });
+    const output = probe.stdoutBuffer ?? Buffer.from(probe.stdout);
+    if (probe.failureReason !== undefined) {
+      return probeFailure(probe);
+    }
     // Exit 1 with no output: no filter command is configured anywhere.
-    if (probe.exitCode === 1 && probe.stdout === '') {
+    if (probe.exitCode === 1 && output.length === 0) {
       return await run(params);
     }
-    const overrides = probe.exitCode === 0 ? repositoryFilterOverrides(probe.stdout) : undefined;
+    if (probe.exitCode !== 0) {
+      return probeFailure(probe);
+    }
+    const overrides = repositoryFilterOverrides(output);
     if (!overrides) {
-      return probe;
+      return UNGUARDABLE_FILTERS;
     }
     return overrides.length === 0
       ? await run(params)

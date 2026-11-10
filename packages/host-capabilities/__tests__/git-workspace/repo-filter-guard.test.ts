@@ -5,7 +5,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { writeHostWorkspaceTrust } from '@brainstrike/agent-host/workspace-trust';
@@ -142,6 +142,30 @@ describe('a repository filter in a folder the person has not trusted', () => {
     const changes = await changesIn(dir, home, 'undecided');
 
     expect((await changes.view()).files.map((file) => file.path)).toContain('file.txt');
+    expect(ran(dir, 'repo-filter-ran')).toBe(false);
+  });
+
+  it('fails the command, never runs it, when its driver name is not UTF-8', async () => {
+    const home = await tempDir('bs-filter-guard-home-');
+    const dir = await repoWithOwnFilter(home);
+    // A driver name holding byte 0xFF, which no UTF-8 override can name.
+    const driver = Buffer.from([0x62, 0x61, 0x64, 0xff]);
+    await appendFile(
+      path.join(dir, '.git', 'config'),
+      Buffer.concat([
+        Buffer.from('[filter "'),
+        driver,
+        Buffer.from(`"]\n\tclean = ${marking('bad-filter-ran')}\n\trequired = true\n`),
+      ])
+    );
+    await writeFile(
+      path.join(dir, '.gitattributes'),
+      Buffer.concat([Buffer.from('file.txt filter='), driver, Buffer.from('\n')])
+    );
+    const changes = await changesIn(dir, home, 'undecided');
+
+    await expect(changes.view()).rejects.toThrow();
+    expect(ran(dir, 'bad-filter-ran')).toBe(false);
     expect(ran(dir, 'repo-filter-ran')).toBe(false);
   });
 
