@@ -7,6 +7,7 @@ The host admits concrete models and executable tools; clients submit non-secret 
 - Provider and model rows belong to [the catalog](../../packages/assistant-contract/src/provider-catalog.json), with strict validation and accessors in the same package.
   - Derive authentication and capability behavior from registry metadata, never provider-name heuristics.
   - Catalog object keys are alphabetical at every depth. Biome's `useSortedKeys` doesn't reach JSON keys and no check enforces it, so keep the order by hand. Row order is curated, not sorted.
+  - A row states image support once, in `inputModalities`; the parser sets `vision` from it. Every row lists the pages its facts were read from in `sources`, with the day each was read; `_note` keeps the prose provenance.
 - Pricing and model limits belong to the route that serves and bills the request. Provider-reported cost is authoritative; catalog rates are estimates.
   - The ledger reads OpenRouter's bill from each committed step's usage (`raw.cost`; a BYOK call adds `cost_details.upstream_inference_cost`). Only a call no provider billed is priced from the catalog.
 - Prepare provider history through [the shared request boundary](../../packages/agent/src/provider-request.ts).

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { formatUsd, pluralize, pluralNoun } from '../catalog-format';
+import { formatKnowledgeCutoff, formatUsd, pluralize, pluralNoun } from '../catalog-format';
 
 describe('formatUsd', () => {
   it.each([
@@ -23,5 +23,12 @@ describe('pluralize', () => {
     expect(pluralize(0, 'model')).toBe('0 models');
     expect(pluralize(59, 'model')).toBe('59 models');
     expect(pluralNoun(2, 'provider')).toBe('providers');
+  });
+});
+
+describe('formatKnowledgeCutoff', () => {
+  it('reads a month as a month and a day as a day', () => {
+    expect(formatKnowledgeCutoff('2026-06')).toBe('Jun 2026');
+    expect(formatKnowledgeCutoff('2024-09-30')).toBe('Sep 30, 2024');
   });
 });

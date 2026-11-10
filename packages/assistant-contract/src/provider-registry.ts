@@ -15,11 +15,19 @@ export interface ProviderCapabilities {
 
 /**
  * Whether a model accepts image (vision) input parts. Drives the composer
- * attachment gate and the picker model metadata. Every registered model
- * commits to one value so the attachment gate never guesses.
+ * attachment gate and the picker model metadata. Read off the row's
+ * `inputModalities` when the catalog loads, so the attachment gate never
+ * guesses and the catalog states image support once.
  */
 export type ModelVisionSupport = 'supported' | 'unsupported';
-export type ModelModality = 'audio' | 'image' | 'text' | 'video';
+/** What a route takes in or gives back. `pdf` is a document input the route reads itself. */
+export type ModelModality = 'audio' | 'image' | 'pdf' | 'text' | 'video';
+
+/** A page a row's facts were read from, and the day they were read (`YYYY-MM-DD`). */
+export interface ModelSource {
+  readonly retrievedAt: string;
+  readonly url: string;
+}
 
 /**
  * Provider-native deferred-tool search capability declared by the exact model
@@ -68,7 +76,6 @@ export interface ProviderCatalogPresentation {
 }
 export interface ModelCatalogPresentation extends ProviderCatalogPresentation {
   readonly bestFor: readonly string[] | null;
-  readonly capabilities?: { readonly toolCalling?: boolean; readonly contextWindow?: number };
   readonly description: string | null;
   readonly parameters: Readonly<Record<string, unknown>> | null;
   readonly tagline: string | null;
@@ -270,8 +277,13 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * standard tier (not beta/extended tiers).
    */
   contextWindow: number;
-  /** Exact documented input modalities when the route publishes them. */
-  inputModalities?: readonly ModelModality[];
+  /** What the route accepts. REQUIRED; `vision` is read from it. */
+  inputModalities: readonly ModelModality[];
+  /**
+   * The vendor's training-data cutoff, as precise as the vendor states it:
+   * `YYYY-MM` or `YYYY-MM-DD`. Absent when the vendor publishes none.
+   */
+  knowledgeCutoff?: string;
   /** The vendor's lifecycle status for this route; absent means `active`. */
   lifecycle?: ModelLifecycle;
   /**
@@ -285,8 +297,8 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * but must never infer native support from the provider name.
    */
   nativeToolSearch?: NativeToolSearchCapability;
-  /** Exact documented output modalities when the route publishes them. */
-  outputModalities?: readonly ModelModality[];
+  /** What the route produces. REQUIRED. */
+  outputModalities: readonly ModelModality[];
   /**
    * Approx. USD price per 1,000,000 tokens. Static display estimate only; provider-reported
    * billed cost remains authoritative. Omit when pricing is unknown. Explicit zeroes are
@@ -344,6 +356,16 @@ export interface LlmModelDefinition extends BaseModelDefinition {
     vendorDefaultOutputTokens?: number;
   };
   /**
+   * Where this row's facts were read. REQUIRED, at least one. The `_note`
+   * keeps the prose provenance; these are the pages a reader can open.
+   */
+  sources: readonly ModelSource[];
+  /**
+   * Whether the route constrains output to a JSON schema. `false` when its
+   * source says it doesn't; absent when no source says either way.
+   */
+  structuredOutputs?: boolean;
+  /**
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
   supportsStreaming?: boolean;
@@ -361,6 +383,11 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * guesses from a model-name substring.
    */
   tokenMeasurement?: TokenizerBackedMeasurementCapability;
+  /**
+   * Whether the route accepts tool definitions. `false` when its source says
+   * it doesn't; absent when no source says either way.
+   */
+  toolCalling?: boolean;
   type: 'llm';
   /**
    * Who made the model, whichever route serves it: `anthropic` for Claude on
@@ -369,10 +396,9 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   vendor: ModelVendorId;
   /**
-   * Image-input support. REQUIRED: adding a model without it is a compile
-   * error — this gates the composer attachment affordance per selected model.
-   * Declare the capability of the route actually used (e.g. a gateway route
-   * mirrors its underlying model).
+   * Image-input support: `supported` exactly when `inputModalities` includes
+   * `image`. Never declared in the catalog; the catalog parser sets it. It
+   * gates the composer attachment affordance per selected model.
    */
   vision: ModelVisionSupport;
 }
