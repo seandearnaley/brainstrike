@@ -1,7 +1,8 @@
 /**
  * Which repository a thread works in, for the Threads panel's folder grouping
- * (ADR-0034 decisions 1 and 3): a repository's own checkout and its managed
- * worktrees are its checkouts, so their threads share one section.
+ * (ADR-0034 decision 1 and its owner decisions of 2026-11-10): a repository's
+ * own checkout and its managed worktrees are its checkouts, so their threads
+ * share one section.
  *
  * Pure. The one input that knows about git is the host's worktree listing
  * (`worktrees.list()`), which already joins git's worktree list with the
@@ -33,6 +34,20 @@ export interface ThreadRepositoryLookup {
 /** Stable identity for "no thread works in a repository", so the panel's memo deps do not churn. */
 const NO_REPOSITORY_BY_THREAD_ID: ReadonlyMap<string, ThreadRepositoryRow> = new Map();
 
+/**
+ * The key a listing entry's project is found by, and so the key of its section
+ * in the thread list. Today it is the repository's realpath'd git common dir,
+ * as the worktree ledger keys it.
+ *
+ * THE ONE PLACE that knows this. The host-owned project record (ADR-0034,
+ * owner decisions 2026-11-10; not built) gives a project an id of its own that
+ * survives a move and can join a second clone; when the listing carries it,
+ * it replaces the common dir here and nothing else changes.
+ */
+function threadProjectKey(entry: WorktreeListEntry): string {
+  return entry.repoCommonDir;
+}
+
 function folderNameOf(path: string): string {
   return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
 }
@@ -57,10 +72,10 @@ function repositoryRow(
   const folder = rootId === null ? null : (folderRowsByRootId.get(rootId) ?? null);
   return {
     branch: ownCheckout?.branch ?? null,
-    commonDir: first.repoCommonDir,
     detached: ownCheckout?.detached ?? false,
     displayName: folder?.displayName ?? folderNameOf(first.repositoryRoot),
     folder,
+    key: threadProjectKey(first),
     path: first.repositoryRoot,
   };
 }
@@ -79,11 +94,12 @@ export function projectThreadRepositories(
   entries: readonly WorktreeListEntry[],
   folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>
 ): ThreadRepositoryLookup {
-  const entriesByCommonDir = new Map<string, WorktreeListEntry[]>();
+  const entriesByProjectKey = new Map<string, WorktreeListEntry[]>();
   for (const entry of entries) {
-    const repositoryEntries = entriesByCommonDir.get(entry.repoCommonDir);
+    const key = threadProjectKey(entry);
+    const repositoryEntries = entriesByProjectKey.get(key);
     if (repositoryEntries === undefined) {
-      entriesByCommonDir.set(entry.repoCommonDir, [entry]);
+      entriesByProjectKey.set(key, [entry]);
       continue;
     }
     repositoryEntries.push(entry);
@@ -91,7 +107,7 @@ export function projectThreadRepositories(
 
   const byRootId = new Map<string, ThreadRepositoryRow>();
   const byWorktreeId = new Map<string, ThreadRepositoryRow>();
-  for (const repositoryEntries of entriesByCommonDir.values()) {
+  for (const repositoryEntries of entriesByProjectKey.values()) {
     const repository = repositoryRow(repositoryEntries, folderRowsByRootId);
     if (repository === undefined) {
       continue;
