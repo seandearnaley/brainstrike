@@ -198,7 +198,7 @@ test.afterAll(() => {
 });
 
 test.describe('Threads panel folder grouping (desktop)', () => {
-  test('@smoke lists threads by repository by default, chips where each works, and trails a No folder section', async ({
+  test('@smoke lists threads by project by default, chips where each works, and trails a No project section', async ({
     electron,
     window: page,
   }) => {
@@ -220,7 +220,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     const otherSection = folderHeader(page, path.basename(other));
     await expect(otherSection.getByTestId('thread-folder-count')).toHaveText('1');
 
-    const unassignedSection = folderHeader(page, 'No folder');
+    const unassignedSection = folderHeader(page, 'No project');
     await expect(unassignedSection).toHaveCount(1);
     // ONE unbound thread, the seeded one: an empty catalog creates no thread of its own.
     await expect(unassignedSection.getByTestId('thread-folder-count')).toHaveText('1');
@@ -241,6 +241,9 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await expect(page.getByTestId('thread-folder-header')).toHaveCount(0);
     await expect(page.getByTestId('thread-date-section').first()).toBeVisible();
     await expect(checkoutChip(page, BOUND_THREAD_TITLES[0])).toHaveText('Local');
+    // …and Project is the option that brings the default back.
+    await groupBy(page, 'Project');
+    await expect(page.getByTestId('thread-folder-header')).toHaveCount(3);
   });
 
   test('lists a thread working in a managed worktree under its repository, chipped with the worktree', async ({
@@ -300,7 +303,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     // "New thread here" opens the new-thread screen for this folder and creates
     // nothing; the first send is createThread + ONE metadata write carrying the
     // whole binding, so the new row lands INSIDE this folder rather than under
-    // "No folder" — which is exactly what the two section counts report.
+    // "No project" — which is exactly what the two section counts report.
     await repoSection.getByTestId('thread-folder-new-thread').click();
     const welcome = page.getByTestId('new-thread-welcome');
     // The new thread's composer names the folder it will start in.
@@ -314,7 +317,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     });
     await expect(page.getByTestId('thread-row')).toHaveCount(rowsBefore + 1, { timeout: 30_000 });
     // Unchanged: the new thread was born BOUND, so it did not land with the seeded unbound one.
-    await expect(folderHeader(page, 'No folder').getByTestId('thread-folder-count')).toHaveText(
+    await expect(folderHeader(page, 'No project').getByTestId('thread-folder-count')).toHaveText(
       '1'
     );
 

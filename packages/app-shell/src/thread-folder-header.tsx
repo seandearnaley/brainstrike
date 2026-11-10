@@ -1,6 +1,8 @@
 /**
  * Section header for the Threads panel's `groupBy: 'folder'` view (BST-1405,
- * ADR-0034 decision 3): a repository, a folder outside one, or "No folder".
+ * ADR-0034 decision 3): a repository, a folder outside one, or "No project".
+ * Each is a project, the interface word for it (ADR-0034, owner decisions
+ * 2026-11-10); a folder outside git is a project with one checkout.
  *
  * Deliberately NOT `ThreadGroupHeader` with a different icon. A custom group is
  * a durable object the user creates, renames, colors, reorders and drops
@@ -26,7 +28,7 @@ import { ThreadSectionHeader } from './thread-section-header';
  * a gap.
  */
 const THREAD_FOLDER_GROUPING_HINT =
-  "Grouped by where each thread works — change it from the composer's folder chip.";
+  "Grouped by the project each thread works in — change it from the composer's folder chip.";
 
 /** What a header shows, whichever kind of section it leads. */
 interface ThreadFolderHeaderFacts {
@@ -59,7 +61,7 @@ function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFol
         path: header.folder.path,
       };
     case 'unassigned':
-      return { branch: null, displayName: 'No folder', newThreadFolder: null, path: null };
+      return { branch: null, displayName: 'No project', newThreadFolder: null, path: null };
     default: {
       const exhaustive: never = header;
       throw new Error(`Unknown thread folder header: ${JSON.stringify(exhaustive)}.`);

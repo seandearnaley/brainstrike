@@ -1977,7 +1977,7 @@ describe('ThreadsPanel folders', () => {
 
   async function enterFolderGrouping(): Promise<void> {
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    fireEvent.click(await screen.findByRole('radio', { name: 'Folder' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Project' }));
     await screen.findAllByTestId('thread-folder-count');
   }
 
@@ -1991,14 +1991,14 @@ describe('ThreadsPanel folders', () => {
     const sections = await screen.findAllByTestId('thread-folder-header');
     expect(sections.map((section) => section.textContent)).toEqual([
       expect.stringContaining('workspace-a'),
-      expect.stringContaining('No folder'),
+      expect.stringContaining('No project'),
     ]);
     expect(screen.queryByTestId('thread-date-section')).toBeNull();
     // The default view is not a changed one.
     expect(screen.queryByTestId('threads-view-options-dot')).toBeNull();
   });
 
-  it('groups threads by their bound workspace folder with a trailing No folder section', async () => {
+  it('groups threads by their bound workspace folder with a trailing No project section', async () => {
     bindThreadToRoot('thread-a');
     renderThreadsPanel();
     await waitFor(() => {
@@ -2013,10 +2013,10 @@ describe('ThreadsPanel folders', () => {
     const unassignedSection = sections[1] as HTMLElement;
     expect(within(folderSection).getByText('workspace-a')).toBeVisible();
     expect(within(folderSection).getByTestId('thread-folder-count')).toHaveTextContent('1');
-    expect(within(unassignedSection).getByText('No folder')).toBeVisible();
+    expect(within(unassignedSection).getByText('No project')).toBeVisible();
     expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
     expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('folder');
-    // A folder is not a custom group, and "No folder" is not a folder: there is
+    // A folder is not a custom group, and "No project" is not a folder: there is
     // nothing for a new thread there to be bound to.
     expect(
       within(unassignedSection).queryByTestId('thread-folder-new-thread')
@@ -2080,7 +2080,7 @@ describe('ThreadsPanel folders', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
     expect(await screen.findByRole('radio', { name: 'Custom' })).toBeVisible();
-    fireEvent.click(screen.getByRole('radio', { name: 'Folder' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Project' }));
 
     // Folder sections have no manual order, so Custom is not on offer there.
     expect(screen.queryByRole('radio', { name: 'Custom' })).not.toBeInTheDocument();
@@ -2352,7 +2352,7 @@ describe('ThreadsPanel folders', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
-    fireEvent.click(await screen.findByRole('radio', { name: 'Folder' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Project' }));
 
     // Drawing folders first would show the worktree as a section of its own,
     // then move its thread once the listing answered.
@@ -2456,7 +2456,7 @@ describe('ThreadsPanel folders', () => {
 
     // Folder mode swaps Sort by's options for the folder-only pair; they are a
     // different setting and must not share the recency/name group either.
-    fireEvent.click(screen.getByRole('radio', { name: 'Folder' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Project' }));
 
     await waitFor(() => {
       expect(namesIn(screen.getByRole('radiogroup', { name: 'Sort by' }))).toEqual(
@@ -2654,7 +2654,7 @@ it('loads host conversations, retained folders and custom groups', async () => {
   expect(screen.queryByText('No child conversations')).toBeNull();
   expect(await screen.findByText('My work')).toBeVisible();
   await userEvent.setup().click(screen.getByRole('button', { name: 'View options' }));
-  await userEvent.setup().click(screen.getByRole('radio', { name: 'Folder' }));
+  await userEvent.setup().click(screen.getByRole('radio', { name: 'Project' }));
   expect(await screen.findByText('Retained')).toBeVisible();
   expect(readRoots).toHaveBeenCalledTimes(1);
 });

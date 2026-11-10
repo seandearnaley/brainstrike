@@ -21,7 +21,9 @@ import { hasActiveThreadFilters } from './thread-panel-content-state';
 const GROUP_BY_OPTIONS: readonly { readonly label: string; readonly value: ThreadsPanelGroupBy }[] =
   [
     // The default leads (ADR-0034 decision 3); the rest are views to switch to.
-    { label: 'Folder', value: 'folder' },
+    // "Project" is the interface word (ADR-0034, owner decisions 2026-11-10);
+    // the stored value stays `folder`, so a saved choice survives the rename.
+    { label: 'Project', value: 'folder' },
     { label: 'Date', value: 'date' },
     { label: 'Custom groups', value: 'custom-groups' },
     { label: 'No grouping', value: 'none' },

@@ -144,10 +144,10 @@ describe('resolveThreadPanelContentState', () => {
         view: EMPTY_FOLDERS,
       })
     ).toEqual({
-      description: 'Reading your workspace folders.',
+      description: 'Reading your projects.',
       kind: 'card',
       testId: 'threads-folders-loading-card',
-      title: 'Loading folders…',
+      title: 'Loading projects…',
       variant: 'muted',
     });
   });
@@ -162,7 +162,7 @@ describe('resolveThreadPanelContentState', () => {
       description: 'roots query failed',
       kind: 'card',
       testId: 'threads-folders-error-card',
-      title: 'Folder grouping unavailable',
+      title: 'Project grouping unavailable',
       variant: 'error',
     });
   });

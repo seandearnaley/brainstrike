@@ -129,16 +129,16 @@ export function resolveThreadPanelContentState({
       description: folderGrouping.error.message,
       kind: 'card',
       testId: 'threads-folders-error-card',
-      title: 'Folder grouping unavailable',
+      title: 'Project grouping unavailable',
       variant: 'error',
     };
   }
   if (folderGrouping?.loading) {
     return {
-      description: 'Reading your workspace folders.',
+      description: 'Reading your projects.',
       kind: 'card',
       testId: 'threads-folders-loading-card',
-      title: 'Loading folders…',
+      title: 'Loading projects…',
       variant: 'muted',
     };
   }

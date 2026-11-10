@@ -542,7 +542,7 @@ function getThreadPanelSectionLabel(row: ThreadPanelGroupRow): string {
     case 'repository':
       return row.header.repository.displayName;
     case 'unassigned':
-      return 'No folder';
+      return 'No project';
     case 'date':
       return row.header.label;
     case 'pinned':
@@ -1987,7 +1987,8 @@ export function ThreadsPanelCore({
       ) : null}
       {contentState.kind === 'tree' && folderGroupingReads.repositoriesError ? (
         <p className="text-destructive text-2xs px-3 pb-2" data-testid="thread-repositories-error">
-          Repositories unavailable, grouped by folder: {folderGroupingReads.repositoriesError}
+          Repositories unavailable, so each folder is listed on its own:{' '}
+          {folderGroupingReads.repositoriesError}
         </p>
       ) : null}
       {contentState.kind === 'tree' && threadsAwaitingApproval.error ? (
