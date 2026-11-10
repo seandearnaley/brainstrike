@@ -27,7 +27,6 @@ export async function runIndexerProcess(
   endpoint: IndexerProcessEndpoint
 ): Promise<void> {
   const send = (value: object): void => endpoint.send(value);
-  let ready = false;
   let worker: Worker | undefined;
   let closing = false;
   let closePromise: Promise<boolean> | undefined;
@@ -57,19 +56,25 @@ export async function runIndexerProcess(
         closing = true;
         const failures: unknown[] = [];
         try {
-          if (ready) {
-            await client.call('close', null, decoder(Schema.Boolean));
-          } else {
-            // Startup owns only this writer. Join its teardown before reporting
-            // an early Close; there is no admitted request yet.
-            await writer.terminate();
-          }
+          // One way to end the writer, ready or still starting: ask it. A starting
+          // writer's port holds the request until it has opened its database, and a
+          // start that fails rejects this call. BST-2472: Close never terminates the
+          // writer. Terminating a thread inside better-sqlite3's native initialisation
+          // aborts the whole process, which took the agent host down before it had
+          // closed the state DB. A writer that outlives the connection's close window
+          // is still killed with its process (ADR-0030).
+          await client.call('close', null, decoder(Schema.Boolean));
         } catch (error) {
           failures.push(error);
         }
         await exited;
+        const [failure] = failures;
         if (failures.length > 0) {
-          throw new AggregateError(failures, 'Indexer close failed.');
+          // The answer names its cause: for an early Close that is the start that failed.
+          throw new AggregateError(
+            failures,
+            `Indexer close failed: ${failure instanceof Error ? failure.message : String(failure)}`
+          );
         }
         return true;
       })();
@@ -124,7 +129,6 @@ export async function runIndexerProcess(
       await close();
       return;
     }
-    ready = true;
     receive = (message: unknown) => {
       let id: number | undefined;
       try {
@@ -206,8 +210,8 @@ export async function runIndexerProcess(
     send({ kind: 'ready', value: info });
   } catch (error) {
     if (closing && closePromise !== undefined) {
-      // The early Close response owns the outcome; do not emit a contradictory
-      // startup-error when that same close caused the writer-ready rejection.
+      // The early Close's response owns the outcome. A start that failed is answered
+      // there as a failed Close; do not report it again as a startup-error.
       await closePromise.catch(() => undefined);
       return;
     }
