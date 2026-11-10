@@ -21,6 +21,7 @@ import {
 } from '../src/workspace-trust.js';
 import {
   addManagedWorktree,
+  linkWorktree,
   type Repository,
   recordWorktree,
   repositoryAt,
@@ -194,6 +195,32 @@ test('an answer given in a managed worktree is the answer for its repository and
     // The answer is the repository's alone: another repository's worktree still asks.
     const other = await recordManagedWorktree(store, await repositoryCheckout());
     await expect(readHostWorkspaceTrust(store, other.path)).resolves.toBe('undecided');
+  } finally {
+    await store.close();
+  }
+});
+
+test('an answer given in a managed worktree replaces what was answered for that folder alone', async () => {
+  const store = await StateStore.open(await tempDir('bs-workspace-trust-worktree-own-'));
+  try {
+    const repository = await repositoryCheckout();
+    // A worktree made outside Brainstrike is trusted as its own folder, then adopted.
+    const worktree = linkWorktree(
+      repository,
+      await realpath(await tempDir('bs-workspace-trust-worktrees-'))
+    );
+    await writeHostWorkspaceTrust(store, worktree, 'trusted');
+    const row = await recordWorktree(store, worktree, repository.commonDir);
+    await writeHostWorkspaceTrust(store, worktree, 'restricted');
+    await expect(readHostWorkspaceTrust(store, repository.path)).resolves.toBe('restricted');
+
+    // Archived, the folder answers for itself again, and "Keep restricted" still stands.
+    await store.worktreeLedger({
+      id: row.id,
+      operation: 'archive',
+      snapshotRef: `refs/brainstrike/worktree-archive/${row.id}`,
+    });
+    await expect(readHostWorkspaceTrust(store, worktree)).resolves.toBe('undecided');
   } finally {
     await store.close();
   }
