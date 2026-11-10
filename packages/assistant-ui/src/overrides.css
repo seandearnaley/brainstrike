@@ -2953,6 +2953,18 @@ span.bs-composer-chip {
 }
 
 /*
+ * The vendor stylesheet fills each word's fade `both`. The forwards half holds
+ * the finished animation, and the compositor layer the word was promoted to,
+ * for as long as its span exists: every word of the reply's open blocks. Each
+ * fade ends on the word's own style, so only the backwards half does anything:
+ * it keeps a staggered word hidden until its turn.
+ */
+.assistant-ui-panel .aui-md [data-sd-animate],
+.assistant-ui-panel .aui-md [data-sd-animate-marker]::marker {
+  animation-fill-mode: backwards;
+}
+
+/*
  * The word-by-word reveal (Streamdown's `animated`) respects reduced motion,
  * as the frame-paced reveal it replaced did: words and list markers appear at
  * once. The vendor stylesheet has no such rule.
