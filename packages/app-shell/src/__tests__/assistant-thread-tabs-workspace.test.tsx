@@ -24,6 +24,7 @@ import {
   fileExplorerMocks,
   openThreadIds,
   openThreadTabs,
+  refreshThreadList,
   renderWorkspace,
   threadRows,
   wrapperCrashThreadIds,
@@ -197,6 +198,29 @@ describe('AssistantThreadTabsWorkspace', () => {
     });
     expect(screen.getByRole('tab', { selected: true })).toHaveAccessibleName(/New Thread/u);
     expect(screen.queryByTestId('new-thread-composer')).toBeNull();
+  });
+
+  it('keeps a selection in the shown thread and drops it when that thread is hidden', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/u });
+    openThreadTabs('thread-a', 'thread-b', 'thread-a');
+    const shown = within(screen.getByTestId('assistant-thread-panel-thread-a')).getByTestId(
+      'assistant-thread-wrapper'
+    );
+    const selection = document.getSelection();
+    // The person selects the shown thread's text.
+    selection?.selectAllChildren(shown);
+    expect(selection?.toString()).toBe('thread-a');
+
+    // A re-render of the workspace leaves it alone.
+    addThreadRow('thread-c', 'Release checklist');
+    await act(refreshThreadList);
+    expect(selection?.toString()).toBe('thread-a');
+
+    // Switching to another tab hides the panel that holds it.
+    openThreadTabs('thread-b');
+    expect(screen.getByTestId('assistant-thread-panel-thread-a')).not.toBeVisible();
+    expect(selection?.rangeCount).toBe(0);
   });
 
   it('renders the shared strip with New as trailing chrome outside the tablist', async () => {

@@ -25,7 +25,7 @@ import {
 } from '@brainstrike/ui';
 import { Plus, TriangleAlert } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
-import { useEffect, useMemo, useRef } from 'react';
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { useAssistantThreadHost } from './assistant-thread-host-context';
@@ -301,6 +301,8 @@ export function AssistantThreadTabsCore({
   );
   const panelRef = useRef<HTMLDivElement>(null);
   const closes = useAssistantThreadTabChords(resourceId, panelRef, onTabsRemoved);
+  const panelsRef = useRef<HTMLDivElement>(null);
+  useSelectionOnlyInShownPanel(panelsRef);
 
   const contextMenu = useMemo<TabStripContextMenu>(() => {
     const readOpenThreadIds = (): readonly string[] =>
@@ -445,7 +447,7 @@ export function AssistantThreadTabsCore({
           This thread is no longer available. Start a new thread with New.
         </div>
       ) : null}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1" ref={panelsRef}>
         {loadState.status === 'error' && !showWelcome ? (
           <ThreadWorkspaceState
             description={loadState.error}
@@ -473,6 +475,30 @@ export function AssistantThreadTabsCore({
       </div>
     </div>
   );
+}
+
+/**
+ * The document's selection stays where it was put when its thread is hidden
+ * (a tab switch), and moves to this container when its composer is removed
+ * with the caret in it (a new thread's first send, a closed tab). Neither can
+ * be seen, and Chromium still looks for a place to draw it whenever the page
+ * changes, walking the hidden panels' DOM on every frame of a streaming reply.
+ * A selection the shown panel does not hold is dropped.
+ */
+function useSelectionOnlyInShownPanel(panels: RefObject<HTMLElement | null>): void {
+  // After every commit: only this component's commits hide or remove a panel.
+  useLayoutEffect(() => {
+    const container = panels.current;
+    const selection = container?.ownerDocument.getSelection();
+    const anchor = selection?.anchorNode;
+    if (!(container && selection && anchor && container.contains(anchor))) {
+      return;
+    }
+    const holder = [...container.children].find((child) => child.contains(anchor));
+    if (!(holder instanceof HTMLElement) || holder.hidden) {
+      selection.removeAllRanges();
+    }
+  });
 }
 
 type OptionalWrapperProp<K extends keyof AssistantThreadTabsWorkspaceProps> =
