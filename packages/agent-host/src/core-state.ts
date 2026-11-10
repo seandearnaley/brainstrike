@@ -347,6 +347,8 @@ export interface HostRunState {
   /** Every owner tail joined; no receipt of this run arrives after it. */
   ownerJoined?: true;
   paused: boolean;
+  /** Side-call usage (an Auto-review's) waiting for this run's next committed step. */
+  readonly pendingUsage: HostEvent[];
   readonly permits: Map<string, Action>;
   /** Committed on run.started: it reads and proposes a plan, and approval ends it. */
   planMode?: true;
@@ -484,6 +486,7 @@ export function createHostRunState(
     outputCommittedAt: new Map(),
     outputs: new Map(),
     paused: false,
+    pendingUsage: [],
     permits: new Map(),
     rawInputs: new Map(),
     responses: new Set(),

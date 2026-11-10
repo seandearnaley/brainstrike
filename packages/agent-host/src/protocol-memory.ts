@@ -1,4 +1,5 @@
 import { Schema } from 'effect';
+import type { JsonSchemaFactory } from './json-value.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /** Epoch milliseconds, as the host stores times. */
@@ -97,3 +98,26 @@ export const HostMemoryCycleEventSchema = Schema.Struct({
   ),
 });
 export type HostMemoryCycleEvent = (typeof HostMemoryCycleEventSchema)['Type'];
+/**
+ * A run's model calls outside its steps, each costed under the model it ran
+ * on: Memory's observer and reflector (`memory.usage`), and the run's thread
+ * title and Auto-reviews (`model.usage`).
+ */
+export function hostUsageEventSchemas(json: JsonSchemaFactory) {
+  return [
+    Schema.Struct({
+      kind: Schema.Literals(['observation', 'reflection']),
+      modelId: Id,
+      runId: Id,
+      type: Schema.Literal('memory.usage'),
+      usage: json(),
+    }),
+    Schema.Struct({
+      kind: Schema.Literals(['thread-title', 'auto-review']),
+      modelId: Id,
+      runId: Id,
+      type: Schema.Literal('model.usage'),
+      usage: json(),
+    }),
+  ] as const;
+}

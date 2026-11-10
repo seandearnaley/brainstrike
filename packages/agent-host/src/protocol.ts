@@ -49,6 +49,7 @@ import {
   HostMemoryCycleEventSchema,
   HostMemoryModelsSchema,
   HostObservationalMemoryStateSchema,
+  hostUsageEventSchemas,
 } from './protocol-memory.ts';
 import {
   HostBrowserOriginSchema,
@@ -690,13 +691,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         delivery: Schema.optional(HostStepDeliverySchema),
         messages: Schema.mutable(Schema.Array(json())),
       }),
-      Schema.Struct({
-        type: Schema.Literal('memory.usage'),
-        ...RunFields,
-        kind: Schema.Literals(['observation', 'reflection']),
-        modelId: Id,
-        usage: json(),
-      }),
+      ...hostUsageEventSchemas(json),
       HostMemoryCycleEventSchema,
       Schema.Struct({
         type: Schema.Literal('memory.observation.withheld'),
