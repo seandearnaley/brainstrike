@@ -164,7 +164,9 @@ function canonicalFolder(folder: string): string | undefined {
 
 /**
  * True when `cwd` is a mounted folder the person trusted, or sits inside one.
- * Trusting a folder covers what is in it, as VS Code's Workspace Trust does.
+ * Trusting a folder covers what is in it, as VS Code's Workspace Trust does,
+ * except a mounted folder inside it that the person kept restricted: the
+ * nearest folder holding `cwd` that has an answer decides.
  */
 export function createTrustedFolderCheck(
   store: HostWorkspaceTrustStore,
@@ -175,15 +177,20 @@ export function createTrustedFolderCheck(
     if (folder === undefined) {
       return false;
     }
+    const holding: string[] = [];
     for (const root of await roots.listRoots()) {
       // A browser-backed root has no filesystem path to contain a git command.
       const rootFolder = isAbsolute(root.path) ? canonicalFolder(root.path) : undefined;
-      if (
-        rootFolder !== undefined &&
-        isPathWithin(folder, rootFolder) &&
-        (await readHostWorkspaceTrust(store, rootFolder)) === 'trusted'
-      ) {
-        return true;
+      if (rootFolder !== undefined && isPathWithin(folder, rootFolder)) {
+        holding.push(rootFolder);
+      }
+    }
+    // Nearest first: a longer canonical path holding `cwd` sits inside a shorter one.
+    holding.sort((left, right) => right.length - left.length);
+    for (const rootFolder of holding) {
+      const answer = await readHostWorkspaceTrust(store, rootFolder);
+      if (answer !== 'undecided') {
+        return answer === 'trusted';
       }
     }
     return false;

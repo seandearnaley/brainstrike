@@ -5,7 +5,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { writeHostWorkspaceTrust } from '@brainstrike/agent-host/workspace-trust';
@@ -198,5 +198,29 @@ describe('a repository filter in a trusted folder', () => {
     await (await changesIn(dir, home, 'trusted')).view();
 
     expect(ran(dir, 'repo-filter-ran')).toBe(true);
+  });
+});
+
+describe('which folder decides', () => {
+  it('lets a mounted folder kept restricted inside a trusted one stay restricted', async () => {
+    const parent = await tempDir('bs-filter-guard-parent-');
+    const restricted = path.join(parent, 'kept');
+    const undecided = path.join(parent, 'open');
+    await mkdir(restricted);
+    await mkdir(undecided);
+    const store = settingsStore();
+    await writeHostWorkspaceTrust(store, parent, 'trusted');
+    await writeHostWorkspaceTrust(store, restricted, 'restricted');
+    const isTrusted = createTrustedFolderCheck(store, {
+      listRoots: async () => [
+        { displayName: 'parent', path: parent, rootId: 'parent' },
+        { displayName: 'kept', path: restricted, rootId: 'kept' },
+        { displayName: 'open', path: undecided, rootId: 'open' },
+      ],
+    });
+
+    expect(await isTrusted(parent)).toBe(true);
+    expect(await isTrusted(restricted)).toBe(false);
+    expect(await isTrusted(undecided)).toBe(true);
   });
 });
