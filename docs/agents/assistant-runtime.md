@@ -53,7 +53,7 @@ See [ADR-0010](../adr/0010-approvals-and-delegation.md) and [continuations](../.
 
 Owner: [host hooks](../../packages/host-capabilities/src/hooks/host-run-hooks.ts).
 
-- Project hooks need trust in the current file content; skipped or invalid configuration stays visible.
+- Project hooks need trust in the current file content, recorded for the root's repository (ADR-0032); skipped or invalid configuration stays visible.
 - A pre-tool hook may further restrict an allowed or approval-gated call, never override a deny.
 - Hook context is bounded and never replaces the raw tool result.
 - Plan mode admits its read/propose tool set and no delegation; unavailable plan-mode capabilities refuse explicitly.

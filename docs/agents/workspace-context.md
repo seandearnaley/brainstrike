@@ -31,6 +31,8 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
   - Pass a run's or listing's roots through `trustedHostWorkspaceRoots` before scanning project tiers.
   - An untrusted folder still mounts and stays readable and editable.
   - Home tiers load regardless; hooks keep their own hash pins.
+    - A hook approval is for exact bytes, recorded under the same answering folder as workspace trust (`hostAnsweringFolder`, `packages/agent-host/src/answering-folder.ts`), so a managed worktree runs the one version its repository approved.
+    - Resolve whose answer a folder shares through that one function; never match a worktree to its repository another way.
   - Any new repo-supplied input that steers the agent goes behind the same filter.
 - Every host (desktop and CLI) scans and injects these through `@brainstrike/host-capabilities/workspace-context` (ADR-0029 stage 2a).
   - Settings reads them over the host methods `workspace/skills`, `workspace/commands`, `workspace/personas` and `workspace/context-files`; the last two answer only the desktop's private client. Main serves none of them.
