@@ -6,6 +6,7 @@ import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-
 };
 import { Schema } from 'effect';
 import { describe, expect, test } from 'vitest';
+import { hydratesHostEvent } from '../src/host-event-encoding.js';
 import {
   foldLatestRun,
   HostLedgerProjection,
@@ -117,6 +118,7 @@ test('a committed log folds into ledger runs and per-call usage', () => {
     status: 'completed',
     threadId,
     toolCallCount: 1,
+    unreportedCallCount: 0,
   });
   // One usage record per committed model step, at its commit time.
   expect(usage).toHaveLength(4);
@@ -245,6 +247,73 @@ describe("a step's native web searches bill beside its tokens, at its provider's
   test("the provider's own count wins when it reports one", () => {
     const reported = { raw: { server_tool_use: { web_search_requests: 3 } } };
     expect(stepCost(searched, reported)).toBeCloseTo(tokens + 0.03, 12);
+  });
+});
+describe('a call a Stop or failure cut off, which the provider never reported', () => {
+  const second = started[1];
+  if (second?.event.type !== 'run.started') {
+    throw new Error('The recording has no second run');
+  }
+  const secondRunId = second.event.runId;
+  const decode = Schema.decodeUnknownSync(HostLogRowSchema, {
+    errors: 'all',
+    onExcessProperty: 'error',
+  });
+  const prepared = {
+    accounting: { totalTokens: 1000 },
+    modelId: MODEL,
+    provider: 'openrouter',
+    runId: secondRunId,
+    type: 'provider.request.prepared',
+  };
+  const answered = {
+    chunk: { request: {}, type: 'start-step', warnings: [] },
+    runId: secondRunId,
+    type: 'stream.chunk',
+  };
+  const finished = (outcome: string) => ({ outcome, runId: secondRunId, type: 'run.finished' });
+  /** The second run (on `model`), cut at its last call: `events` replace that call's step and the end. */
+  const unreported = (model: string, ...events: Record<string, unknown>[]) => {
+    const lastStep = rows.findLastIndex(
+      ({ event }) => event.type === 'model.step' && event.runId === secondRunId
+    );
+    const log = [
+      ...rows.slice(0, lastStep),
+      ...events.map((event) => ({ event, seq: 0, threadId })),
+    ].map((row, index) => {
+      const event =
+        row.event.type === 'run.started' && row.event.runId === secondRunId
+          ? { ...row.event, modelId: model }
+          : row.event;
+      return decode({ ...row, event, seq: index + 1, ts: BASE + (index + 1) * 1000 });
+    });
+    return folded(log).runs.find((run) => run.runId === secondRunId)?.unreportedCallCount;
+  };
+
+  test('a stopped call is counted as unreported, never as $0 or a guess', () => {
+    expect(unreported(MODEL, prepared, answered, finished('stopped'))).toBe(1);
+  });
+  test('the step start that marks a call answered is replayed when the host reopens', () => {
+    expect(hydratesHostEvent(decode({ event: answered, seq: 1, threadId, ts: BASE }).event)).toBe(
+      true
+    );
+  });
+  test('a call that failed after the provider answered is unreported too', () => {
+    expect(unreported(MODEL, prepared, answered, finished('failed'))).toBe(1);
+  });
+  test('a stalled attempt the host replaced counts once, though its replacement succeeded', () => {
+    const replacement = rows.find(
+      ({ event }) => event.type === 'model.step' && event.runId === secondRunId
+    )?.event;
+    expect(
+      unreported(MODEL, prepared, answered, prepared, replacement ?? {}, finished('completed'))
+    ).toBe(1);
+  });
+  test('a request refused before the provider answered is billed by none', () => {
+    expect(unreported(MODEL, prepared, finished('failed'))).toBe(0);
+  });
+  test('OpenAI does not bill a stream the client cut off', () => {
+    expect(unreported('openai::gpt-6-luna', prepared, answered, finished('stopped'))).toBe(0);
   });
 });
 test('a run still open folds as running', () => {
@@ -579,6 +648,21 @@ describe('each provider call is priced on its own', () => {
       cacheSavingsUsd: expect.closeTo(0.0045, 12),
       estimatedCostUsd: expect.closeTo(0.002, 12),
     });
+  });
+  test('a call pays the rates in force on the day it ran', () => {
+    // Gemini 4 Argon lists $2 input / $10 output per million tokens until
+    // 2026-12-01, then $4 / $20.
+    const log = insertAfterStart({
+      kind: 'observation',
+      modelId: 'google::gemini-4-argon',
+      runId,
+      type: 'memory.usage',
+      usage: { inputTokens: 100_000, outputTokens: 1000, totalTokens: 101_000 },
+    });
+    const DEC_2_2026 = Date.parse('2026-12-02T12:00:00Z');
+    const afterChange = log.map((row) => ({ ...row, ts: (row.ts ?? BASE) - BASE + DEC_2_2026 }));
+    expect(folded(log).usage[0]?.costUsd).toBeCloseTo(0.21, 12);
+    expect(folded(afterChange).usage[0]?.costUsd).toBeCloseTo(0.42, 12);
   });
   test('a call under a model with no list price leaves every total it joins unpriced', () => {
     const { perModel, runs, usage } = folded(

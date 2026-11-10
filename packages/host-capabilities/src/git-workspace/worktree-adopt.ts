@@ -17,6 +17,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
+import { repositoryRootFromCommonDir } from '@brainstrike/state-store';
 import type {
   GitInventory,
   ManagedWorktreeRow,
@@ -59,19 +60,34 @@ interface LocatedWorktree {
   readonly repositoryRoot: string;
 }
 
+/**
+ * More than one repository can list `target`: a repository can write a
+ * `.git/worktrees/<name>/gitdir` naming any folder, another repository's
+ * worktree or primary checkout included. Only the folder's own `.git` says
+ * whose it is, and the inventory has already read it into `trust`. So the
+ * validated listing is the one judged, wherever its repository sorts, and a
+ * listing the folder does not back cannot stand in for it. With no validated
+ * listing the first one stands, and its callers refuse it with its reason.
+ */
 function locate(inventory: GitInventory, target: string): LocatedWorktree | null {
+  let firstListing: LocatedWorktree | null = null;
   for (const repository of inventory.repositories) {
     for (const descriptor of repository.worktrees) {
-      if (descriptor.path === target) {
-        return {
-          descriptor,
-          repoCommonDir: repository.identity.gitCommonDir,
-          repositoryRoot: repository.identity.repositoryRoot,
-        };
+      if (descriptor.path !== target) {
+        continue;
       }
+      const listing: LocatedWorktree = {
+        descriptor,
+        repoCommonDir: repository.identity.gitCommonDir,
+        repositoryRoot: repository.identity.repositoryRoot,
+      };
+      if (descriptor.trust === 'validated') {
+        return listing;
+      }
+      firstListing ??= listing;
     }
   }
-  return null;
+  return firstListing;
 }
 
 function isWithin(parent: string, candidate: string): boolean {
@@ -741,9 +757,4 @@ function resolveUsability(
     remedy: 'grant-access',
     usable: false,
   };
-}
-
-/** Non-bare repositories use `<main-worktree>/.git`; bare common dirs stay as-is. */
-function repositoryRootFromCommonDir(repoCommonDir: string): string {
-  return path.basename(repoCommonDir) === '.git' ? path.dirname(repoCommonDir) : repoCommonDir;
 }

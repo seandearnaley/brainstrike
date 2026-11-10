@@ -27,9 +27,12 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
 
 - A folder's agent configuration (AGENTS.md/AGENT.md/CLAUDE.md, project skills, slash commands, subagent personas) loads only once the person trusts the folder.
   - The host records each answer by canonical path (`packages/agent-host/src/workspace-trust.ts`) and is its only writer.
+  - A managed worktree shares its repository's answer (ADR-0034 decision 6). A folder is one only while the worktree ledger lists it and git's two links still join it to that repository; neither a ledger row nor a folder's own `.git` is enough alone.
   - Pass a run's or listing's roots through `trustedHostWorkspaceRoots` before scanning project tiers.
   - An untrusted folder still mounts and stays readable and editable.
   - Home tiers load regardless; hooks keep their own hash pins.
+    - A hook approval is for exact bytes, recorded under the same answering folder as workspace trust (`hostAnsweringFolder`, `packages/agent-host/src/answering-folder.ts`), so a managed worktree runs the one version its repository approved.
+    - Resolve whose answer a folder shares through that one function; never match a worktree to its repository another way.
   - Any new repo-supplied input that steers the agent goes behind the same filter.
 - Every host (desktop and CLI) scans and injects these through `@brainstrike/host-capabilities/workspace-context` (ADR-0029 stage 2a).
   - Settings reads them over the host methods `workspace/skills`, `workspace/commands`, `workspace/personas` and `workspace/context-files`; the last two answer only the desktop's private client. Main serves none of them.

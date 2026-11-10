@@ -1,15 +1,22 @@
 import { isAbsolute } from 'node:path';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
-import { canonicalRoot, type StateStore } from '@brainstrike/state-store';
+import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
+import { hostAnsweringFolder, hostFolderIdentity } from './answering-folder.ts';
 import type { HostMethodHandler } from './auth-connection.ts';
 import {
   type HostWorkspaceTrust,
   type HostWorkspaceTrustDecision,
   HostWorkspaceTrustDecisionSchema,
 } from './protocol-workspace-discovery.ts';
-/** The host's StateStore settings, where it alone records each folder's workspace trust. */
-export type HostWorkspaceTrustStore = Pick<StateStore, 'getSetting' | 'setSetting'>;
+/**
+ * The host's StateStore: its settings, where it alone records each folder's
+ * workspace trust, and its worktree ledger, which says whose checkout a folder is.
+ */
+export type HostWorkspaceTrustStore = Pick<
+  StateStore,
+  'getSetting' | 'setSetting' | 'worktreeLedger'
+>;
 /** A workspace trust request the host refuses; its text is the reason the user reads. */
 export class HostWorkspaceTrustRefusal extends BoundaryFailureError {
   constructor(message: string) {
@@ -24,28 +31,29 @@ export class HostWorkspaceTrustRefusal extends BoundaryFailureError {
  * one folder (a symlink, a trailing slash, another case) shares one answer.
  */
 const trustKey = (identity: string): string => `workspace.trust/${identity}`;
-/** The folder's canonical path; undefined when nothing exists there to trust. */
-function folderIdentity(path: string): string | undefined {
+/**
+ * The canonical path of the folder whose answer the folder at `path` shares:
+ * itself, or its repository's primary checkout when it is a managed worktree
+ * (ADR-0034 decision 6). Undefined when nothing exists at `path`.
+ */
+async function answeringIdentity(
+  store: HostWorkspaceTrustStore,
+  path: string
+): Promise<string | undefined> {
   if (!isAbsolute(path)) {
     throw new HostWorkspaceTrustRefusal(
       `Workspace trust needs a folder's absolute path, not ${path}`
     );
   }
-  try {
-    return canonicalRoot(path);
-  } catch (cause) {
-    if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
-      return;
-    }
-    throw cause;
-  }
+  const folder = hostFolderIdentity(path);
+  return folder === undefined ? undefined : hostAnsweringFolder(store, folder);
 }
 /** The person's answer for the folder at `path`; undecided until they give one. */
 export async function readHostWorkspaceTrust(
   store: HostWorkspaceTrustStore,
   path: string
 ): Promise<HostWorkspaceTrust> {
-  const identity = folderIdentity(path);
+  const identity = await answeringIdentity(store, path);
   // A folder that is not there loads nothing, whatever was answered for its path.
   const value = identity === undefined ? undefined : await store.getSetting(trustKey(identity));
   return value === undefined
@@ -58,8 +66,9 @@ export async function writeHostWorkspaceTrust(
   path: string,
   trust: HostWorkspaceTrustDecision
 ): Promise<void> {
-  const identity = folderIdentity(path);
+  const identity = await answeringIdentity(store, path);
   if (identity === undefined) {
+    // Nothing is at `path`, or its repository's folder went away while this request ran.
     throw new HostWorkspaceTrustRefusal(`${path} does not exist`);
   }
   await store.setSetting(trustKey(identity), trust);

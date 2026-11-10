@@ -10,7 +10,7 @@ import type { LlmModelDefinition, ProviderDefinition } from '../provider-registr
 /**
  * BST-1650: the catalog moved out of the TypeScript literal into
  * `provider-catalog.json`, so the compile-time guarantee that every LLM entry
- * declares `contextWindow` and `vision` is gone. The Zod schema is what
+ * declares `contextWindow` and `inputModalities` is gone. The Zod schema is what
  * replaces it, and it must fail CLOSED at module load — never coerce, never
  * fall back to a partial catalog (repo rule: NO SILENT FALLBACKS).
  *
@@ -23,9 +23,12 @@ import type { LlmModelDefinition, ProviderDefinition } from '../provider-registr
 const WELL_FORMED_MODEL: Record<string, unknown> = {
   contextWindow: 400_000,
   id: 'gpt-5.6-sol',
+  inputModalities: ['text', 'image'],
+  maxOutputTokens: 128_000,
+  outputModalities: ['text'],
+  sources: [{ retrievedAt: '2026-11-10', url: 'https://example.com/models/gpt-5.6-sol' }],
   type: 'llm',
   vendor: 'openai',
-  vision: 'supported',
 };
 
 function catalogWith(model: Record<string, unknown>, providerNote?: string): unknown {
@@ -65,9 +68,9 @@ describe('ProviderCatalogSchema', () => {
     );
   });
 
-  it('rejects an LLM model entry that omits the required vision capability', () => {
+  it('rejects an LLM model entry that omits its input modalities', () => {
     const result = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' })(
-      catalogWith(modelWithout('vision'))
+      catalogWith(modelWithout('inputModalities'))
     );
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
@@ -75,8 +78,66 @@ describe('ProviderCatalogSchema', () => {
         SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue).issues
       ).toContainEqual({
         message: 'Missing key',
-        path: [0, 'models', 0, 'vision'],
+        path: [0, 'models', 0, 'inputModalities'],
       });
+    }
+  });
+
+  it('rejects a declared vision value: image support is stated once, in inputModalities', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    expect(
+      Result.isFailure(decode(catalogWith({ ...WELL_FORMED_MODEL, vision: 'supported' })))
+    ).toBe(true);
+  });
+
+  it('rejects empty or repeated modalities', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    for (const bad of [
+      { inputModalities: [] },
+      { inputModalities: ['text', 'text'] },
+      { outputModalities: [] },
+    ]) {
+      expect(
+        Result.isFailure(decode(catalogWith({ ...WELL_FORMED_MODEL, ...bad }))),
+        JSON.stringify(bad)
+      ).toBe(true);
+    }
+  });
+
+  it('requires at least one https source', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    expect(Result.isFailure(decode(catalogWith(modelWithout('sources'))))).toBe(true);
+    expect(Result.isFailure(decode(catalogWith({ ...WELL_FORMED_MODEL, sources: [] })))).toBe(true);
+    expect(
+      Result.isFailure(
+        decode(
+          catalogWith({
+            ...WELL_FORMED_MODEL,
+            sources: [{ retrievedAt: '2026-11-10', url: 'http://example.com' }],
+          })
+        )
+      )
+    ).toBe(true);
+    expect(
+      Result.isFailure(
+        decode(
+          catalogWith({
+            ...WELL_FORMED_MODEL,
+            sources: [{ retrievedAt: 'Nov 10', url: 'https://example.com' }],
+          })
+        )
+      )
+    ).toBe(true);
+  });
+
+  it('accepts a knowledge cutoff written as a month or a day, and nothing else', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    const cutOff = (knowledgeCutoff: string) =>
+      decode(catalogWith({ ...WELL_FORMED_MODEL, knowledgeCutoff }));
+    expect(Result.isSuccess(cutOff('2026-06'))).toBe(true);
+    expect(Result.isSuccess(cutOff('2024-09-30'))).toBe(true);
+    for (const bad of ['2026-13', '2026-6', 'June 2026', '2026-02-30', '2026']) {
+      expect(Result.isFailure(cutOff(bad)), bad).toBe(true);
     }
   });
 
@@ -96,18 +157,64 @@ describe('ProviderCatalogSchema', () => {
     ).toThrowError(/visoin/u);
   });
 
-  it('rejects a vision value outside the declared union', () => {
+  it('rejects a modality outside the declared union', () => {
     const result = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' })(
-      catalogWith({ ...WELL_FORMED_MODEL, vision: 'maybe' })
+      catalogWith({ ...WELL_FORMED_MODEL, inputModalities: ['text', 'hologram'] })
     );
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(
         SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue).issues
       ).toContainEqual({
-        message: 'Expected "supported" | "unsupported"',
-        path: [0, 'models', 0, 'vision'],
+        message: 'Expected "audio" | "image" | "pdf" | "text" | "video"',
+        path: [0, 'models', 0, 'inputModalities', 1],
       });
+    }
+  });
+
+  it('rejects a token limit that is not a whole, positive number', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    for (const bad of [
+      { contextWindow: 0 },
+      { contextWindow: 400_000.5 },
+      { maxOutputTokens: -1 },
+      { maxOutputTokens: 1e3 + 0.1 },
+    ]) {
+      expect(
+        Result.isFailure(decode(catalogWith({ ...WELL_FORMED_MODEL, ...bad }))),
+        JSON.stringify(bad)
+      ).toBe(true);
+    }
+    expect(Result.isFailure(decode(catalogWith(modelWithout('maxOutputTokens'))))).toBe(true);
+  });
+
+  it('rejects a negative rate, and accepts a reviewed free one', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    const priced = (pricing: Record<string, unknown>) =>
+      decode(catalogWith({ ...WELL_FORMED_MODEL, pricing }));
+    expect(Result.isFailure(priced({ inputPerMTok: -1, outputPerMTok: 10 }))).toBe(true);
+    expect(
+      Result.isFailure(priced({ cacheReadPerMTok: -0.1, inputPerMTok: 1, outputPerMTok: 10 }))
+    ).toBe(true);
+    expect(Result.isSuccess(priced({ inputPerMTok: 0, outputPerMTok: 0 }))).toBe(true);
+  });
+
+  it('accepts a dated price change only on a real calendar day', () => {
+    const decode = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' });
+    const changingOn = (effectiveFrom: string) =>
+      decode(
+        catalogWith({
+          ...WELL_FORMED_MODEL,
+          pricing: {
+            changes: [{ effectiveFrom, inputPerMTok: 4, outputPerMTok: 20 }],
+            inputPerMTok: 2,
+            outputPerMTok: 10,
+          },
+        })
+      );
+    expect(Result.isSuccess(changingOn('2026-12-01'))).toBe(true);
+    for (const bad of ['2026-02-30', '2026-13-01', '2026-12-1', 'December 1, 2026']) {
+      expect(Result.isFailure(changingOn(bad)), bad).toBe(true);
     }
   });
 });
@@ -138,8 +245,16 @@ describe('provider catalog schema and registry types', () => {
 describe('parseProviderCatalog', () => {
   it('names the offending provider and model instead of array indices', () => {
     expect(() =>
-      parseProviderCatalog(catalogWith({ ...WELL_FORMED_MODEL, vision: 'maybe' }))
-    ).toThrowError(/openai\.models\.gpt-5\.6-sol\.vision/u);
+      parseProviderCatalog(catalogWith({ ...WELL_FORMED_MODEL, inputModalities: ['hologram'] }))
+    ).toThrowError(/openai\.models\.gpt-5\.6-sol\.inputModalities/u);
+  });
+
+  it('gives every model the vision its input modalities imply', () => {
+    const visionOf = (inputModalities: readonly string[]) =>
+      parseProviderCatalog(catalogWith({ ...WELL_FORMED_MODEL, inputModalities }))[0]?.models[0]
+        ?.vision;
+    expect(visionOf(['text', 'image'])).toBe('supported');
+    expect(visionOf(['text', 'pdf', 'audio'])).toBe('unsupported');
   });
 
   it('keeps the ZodError as the thrown error cause', () => {
@@ -186,9 +301,9 @@ describe('provider-registry module load', () => {
 
   it('throws at import when the catalog data file is malformed', async () => {
     vi.doMock('../provider-catalog.json', () => ({
-      default: catalogWith(modelWithout('vision')),
+      default: catalogWith(modelWithout('inputModalities')),
     }));
 
-    await expect(import('../provider-registry.js')).rejects.toThrow(/vision/u);
+    await expect(import('../provider-registry.js')).rejects.toThrow(/inputModalities/u);
   });
 });

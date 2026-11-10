@@ -60,6 +60,8 @@ const TERRA = makeCatalogRow({
     cacheReadPerMTok: null,
     cacheWritePerMTok: null,
     inputPerMTok: 2.5,
+    longContextTiers: [],
+    nextChange: null,
     outputPerMTok: 15,
   },
   providerId: 'openai',
@@ -69,7 +71,9 @@ const TERRA = makeCatalogRow({
 
 describe('resolveCatalogWidthTier', () => {
   it.each([
-    [1200, 'wide'],
+    [1400, 'xwide'],
+    [1040, 'xwide'],
+    [1039, 'wide'],
     [900, 'wide'],
     [899, 'medium'],
     [640, 'medium'],
@@ -81,14 +85,27 @@ describe('resolveCatalogWidthTier', () => {
 });
 
 describe('catalog column layouts', () => {
-  it('drops Max out below 900px and Price below 640px', () => {
+  it('drops the cache rates below 1040px, Max out below 900px and every rate below 640px', () => {
+    expect(getCatalogColumnLayout('xwide').map((column) => column.id)).toEqual([
+      'enabled',
+      'model',
+      'capabilities',
+      'context',
+      'maxOutput',
+      'input',
+      'output',
+      'cacheRead',
+      'cacheWrite',
+      'actions',
+    ]);
     expect(getCatalogColumnLayout('wide').map((column) => column.id)).toEqual([
       'enabled',
       'model',
       'capabilities',
       'context',
       'maxOutput',
-      'price',
+      'input',
+      'output',
       'actions',
     ]);
     expect(getCatalogColumnLayout('medium').map((column) => column.id)).toEqual([
@@ -96,7 +113,8 @@ describe('catalog column layouts', () => {
       'model',
       'capabilities',
       'context',
-      'price',
+      'input',
+      'output',
       'actions',
     ]);
     expect(getCatalogColumnLayout('narrow').map((column) => column.id)).toEqual([
@@ -106,9 +124,11 @@ describe('catalog column layouts', () => {
       'context',
       'actions',
     ]);
-    expect(
-      getCatalogColumnLayout('narrow').find((column) => column.id === 'capabilities')?.label
-    ).toBe('Caps');
+    for (const tier of ['medium', 'narrow'] as const) {
+      expect(
+        getCatalogColumnLayout(tier).find((column) => column.id === 'capabilities')?.label
+      ).toBe('Caps');
+    }
   });
 
   it('returns identity-stable column definitions per tier', () => {
@@ -118,7 +138,7 @@ describe('catalog column layouts', () => {
 });
 
 describe('catalog model rows', () => {
-  it('renders one line: switch, mark, name, tag, capabilities, context, max out and price', () => {
+  it('renders one line: switch, mark, name, tag, capabilities, context, max out and rates', () => {
     renderRows([TERRA]);
     const cell = screen.getByTestId('model-row-gpt-5.6-terra');
     expect(within(cell).getByText('GPT-5.6 Terra')).toHaveAttribute('title', 'gpt-5.6-terra');
@@ -126,7 +146,8 @@ describe('catalog model rows', () => {
     expect(within(cell).queryByText('Most capable for everyday work')).not.toBeInTheDocument();
     expect(screen.getByText('1,050,000 token context window')).toBeInTheDocument();
     expect(screen.getByText('128,000 token max output')).toBeInTheDocument();
-    expect(screen.getByText('input $2.50, output $15 per million tokens')).toBeInTheDocument();
+    expect(screen.getByText('input $2.50 per million tokens')).toBeInTheDocument();
+    expect(screen.getByText('output $15 per million tokens')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Vision supported' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Reasoning supported' })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Enable GPT-5.6 Terra' })).toHaveAttribute(
@@ -148,7 +169,8 @@ describe('catalog model rows', () => {
     ]);
     expect(screen.getByText('No published context window')).toBeInTheDocument();
     expect(screen.getByText('No published max output')).toBeInTheDocument();
-    expect(screen.getByText('No published price')).toBeInTheDocument();
+    // One dash per rate column: input and output at the wide tier.
+    expect(screen.getAllByText('No published price')).toHaveLength(2);
     expect(screen.getByText('Vision not published')).toBeInTheDocument();
     expect(screen.getByText('Reasoning not published')).toBeInTheDocument();
     const row = screen.getByTestId('model-row-bare').closest('tr');
@@ -217,11 +239,14 @@ describe('catalog model rows', () => {
           cacheReadPerMTok: null,
           cacheWritePerMTok: null,
           inputPerMTok: 0,
+          longContextTiers: [],
+          nextChange: null,
           outputPerMTok: 0,
         },
       }),
     ]);
-    expect(screen.getByText('Free')).toBeInTheDocument();
+    expect(screen.getByText('input free')).toBeInTheDocument();
+    expect(screen.getByText('output free')).toBeInTheDocument();
   });
 
   it('prices a row with one zero rate rather than calling it Free', () => {
@@ -232,12 +257,15 @@ describe('catalog model rows', () => {
           cacheReadPerMTok: null,
           cacheWritePerMTok: null,
           inputPerMTok: 0,
+          longContextTiers: [],
+          nextChange: null,
           outputPerMTok: 0.4,
         },
       }),
     ]);
     expect(screen.queryByText('Free')).not.toBeInTheDocument();
-    expect(screen.getByText('input $0, output $0.40 per million tokens')).toBeInTheDocument();
+    expect(screen.getByText('input $0 per million tokens')).toBeInTheDocument();
+    expect(screen.getByText('output $0.40 per million tokens')).toBeInTheDocument();
   });
 
   it('swaps the tagline for the highlighted id when the query hits only the id', () => {
@@ -265,7 +293,96 @@ describe('catalog model rows', () => {
     );
   });
 
-  it('hides Max out and Price at the narrow tier', () => {
+  it('shows cache read and cache write at the widest tier, with a dash for an unpublished one', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'gemini-4-argon',
+          pricing: {
+            cacheReadPerMTok: 0.1,
+            cacheWritePerMTok: null,
+            inputPerMTok: 2,
+            longContextTiers: [],
+            nextChange: null,
+            outputPerMTok: 10,
+          },
+        }),
+      ],
+      { tier: 'xwide' }
+    );
+    expect(screen.getByText('cache read $0.10 per million tokens')).toBeInTheDocument();
+    expect(screen.getByText('No published cache write price')).toBeInTheDocument();
+  });
+
+  it('marks a rate that rises for long prompts and names where it rises', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'gpt-5.5',
+          pricing: {
+            cacheReadPerMTok: 0.5,
+            cacheWritePerMTok: null,
+            inputPerMTok: 5,
+            longContextTiers: [
+              {
+                cacheReadPerMTok: null,
+                cacheWritePerMTok: null,
+                inputPerMTok: 10,
+                minPromptTokens: 272_000,
+                outputPerMTok: 45,
+              },
+            ],
+            nextChange: null,
+            outputPerMTok: 22.5,
+          },
+        }),
+      ],
+      { tier: 'xwide' }
+    );
+    const input = screen.getByTestId('model-rate-input-gpt-5.5');
+    expect(input).toHaveTextContent('$5+');
+    expect(input).toHaveAttribute('title', 'From 272,000 prompt tokens: $10');
+    expect(
+      screen.getByText('output $22.50 per million tokens; From 272,000 prompt tokens: $45')
+    ).toBeInTheDocument();
+    // The tier leaves the cache-read rate out, so the base rate holds: no mark.
+    expect(screen.getByTestId('model-rate-cacheRead-gpt-5.5')).not.toHaveAttribute('title');
+  });
+
+  it("marks a rate with an announced change, and one the change doesn't publish", () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'google/gemini-3.8-flash',
+          pricing: {
+            cacheReadPerMTok: 0.075,
+            cacheWritePerMTok: 0.041_666_7,
+            inputPerMTok: 0.75,
+            longContextTiers: [],
+            nextChange: {
+              cacheReadPerMTok: 0.15,
+              cacheWritePerMTok: null,
+              effectiveFrom: '2027-01-01',
+              inputPerMTok: 1.5,
+              longContextTiers: [],
+              outputPerMTok: 7.5,
+            },
+            outputPerMTok: 3.75,
+          },
+        }),
+      ],
+      { tier: 'xwide' }
+    );
+    expect(
+      screen.getByText('input $0.75 per million tokens; From Jan 1, 2027: $1.50')
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('model-rate-cacheWrite-google/gemini-3.8-flash')).toHaveAttribute(
+      'title',
+      'No published rate from Jan 1, 2027'
+    );
+  });
+
+  it('hides Max out and every rate at the narrow tier', () => {
     renderRows([makeCatalogRow({ id: 'm', name: 'M' })], { tier: 'narrow' });
     expect(screen.queryByText(/token max output/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/per million tokens/u)).not.toBeInTheDocument();
@@ -329,6 +446,8 @@ describe('catalog details row', () => {
             cacheReadPerMTok: 0.5,
             cacheWritePerMTok: 6.25,
             inputPerMTok: 5,
+            longContextTiers: [],
+            nextChange: null,
             outputPerMTok: 25,
           },
           reasoningEfforts: ['low', 'high'],
@@ -354,6 +473,69 @@ describe('catalog details row', () => {
     );
   });
 
+  it('names an announced price change below the rates in force', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'gemini-4-argon',
+          pricing: {
+            cacheReadPerMTok: 0.1,
+            cacheWritePerMTok: null,
+            inputPerMTok: 2,
+            longContextTiers: [],
+            nextChange: {
+              cacheReadPerMTok: 0.2,
+              cacheWritePerMTok: null,
+              effectiveFrom: '2026-12-01',
+              inputPerMTok: 4,
+              longContextTiers: [],
+              outputPerMTok: 20,
+            },
+            outputPerMTok: 10,
+          },
+        }),
+      ],
+      { expandedIds: ['gemini-4-argon'] }
+    );
+    const details = screen.getByTestId('model-details-gemini-4-argon');
+    expect(within(details).getByText('Input $2 · Output $10 per 1M tokens')).toBeInTheDocument();
+    expect(
+      within(details).getByText('From 2026-12-01 (UTC): input $4 · output $20, cache read $0.20')
+    ).toBeInTheDocument();
+  });
+
+  it('lists each long-context tier under the base rates', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'gpt-6-sol',
+          pricing: {
+            cacheReadPerMTok: 0.2,
+            cacheWritePerMTok: 2.5,
+            inputPerMTok: 2,
+            longContextTiers: [
+              {
+                cacheReadPerMTok: 0.4,
+                cacheWritePerMTok: 5,
+                inputPerMTok: 4,
+                minPromptTokens: 272_000,
+                outputPerMTok: 15,
+              },
+            ],
+            nextChange: null,
+            outputPerMTok: 7.5,
+          },
+        }),
+      ],
+      { expandedIds: ['gpt-6-sol'] }
+    );
+    expect(
+      within(screen.getByTestId('model-details-gpt-6-sol')).getByText(
+        'From 272,000 prompt tokens: input $4 · output $15, cache read $0.40, cache write $5'
+      )
+    ).toBeInTheDocument();
+  });
+
   it('says Unverified for an unknown reasoning state and Not published for missing facts', () => {
     renderRows(
       [
@@ -370,8 +552,87 @@ describe('catalog details row', () => {
     );
     const details = screen.getByTestId('model-details-or');
     expect(within(details).getByText('Unverified')).toBeInTheDocument();
-    expect(within(details).getByText('Not published')).toBeInTheDocument();
+    expect(within(details).getByText('Context · Max output').nextElementSibling).toHaveTextContent(
+      /^Not published$/u
+    );
     expect(within(details).getByText('No published price')).toBeInTheDocument();
+  });
+
+  it('shows what the model takes and gives, its tool support, dates and sources', async () => {
+    const openExternal = vi.fn(async () => ({ error: 'blocked by policy', ok: false }));
+    Object.assign(window, { platform: { openExternal } });
+    const source = 'https://example.com/models/claude-opus-5.toml';
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'claude-opus-5',
+          inputModalities: ['text', 'image', 'pdf'],
+          knowledgeCutoff: '2026-03',
+          lifecycle: {
+            archived: false,
+            releasedAt: '2026-07-14',
+            replacedBy: null,
+            retiresAt: null,
+            status: 'active',
+          },
+          outputModalities: ['text'],
+          sources: [{ retrievedAt: '2026-11-10', url: source }],
+          structuredOutputs: false,
+          toolCalling: true,
+        }),
+      ],
+      { expandedIds: ['claude-opus-5'] }
+    );
+    const details = screen.getByTestId('model-details-claude-opus-5');
+    const factValue = (label: string) => within(details).getByText(label).nextElementSibling;
+    expect(factValue('Input')).toHaveTextContent(/^TextImagePDF$/u);
+    expect(factValue('Output')).toHaveTextContent(/^Text$/u);
+    expect(factValue('Tool calling')).toHaveTextContent(/^Supported$/u);
+    expect(factValue('Structured outputs')).toHaveTextContent(/^Not supported$/u);
+    expect(factValue('Released')).toHaveTextContent(/^Jul 14, 2026$/u);
+    expect(factValue('Knowledge cutoff')).toHaveTextContent(/^Mar 2026$/u);
+    const link = within(details).getByRole('link', {
+      name: 'example.com/models/claude-opus-5.toml',
+    });
+    expect(link).toHaveAttribute('href', source);
+    expect(within(details).getByText('· read Nov 10, 2026')).toBeInTheDocument();
+
+    await userEvent.click(link);
+    expect(openExternal).toHaveBeenCalledWith(source);
+    expect(await within(details).findByRole('alert')).toHaveTextContent(
+      "Couldn't open link: blocked by policy"
+    );
+    Reflect.deleteProperty(window, 'platform');
+  });
+
+  it('says Not published for metadata no source states', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'quiet',
+          inputModalities: null,
+          knowledgeCutoff: null,
+          outputModalities: null,
+          structuredOutputs: null,
+          toolCalling: null,
+        }),
+      ],
+      { expandedIds: ['quiet'] }
+    );
+    const details = screen.getByTestId('model-details-quiet');
+    for (const label of [
+      'Input',
+      'Output',
+      'Tool calling',
+      'Structured outputs',
+      'Released',
+      'Knowledge cutoff',
+    ]) {
+      expect(within(details).getByText(label).nextElementSibling, label).toHaveTextContent(
+        /^Not published$/u
+      );
+    }
+    expect(within(details).queryByText('Sources')).not.toBeInTheDocument();
   });
 
   it('names the missing context window while showing the published max output', () => {

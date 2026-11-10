@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CatalogSectionProps } from '../catalog-section';
@@ -67,14 +67,14 @@ const MODELS = [
     sortOrder: 1,
   }),
   makeDbModel({
-    id: 'claude-opus-5',
-    name: 'Claude Opus 5',
+    id: 'claude-opus-5-5',
+    name: 'Claude Opus 5.5',
     providerId: 'anthropic',
     sortOrder: 2,
   }),
   makeDbModel({
-    id: 'claude-sonnet-4-6',
-    name: 'Claude Sonnet 4.6',
+    id: 'claude-haiku-5-5',
+    name: 'Claude Haiku 5.5',
     providerId: 'anthropic',
     sortOrder: 3,
   }),
@@ -144,7 +144,7 @@ describe('ModelCatalog default view', () => {
     expect(sectionToggle('anthropic')).toHaveAttribute('aria-expanded', 'false');
     expect(sectionToggle('openrouter')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByTestId('model-row-gpt-5.6-terra')).toBeInTheDocument();
-    expect(screen.queryByTestId('model-row-claude-opus-5')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('model-row-claude-opus-5-5')).not.toBeInTheDocument();
     expect(screen.getByTestId('model-catalog-summary')).toHaveTextContent(
       '5 models · 3 providers · 1 enabled'
     );
@@ -183,13 +183,46 @@ describe('ModelCatalog default view', () => {
   it('sorts rows within a section from the column header', async () => {
     render(<ModelCatalog {...catalogProps()} />);
     await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
-    await userEvent.click(screen.getByRole('button', { name: 'Context: sort ascending' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Input price: sort ascending' }));
     const anthropic = screen.getByTestId('model-catalog-section-anthropic');
     expect(
       Array.from(anthropic.querySelectorAll('[data-testid^="model-row-"]'), (element) =>
         element.getAttribute('data-testid')
       )
-    ).toEqual(['model-row-claude-sonnet-4-6', 'model-row-claude-opus-5']);
+    ).toEqual(['model-row-claude-haiku-5-5', 'model-row-claude-opus-5-5']);
+  });
+
+  it('drops a sort once a narrower catalog hides its column', async () => {
+    const dom = installCatalogDomStubs({ width: 1100 });
+    render(<ModelCatalog {...catalogProps()} />);
+    await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
+    const anthropicOrder = () =>
+      Array.from(
+        screen
+          .getByTestId('model-catalog-section-anthropic')
+          .querySelectorAll('[data-testid^="model-row-"]'),
+        (element) => element.getAttribute('data-testid')
+      );
+    await userEvent.click(screen.getByRole('button', { name: 'Cache read price: sort ascending' }));
+    expect(anthropicOrder()).toEqual(['model-row-claude-haiku-5-5', 'model-row-claude-opus-5-5']);
+
+    // Below 1040px the cache columns leave, and their order goes with them.
+    act(() => {
+      dom.resize(950);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^Cache read price/u })).not.toBeInTheDocument();
+    });
+    expect(anthropicOrder()).toEqual(['model-row-claude-opus-5-5', 'model-row-claude-haiku-5-5']);
+
+    // Widening again brings the column back unsorted.
+    act(() => {
+      dom.resize(1100);
+    });
+    expect(
+      await screen.findByRole('button', { name: 'Cache read price: sort ascending' })
+    ).toBeInTheDocument();
+    expect(anthropicOrder()).toEqual(['model-row-claude-opus-5-5', 'model-row-claude-haiku-5-5']);
   });
 
   it('renders every expanded section inside the one catalog scroller', async () => {
@@ -231,7 +264,7 @@ describe('ModelCatalog filtering', () => {
   it('expands every matching section, hides the rest, and restores the manual set on clear', async () => {
     render(<ModelCatalog {...catalogProps()} />);
     await userEvent.type(search(), 'claude');
-    expect(await screen.findByTestId('model-row-claude-opus-5')).toBeInTheDocument();
+    expect(await screen.findByTestId('model-row-claude-opus-5-5')).toBeInTheDocument();
     expect(screen.queryByTestId('model-catalog-section-openai')).not.toBeInTheDocument();
     expect(screen.getByTestId('model-catalog-summary')).toHaveTextContent(
       '2 of 5 models match · 1 provider'
@@ -246,10 +279,10 @@ describe('ModelCatalog filtering', () => {
   it('keeps a section the user collapsed during a filter session collapsed until filters clear', async () => {
     render(<ModelCatalog {...catalogProps()} />);
     await userEvent.type(search(), 'claude');
-    await screen.findByTestId('model-row-claude-opus-5');
+    await screen.findByTestId('model-row-claude-opus-5-5');
     await userEvent.click(sectionToggle('anthropic'));
     expect(sectionToggle('anthropic')).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.type(search(), ' sonnet');
+    await userEvent.type(search(), ' haiku');
     await waitFor(() => {
       expect(screen.getByTestId('model-catalog-summary')).toHaveTextContent('1 of 5 models match');
     });
@@ -257,34 +290,34 @@ describe('ModelCatalog filtering', () => {
   });
 
   it('bulk-enables only the shown rows that would change', async () => {
-    const props = catalogProps({ models: withEnabled('claude-sonnet-4-6', true) });
+    const props = catalogProps({ models: withEnabled('claude-haiku-5-5', true) });
     render(<ModelCatalog {...props} />);
     await userEvent.type(search(), 'claude');
     await userEvent.click(await screen.findByRole('button', { name: 'Enable 2 shown' }));
     expect(props.onBulkChange).toHaveBeenCalledWith({
       enabled: true,
-      modelIds: ['claude-opus-5'],
+      modelIds: ['claude-opus-5-5'],
       scopeLabel: 'Anthropic',
     });
   });
 
   it('bulk-disables only the rows that are enabled, never re-writing unchanged rows', async () => {
-    const props = catalogProps({ models: withEnabled('claude-sonnet-4-6', true) });
+    const props = catalogProps({ models: withEnabled('claude-haiku-5-5', true) });
     render(<ModelCatalog {...props} />);
     await userEvent.click(sectionToggle('anthropic'));
     await userEvent.click(screen.getByTestId('model-catalog-disable-anthropic'));
     expect(props.onBulkChange).toHaveBeenCalledTimes(1);
     expect(props.onBulkChange).toHaveBeenCalledWith({
       enabled: false,
-      modelIds: ['claude-sonnet-4-6'],
+      modelIds: ['claude-haiku-5-5'],
       scopeLabel: 'Anthropic',
     });
   });
 
   it('disables both bulk buttons while a shown row in the section is busy', async () => {
     const props = catalogProps({
-      busyModelIds: new Set(['claude-sonnet-4-6']),
-      models: withEnabled('claude-sonnet-4-6', true),
+      busyModelIds: new Set(['claude-haiku-5-5']),
+      models: withEnabled('claude-haiku-5-5', true),
     });
     render(<ModelCatalog {...props} />);
     await userEvent.click(sectionToggle('anthropic'));
@@ -293,10 +326,10 @@ describe('ModelCatalog filtering', () => {
   });
 
   it('never lets a bulk action reach a row the filter hides', async () => {
-    const props = catalogProps({ models: withEnabled('claude-sonnet-4-6', true) });
+    const props = catalogProps({ models: withEnabled('claude-haiku-5-5', true) });
     render(<ModelCatalog {...props} />);
     await userEvent.type(search(), 'opus');
-    // Sonnet is enabled but hidden by the search, so "Disable 1 shown" has nothing to do.
+    // Haiku is enabled but hidden by the search, so "Disable 1 shown" has nothing to do.
     expect(await screen.findByRole('button', { name: 'Disable 1 shown' })).toBeDisabled();
   });
 
@@ -332,6 +365,115 @@ describe('ModelCatalog filtering', () => {
       '3 models · 2 providers · 1 enabled'
     );
     expect(screen.getByTestId('model-catalog-section-openai')).toBeInTheDocument();
+  });
+});
+
+describe('ModelCatalog archived models', () => {
+  const ARCHIVED = [
+    makeDbModel({
+      id: 'claude-fable-5-2',
+      name: 'Claude Fable 5.2',
+      providerId: 'anthropic',
+      sortOrder: 0,
+    }),
+    makeDbModel({
+      id: 'claude-fable-5-1',
+      isEnabled: true,
+      name: 'Claude Fable 5.1',
+      providerId: 'anthropic',
+      sortOrder: 1,
+    }),
+    makeDbModel({
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
+      providerId: 'anthropic',
+      sortOrder: 2,
+    }),
+    makeDbModel({
+      id: 'gpt-5.4-nano',
+      isEnabled: true,
+      name: 'GPT-5.4 nano',
+      providerId: 'openai',
+      sortOrder: 3,
+    }),
+  ];
+
+  it('hides an archived model until Show archived is on, unless the user enabled it', async () => {
+    render(<ModelCatalog {...catalogProps({ models: ARCHIVED })} />);
+    await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
+    expect(screen.getByTestId('model-catalog-section-archived-anthropic')).toHaveTextContent(
+      '2 archived'
+    );
+    // Fable 5.1 is archived but enabled, so it stays listed with its badge.
+    expect(screen.getByTestId('model-lifecycle-claude-fable-5-1')).toHaveTextContent('Archived');
+    expect(screen.queryByTestId('model-row-claude-opus-5')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('model-lifecycle-claude-fable-5-2')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show archived' }));
+    expect(await screen.findByTestId('model-row-claude-opus-5')).toBeInTheDocument();
+    expect(screen.getByTestId('model-lifecycle-claude-opus-5')).toHaveTextContent('Archived');
+  });
+
+  it('keeps an archived model listed after the user switches it off', async () => {
+    const props = catalogProps({ models: ARCHIVED });
+    const { rerender } = render(<ModelCatalog {...props} />);
+    await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
+    const fable = screen.getByRole('switch', { name: 'Enable Claude Fable 5.1' });
+    expect(fable).toBeChecked();
+    await userEvent.click(fable);
+    expect(props.onToggle).toHaveBeenCalledWith('claude-fable-5-1', false);
+    // The store applies the switch optimistically: the row is now off.
+    rerender(
+      <ModelCatalog
+        {...props}
+        models={ARCHIVED.map((model) =>
+          model.id === 'claude-fable-5-1' ? { ...model, isEnabled: false } : model
+        )}
+      />
+    );
+    expect(screen.getByRole('switch', { name: 'Enable Claude Fable 5.1' })).not.toBeChecked();
+    expect(screen.getByTestId('model-lifecycle-claude-fable-5-1')).toHaveTextContent('Archived');
+    // An archived model the user never had on stays hidden.
+    expect(screen.queryByTestId('model-row-claude-opus-5')).not.toBeInTheDocument();
+  });
+
+  it('counts only the rows Enable can switch on while filtering', async () => {
+    render(<ModelCatalog {...catalogProps({ models: ARCHIVED })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Show archived' }));
+    await userEvent.type(search(), 'claude');
+    const header = await screen.findByTestId('model-catalog-section-anthropic');
+    expect(within(header).getByText('3 shown')).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Enable 1 shown' })).toBeInTheDocument();
+  });
+
+  it('offers Show archived when only archived models match', async () => {
+    render(<ModelCatalog {...catalogProps({ models: ARCHIVED })} />);
+    await userEvent.type(search(), 'opus 5');
+    const empty = await screen.findByTestId('model-catalog-no-matches');
+    expect(
+      within(empty).getByText('Only archived models match. Show archived lists them.')
+    ).toBeInTheDocument();
+    await userEvent.click(within(empty).getByRole('button', { name: 'Show archived' }));
+    expect(await screen.findByTestId('model-row-claude-opus-5')).toBeInTheDocument();
+  });
+
+  it("names a deprecated model's retirement day", async () => {
+    render(<ModelCatalog {...catalogProps({ models: ARCHIVED })} />);
+    expect(await screen.findByTestId('model-lifecycle-gpt-5.4-nano')).toHaveTextContent(
+      'Retires Apr 1, 2027'
+    );
+  });
+
+  it('never bulk-enables an archived model, even when it is shown', async () => {
+    const props = catalogProps({ models: ARCHIVED });
+    render(<ModelCatalog {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Show archived' }));
+    await userEvent.click(screen.getByTestId('model-catalog-enable-anthropic'));
+    expect(props.onBulkChange).toHaveBeenCalledWith({
+      enabled: true,
+      modelIds: ['claude-fable-5-2'],
+      scopeLabel: 'Anthropic',
+    });
   });
 });
 

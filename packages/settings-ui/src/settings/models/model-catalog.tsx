@@ -14,12 +14,14 @@ import {
   clearCatalogFilter,
   DEFAULT_CATALOG_FILTERS,
   describeActiveFilters,
+  keepEnabledArchived,
 } from './catalog-filters';
 import { createCatalogNodeCache } from './catalog-nodes';
 import { createCatalogProjector } from './catalog-projection';
 import { CatalogSection } from './catalog-section';
 import {
   buildCatalogView,
+  bulkEnableRows,
   type CatalogProviderStat,
   type CatalogSection as CatalogSectionModel,
   type CatalogSort,
@@ -100,12 +102,23 @@ export function ModelCatalog({
   const [filters, setFilters] = useState<CatalogFilters>(DEFAULT_CATALOG_FILTERS);
   const deferredQuery = useDeferredValue(filters.query);
   const effectiveFilters = { ...filters, query: deferredQuery };
-  const [sort, setSort] = useState<CatalogSort | null>(null);
+  const [storedSort, setSort] = useState<CatalogSort | null>(null);
+  // A narrower catalog can hide the sorted column, which would leave rows in an
+  // order no header names, so the sort goes with its column. Dropped during
+  // render, like the provider selection below.
+  const columnLayout = getCatalogColumnLayout(tier);
+  const sort =
+    storedSort !== null && columnLayout.some((column) => column.sortColumn === storedSort.column)
+      ? storedSort
+      : null;
+  if (sort !== storedSort) {
+    setSort(sort);
+  }
   const [detailsOpenIds, setDetailsOpenIds] = useState<ReadonlySet<string>>(NO_IDS);
   // One projector and one node cache per catalog instance: both are keyed on
   // object identity, which is what keeps untouched rows (and their TreeNodes)
   // identical across a toggle (TreeGrid row-identity contract).
-  const [project] = useState(createCatalogProjector);
+  const [project] = useState(() => createCatalogProjector(Date.now()));
   const [getNodes] = useState(createCatalogNodeCache);
 
   const providerNames = new Map(providers.map((provider) => [provider.id, provider.name]));
@@ -116,9 +129,17 @@ export function ModelCatalog({
       ),
     [models, project, providerNames]
   );
+  // An archived row the user had on stays listed for as long as the catalog is
+  // open, so switching it off (or Disable all) never removes it from under the
+  // pointer. Grown during render, like the provider selection below.
+  const [storedKeptArchived, setStoredKeptArchived] = useState<ReadonlySet<string>>(NO_IDS);
+  const keptArchivedIds = keepEnabledArchived(storedKeptArchived, rows);
+  if (keptArchivedIds !== storedKeptArchived) {
+    setStoredKeptArchived(keptArchivedIds);
+  }
   const view = useMemo(
-    () => buildCatalogView({ filters: effectiveFilters, providers, rows, sort }),
-    [effectiveFilters, providers, rows, sort]
+    () => buildCatalogView({ filters: effectiveFilters, keptArchivedIds, providers, rows, sort }),
+    [effectiveFilters, keptArchivedIds, providers, rows, sort]
   );
 
   // A selected provider can leave the catalog. Its id would then be unnamed,
@@ -168,11 +189,13 @@ export function ModelCatalog({
 
   // Bulk actions only ever touch SHOWN rows, and only those that would change:
   // an unchanged row must not be written (it would gain a new updated_at, and
-  // Undo would then "restore" it too).
+  // Undo would then "restore" it too). Enabling never picks up an archived row.
   const handleBulk = (section: CatalogSectionModel, enabled: boolean): void => {
     onBulkChange({
       enabled,
-      modelIds: section.rows.flatMap((row) => (row.enabled === enabled ? [] : [row.id])),
+      modelIds: (enabled ? bulkEnableRows(section.rows) : section.rows).flatMap((row) =>
+        row.enabled === enabled ? [] : [row.id]
+      ),
       scopeLabel: section.providerName,
     });
   };
@@ -182,6 +205,9 @@ export function ModelCatalog({
   };
   const clearAll = (): void => {
     setFilters(DEFAULT_CATALOG_FILTERS);
+  };
+  const showArchived = (): void => {
+    setFilters((current) => ({ ...current, showArchived: true }));
   };
 
   const rowActions = useMemo<CatalogRowActions>(
@@ -244,7 +270,27 @@ export function ModelCatalog({
       </p>
     );
   } else if (view.sections.length === 0) {
-    body = (
+    const onlyArchivedMatch =
+      !filters.showArchived &&
+      buildCatalogView({
+        filters: { ...effectiveFilters, showArchived: true },
+        keptArchivedIds,
+        providers,
+        rows,
+        sort: null,
+      }).sections.length > 0;
+    body = onlyArchivedMatch ? (
+      <EmptyState
+        action={
+          <Button onClick={showArchived} size="sm" variant="outline">
+            Show archived
+          </Button>
+        }
+        data-testid="model-catalog-no-matches"
+        description="Only archived models match. Show archived lists them."
+        title="No models match"
+      />
+    ) : (
       <EmptyState
         action={
           <Button onClick={clearAll} size="sm" variant="outline">
@@ -299,7 +345,7 @@ export function ModelCatalog({
       />
       <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
         <CatalogColumnHeader
-          layout={getCatalogColumnLayout(tier)}
+          layout={columnLayout}
           onSortChange={setSort}
           scrollerRef={scrollRef}
           sort={sort}

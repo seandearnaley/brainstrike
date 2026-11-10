@@ -15,11 +15,19 @@ export interface ProviderCapabilities {
 
 /**
  * Whether a model accepts image (vision) input parts. Drives the composer
- * attachment gate and the picker model metadata. Every registered model
- * commits to one value so the attachment gate never guesses.
+ * attachment gate and the picker model metadata. Read off the row's
+ * `inputModalities` when the catalog loads, so the attachment gate never
+ * guesses and the catalog states image support once.
  */
 export type ModelVisionSupport = 'supported' | 'unsupported';
-export type ModelModality = 'audio' | 'image' | 'text' | 'video';
+/** What a route takes in or gives back. `pdf` is a document input the route reads itself. */
+export type ModelModality = 'audio' | 'image' | 'pdf' | 'text' | 'video';
+
+/** A page a row's facts were read from, and the day they were read (`YYYY-MM-DD`). */
+export interface ModelSource {
+  readonly retrievedAt: string;
+  readonly url: string;
+}
 
 /**
  * Provider-native deferred-tool search capability declared by the exact model
@@ -68,10 +76,132 @@ export interface ProviderCatalogPresentation {
 }
 export interface ModelCatalogPresentation extends ProviderCatalogPresentation {
   readonly bestFor: readonly string[] | null;
-  readonly capabilities?: { readonly toolCalling?: boolean; readonly contextWindow?: number };
   readonly description: string | null;
   readonly parameters: Readonly<Record<string, unknown>> | null;
   readonly tagline: string | null;
+}
+
+/** One rate set, USD per 1,000,000 tokens. */
+export interface ModelPricingRates {
+  /** Published USD per 1M cache-read tokens, including automatic provider caching. */
+  readonly cacheReadPerMTok?: number;
+  /** Published USD per 1M cache-write tokens; absence means the rate is unknown. */
+  readonly cacheWritePerMTok?: number;
+  readonly inputPerMTok: number;
+  /**
+   * Gateway long-context surcharge bands (BST-1708): upstream
+   * `pricing.overrides` entries keyed by `min_prompt_tokens`, recorded
+   * per-MTok. `computeCost` applies the highest tier at or below the
+   * request's total input tokens; cache classes use a tier's cache rates
+   * when declared, else the base rates above.
+   */
+  readonly longContextTiers?: readonly {
+    readonly minPromptTokens: number;
+    readonly inputPerMTok: number;
+    readonly outputPerMTok: number;
+    readonly cacheReadPerMTok?: number;
+    readonly cacheWritePerMTok?: number;
+  }[];
+  readonly outputPerMTok: number;
+}
+
+/**
+ * A price change a vendor has announced: a WHOLE new rate set, in force from
+ * 00:00 UTC on `effectiveFrom` (`YYYY-MM-DD`). Nothing carries over from the
+ * rates before it, so a rate the change leaves out is unknown from that day.
+ */
+export interface ModelPricingChange extends ModelPricingRates {
+  readonly effectiveFrom: string;
+}
+
+export interface ModelPricing extends ModelPricingRates {
+  /**
+   * Dated price changes. A past change stays in the row, so a call made
+   * before it keeps the price it ran at.
+   */
+  readonly changes?: readonly ModelPricingChange[];
+}
+
+/** 00:00 UTC on a change's `effectiveFrom` day, in epoch milliseconds. */
+export function pricingChangeStartsAt(change: ModelPricingChange): number {
+  return Date.parse(`${change.effectiveFrom}T00:00:00.000Z`);
+}
+
+function ratesOf(rates: ModelPricingRates): ModelPricingRates {
+  const { cacheReadPerMTok, cacheWritePerMTok, inputPerMTok, longContextTiers, outputPerMTok } =
+    rates;
+  return {
+    ...(cacheReadPerMTok === undefined ? {} : { cacheReadPerMTok }),
+    ...(cacheWritePerMTok === undefined ? {} : { cacheWritePerMTok }),
+    inputPerMTok,
+    ...(longContextTiers === undefined ? {} : { longContextTiers }),
+    outputPerMTok,
+  };
+}
+
+/**
+ * The rates in force at `atMs` (epoch milliseconds): the latest change that
+ * started at or before then, else the rates before every change.
+ */
+export function pricingInForceAt(pricing: ModelPricing, atMs: number): ModelPricingRates {
+  let inForce: ModelPricingRates = pricing;
+  let startedAt = Number.NEGATIVE_INFINITY;
+  for (const change of pricing.changes ?? []) {
+    const startsAt = pricingChangeStartsAt(change);
+    if (startsAt <= atMs && startsAt > startedAt) {
+      inForce = change;
+      startedAt = startsAt;
+    }
+  }
+  return ratesOf(inForce);
+}
+
+/** The first change that starts after `atMs`, when one is announced. */
+export function nextPricingChangeAfter(
+  pricing: ModelPricing,
+  atMs: number
+): ModelPricingChange | undefined {
+  let next: ModelPricingChange | undefined;
+  for (const change of pricing.changes ?? []) {
+    const startsAt = pricingChangeStartsAt(change);
+    if (startsAt > atMs && (next === undefined || startsAt < pricingChangeStartsAt(next))) {
+      next = change;
+    }
+  }
+  return next;
+}
+
+/**
+ * Where a model stands with its vendor. Absent means `active`.
+ *
+ * - `preview`, `active`: offered as usual.
+ * - `legacy`: superseded but still served; the Model Catalog calls it Archived.
+ * - `deprecated`: Archived, with the vendor's retirement day in `retiresAt`.
+ *
+ * Retirement is not a status: a retired row is removed from the catalog and
+ * its id remapped in `assistant-model-id-migrations.ts`.
+ */
+export type ModelLifecycleStatus = 'active' | 'deprecated' | 'legacy' | 'preview';
+
+export interface ModelLifecycle {
+  /** The day the vendor announced the deprecation, `YYYY-MM-DD`. */
+  readonly deprecatedAt?: string;
+  /** The day the vendor released the model, `YYYY-MM-DD`. */
+  readonly releasedAt?: string;
+  /** The model on the same provider that takes this one's place. */
+  readonly replacedBy?: string;
+  /** The vendor's announced shutdown day, `YYYY-MM-DD`. */
+  readonly retiresAt?: string;
+  readonly status: ModelLifecycleStatus;
+}
+
+/**
+ * Archived models stay usable: an archived model a user enabled stays enabled.
+ * Archiving only keeps a model out of discovery and out of bulk enabling.
+ */
+export function isArchivedModel(model: { readonly lifecycle?: ModelLifecycle }): boolean {
+  const status = model.lifecycle?.status;
+  return status === 'legacy' || status === 'deprecated';
 }
 
 interface BaseModelDefinition {
@@ -147,49 +277,39 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * standard tier (not beta/extended tiers).
    */
   contextWindow: number;
-  /** Exact documented input modalities when the route publishes them. */
-  inputModalities?: readonly ModelModality[];
+  /** What the route accepts. REQUIRED; `vision` is read from it. */
+  inputModalities: readonly ModelModality[];
   /**
-   * Provider's documented maximum output tokens, when known. Used to reserve
-   * output headroom in the input-budget derivation.
+   * The vendor's training-data cutoff, as precise as the vendor states it:
+   * `YYYY-MM` or `YYYY-MM-DD`. Absent when the vendor publishes none.
    */
-  maxOutputTokens?: number;
+  knowledgeCutoff?: string;
+  /** The vendor's lifecycle status for this route; absent means `active`. */
+  lifecycle?: ModelLifecycle;
+  /**
+   * Provider's documented maximum output tokens. REQUIRED, like the context
+   * window: it reserves output headroom in the input-budget derivation.
+   */
+  maxOutputTokens: number;
   /**
    * Provider-native tool-search protocol supported by this exact model route.
    * Absence is authoritative: callers may choose a declared non-native adapter,
    * but must never infer native support from the provider name.
    */
   nativeToolSearch?: NativeToolSearchCapability;
-  /** Exact documented output modalities when the route publishes them. */
-  outputModalities?: readonly ModelModality[];
+  /** What the route produces. REQUIRED. */
+  outputModalities: readonly ModelModality[];
   /**
    * Approx. USD price per 1,000,000 tokens. Static display estimate only; provider-reported
    * billed cost remains authoritative. Omit when pricing is unknown. Explicit zeroes are
    * permitted only when current provider evidence supports a reviewed free hosted route;
    * they stay distinct from "cost unavailable."
+   *
+   * The top-level rates are the ones in force before any `changes` entry. A
+   * call is priced at the rates in force when it ran ({@link pricingInForceAt}),
+   * never by reading this object directly.
    */
-  pricing?: {
-    /** Published USD per 1M cache-read tokens, including automatic provider caching. */
-    cacheReadPerMTok?: number;
-    /** Published USD per 1M cache-write tokens; absence means the rate is unknown. */
-    cacheWritePerMTok?: number;
-    inputPerMTok: number;
-    /**
-     * Gateway long-context surcharge bands (BST-1708): upstream
-     * `pricing.overrides` entries keyed by `min_prompt_tokens`, recorded
-     * per-MTok. `computeCost` applies the highest tier at or below the
-     * request's total input tokens; cache classes use a tier's cache rates
-     * when declared, else the base rates above.
-     */
-    longContextTiers?: readonly {
-      readonly minPromptTokens: number;
-      readonly inputPerMTok: number;
-      readonly outputPerMTok: number;
-      readonly cacheReadPerMTok?: number;
-      readonly cacheWritePerMTok?: number;
-    }[];
-    outputPerMTok: number;
-  };
+  pricing?: ModelPricing;
   /**
    * Prompt-cache breakpoint DIALECT this exact route accepts, and the sole
    * input to prompt-caching wrapper selection in the provider factory
@@ -236,6 +356,16 @@ export interface LlmModelDefinition extends BaseModelDefinition {
     vendorDefaultOutputTokens?: number;
   };
   /**
+   * Where this row's facts were read. REQUIRED, at least one. The `_note`
+   * keeps the prose provenance; these are the pages a reader can open.
+   */
+  sources: readonly ModelSource[];
+  /**
+   * Whether the route constrains output to a JSON schema. `false` when its
+   * source says it doesn't; absent when no source says either way.
+   */
+  structuredOutputs?: boolean;
+  /**
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
   supportsStreaming?: boolean;
@@ -253,6 +383,11 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * guesses from a model-name substring.
    */
   tokenMeasurement?: TokenizerBackedMeasurementCapability;
+  /**
+   * Whether the route accepts tool definitions. `false` when its source says
+   * it doesn't; absent when no source says either way.
+   */
+  toolCalling?: boolean;
   type: 'llm';
   /**
    * Who made the model, whichever route serves it: `anthropic` for Claude on
@@ -261,10 +396,9 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    */
   vendor: ModelVendorId;
   /**
-   * Image-input support. REQUIRED: adding a model without it is a compile
-   * error — this gates the composer attachment affordance per selected model.
-   * Declare the capability of the route actually used (e.g. a gateway route
-   * mirrors its underlying model).
+   * Image-input support: `supported` exactly when `inputModalities` includes
+   * `image`. Never declared in the catalog; the catalog parser sets it. It
+   * gates the composer attachment affordance per selected model.
    */
   vision: ModelVisionSupport;
 }
@@ -278,6 +412,13 @@ export type ProviderAuthType = 'api_key' | 'aws';
 
 export interface ProviderDefinition {
   authType: ProviderAuthType;
+  /**
+   * `false` when a stream the client cuts off is not billed (its provider's
+   * record of usage shows no such request). Absent: the provider bills it but
+   * never reports its usage to the client, so the ledger marks the call
+   * "cost not reported by the provider".
+   */
+  billsCutOffStreams?: boolean;
   capabilities: ProviderCapabilities;
   readonly catalog?: ProviderCatalogPresentation;
   /**

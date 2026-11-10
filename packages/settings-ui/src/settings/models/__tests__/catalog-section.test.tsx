@@ -34,6 +34,7 @@ beforeAll(() => {
 });
 
 const SECTION: CatalogSectionModel = {
+  archivedCount: 0,
   enabledCount: 1,
   providerId: 'openai',
   providerName: 'OpenAI',

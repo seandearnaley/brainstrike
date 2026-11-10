@@ -32,6 +32,7 @@ import {
   type HostConsent,
   type HostRunState,
   type HostThreadGrants,
+  releaseSettledRunAdmission,
 } from './core-state.ts';
 import {
   defaultHostToolModelOutput,
@@ -431,6 +432,7 @@ export async function closeHostRunResources(
   // observational memory and their WebAssembly hashers) must not outlive it.
   run.owner = undefined;
   run.ownerJoined = true;
+  releaseSettledRunAdmission(run);
 }
 /**
  * The run's admission as Core uses it: oversized tool outputs reach the model

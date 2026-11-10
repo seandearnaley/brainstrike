@@ -190,6 +190,7 @@ describe('resolveReasoningControlsAvailability', () => {
   });
 
   it.each([
+    ['claude-fable-5-2', ['low', 'medium', 'high', 'xhigh', 'max'], true],
     ['claude-fable-5-1', ['low', 'medium', 'high', 'xhigh', 'max'], true],
     ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max'], true],
     ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],

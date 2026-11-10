@@ -94,4 +94,9 @@
 // which the run reads at its next step, so no run ends early to make room for it. Removing a
 // method is why this is a version bump. Additive since: `model.usage` (what a run's thread title
 // and Auto-review calls reported, costed under the model each ran on), a new variant.
-export const AGENT_HOST_PROTOCOL_VERSION = 22;
+// v23 (2026-11-10): `hooks/trust`, `hooks/trust/read` and `hooks/untrust` name a root by its
+// `path` and no longer take a `rootId`, because an approval is recorded for the root's repository
+// and the file's hash, which a managed worktree shares (BST-2340, ADR-0034 decision 6).
+// `hooks/trust/read` answers `approvedSha256` in place of the stored trust. The required
+// parameter is why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 23;

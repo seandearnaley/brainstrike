@@ -1,6 +1,10 @@
 # ADR-0032: Workspace trust: a folder's agent configuration loads only once trusted
 
 - **Status:** Accepted
+  - 2026-11-10 (BST-2340, [ADR-0034](0034-worktrees-are-thread-checkouts.md) decision 6): a managed
+    worktree shares its repository's answer.
+  - 2026-11-10 (BST-2340): project hook approval is recorded for the repository and the file's
+    hash, so a managed worktree shares it too.
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -37,7 +41,10 @@ location, and none lets a folder approve itself.
   `workspace.trust/<canonical path>` as `trusted` or `restricted`. No record means
   `undecided`. The path is the folder's canonical path (`canonicalRoot`, the
   identity data roots use), so a symlink, a trailing slash or another case
-  spelling of one folder shares one answer. A subfolder has its own answer. The
+  spelling of one folder shares one answer. A subfolder has its own answer. A
+  managed worktree shares its repository's answer: the answer is kept for the
+  repository's primary checkout, and reading or recording it through the
+  worktree's path reaches that one record. The
   host is the only writer (`workspace/trust`), for every client origin, as
   `hooks/trust` is, so the desktop and the CLI record answers the same way.
   Factory reset clears answers with every other setting.
@@ -62,6 +69,23 @@ location, and none lets a folder approve itself.
   file hash. Their content runs commands, so editing them must ask again. Workspace
   trust gates instructions, which were never pinned to content, in the same way
   the vendors above gate them.
+  - A hook approval is recorded for the folder that answers for the root (the
+    same folder as for workspace trust, so a managed worktree shares its
+    repository's) and for the file's hash: `hooks.approved/<canonical path>`
+    holds the hash of the one version the person last reviewed there.
+  - A root's hooks run when its file's bytes are that version. So a new
+    worktree holding the reviewed bytes does not ask, and an edited file asks
+    wherever it is.
+  - Approving another version replaces the earlier one for the repository, as
+    it always did for a root. A checkout still holding the earlier bytes is
+    then reported as changed until it catches up, and going back to an earlier
+    version needs a new review.
+  - Revoking removes the repository's approval, from any checkout. A folder
+    approved before the ledger listed it as a worktree keeps a record of its
+    own, which would answer again if it stopped being one. So an approval
+    given in a managed worktree removes that folder's own record, and a revoke
+    removes the own record of every worktree the ledger lists for the
+    repository.
 - **A repository's own git filters wait for trust too** (BST-2454, owner
   decision 2026-11-10). A repository's config can name `filter.<driver>`
   clean, smudge and process commands that git runs whenever it reads or
@@ -91,7 +115,29 @@ location, and none lets a folder approve itself.
 - An answer recorded by another client, such as the CLI, reaches an open
   desktop's "/" menu and prompt on their next reload, such as when a folder is
   added or the thread is reopened (BST-2344).
-- A managed worktree is a different folder, so it asks again (BST-2340).
+- A managed worktree of a trusted repository is trusted, and one of a restricted
+  repository is restricted, so a new worktree does not ask again (BST-2340).
+  - A folder is a managed worktree only while two records agree: the host's
+    worktree ledger lists it, and git's two links still join it to that
+    repository (the folder's `.git` names an admin directory under the
+    repository's common dir, which names the folder's `.git` back). A folder
+    cannot write the repository's link and a repository cannot write the
+    folder's, so neither can claim the other.
+  - Otherwise the folder has its own answer: an archived worktree, a folder the
+    ledger lists but git no longer links, and another repository put where a
+    worktree was.
+  - The answer is kept for the folder that holds the repository's `.git`. A
+    repository whose git directory lives elsewhere (a bare repository, a
+    submodule, `--separate-git-dir`) keeps one answer for its worktrees, apart
+    from its primary checkout's.
+  - The composer's prompt and Settings still list a mounted worktree as its own
+    folder. An answer given there is the repository's.
+- Hook approvals recorded before 2026-11-10 were kept per root id
+  (`hooks.trust/<rootId>`) and are no longer read, so each repository's hooks
+  are reviewed once more.
+- Approving an edited hooks file in one worktree makes it the repository's
+  version, so the hooks of checkouts still on the earlier bytes stop running,
+  with the "changed" notice, until those checkouts hold the new bytes.
 - Whether an untrusted folder should also cap the access mode at Ask is a
   separate owner decision (BST-2341). This ADR leaves access modes (ADR-0031)
   unchanged.

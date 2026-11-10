@@ -25,6 +25,7 @@ function hostRun(overrides: Partial<RunLedgerRow> & { readonly runId: string }):
     status: 'completed',
     threadId: 'host-thread',
     toolCallCount: 0,
+    unreportedCallCount: 0,
     ...overrides,
   };
 }

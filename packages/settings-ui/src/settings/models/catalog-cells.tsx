@@ -10,7 +10,15 @@ import {
 import { ChevronDown, Eye, Sun } from 'lucide-react';
 import { Fragment, type ReactNode } from 'react';
 import { highlightSegments, queryHitsIdOnly } from './catalog-filters';
-import { formatUsd } from './catalog-format';
+import {
+  CATALOG_RATE_LABELS,
+  type CatalogRate,
+  formatUsd,
+  isFreePricing,
+  lifecycleBadgeLabel,
+  rateNotes,
+  rateOf,
+} from './catalog-format';
 import type { CatalogRow } from './catalog-projection';
 import { useCatalogRowActions } from './use-catalog-row-actions';
 
@@ -74,6 +82,8 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
   const { query } = useCatalogRowActions();
   // A search that matched only the ID shows the ID, so the row says why it matched.
   const secondary = queryHitsIdOnly(row, query) ? row.id : null;
+  const archived = row.lifecycle?.archived === true;
+  const lifecycleLabel = lifecycleBadgeLabel(row.lifecycle);
   return (
     // `model-row-<id>` is kept for E2E continuity; TreeTable owns the <tr>.
     <div className={cn(ROW_LINE, 'min-w-0 gap-2')} data-testid={`model-row-${row.id}`}>
@@ -88,7 +98,10 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
         provider={row.providerId}
         vendor={row.vendor?.id}
       />
-      <span className="truncate text-[13px] font-medium" title={row.id}>
+      <span
+        className={cn('truncate text-[13px] font-medium', archived && 'text-muted-foreground')}
+        title={row.id}
+      >
         <HighlightedText query={query} text={row.name} />
       </span>
       {row.recommended ? (
@@ -96,6 +109,15 @@ export function ModelCell({ row }: { readonly row: CatalogRow }) {
           Recommended
         </Badge>
       ) : null}
+      {lifecycleLabel === null ? null : (
+        <Badge
+          className="text-2xs text-muted-foreground h-5 shrink-0 px-1.5 font-normal"
+          data-testid={`model-lifecycle-${row.id}`}
+          variant="outline"
+        >
+          {lifecycleLabel}
+        </Badge>
+      )}
       {secondary ? (
         <span className="text-muted-foreground min-w-0 truncate font-mono text-xs">
           <HighlightedText query={query} text={secondary} />
@@ -206,7 +228,12 @@ export function TokenCell({
   );
 }
 
-export function PriceCell({ row }: { readonly row: CatalogRow }) {
+/**
+ * One rate, USD per 1M tokens, at the prices in force when the catalog opened.
+ * "+" marks a rate that rises for long prompts; a dotted underline marks an
+ * announced change. Both are spelled out on hover and for screen readers.
+ */
+export function RateCell({ rate, row }: { readonly rate: CatalogRate; readonly row: CatalogRow }) {
   const { pricing } = row;
   if (!pricing) {
     return (
@@ -215,22 +242,52 @@ export function PriceCell({ row }: { readonly row: CatalogRow }) {
       </div>
     );
   }
-  if (pricing.inputPerMTok === 0 && pricing.outputPerMTok === 0) {
+  const label = CATALOG_RATE_LABELS[rate];
+  if ((rate === 'input' || rate === 'output') && isFreePricing(pricing)) {
     return (
       <div className={cn(ROW_LINE, 'justify-end')}>
-        <span className="text-xs">Free</span>
+        <span className="text-xs">
+          <span aria-hidden="true">Free</span>
+          <span className="sr-only">{`${label} free`}</span>
+        </span>
       </div>
     );
   }
-  const input = formatUsd(pricing.inputPerMTok);
-  const output = formatUsd(pricing.outputPerMTok);
+  const value = rateOf(pricing, rate);
+  if (value === null) {
+    return (
+      <div className={cn(ROW_LINE, 'justify-end')}>
+        <Absent title={`No published ${label} price`} />
+      </div>
+    );
+  }
+  const amount = formatUsd(value);
+  const notes = rateNotes(pricing, rate);
+  const details = [...notes.tiers, ...(notes.change === null ? [] : [notes.change])];
   return (
     <div className={cn(ROW_LINE, 'justify-end')}>
-      <span className="text-xs tabular-nums">
-        <span aria-hidden="true">
-          {input} <span className="text-muted-foreground">· {output}</span>
+      <span
+        className="text-xs tabular-nums"
+        data-testid={`model-rate-${rate}-${row.id}`}
+        title={details.length > 0 ? details.join('\n') : undefined}
+      >
+        <span aria-hidden="true" className="inline-flex items-center">
+          <span
+            className={cn(
+              notes.change !== null &&
+                'decoration-muted-foreground underline decoration-dotted underline-offset-2'
+            )}
+          >
+            {amount}
+          </span>
+          {/* A fixed slot, so every rate in the column lines up whether or not it rises. */}
+          <span className="text-muted-foreground inline-block w-2 text-right">
+            {notes.tiers.length > 0 ? '+' : null}
+          </span>
         </span>
-        <span className="sr-only">{`input ${input}, output ${output} per million tokens`}</span>
+        <span className="sr-only">
+          {[`${label} ${amount} per million tokens`, ...details].join('; ')}
+        </span>
       </span>
     </div>
   );

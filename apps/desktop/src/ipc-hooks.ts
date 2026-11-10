@@ -19,9 +19,9 @@ const Sha256Schema = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 
 /**
  * Load the mounted catalog roots (id + path) so a reviewed/attested path can be
- * resolved to its canonical root id and containment-checked. The catalog is the
- * SAME source the assistant server resolves roots from, so the panel, the
- * attestation, and the server all key trust by one id.
+ * resolved to its mounted root and containment-checked. The catalog is the
+ * SAME source the host resolves a run's roots from, so the panel and a run name
+ * a root by one path, which is what the host records an approval for.
  */
 async function loadDbRoots(workspaceRoots: WorkspaceRootPort): Promise<DbRootLite[]> {
   const roots = await loadWorkspaceRootsFromCatalog(workspaceRoots);
@@ -66,8 +66,8 @@ export function registerHooksIpcHandlers(
       if (!dbRoot) {
         return review;
       }
-      // The host's trust for this root at this path: the status the panel shows.
-      const approvedSha256 = await hookTrust.approval({ absPath: dbRoot.path, rootId: dbRoot.id });
+      // The host's approval for the root at this path: the status the panel shows.
+      const approvedSha256 = await hookTrust.approval(dbRoot.path);
       return approvedSha256 === undefined ? review : { ...review, approvedSha256 };
     }
   );
@@ -78,7 +78,7 @@ export function registerHooksIpcHandlers(
     Schema.Tuple([Schema.String, Sha256Schema]),
     async (_event, absPath, sha256): Promise<void> => {
       const dbRoot = await containingDbRoot(workspaceRoots, absPath);
-      await hookTrust.trust({ path: dbRoot.path, rootId: dbRoot.id, sha256 });
+      await hookTrust.trust({ path: dbRoot.path, sha256 });
     }
   );
 
@@ -87,7 +87,7 @@ export function registerHooksIpcHandlers(
     DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks,
     Schema.Tuple([Schema.String]),
     async (_event, absPath): Promise<void> => {
-      await hookTrust.untrust((await containingDbRoot(workspaceRoots, absPath)).id);
+      await hookTrust.untrust((await containingDbRoot(workspaceRoots, absPath)).path);
     }
   );
 

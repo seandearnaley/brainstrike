@@ -69,6 +69,8 @@ function settingsStore() {
     setSetting: async (key: string, value: string) => {
       settings.set(key, value);
     },
+    // No folder here is a managed worktree, so each answers for itself.
+    worktreeLedger: async () => ({ rows: [] }),
   };
 }
 

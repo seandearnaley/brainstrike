@@ -11,8 +11,8 @@
  *
  * SOURCE OF TRUTH: each model's own AWS model card
  * (docs.aws.amazon.com/bedrock/latest/userguide/model-card-<slug>.html), all
- * retrieved 2026-10-18 (Sonnet 5.5 and Haiku 5.5 on 2026-10-28). Two sections
- * per card feed BEDROCK_INFERENCE_ROUTES:
+ * retrieved 2026-10-18 (Sonnet 5.5 and Haiku 5.5 on 2026-10-28, Fable 5.2 on
+ * 2026-11-10). Two sections per card feed BEDROCK_INFERENCE_ROUTES:
  * - "Geo inference details": one table per geo profile listing its SOURCE
  *   regions. A region gets that geo's prefix exactly when it is a source.
  * - "Regional availability" (bedrock-runtime): the regions marked Global ✓.
@@ -239,6 +239,42 @@ export const BEDROCK_INFERENCE_ROUTES: ReadonlyMap<string, BedrockInferenceRoute
   // model-card-anthropic-claude-fable-5-1
   [
     'anthropic.claude-fable-5-1',
+    routes(
+      { us: ['ca-central-1', 'ca-west-1', 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2'] },
+      [
+        'af-south-1',
+        'ap-east-2',
+        'ap-northeast-1',
+        'ap-northeast-2',
+        'ap-northeast-3',
+        'ap-south-1',
+        'ap-south-2',
+        'ap-southeast-1',
+        'ap-southeast-2',
+        'ap-southeast-3',
+        'ap-southeast-4',
+        'ap-southeast-5',
+        'ap-southeast-6',
+        'ap-southeast-7',
+        'eu-central-1',
+        'eu-central-2',
+        'eu-north-1',
+        'eu-south-1',
+        'eu-south-2',
+        'eu-west-1',
+        'eu-west-2',
+        'eu-west-3',
+        'il-central-1',
+        'me-central-1',
+        'me-south-1',
+        'mx-central-1',
+        'sa-east-1',
+      ]
+    ),
+  ],
+  // model-card-anthropic-claude-fable-5-2
+  [
+    'anthropic.claude-fable-5-2',
     routes(
       { us: ['ca-central-1', 'ca-west-1', 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2'] },
       [

@@ -21,7 +21,7 @@ describe('direct Anthropic effort controls', () => {
     }
   );
 
-  it.each(['claude-fable-5-1', 'claude-fable-5'] as const)(
+  it.each(['claude-fable-5-2', 'claude-fable-5-1', 'claude-fable-5'] as const)(
     'suppresses the Thinking toggle for always-on %s',
     (modelId) => {
       const availability = resolveReasoningControlsAvailability('anthropic', modelId);

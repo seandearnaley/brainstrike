@@ -238,6 +238,7 @@ export function foldHostRunEffect(
       if (event.detail !== undefined) {
         run.detail = event.detail;
       }
+      releaseSettledRunAdmission(run);
     }
   }
 }
@@ -262,8 +263,9 @@ export interface HostRunBranch {
   readonly userMessageId: string;
 }
 export interface HostRunState {
-  admission?: HostRunAdmission;
-  admissionTask?: Promise<HostRunAdmission>;
+  /** The run's admitted tools and instructions; released once it has ended and its owner joined. */
+  admission?: HostRunAdmission | undefined;
+  admissionTask?: Promise<HostRunAdmission> | undefined;
   /** A child's root permission policy at admission; only its denies stay frozen (ADR-0010). */
   admittedPolicy?: PermissionToolGateSnapshot;
   readonly approvals: Map<string, PendingInteraction>;
@@ -391,6 +393,20 @@ export interface HostRunState {
   >;
   /** The run's turn start while it is still being recorded beside its first request. */
   turnStarting?: Promise<void>;
+}
+/**
+ * Core keeps every run of the process. Once a run has ended and its owner has
+ * joined, nothing reads its admission again: the run's tools, their executors
+ * and validators, and the instructions it was admitted with are let go. Either
+ * can come first (a Stop joins the owner before the run's end commits, and its
+ * Stop hooks and turn end still read the admission), so both call this.
+ */
+export function releaseSettledRunAdmission(run: HostRunState): void {
+  if (run.terminal && run.ownerJoined) {
+    run.admission = undefined;
+    run.admissionTask = undefined;
+    run.nativeWebSearch = undefined;
+  }
 }
 /**
  * Core's runs by run ID, which also keeps each thread's runs in the order they

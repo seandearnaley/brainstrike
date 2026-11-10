@@ -96,8 +96,21 @@ function ModelName({ model, provider }: { readonly model: string; readonly provi
  * a registry-priced remainder is explicitly marked "est."; an unpriced model
  * reads "cost unavailable" and a run with no captured usage reads "no usage
  * recorded" — NEVER a fabricated $0 (same contract as the sibling cost panel).
+ * A call a Stop cut off, which its provider billed but never reported, is
+ * named beside what was recorded, never priced as $0 or guessed.
  */
 function runCostLabel(row: RunLedgerRow): string {
+  if (row.unreportedCallCount === 0) {
+    return recordedCostLabel(row);
+  }
+  const calls = row.unreportedCallCount === 1 ? '1 call' : `${row.unreportedCallCount} calls`;
+  const unreported = `${calls} not reported by the provider`;
+  return row.inputTokens + row.outputTokens === 0
+    ? 'cost not reported by the provider'
+    : `${recordedCostLabel(row)} + ${unreported}`;
+}
+
+function recordedCostLabel(row: RunLedgerRow): string {
   if (row.billedCostUsd !== undefined) {
     // Honest partial-cost rule (review #1698): billedCostUsd covers only the
     // provider-reported usage rows. A mixed run's unreported remainder is

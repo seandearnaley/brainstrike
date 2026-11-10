@@ -219,9 +219,9 @@ interface WorktreeTrustResult {
 }
 
 /**
- * Bidirectional trust check for a worktree the repo CLAIMS but that lies
- * outside every root: read the target worktree path's own .git back and
- * confirm it resolves to the SAME common dir. A fabricated worktree admin
+ * Bidirectional trust check for a worktree the repo CLAIMS, inside an open
+ * folder or outside every one: read the target worktree path's own .git back
+ * and confirm it resolves to the SAME common dir. A fabricated worktree admin
  * entry (the attack this guards against) points at a target whose own .git
  * either does not exist or resolves elsewhere — either way this returns
  * unvalidated, and the caller keeps the descriptor rather than dropping it.
@@ -324,8 +324,8 @@ async function buildRepository(
     // NEVER canonicalizes it before printing. A committed symlink can make a
     // worktree LEXICALLY sit inside a trusted root while its REAL target
     // lies outside every root; comparing the raw path against the roots
-    // would misclassify it as in-root and skip the bidirectional trust
-    // check entirely (in-root ⇒ unconditionally `validated` below). Realpath
+    // would misclassify it as in-root, which adoption treats as reachable,
+    // and the trust check below would read the wrong folder's `.git`. Realpath
     // BEFORE computing containment/trust, and report that CANONICAL path in
     // the descriptor too — the raw, possibly-misleading report is never
     // something a caller should act on once we know the true location. A
@@ -359,10 +359,19 @@ async function buildRepository(
       continue;
     }
     const containment = computeContainment(canonicalPath, resolvedRoots);
-    const { trust, trustReason }: WorktreeTrustResult =
-      containment === 'outside-roots'
-        ? await resolveWorktreeTrust(fs, canonicalPath, group.commonDir)
-        : { trust: 'validated', trustReason: null };
+    // Being inside an open folder says the app may read a path, not that the
+    // path belongs to this repository: a `.git/worktrees/<name>/gitdir` file
+    // can name any folder. So every linked worktree has its own `.git` read
+    // back, in-root or not. The primary checkout in an open folder is the one
+    // entry with nothing to read back: git derives its path from the common
+    // dir and no `gitdir` file names it. For a submodule, a bare repository or
+    // a separate git dir that path IS the git directory, with no `.git` inside.
+    // It is never adoptable (`worktree-adopt.ts` refuses `path ===
+    // repositoryRoot`).
+    const isPrimaryInRoot = containment !== 'outside-roots' && canonicalPath === repositoryRoot;
+    const { trust, trustReason }: WorktreeTrustResult = isPrimaryInRoot
+      ? { trust: 'validated', trustReason: null }
+      : await resolveWorktreeTrust(fs, canonicalPath, group.commonDir);
     // `path: canonicalPath` deliberately OVERWRITES `summary.path` (git-raw)
     // from the `...summary` spread below. This makes `WorktreeDescriptor.path`
     // diverge from `GitWorktreeSummary.path` everywhere else this shared type
@@ -403,7 +412,7 @@ async function buildRepository(
  * (a failure is a visible `errors` entry, the root skipped), walk each for
  * every `.git` entry, dedupe by resolved common dir BEFORE any git spawn, then
  * enumerate each unique repository's worktrees hook-free and trust-validate
- * every one the repo claims that lies outside every root. Never throws —
+ * every linked worktree the repo claims. Never throws —
  * every failure mode becomes a visible `errors` entry with the rest of the
  * snapshot intact.
  *

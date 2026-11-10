@@ -55,8 +55,18 @@ type CatalogShape<T> = T extends readonly (infer Element)[]
 const NoteSchema = Schema.String;
 const AnthropicEffortSchema = Schema.Literals(['low', 'medium', 'high', 'xhigh', 'max']);
 const OpenAiReasoningEffortSchema = Schema.Literals(OPENAI_REASONING_EFFORT_VALUES);
-const ModelModalitySchema = Schema.Literals(['audio', 'image', 'text', 'video']);
-const ModelVisionSupportSchema = Schema.Literals(['supported', 'unsupported']);
+const ModelModalitySchema = Schema.Literals(['audio', 'image', 'pdf', 'text', 'video']);
+/** A route's modalities: at least one, each named once. */
+const ModalitiesSchema = Schema.mutable(Schema.Array(ModelModalitySchema)).check(
+  Schema.makeFilter((modalities) => {
+    if (modalities.length === 0) {
+      return 'must name at least one modality';
+    }
+    return new Set(modalities).size === modalities.length
+      ? undefined
+      : 'must name each modality once';
+  })
+);
 const TokenizerEncodingSchema = Schema.Literals(['o200k_base']);
 const TokenizerBackedMeasurementSchema = Schema.Struct({
   mode: Schema.Literals(['exact-selected-model', 'declared-compatible-reference']),
@@ -72,16 +82,81 @@ const ModelCatalogPresentationSchema = Schema.Struct({
   ...ProviderCatalogPresentationSchema.fields,
   ...{
     bestFor: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-    capabilities: Schema.optional(
-      Schema.Struct({
-        contextWindow: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
-        toolCalling: Schema.optional(Schema.Boolean),
-      })
-    ),
     description: Schema.NullOr(Schema.String),
     parameters: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
     tagline: Schema.NullOr(Schema.String),
   },
+});
+/** A token limit: a whole, positive number of tokens. */
+const TokenLimitSchema = Schema.Int.check(Schema.isGreaterThan(0));
+/**
+ * A USD rate per 1M tokens. Zero is allowed for a reviewed free route
+ * (`LlmModelDefinition.pricing`); a negative or non-finite rate never is.
+ */
+const UsdPerMTokSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+const LongContextTierSchema = Schema.Struct({
+  cacheReadPerMTok: Schema.optional(UsdPerMTokSchema),
+  cacheWritePerMTok: Schema.optional(UsdPerMTokSchema),
+  inputPerMTok: UsdPerMTokSchema,
+  minPromptTokens: TokenLimitSchema,
+  outputPerMTok: UsdPerMTokSchema,
+});
+const PricingRatesFields = {
+  cacheReadPerMTok: Schema.optional(UsdPerMTokSchema),
+  cacheWritePerMTok: Schema.optional(UsdPerMTokSchema),
+  inputPerMTok: UsdPerMTokSchema,
+  longContextTiers: Schema.optional(Schema.mutable(Schema.Array(LongContextTierSchema))),
+  outputPerMTok: UsdPerMTokSchema,
+};
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/u;
+function isCalendarDay(value: string): boolean {
+  if (!CALENDAR_DAY.test(value)) {
+    return false;
+  }
+  // Date rolls an impossible day over (2026-02-30 reads as 2026-03-02), so the
+  // day must survive the round trip unchanged.
+  const ms = Date.parse(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(value);
+}
+/** A real calendar day, `YYYY-MM-DD`, read as 00:00 UTC. */
+const CalendarDaySchema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isCalendarDay(value) ? undefined : 'must be a calendar day written YYYY-MM-DD'
+  )
+);
+/** A knowledge cutoff as the vendor states it: a month (`YYYY-MM`) or a day (`YYYY-MM-DD`). */
+const KnowledgeCutoffSchema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isCalendarDay(value.length === 7 ? `${value}-01` : value)
+      ? undefined
+      : 'must be a month written YYYY-MM or a calendar day written YYYY-MM-DD'
+  )
+);
+/** Where a row's facts were read, and on which day. */
+const ModelSourceSchema = Schema.Struct({
+  retrievedAt: CalendarDaySchema,
+  url: Schema.String.check(
+    Schema.makeFilter((value) =>
+      value.startsWith('https://') ? undefined : 'must be an https URL'
+    )
+  ),
+});
+/** A whole new rate set a vendor has announced, in force from `effectiveFrom`. */
+const PricingChangeSchema = Schema.Struct({
+  ...PricingRatesFields,
+  effectiveFrom: CalendarDaySchema,
+});
+/**
+ * Where a model stands with its vendor. `legacy` and `deprecated` are what the
+ * Model Catalog calls Archived; retirement is not a status (the row is removed
+ * and its id remapped).
+ */
+const ModelLifecycleSchema = Schema.Struct({
+  deprecatedAt: Schema.optional(CalendarDaySchema),
+  releasedAt: Schema.optional(CalendarDaySchema),
+  replacedBy: Schema.optional(Schema.String),
+  retiresAt: Schema.optional(CalendarDaySchema),
+  status: Schema.Literals(['active', 'deprecated', 'legacy', 'preview']),
 });
 const LlmModelSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
@@ -97,33 +172,20 @@ const LlmModelSchema = Schema.Struct({
   ),
   bedrockReasoningMandatory: Schema.optional(Schema.Literal(true)),
   catalog: Schema.optional(ModelCatalogPresentationSchema),
-  contextWindow: Schema.Finite,
+  contextWindow: TokenLimitSchema,
   default: Schema.optional(Schema.Boolean),
   id: Schema.String,
-  inputModalities: Schema.optional(Schema.mutable(Schema.Array(ModelModalitySchema))),
+  inputModalities: ModalitiesSchema,
+  knowledgeCutoff: Schema.optional(KnowledgeCutoffSchema),
   label: Schema.optional(Schema.String),
-  maxOutputTokens: Schema.optional(Schema.Finite),
+  lifecycle: Schema.optional(ModelLifecycleSchema),
+  maxOutputTokens: TokenLimitSchema,
   nativeToolSearch: Schema.optional(Schema.Literals(['anthropic', 'openai'])),
-  outputModalities: Schema.optional(Schema.mutable(Schema.Array(ModelModalitySchema))),
+  outputModalities: ModalitiesSchema,
   pricing: Schema.optional(
     Schema.Struct({
-      cacheReadPerMTok: Schema.optional(Schema.Finite),
-      cacheWritePerMTok: Schema.optional(Schema.Finite),
-      inputPerMTok: Schema.Finite,
-      longContextTiers: Schema.optional(
-        Schema.mutable(
-          Schema.Array(
-            Schema.Struct({
-              cacheReadPerMTok: Schema.optional(Schema.Finite),
-              cacheWritePerMTok: Schema.optional(Schema.Finite),
-              inputPerMTok: Schema.Finite,
-              minPromptTokens: Schema.Int.check(Schema.isGreaterThan(0)),
-              outputPerMTok: Schema.Finite,
-            })
-          )
-        )
-      ),
-      outputPerMTok: Schema.Finite,
+      ...PricingRatesFields,
+      changes: Schema.optional(Schema.mutable(Schema.Array(PricingChangeSchema))),
     })
   ),
   promptCaching: Schema.optional(
@@ -136,20 +198,23 @@ const LlmModelSchema = Schema.Struct({
       defaultEnabled: Schema.optional(Schema.Boolean),
       mandatory: Schema.Boolean,
       supportedEfforts: Schema.mutable(Schema.Array(OpenAiReasoningEffortSchema)),
-      vendorDefaultOutputTokens: Schema.optional(Schema.Finite),
+      vendorDefaultOutputTokens: Schema.optional(TokenLimitSchema),
     })
   ),
+  sources: Schema.mutable(Schema.Array(ModelSourceSchema)).check(Schema.isMinLength(1)),
+  structuredOutputs: Schema.optional(Schema.Boolean),
   supportsStreaming: Schema.optional(Schema.Boolean),
   tagline: Schema.optional(Schema.String),
   tokenMeasurement: Schema.optional(TokenizerBackedMeasurementSchema),
+  toolCalling: Schema.optional(Schema.Boolean),
   type: Schema.Literal('llm'),
   vendor: Schema.Literals(MODEL_VENDOR_IDS),
-  vision: ModelVisionSupportSchema,
 });
 const ProviderModelSchema = LlmModelSchema;
 const ProviderSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
   authType: Schema.Literals(['api_key', 'aws']),
+  billsCutOffStreams: Schema.optional(Schema.Boolean),
   capabilities: Schema.Struct({
     streaming: Schema.Boolean,
   }),
@@ -166,12 +231,21 @@ const ProviderSchema = Schema.Struct({
   runtime: Schema.Literals(['hosted', 'gateway']),
 });
 export const ProviderCatalogSchema = Schema.mutable(Schema.Array(ProviderSchema));
-export type ParsedProvider = CatalogShape<(typeof ProviderSchema)['Type']>;
 type RawProvider = (typeof ProviderSchema)['Type'];
 type RawModel = (typeof ProviderModelSchema)['Type'];
 /**
+ * A parsed model row: the file's facts plus `vision`, which the catalog never
+ * declares. It is read off `inputModalities`, so image support has one writer.
+ */
+type ParsedModel = CatalogShape<RawModel> & { readonly vision: 'supported' | 'unsupported' };
+export type ParsedProvider = Omit<CatalogShape<RawProvider>, 'models'> & {
+  readonly models: readonly ParsedModel[];
+};
+/**
  * Drop the file-level provenance so no consumer ever sees `_note` on a
- * definition. The wire grammar validates the file before this projection publishes its runtime definitions.
+ * definition, and add the `vision` each row's `inputModalities` implies. The
+ * wire grammar validates the file before this projection publishes its
+ * runtime definitions.
  *
  * The rebuild goes through `Object.fromEntries` rather than a rest spread so
  * every remaining key keeps its declared position — the parsed definitions
@@ -187,7 +261,10 @@ function stripNotes(provider: RawProvider): ParsedProvider {
   const stripped = withoutNote(provider);
   // Assigning an EXISTING key keeps its position, so the parsed definitions
   // enumerate in exactly the order the data file declares them.
-  stripped['models'] = provider.models.map((model: RawModel) => withoutNote(model));
+  stripped['models'] = provider.models.map((model: RawModel) => ({
+    ...withoutNote(model),
+    vision: model.inputModalities.includes('image') ? 'supported' : 'unsupported',
+  }));
   return stripped as ParsedProvider;
 }
 function readStringProperty(value: unknown, key: string): string | undefined {
