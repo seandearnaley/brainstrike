@@ -17,10 +17,25 @@ import {
   pricingInForceAt,
 } from '@brainstrike/assistant-contract/provider-registry';
 
+/**
+ * Higher rates for a prompt of at least `minPromptTokens`. A cache rate the
+ * tier leaves out (`null`) is billed at the base cache rate, as `computeCost`
+ * does.
+ */
+export interface CatalogLongContextTier {
+  readonly cacheReadPerMTok: number | null;
+  readonly cacheWritePerMTok: number | null;
+  readonly inputPerMTok: number;
+  readonly minPromptTokens: number;
+  readonly outputPerMTok: number;
+}
+
 export interface CatalogRates {
   readonly cacheReadPerMTok: number | null;
   readonly cacheWritePerMTok: number | null;
   readonly inputPerMTok: number;
+  /** Ascending by `minPromptTokens`; empty when the rates hold for every prompt length. */
+  readonly longContextTiers: readonly CatalogLongContextTier[];
   readonly outputPerMTok: number;
 }
 
@@ -87,12 +102,22 @@ function toRates({
   cacheReadPerMTok,
   cacheWritePerMTok,
   inputPerMTok,
+  longContextTiers,
   outputPerMTok,
 }: ModelPricingRates): CatalogRates {
   return {
     cacheReadPerMTok: cacheReadPerMTok ?? null,
     cacheWritePerMTok: cacheWritePerMTok ?? null,
     inputPerMTok,
+    longContextTiers: (longContextTiers ?? [])
+      .map((tier) => ({
+        cacheReadPerMTok: tier.cacheReadPerMTok ?? null,
+        cacheWritePerMTok: tier.cacheWritePerMTok ?? null,
+        inputPerMTok: tier.inputPerMTok,
+        minPromptTokens: tier.minPromptTokens,
+        outputPerMTok: tier.outputPerMTok,
+      }))
+      .toSorted((left, right) => left.minPromptTokens - right.minPromptTokens),
     outputPerMTok,
   };
 }

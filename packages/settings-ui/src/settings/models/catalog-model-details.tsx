@@ -1,9 +1,10 @@
 import { Badge, CopyTextButton } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import { Absent } from './catalog-cells';
-import { formatCalendarDay, formatUsd } from './catalog-format';
+import { formatCalendarDay, formatPromptTokens, formatUsd } from './catalog-format';
 import type {
   CatalogLifecycle,
+  CatalogLongContextTier,
   CatalogPriceChange,
   CatalogPricing,
   CatalogRow,
@@ -68,10 +69,21 @@ function pricingLines(pricing: CatalogPricing | null): string[] {
   if (pricing.cacheWritePerMTok !== null) {
     lines.push(`Cache write ${formatUsd(pricing.cacheWritePerMTok)}`);
   }
+  lines.push(...pricing.longContextTiers.map(longContextTierLine));
   if (pricing.nextChange !== null) {
     lines.push(scheduledChangeLine(pricing.nextChange));
   }
   return lines;
+}
+
+/** "From 272,000 prompt tokens: input $10 · output $45, cache read $1". */
+function longContextTierLine(tier: CatalogLongContextTier): string {
+  const cache = [
+    tier.cacheReadPerMTok === null ? null : `cache read ${formatUsd(tier.cacheReadPerMTok)}`,
+    tier.cacheWritePerMTok === null ? null : `cache write ${formatUsd(tier.cacheWritePerMTok)}`,
+  ].filter((part) => part !== null);
+  const rates = `input ${formatUsd(tier.inputPerMTok)} · output ${formatUsd(tier.outputPerMTok)}`;
+  return `From ${formatPromptTokens(tier.minPromptTokens)} prompt tokens: ${[rates, ...cache].join(', ')}`;
 }
 
 /** "From 2026-12-01 (UTC): input $4 · output $20, cache read $0.20". */
