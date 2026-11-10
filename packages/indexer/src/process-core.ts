@@ -27,7 +27,6 @@ export async function runIndexerProcess(
   endpoint: IndexerProcessEndpoint
 ): Promise<void> {
   const send = (value: object): void => endpoint.send(value);
-  let ready = false;
   let worker: Worker | undefined;
   let closing = false;
   let closePromise: Promise<boolean> | undefined;
@@ -57,11 +56,19 @@ export async function runIndexerProcess(
         closing = true;
         const failures: unknown[] = [];
         try {
-          if (ready) {
+          // BST-2472: an early Close joins the writer's own startup instead of
+          // terminating it. Termination can land while the writer's first
+          // `new Database` loads the SQLite add-on, and the add-on then aborts
+          // the whole process (exit 134), so the host's state DB never closes.
+          // A writer that started is closed cooperatively; one whose startup
+          // failed is already ending, and its teardown is joined.
+          const started = await client.ready.then(
+            () => true,
+            () => false
+          );
+          if (started) {
             await client.call('close', null, decoder(Schema.Boolean));
           } else {
-            // Startup owns only this writer. Join its teardown before reporting
-            // an early Close; there is no admitted request yet.
             await writer.terminate();
           }
         } catch (error) {
@@ -124,7 +131,6 @@ export async function runIndexerProcess(
       await close();
       return;
     }
-    ready = true;
     receive = (message: unknown) => {
       let id: number | undefined;
       try {

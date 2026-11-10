@@ -5,7 +5,7 @@
  * checks itself again. Neither changes the damaged file. BST-2144: the writes
  * the app attempts meanwhile are typed read-only refusals, never errors.
  */
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, test } from './fixtures/electron-fixture';
@@ -72,6 +72,13 @@ test.describe('Damaged state store notice (desktop) @desktop-db-storage', () => 
     const file = join(await readHostRoot(userData), 'state.db');
     await electron.closeForStateSeeding();
     const inode = statSync(file).ino;
+    // BST-2472: the damage goes into the DB file itself, so the close must have merged the WAL into
+    // it. A WAL left behind means the host did not close its store, and it would hide the damage.
+    const wal = `${file}-wal`;
+    expect(
+      existsSync(wal) ? statSync(wal).size : 0,
+      'the closed app left an unmerged state.db-wal: the agent host did not close its store'
+    ).toBe(0);
     const cell = corruptRunIndex(file);
 
     const reopened = await electron.ensureWindow({ preserveState: true });
