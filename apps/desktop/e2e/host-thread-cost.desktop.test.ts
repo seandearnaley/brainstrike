@@ -12,7 +12,7 @@ const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 /** The catalog label the cost views name the model by. */
 const MODEL_LABEL = 'Claude Sonnet 4.6 (OpenRouter)';
 const REPLY = 'A costed host reply.';
-/** What the shim's OpenRouter reports it billed for the reply. */
+/** What the shim's OpenRouter reports it billed for each call: the reply and its thread title. */
 const BILLED = 0.0042;
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
@@ -81,16 +81,18 @@ test('a billed host run counts toward the daily cap, gates the next send, and li
   await expect(region.getByRole('button', { exact: true, name: 'Send' })).toBeDisabled();
   await expect(region.getByTestId('budget-guardrail-unpriced')).toHaveCount(0);
 
-  // The cost views list the host run from its committed log, at what OpenRouter billed.
+  // The cost views list the host run from its committed log, at what OpenRouter billed for
+  // its reply and its thread title.
   const ledger = (await openCostTracking(page)).getByTestId('task-ledger-panel');
   const run = ledger.getByTestId('task-ledger-run-row').filter({ hasText: MODEL_LABEL });
   await expect(run).toHaveCount(1, { timeout: 30_000 });
-  await expect(run.getByTestId('task-ledger-run-cost')).toHaveText('$0.0042');
-  // Opened, the run lists every token the bill covers: the shim reports 4 input and 3 output.
+  await expect(run.getByTestId('task-ledger-run-cost')).toHaveText('$0.0084');
+  // Opened, the run lists every token the bill covers: the shim reports 4 input and 3 output
+  // for each call.
   await run.getByRole('button').click();
   const breakdown = run.getByTestId('task-ledger-run-breakdown');
-  await expect(breakdown).toContainText(/Input\s*4(?!\d)/u);
-  await expect(breakdown).toContainText(/Output\s*3(?!\d)/u);
+  await expect(breakdown).toContainText(/Input\s*8(?!\d)/u);
+  await expect(breakdown).toContainText(/Output\s*6(?!\d)/u);
   await expect(breakdown).toContainText('what the provider billed');
   await page.keyboard.press('Escape');
 
