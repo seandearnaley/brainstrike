@@ -108,6 +108,7 @@ describe('projectCatalogRow', () => {
       projectCatalogRow(makeDbModel({ id, providerId }), providerId, NOV_20_2026).lifecycle;
     expect(lifecycleOf('claude-fable-5-1', 'anthropic')).toEqual({
       archived: true,
+      releasedAt: '2026-09-01',
       replacedBy: 'Claude Fable 5.2',
       retiresAt: null,
       status: 'legacy',
@@ -119,10 +120,28 @@ describe('projectCatalogRow', () => {
     });
     expect(lifecycleOf('claude-fable-5-2', 'anthropic')).toEqual({
       archived: false,
+      releasedAt: '2026-11-09',
       replacedBy: null,
       retiresAt: null,
       status: 'active',
     });
+  });
+
+  it('carries what the model takes and gives, its tool support, cutoff and sources', () => {
+    const row = projectCatalogRow(
+      makeDbModel({ id: 'claude-fable-5-2', providerId: 'anthropic' }),
+      'Anthropic',
+      NOV_20_2026
+    );
+    expect(row).toMatchObject({
+      inputModalities: ['text', 'image', 'pdf'],
+      knowledgeCutoff: '2026-06',
+      outputModalities: ['text'],
+      structuredOutputs: true,
+      toolCalling: true,
+      vision: 'supported',
+    });
+    expect(row.sources.length).toBeGreaterThan(0);
   });
 
   it('gives a DB-only row no registry facts at all', () => {
@@ -138,6 +157,8 @@ describe('projectCatalogRow', () => {
       pricing: null,
       recommended: false,
       registered: false,
+      sources: [],
+      toolCalling: null,
       vision: null,
     });
   });

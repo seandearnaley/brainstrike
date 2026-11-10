@@ -29,9 +29,12 @@ export function makeCatalogRow(
     contextWindow: 200_000,
     description: null,
     enabled: false,
+    inputModalities: ['text', 'image'],
+    knowledgeCutoff: null,
     lifecycle: null,
     maxOutputTokens: 64_000,
     name: overrides.id,
+    outputModalities: ['text'],
     pricing: {
       cacheReadPerMTok: null,
       cacheWritePerMTok: null,
@@ -46,7 +49,10 @@ export function makeCatalogRow(
     reasoningEfforts: ['low', 'medium', 'high'],
     recommended: false,
     registered: true,
+    sources: [],
+    structuredOutputs: null,
     tagline: null,
+    toolCalling: null,
     vision: 'supported',
     ...overrides,
   };

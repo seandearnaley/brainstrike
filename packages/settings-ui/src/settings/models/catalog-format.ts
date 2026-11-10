@@ -38,6 +38,19 @@ export function formatCalendarDay(day: string): string {
   return CALENDAR_DAY_FORMAT.format(new Date(`${day}T00:00:00.000Z`));
 }
 
+const CALENDAR_MONTH_FORMAT = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric',
+});
+
+/** "Jun 2026" for a `YYYY-MM` cutoff, "Sep 30, 2024" for a `YYYY-MM-DD` one. */
+export function formatKnowledgeCutoff(cutoff: string): string {
+  return cutoff.length === 7
+    ? CALENDAR_MONTH_FORMAT.format(new Date(`${cutoff}-01T00:00:00.000Z`))
+    : formatCalendarDay(cutoff);
+}
+
 /** "Archived", "Retires Apr 1, 2027" or "Preview"; nothing for an active model. */
 export function lifecycleBadgeLabel(lifecycle: CatalogLifecycle | null): string | null {
   if (lifecycle === null) {

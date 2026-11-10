@@ -10,7 +10,9 @@ import {
   findProviderDefinition,
   isArchivedModel,
   type ModelLifecycleStatus,
+  type ModelModality,
   type ModelPricingRates,
+  type ModelSource,
   type ModelVisionSupport,
   nextPricingChangeAfter,
   type ProviderModelDefinition,
@@ -53,6 +55,8 @@ export interface CatalogPricing extends CatalogRates {
 export interface CatalogLifecycle {
   /** Legacy or deprecated: hidden unless Show archived is on or the row is enabled. */
   readonly archived: boolean;
+  /** The vendor's release day (`YYYY-MM-DD`), when published. */
+  readonly releasedAt: string | null;
   /** The successor's display name, when the vendor names one. */
   readonly replacedBy: string | null;
   /** The vendor's shutdown day (`YYYY-MM-DD`), when announced. */
@@ -72,10 +76,16 @@ export interface CatalogRow {
   readonly description: string | null;
   readonly enabled: boolean;
   readonly id: string;
+  /** What the model accepts; `null` for a row the static registry doesn't list. */
+  readonly inputModalities: readonly ModelModality[] | null;
+  /** `YYYY-MM` or `YYYY-MM-DD`, as precise as the vendor states it. */
+  readonly knowledgeCutoff: string | null;
   /** `null` for a row the static registry doesn't list. */
   readonly lifecycle: CatalogLifecycle | null;
   readonly maxOutputTokens: number | null;
   readonly name: string;
+  /** What the model produces; `null` for a row the static registry doesn't list. */
+  readonly outputModalities: readonly ModelModality[] | null;
   readonly pricing: CatalogPricing | null;
   readonly providerId: string;
   readonly providerName: string;
@@ -86,7 +96,13 @@ export interface CatalogRow {
   readonly recommended: boolean;
   /** Whether the static registry has an entry for this exact model. */
   readonly registered: boolean;
+  /** Where the registry's facts for this row were read; empty when it doesn't list the row. */
+  readonly sources: readonly ModelSource[];
+  /** `null` when no source says either way. */
+  readonly structuredOutputs: boolean | null;
   readonly tagline: string | null;
+  /** `null` when no source says either way. */
+  readonly toolCalling: boolean | null;
   /** The model's maker, for its mark; absent for a model the static registry doesn't list. */
   readonly vendor?: ModelVendor | undefined;
   readonly vision: ModelVisionSupport | null;
@@ -151,6 +167,7 @@ function toLifecycle(
       : findProviderDefinition(providerId)?.models.find((model) => model.id === successorId);
   return {
     archived: isArchivedModel(definition),
+    releasedAt: lifecycle?.releasedAt ?? null,
     replacedBy: successor === undefined ? null : (successor.catalog?.name ?? successor.id),
     retiresAt: lifecycle?.retiresAt ?? null,
     status: lifecycle?.status ?? 'active',
@@ -180,9 +197,12 @@ export function projectCatalogRow(model: DbModel, providerName: string, nowMs: n
     description: model.description,
     enabled: model.isEnabled,
     id: model.id,
+    inputModalities: definition?.inputModalities ?? null,
+    knowledgeCutoff: definition?.knowledgeCutoff ?? null,
     lifecycle: toLifecycle(model.providerId, definition),
     maxOutputTokens: definition?.maxOutputTokens ?? null,
     name: model.name,
+    outputModalities: definition?.outputModalities ?? null,
     pricing: toPricing(definition, nowMs),
     providerId: model.providerId,
     providerName,
@@ -193,7 +213,10 @@ export function projectCatalogRow(model: DbModel, providerName: string, nowMs: n
         : null,
     recommended: definition?.default === true,
     registered: definition !== undefined,
+    sources: definition?.sources ?? [],
+    structuredOutputs: definition?.structuredOutputs ?? null,
     tagline: model.tagline,
+    toolCalling: definition?.toolCalling ?? null,
     ...(definition ? { vendor: modelVendor(definition.vendor) } : {}),
     vision: definition?.vision ?? null,
   };

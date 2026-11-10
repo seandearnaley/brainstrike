@@ -552,8 +552,87 @@ describe('catalog details row', () => {
     );
     const details = screen.getByTestId('model-details-or');
     expect(within(details).getByText('Unverified')).toBeInTheDocument();
-    expect(within(details).getByText('Not published')).toBeInTheDocument();
+    expect(within(details).getByText('Context · Max output').nextElementSibling).toHaveTextContent(
+      /^Not published$/u
+    );
     expect(within(details).getByText('No published price')).toBeInTheDocument();
+  });
+
+  it('shows what the model takes and gives, its tool support, dates and sources', async () => {
+    const openExternal = vi.fn(async () => ({ error: 'blocked by policy', ok: false }));
+    Object.assign(window, { platform: { openExternal } });
+    const source = 'https://example.com/models/claude-opus-5.toml';
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'claude-opus-5',
+          inputModalities: ['text', 'image', 'pdf'],
+          knowledgeCutoff: '2026-03',
+          lifecycle: {
+            archived: false,
+            releasedAt: '2026-07-14',
+            replacedBy: null,
+            retiresAt: null,
+            status: 'active',
+          },
+          outputModalities: ['text'],
+          sources: [{ retrievedAt: '2026-11-10', url: source }],
+          structuredOutputs: false,
+          toolCalling: true,
+        }),
+      ],
+      { expandedIds: ['claude-opus-5'] }
+    );
+    const details = screen.getByTestId('model-details-claude-opus-5');
+    const factValue = (label: string) => within(details).getByText(label).nextElementSibling;
+    expect(factValue('Input')).toHaveTextContent(/^TextImagePDF$/u);
+    expect(factValue('Output')).toHaveTextContent(/^Text$/u);
+    expect(factValue('Tool calling')).toHaveTextContent(/^Supported$/u);
+    expect(factValue('Structured outputs')).toHaveTextContent(/^Not supported$/u);
+    expect(factValue('Released')).toHaveTextContent(/^Jul 14, 2026$/u);
+    expect(factValue('Knowledge cutoff')).toHaveTextContent(/^Mar 2026$/u);
+    const link = within(details).getByRole('link', {
+      name: 'example.com/models/claude-opus-5.toml',
+    });
+    expect(link).toHaveAttribute('href', source);
+    expect(within(details).getByText('· read Nov 10, 2026')).toBeInTheDocument();
+
+    await userEvent.click(link);
+    expect(openExternal).toHaveBeenCalledWith(source);
+    expect(await within(details).findByRole('alert')).toHaveTextContent(
+      "Couldn't open link: blocked by policy"
+    );
+    Reflect.deleteProperty(window, 'platform');
+  });
+
+  it('says Not published for metadata no source states', () => {
+    renderRows(
+      [
+        makeCatalogRow({
+          id: 'quiet',
+          inputModalities: null,
+          knowledgeCutoff: null,
+          outputModalities: null,
+          structuredOutputs: null,
+          toolCalling: null,
+        }),
+      ],
+      { expandedIds: ['quiet'] }
+    );
+    const details = screen.getByTestId('model-details-quiet');
+    for (const label of [
+      'Input',
+      'Output',
+      'Tool calling',
+      'Structured outputs',
+      'Released',
+      'Knowledge cutoff',
+    ]) {
+      expect(within(details).getByText(label).nextElementSibling, label).toHaveTextContent(
+        /^Not published$/u
+      );
+    }
+    expect(within(details).queryByText('Sources')).not.toBeInTheDocument();
   });
 
   it('names the missing context window while showing the published max output', () => {
