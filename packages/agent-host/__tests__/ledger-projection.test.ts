@@ -649,6 +649,21 @@ describe('each provider call is priced on its own', () => {
       estimatedCostUsd: expect.closeTo(0.002, 12),
     });
   });
+  test('a call pays the rates in force on the day it ran', () => {
+    // Gemini 4 Argon lists $2 input / $10 output per million tokens until
+    // 2026-12-01, then $4 / $20.
+    const log = insertAfterStart({
+      kind: 'observation',
+      modelId: 'google::gemini-4-argon',
+      runId,
+      type: 'memory.usage',
+      usage: { inputTokens: 100_000, outputTokens: 1000, totalTokens: 101_000 },
+    });
+    const DEC_2_2026 = Date.parse('2026-12-02T12:00:00Z');
+    const afterChange = log.map((row) => ({ ...row, ts: (row.ts ?? BASE) - BASE + DEC_2_2026 }));
+    expect(folded(log).usage[0]?.costUsd).toBeCloseTo(0.21, 12);
+    expect(folded(afterChange).usage[0]?.costUsd).toBeCloseTo(0.42, 12);
+  });
   test('a call under a model with no list price leaves every total it joins unpriced', () => {
     const { perModel, runs, usage } = folded(
       insertAfterStart({

@@ -1154,7 +1154,7 @@
     "keyNotes": "Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.",
     "models": [
       {
-        "_note": "Added 2026-10-28: GA 2026-10-13 (https://ai.google.dev/gemini-api/docs/changelog). Model page https://ai.google.dev/gemini-api/docs/models/gemini-4-argon: 1,048,576 unified window, 65,536 default output, text/image/video/audio/PDF input, function calling, thinking low/medium/high, implicit caching only. Pricing is INTRODUCTORY: $2 input / $10 output / $0.10 cached through 2026-11-30, then $4 / $20 / $0.20 (https://ai.google.dev/gemini-api/docs/pricing).",
+        "_note": "Added 2026-10-28: GA 2026-10-13 (https://ai.google.dev/gemini-api/docs/changelog). Model page https://ai.google.dev/gemini-api/docs/models/gemini-4-argon: 1,048,576 unified window, 65,536 default output, text/image/video/audio/PDF input, function calling, thinking low/medium/high, implicit caching only. Pricing is INTRODUCTORY: $2 input / $10 output / $0.10 cached through 2026-11-30, then $4 / $20 / $0.20 (https://ai.google.dev/gemini-api/docs/pricing), recorded as the 2026-12-01 change.",
         "catalog": {
           "bestFor": ["Complex tasks", "Analysis", "Agentic coding"],
           "description": null,
@@ -1171,6 +1171,14 @@
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.1,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.2,
+              "effectiveFrom": "2026-12-01",
+              "inputPerMTok": 4,
+              "outputPerMTok": 20
+            }
+          ],
           "inputPerMTok": 2,
           "outputPerMTok": 10
         },
@@ -1181,7 +1189,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
+        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing PRICE CHANGE 2027-01-01, re-read 2026-11-10 (https://ai.google.dev/gemini-api/docs/pricing): \"$1.50 starting January 1, 2027\" input, \"$7.50\" output, \"$0.15\" context caching, recorded as the 2027-01-01 change.",
         "catalog": {
           "bestFor": [
             "Long-horizon software engineering",
@@ -1203,6 +1211,14 @@
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.075,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.15,
+              "effectiveFrom": "2027-01-01",
+              "inputPerMTok": 1.5,
+              "outputPerMTok": 7.5
+            }
+          ],
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -1213,7 +1229,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
+        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing PRICE CHANGE 2027-01-01, re-read 2026-11-10 (https://ai.google.dev/gemini-api/docs/pricing): \"$1.50 starting January 1, 2027\" input, \"$7.50\" output, \"$0.15\" context caching, recorded as the 2027-01-01 change.",
         "catalog": {
           "bestFor": [
             "Code generation",
@@ -1234,6 +1250,14 @@
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.075,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.15,
+              "effectiveFrom": "2027-01-01",
+              "inputPerMTok": 1.5,
+              "outputPerMTok": 7.5
+            }
+          ],
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -1791,7 +1815,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576/65,536 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). The output\nfact is a hard maximum, not a default combined thinking + answer\nwindow. No reasoning ladder is recorded: this pass consulted no\nGoogle model page, so the 3.7 Flash row's mandatory/default-enabled\nfacts are not transplanted onto a route that did not report them.\nPRICING REFRESH 2026-10-28: cache read $0.075, write $0.0416667. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints.",
+        "_note": "Route, 1,048,576/65,536 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). The output\nfact is a hard maximum, not a default combined thinking + answer\nwindow. No reasoning ladder is recorded: this pass consulted no\nGoogle model page, so the 3.7 Flash row's mandatory/default-enabled\nfacts are not transplanted onto a route that did not report them.\nPRICING REFRESH 2026-10-28: cache read $0.075, write $0.0416667. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints. PRICE CHANGE 2027-01-01: the google-ai-studio route bills Google's list price, which rises to $1.50 / $7.50 / $0.15 cached when the introductory rate ends (https://ai.google.dev/gemini-api/docs/pricing, re-read 2026-11-10). OpenRouter has not published the route's cache-write rate after that day, so the change leaves it out: a cache write after it is unpriced, never guessed. Re-read the route on 2027-01-01.",
         "catalog": {
           "bestFor": [
             "Software engineering",
@@ -1813,6 +1837,14 @@
         "pricing": {
           "cacheReadPerMTok": 0.075,
           "cacheWritePerMTok": 0.0416667,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.15,
+              "effectiveFrom": "2027-01-01",
+              "inputPerMTok": 1.5,
+              "outputPerMTok": 7.5
+            }
+          ],
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -1822,7 +1854,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-4-argon/endpoints. google-ai-studio route, 1,048,576 / 943,718. Google's introductory rate runs through 2026-11-30.",
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-4-argon/endpoints. google-ai-studio route, 1,048,576 / 943,718. Google's introductory rate runs through 2026-11-30.\nPRICE CHANGE 2026-12-01: the google-ai-studio route bills Google's list price, which rises to $4 / $20 / $0.20 cached when the introductory rate ends (https://ai.google.dev/gemini-api/docs/pricing). OpenRouter has not published the route's cache-write rate after that day, so the change leaves it out: a cache write after it is unpriced, never guessed. Re-read the route on 2026-12-01.",
         "catalog": {
           "bestFor": ["Complex tasks", "Analysis", "Agentic coding"],
           "description": null,
@@ -1840,6 +1872,14 @@
         "pricing": {
           "cacheReadPerMTok": 0.1,
           "cacheWritePerMTok": 0.1875,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.2,
+              "effectiveFrom": "2026-12-01",
+              "inputPerMTok": 4,
+              "outputPerMTok": 20
+            }
+          ],
           "inputPerMTok": 2,
           "outputPerMTok": 10
         },
@@ -2322,7 +2362,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 0.75 / 3.75. The row previously held 1.5 / 7.5,\nwhich matches neither this route nor its `google/gemini-3.6-flash:batch`\nvariant (0.375 / 1.875) — it was a Google DIRECT list price copied into a\ngateway row. Priced from OpenRouter because OpenRouter bills this route.\nCACHE READS 2026-10-28: $0.075 on the google-ai-studio route our base rate is from (https://openrouter.ai/api/v1/models/google/gemini-3.6-flash/endpoints); OpenRouter reports cached tokens for it automatically.",
+        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 0.75 / 3.75. The row previously held 1.5 / 7.5,\nwhich matches neither this route nor its `google/gemini-3.6-flash:batch`\nvariant (0.375 / 1.875) — it was a Google DIRECT list price copied into a\ngateway row. Priced from OpenRouter because OpenRouter bills this route.\nCACHE READS 2026-10-28: $0.075 on the google-ai-studio route our base rate is from (https://openrouter.ai/api/v1/models/google/gemini-3.6-flash/endpoints); OpenRouter reports cached tokens for it automatically. PRICE CHANGE 2027-01-01: the google-ai-studio route bills Google's list price, which rises to $1.50 / $7.50 / $0.15 cached when the introductory rate ends (https://ai.google.dev/gemini-api/docs/pricing, re-read 2026-11-10). Re-read the route on 2027-01-01.",
         "catalog": {
           "bestFor": ["Coding", "Agentic workflows", "Multimodal development"],
           "description": null,
@@ -2339,6 +2379,14 @@
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.075,
+          "changes": [
+            {
+              "cacheReadPerMTok": 0.15,
+              "effectiveFrom": "2027-01-01",
+              "inputPerMTok": 1.5,
+              "outputPerMTok": 7.5
+            }
+          ],
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },

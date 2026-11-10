@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { createCatalogProjector, projectCatalogRow } from '../catalog-projection';
 import { makeDbModel } from './catalog-test-harness';
 
+const NOV_20_2026 = Date.UTC(2026, 10, 20);
+const DEC_1_2026 = Date.UTC(2026, 11, 1);
+
 describe('projectCatalogRow', () => {
   it('joins the registry facts for a registered chat model', () => {
     // Prices come from the registry: catalog re-pricing must not break the join.
@@ -17,7 +20,8 @@ describe('projectCatalogRow', () => {
         providerId: 'openai',
         tagline: 'Balanced GPT-6.1 tier',
       }),
-      'OpenAI'
+      'OpenAI',
+      NOV_20_2026
     );
     expect(row).toMatchObject({
       contextWindow: 1_050_000,
@@ -28,6 +32,7 @@ describe('projectCatalogRow', () => {
         cacheReadPerMTok: terraPricing?.cacheReadPerMTok,
         cacheWritePerMTok: terraPricing?.cacheWritePerMTok,
         inputPerMTok: terraPricing?.inputPerMTok,
+        nextChange: null,
         outputPerMTok: terraPricing?.outputPerMTok,
       },
       providerName: 'OpenAI',
@@ -42,21 +47,47 @@ describe('projectCatalogRow', () => {
   it('carries cache pricing and the offered effort ladder', () => {
     const row = projectCatalogRow(
       makeDbModel({ id: 'claude-opus-5', name: 'Claude Opus 5', providerId: 'anthropic' }),
-      'Anthropic'
+      'Anthropic',
+      NOV_20_2026
     );
     expect(row.pricing).toEqual({
       cacheReadPerMTok: 0.5,
       cacheWritePerMTok: 6.25,
       inputPerMTok: 5,
+      nextChange: null,
       outputPerMTok: 25,
     });
     expect(row.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
   });
 
+  it('shows the rates in force when the catalog opened, and the change Google announced', () => {
+    const argon = makeDbModel({ id: 'gemini-4-argon', providerId: 'google' });
+    const change = {
+      cacheReadPerMTok: 0.2,
+      cacheWritePerMTok: null,
+      effectiveFrom: '2026-12-01',
+      inputPerMTok: 4,
+      outputPerMTok: 20,
+    };
+    expect(projectCatalogRow(argon, 'Google AI Studio', NOV_20_2026).pricing).toEqual({
+      cacheReadPerMTok: 0.1,
+      cacheWritePerMTok: null,
+      inputPerMTok: 2,
+      nextChange: change,
+      outputPerMTok: 10,
+    });
+    const { effectiveFrom: _day, ...inForce } = change;
+    expect(projectCatalogRow(argon, 'Google AI Studio', DEC_1_2026).pricing).toEqual({
+      ...inForce,
+      nextChange: null,
+    });
+  });
+
   it('gives a DB-only row no registry facts at all', () => {
     const row = projectCatalogRow(
       makeDbModel({ id: 'retired-model', providerId: 'openai' }),
-      'OpenAI'
+      'OpenAI',
+      NOV_20_2026
     );
     expect(row).toMatchObject({
       contextWindow: null,
@@ -71,7 +102,8 @@ describe('projectCatalogRow', () => {
   it('gives a chat row under a provider missing from the registry no signal at all', () => {
     const row = projectCatalogRow(
       makeDbModel({ capabilities: { type: 'llm' }, id: 'old-chat', providerId: 'retired' }),
-      'Unknown provider'
+      'Unknown provider',
+      NOV_20_2026
     );
     expect(row).toMatchObject({
       contextWindow: null,
@@ -86,7 +118,8 @@ describe('projectCatalogRow', () => {
   it('preserves an unknown reasoning state instead of coercing it', () => {
     const row = projectCatalogRow(
       makeDbModel({ id: 'openai/gpt-6-astra', providerId: 'openrouter' }),
-      'OpenRouter'
+      'OpenRouter',
+      NOV_20_2026
     );
     expect(row.reasoning).toEqual({ reason: 'openrouter-undeclared', state: 'unknown' });
     expect(row.reasoningEfforts).toBeNull();
@@ -99,7 +132,8 @@ describe('projectCatalogRow', () => {
         id: 'gpt-5.6-terra',
         providerId: 'openai',
       }),
-      'OpenAI'
+      'OpenAI',
+      NOV_20_2026
     );
     expect(row.bestFor).toEqual(['Coding', 'Tool use']);
   });
@@ -107,13 +141,13 @@ describe('projectCatalogRow', () => {
 
 describe('createCatalogProjector', () => {
   it('returns the same row for the same DbModel identity', () => {
-    const project = createCatalogProjector();
+    const project = createCatalogProjector(NOV_20_2026);
     const model = makeDbModel({ id: 'gpt-5.6-terra', providerId: 'openai' });
     expect(project(model, 'OpenAI')).toBe(project(model, 'OpenAI'));
   });
 
   it('re-projects only a replaced DbModel (a toggle)', () => {
-    const project = createCatalogProjector();
+    const project = createCatalogProjector(NOV_20_2026);
     const a = makeDbModel({ id: 'gpt-5.6-terra', providerId: 'openai' });
     const b = makeDbModel({ id: 'gpt-5.5', providerId: 'openai' });
     const aRow = project(a, 'OpenAI');
@@ -126,7 +160,7 @@ describe('createCatalogProjector', () => {
   });
 
   it('re-projects when the provider name changes', () => {
-    const project = createCatalogProjector();
+    const project = createCatalogProjector(NOV_20_2026);
     const model = makeDbModel({ id: 'gpt-5.6-terra', providerId: 'openai' });
     const first = project(model, 'OpenAI');
     expect(project(model, 'OpenAI (renamed)')).not.toBe(first);

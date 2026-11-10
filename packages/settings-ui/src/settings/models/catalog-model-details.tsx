@@ -2,7 +2,7 @@ import { Badge, CopyTextButton } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import { Absent } from './catalog-cells';
 import { formatUsd } from './catalog-format';
-import type { CatalogPricing, CatalogRow } from './catalog-projection';
+import type { CatalogPriceChange, CatalogPricing, CatalogRow } from './catalog-projection';
 
 const fullNumber = new Intl.NumberFormat('en-US');
 
@@ -63,7 +63,20 @@ function pricingLines(pricing: CatalogPricing | null): string[] {
   if (pricing.cacheWritePerMTok !== null) {
     lines.push(`Cache write ${formatUsd(pricing.cacheWritePerMTok)}`);
   }
+  if (pricing.nextChange !== null) {
+    lines.push(scheduledChangeLine(pricing.nextChange));
+  }
   return lines;
+}
+
+/** "From 2026-12-01 (UTC): input $4 · output $20, cache read $0.20". */
+function scheduledChangeLine(change: CatalogPriceChange): string {
+  const cache = [
+    change.cacheReadPerMTok === null ? null : `cache read ${formatUsd(change.cacheReadPerMTok)}`,
+    change.cacheWritePerMTok === null ? null : `cache write ${formatUsd(change.cacheWritePerMTok)}`,
+  ].filter((part) => part !== null);
+  const rates = `input ${formatUsd(change.inputPerMTok)} · output ${formatUsd(change.outputPerMTok)}`;
+  return `From ${change.effectiveFrom} (UTC): ${[rates, ...cache].join(', ')}`;
 }
 
 function ReasoningFact({ row }: { readonly row: CatalogRow }) {
