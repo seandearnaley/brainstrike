@@ -7,6 +7,8 @@
     hash, so a managed worktree shares it too.
   - 2026-11-10 (BST-2340): the composer asks with a chip, only about the thread's own folders and
     once per answer.
+  - 2026-11-10 (owner decisions, below): trusted locations, folders the app makes, and no
+    access-mode cap for an untrusted folder (BST-2341).
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -149,9 +151,26 @@ location, and none lets a folder approve itself.
 - Approving an edited hooks file in one worktree makes it the repository's
   version, so the hooks of checkouts still on the earlier bytes stop running,
   with the "changed" notice, until those checkouts hold the new bytes.
-- Whether an untrusted folder should also cap the access mode at Ask is a
-  separate owner decision (BST-2341). This ADR leaves access modes (ADR-0031)
-  unchanged.
+- An untrusted folder does not cap the access mode (owner decision 2026-11-10,
+  BST-2341). This ADR leaves access modes (ADR-0031) unchanged.
+
+## Owner decisions, 2026-11-10
+
+Sean's answers to the trust questions the "Where Threads Live" brief left open.
+They supersede the text above where they differ.
+
+- **Trusted locations, opt-in.** The first trust ask offers to also trust
+  everything in the folder's parent. A folder with no answer of its own is
+  trusted when it lies inside a trusted location. An explicit answer, including
+  restricted, still wins. Accepted cost: a hostile repository cloned into a
+  trusted location by hand is trusted. Not built yet.
+- **Folders the app makes are trusted with no question**: a project created in
+  the app or a scratch folder, as a managed worktree already is. Never a folder
+  that already existed. Not built yet.
+- **An untrusted folder does not cap the access mode** (BST-2341). A run keeps
+  the access mode the composer shows, and the sandbox and permission policy
+  still apply. The options not taken were capping at Ask, and capping at Ask
+  while refusing Full.
 
 ## Sources
 
