@@ -15,7 +15,7 @@ import {
  */
 export type HostWorkspaceTrustStore = Pick<
   StateStore,
-  'getSetting' | 'setSetting' | 'worktreeLedger'
+  'deleteSetting' | 'getSetting' | 'setSetting' | 'worktreeLedger'
 >;
 /** A workspace trust request the host refuses; its text is the reason the user reads. */
 export class HostWorkspaceTrustRefusal extends BoundaryFailureError {
@@ -103,12 +103,17 @@ export async function writeHostWorkspaceTrust(
   path: string,
   trust: HostWorkspaceTrustDecision
 ): Promise<void> {
-  const { answering } = await answeringFolder(store, path);
-  if (answering === undefined) {
+  const { answering, folder } = await answeringFolder(store, path);
+  if (folder === undefined || answering === undefined) {
     // Nothing is at `path`, or its repository's folder went away while this request ran.
     throw new HostWorkspaceTrustRefusal(`${path} does not exist`);
   }
   await store.setSetting(trustKey(answering), trust);
+  if (answering !== folder) {
+    // This replaces what was answered for the folder alone before it was a managed worktree,
+    // which would answer again once it stopped being one.
+    await store.deleteSetting(trustKey(folder));
+  }
 }
 /**
  * The roots whose repo-supplied agent configuration may load: instructions,

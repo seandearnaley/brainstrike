@@ -227,6 +227,7 @@ describe('workspace trust (ADR-0032)', () => {
   function memoryTrust(): HostWorkspaceTrustStore {
     const values = new Map<string, string>();
     return {
+      deleteSetting: async (key) => values.delete(key),
       getSetting: async (key) => values.get(key),
       setSetting: async (key, value) => {
         values.set(key, value);
