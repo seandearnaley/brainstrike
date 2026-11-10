@@ -11,8 +11,15 @@
  * empty, which git reads as no filter, and marks those drivers not required.
  * Filters from the person's global or system config, where `git lfs install`
  * writes Git LFS, keep working. A command in a trusted folder runs as is.
+ *
+ * Git also runs `git status` inside every checked-out submodule, and inside a
+ * repository cloned within this one, for the Changes listing and for a stage
+ * with no paths named. Those repositories came in the same folder, so their
+ * own filter commands are emptied too; command-scope config reaches the git
+ * processes git starts in them.
  */
-import { isAbsolute } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import {
   type HostWorkspaceTrustStore,
   readHostWorkspaceTrust,
@@ -32,32 +39,53 @@ const PERSON_SCOPES = new Set(['global', 'system']);
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 
 /**
- * The overrides for `git config --null --show-scope --get-regexp` output, one
- * `scope NUL key LF value NUL` per entry: each repository-set filter command
- * emptied, then each of those drivers marked not required. Undefined when the
- * output is not valid UTF-8 or does not parse, so the caller fails rather than
- * run unguarded. A driver name with a byte that is not UTF-8 cannot be named
- * in the environment, where Node passes only UTF-8, so it has no override.
+ * The repository-set filter command keys in `git config --null --show-scope
+ * --get-regexp` output, one `scope NUL key LF value NUL` per entry. Undefined
+ * when the output is not valid UTF-8 or does not parse, so the caller fails
+ * rather than run unguarded. A driver name with a byte that is not UTF-8
+ * cannot be named in the environment, where Node passes only UTF-8.
  */
-function repositoryFilterOverrides(probeOutput: Buffer): [string, string][] | undefined {
+function repositoryFilterKeys(probeOutput: Buffer): string[] | undefined {
+  const fields = nulFields(probeOutput);
+  if (fields === undefined || fields.length % 2 !== 0) {
+    return;
+  }
+  const keys: string[] = [];
+  for (let index = 0; index < fields.length; index += 2) {
+    if (!PERSON_SCOPES.has(fields[index] ?? '')) {
+      // A config key never holds a newline; the value follows the first one.
+      keys.push((fields[index + 1] ?? '').split('\n', 1)[0] ?? '');
+    }
+  }
+  return keys;
+}
+
+/** NUL-terminated fields, or undefined when the bytes are not UTF-8 or end mid-field. */
+function nulFields(output: Buffer): string[] | undefined {
   let text: string;
   try {
-    text = strictUtf8.decode(probeOutput);
+    text = strictUtf8.decode(output);
   } catch {
     return;
   }
   const fields = text.split('\0');
-  if (fields.pop() !== '' || fields.length % 2 !== 0) {
+  return fields.pop() === '' ? fields : undefined;
+}
+
+/** One line of output without its line ending, or undefined when it is not UTF-8. */
+function decodedLine(output: Buffer): string | undefined {
+  try {
+    return strictUtf8.decode(output).replace(/\r?\n$/u, '');
+  } catch {
     return;
   }
+}
+
+/** Each key emptied, then each of their drivers marked not required. */
+function filterOverrides(keys: ReadonlySet<string>): [string, string][] {
   const overrides: [string, string][] = [];
   const drivers = new Set<string>();
-  for (let index = 0; index < fields.length; index += 2) {
-    if (PERSON_SCOPES.has(fields[index] ?? '')) {
-      continue;
-    }
-    // A config key never holds a newline; the value follows the first one.
-    const key = (fields[index + 1] ?? '').split('\n', 1)[0] ?? '';
+  for (const key of keys) {
     overrides.push([key, '']);
     drivers.add(key.slice(0, key.lastIndexOf('.')));
   }
@@ -110,11 +138,177 @@ function probeFailure(probe: GitCommandRun): GitCommandRun {
   };
 }
 
+/** Every repository git can enter from one command, the command's own first. */
+const MAX_NESTING = 8;
+
+/** One git read the guard needs, or the run that fails the command in its place. */
+type GuardRead<T> = { readonly failed: GitCommandRun } | { readonly value: T };
+
+type ReadParams = Pick<Parameters<GitCommandRunner>[0], 'signal' | 'timeoutMs'>;
+
+/** A git read's exit code and raw output; a run that did not finish fails the command. */
+async function readGit(
+  run: GitCommandRunner,
+  args: readonly string[],
+  cwd: string,
+  params: ReadParams
+): Promise<
+  GuardRead<{
+    readonly exitCode: number | null;
+    readonly output: Buffer;
+    readonly read: GitCommandRun;
+  }>
+> {
+  const read = await run({
+    args,
+    binaryStdout: true,
+    cwd,
+    signal: params.signal,
+    timeoutMs: params.timeoutMs,
+  });
+  if (read.failureReason !== undefined) {
+    return { failed: probeFailure(read) };
+  }
+  return {
+    value: { exitCode: read.exitCode, output: read.stdoutBuffer ?? Buffer.from(read.stdout), read },
+  };
+}
+
+/** The filter command keys that the repository at `cwd` set itself. */
+async function readRepositoryFilterKeys(
+  run: GitCommandRunner,
+  cwd: string,
+  params: ReadParams
+): Promise<GuardRead<string[]>> {
+  const args = ['config', '--null', '--show-scope', '--get-regexp', FILTER_COMMAND_KEYS];
+  const read = await readGit(run, args, cwd, params);
+  if ('failed' in read) {
+    return read;
+  }
+  const { exitCode, output } = read.value;
+  // Exit 1 with no output: no filter command is configured anywhere.
+  if (exitCode === 1 && output.length === 0) {
+    return { value: [] };
+  }
+  if (exitCode !== 0) {
+    return { failed: probeFailure(read.value.read) };
+  }
+  const keys = repositoryFilterKeys(output);
+  return keys === undefined ? { failed: UNGUARDABLE_FILTERS } : { value: keys };
+}
+
+/**
+ * The checked-out submodules of the repository at `cwd`, or undefined when
+ * `git submodule foreach` stops, as it does at a gitlink with no
+ * `.gitmodules` entry.
+ */
+async function readSubmodules(
+  run: GitCommandRunner,
+  cwd: string,
+  params: ReadParams
+): Promise<GuardRead<string[] | undefined>> {
+  const args = ['submodule', 'foreach', '--quiet', 'printf "%s\\0" "$displaypath"'];
+  const read = await readGit(run, args, cwd, params);
+  if ('failed' in read || read.value.exitCode !== 0) {
+    return 'failed' in read ? read : { value: undefined };
+  }
+  const paths = nulFields(read.value.output);
+  return paths === undefined
+    ? { failed: UNGUARDABLE_FILTERS }
+    : { value: paths.map((entry) => resolve(cwd, entry)) };
+}
+
+/**
+ * The checked-out gitlinks in the index of the repository at `cwd`, which
+ * include a repository cloned inside it. A folder with no index to read has
+ * no gitlink for git to enter. The runner pins literal pathspecs, so the
+ * index is listed from the repository's top.
+ */
+async function readIndexGitlinks(
+  run: GitCommandRunner,
+  cwd: string,
+  params: ReadParams
+): Promise<GuardRead<string[]>> {
+  const top = await readGit(run, ['rev-parse', '--show-toplevel'], cwd, params);
+  if ('failed' in top || top.value.exitCode !== 0) {
+    return 'failed' in top ? top : { value: [] };
+  }
+  const topFolder = decodedLine(top.value.output);
+  if (!topFolder) {
+    return { failed: UNGUARDABLE_FILTERS };
+  }
+  const index = await readGit(run, ['ls-files', '-z', '--stage'], topFolder, params);
+  if ('failed' in index || index.value.exitCode !== 0) {
+    return 'failed' in index ? index : { value: [] };
+  }
+  const entries = nulFields(index.value.output);
+  if (entries === undefined) {
+    return { failed: UNGUARDABLE_FILTERS };
+  }
+  // `<mode> <object> <stage>\t<path>`; mode 160000 is a gitlink.
+  return {
+    value: entries
+      .filter((entry) => entry.startsWith('160000 ') && entry.includes('\t'))
+      .map((entry) => resolve(topFolder, entry.slice(entry.indexOf('\t') + 1)))
+      .filter((folder) => existsSync(join(folder, '.git'))),
+  };
+}
+
+/**
+ * The checked-out repositories git enters from `cwd`: its submodules, and any
+ * repository cloned inside it that the index records as a gitlink, which
+ * `git status` enters as well.
+ */
+async function readNestedRepositories(
+  run: GitCommandRunner,
+  cwd: string,
+  params: ReadParams
+): Promise<GuardRead<string[]>> {
+  const submodules = await readSubmodules(run, cwd, params);
+  if ('failed' in submodules || submodules.value !== undefined) {
+    return submodules as GuardRead<string[]>;
+  }
+  return await readIndexGitlinks(run, cwd, params);
+}
+
+/**
+ * The repository-set filter command keys of the repository at `cwd` and of
+ * every checked-out repository git can enter from it, however deep.
+ */
+async function readReachableFilterKeys(
+  run: GitCommandRunner,
+  cwd: string,
+  params: ReadParams
+): Promise<GuardRead<Set<string>>> {
+  const keys = new Set<string>();
+  const seen = new Set<string>([resolve(cwd)]);
+  const queue = [{ depth: 0, folder: cwd }];
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    if (next.depth > MAX_NESTING) {
+      return { failed: UNGUARDABLE_FILTERS };
+    }
+    const own = await readRepositoryFilterKeys(run, next.folder, params);
+    const nested = 'failed' in own ? own : await readNestedRepositories(run, next.folder, params);
+    if ('failed' in own || 'failed' in nested) {
+      return 'failed' in own ? own : (nested as { readonly failed: GitCommandRun });
+    }
+    for (const key of own.value) {
+      keys.add(key);
+    }
+    for (const folder of nested.value.filter((repository) => !seen.has(repository))) {
+      seen.add(folder);
+      queue.push({ depth: next.depth + 1, folder });
+    }
+  }
+  return { value: keys };
+}
+
 /**
  * `run`, with the repository's own filter commands off wherever `isTrusted`
- * says no. Each untrusted command first reads the filter keys in its `cwd`,
- * because the config can change between commands. A failed or unreadable
- * probe fails the command, never treated as no filters.
+ * says no, in it and in every repository git enters from it. Each untrusted
+ * command first reads the filter keys again, because the config can change
+ * between commands. A failed or unreadable read fails the command, never
+ * treated as no filters.
  */
 export function guardRepositoryFilters(options: {
   readonly isTrusted: (cwd: string) => Promise<boolean>;
@@ -125,31 +319,13 @@ export function guardRepositoryFilters(options: {
     if (await isTrusted(params.cwd)) {
       return await run(params);
     }
-    const probe = await run({
-      args: ['config', '--null', '--show-scope', '--get-regexp', FILTER_COMMAND_KEYS],
-      binaryStdout: true,
-      cwd: params.cwd,
-      signal: params.signal,
-      timeoutMs: params.timeoutMs,
-    });
-    const output = probe.stdoutBuffer ?? Buffer.from(probe.stdout);
-    if (probe.failureReason !== undefined) {
-      return probeFailure(probe);
+    const keys = await readReachableFilterKeys(run, params.cwd, params);
+    if ('failed' in keys) {
+      return keys.failed;
     }
-    // Exit 1 with no output: no filter command is configured anywhere.
-    if (probe.exitCode === 1 && output.length === 0) {
-      return await run(params);
-    }
-    if (probe.exitCode !== 0) {
-      return probeFailure(probe);
-    }
-    const overrides = repositoryFilterOverrides(output);
-    if (!overrides) {
-      return UNGUARDABLE_FILTERS;
-    }
-    return overrides.length === 0
+    return keys.value.size === 0
       ? await run(params)
-      : await run({ ...params, env: withConfigOverrides(params.env, overrides) });
+      : await run({ ...params, env: withConfigOverrides(params.env, filterOverrides(keys.value)) });
   };
 }
 

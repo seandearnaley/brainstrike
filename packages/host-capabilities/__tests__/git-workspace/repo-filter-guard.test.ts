@@ -117,7 +117,7 @@ async function changesIn(dir: string, home: string, trust: 'trusted' | 'undecide
       target: { files: [{ path: 'file.txt', revision: file?.revision ?? '' }], kind: 'files' },
     });
   };
-  return { apply, view };
+  return { apply, run, view };
 }
 
 const ran = (dir: string, mark: string) => existsSync(path.join(dir, '.git', mark));
@@ -187,6 +187,74 @@ describe('a repository filter in a folder the person has not trusted', () => {
     await (await changesIn(dir, home, 'undecided')).view();
 
     expect(ran(dir, 'own-filter-ran')).toBe(true);
+  });
+});
+
+/** A filter command that leaves a mark in the repository's own working tree. */
+const markingTree = 'touch nested-filter-ran && cat';
+
+/**
+ * A committed superproject holding one checked-out repository at `inner`,
+ * added as a submodule or cloned in and staged as a bare gitlink, whose own
+ * config sends `file.txt` through a filter that marks its tree, then
+ * `inner/file.txt` edited without changing its size.
+ */
+async function superprojectWith(home: string, kind: 'embedded' | 'submodule'): Promise<string> {
+  const source = await tempDir('bs-filter-guard-source-');
+  git(source, ['init', '-q'], home);
+  git(source, ['config', 'core.autocrlf', 'false'], home);
+  await writeFile(path.join(source, '.gitattributes'), 'file.txt filter=nested\n');
+  await writeFile(path.join(source, 'file.txt'), 'one\n');
+  git(source, ['add', '-A'], home);
+  git(source, ['commit', '-q', '-m', 'source'], home);
+
+  const dir = await tempDir('bs-filter-guard-super-');
+  git(dir, ['init', '-q'], home);
+  await writeFile(path.join(dir, 'top.txt'), 'top\n');
+  git(dir, ['add', '-A'], home);
+  git(dir, ['commit', '-q', '-m', 'top'], home);
+  if (kind === 'submodule') {
+    git(dir, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source, 'inner'], home);
+  } else {
+    git(dir, ['clone', '-q', source, 'inner'], home);
+    git(dir, ['add', 'inner'], home);
+  }
+  git(dir, ['commit', '-q', '-m', 'inner'], home);
+  const inner = path.join(dir, 'inner');
+  git(inner, ['config', 'filter.nested.clean', markingTree], home);
+  git(inner, ['config', 'filter.nested.required', 'true'], home);
+  // The same size, so git reads the file through the filter to tell.
+  await writeFile(path.join(inner, 'file.txt'), 'two\n');
+  return dir;
+}
+
+const nestedRan = (dir: string) => existsSync(path.join(dir, 'inner', 'nested-filter-ran'));
+
+describe.each(['submodule', 'embedded'] as const)('a filter in a %s repository', (kind) => {
+  it('stays off in a folder the person has not trusted', async () => {
+    const home = await tempDir('bs-filter-guard-home-');
+    const dir = await superprojectWith(home, kind);
+    const changes = await changesIn(dir, home, 'undecided');
+
+    await changes.view();
+    for (const args of [
+      ['status', '--porcelain=v2'],
+      ['add', '--all'],
+    ]) {
+      expect((await changes.run({ args, cwd: dir, timeoutMs: 30_000 })).exitCode).toBe(0);
+    }
+
+    expect(nestedRan(dir)).toBe(false);
+  });
+
+  it('runs in a trusted folder', async () => {
+    const home = await tempDir('bs-filter-guard-home-');
+    const dir = await superprojectWith(home, kind);
+    const changes = await changesIn(dir, home, 'trusted');
+
+    await changes.run({ args: ['status', '--porcelain=v2'], cwd: dir, timeoutMs: 30_000 });
+
+    expect(nestedRan(dir)).toBe(true);
   });
 });
 

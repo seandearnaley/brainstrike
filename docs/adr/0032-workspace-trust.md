@@ -71,8 +71,10 @@ location, and none lets a folder approve itself.
   Filters from the person's global or system config, such as Git LFS, still
   run, and a trusted folder's run as git runs them. The overrides go in as
   `GIT_CONFIG_KEY_<n>`, which git takes whole, so no driver name can split
-  one. The nearest mounted folder with an answer decides, so a folder kept
-  restricted inside a trusted one stays restricted.
+  one. Git also runs `git status` inside each checked-out submodule and each
+  repository cloned inside this one, so their own filter commands are emptied
+  the same way. The nearest mounted folder with an answer decides, so a folder
+  kept restricted inside a trusted one stays restricted.
 
 ## Consequences
 
