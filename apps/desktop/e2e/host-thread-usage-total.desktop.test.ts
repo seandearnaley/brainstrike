@@ -33,13 +33,13 @@ test("a host thread's meter leads with its committed total and cost, across a re
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText(REPLY)).toBeVisible({ timeout: 90_000 });
 
-  // The shim reports 4 input and 3 output tokens for the one provider call,
-  // priced at the catalog's $3 / $15 per million tokens.
+  // The shim reports 4 input and 3 output tokens for each provider call, the
+  // reply and its thread title, priced at the catalog's $3 / $15 per million tokens.
   const trigger = region.getByTestId('context-usage-trigger');
-  await expect(trigger).toHaveAttribute('aria-label', /^Thread usage: 7 tokens; context /u, {
+  await expect(trigger).toHaveAttribute('aria-label', /^Thread usage: 14 tokens; context /u, {
     timeout: 30_000,
   });
-  await expect(region.getByTestId('context-usage-trigger-cost')).toHaveText('· $0.000057');
+  await expect(region.getByTestId('context-usage-trigger-cost')).toHaveText('· $0.000114');
 
   // The total is read from the committed log, so a reload shows it again.
   await reloadRenderer(page, 'host-thread-usage-total: reload');
@@ -47,9 +47,9 @@ test("a host thread's meter leads with its committed total and cost, across a re
   await expect(reloaded.getByText(REPLY)).toBeVisible({ timeout: 60_000 });
   await expect(reloaded.getByTestId('context-usage-trigger')).toHaveAttribute(
     'aria-label',
-    /^Thread usage: 7 tokens; context /u,
+    /^Thread usage: 14 tokens; context /u,
     { timeout: 30_000 }
   );
-  await expect(reloaded.getByTestId('context-usage-trigger-cost')).toHaveText('· $0.000057');
+  await expect(reloaded.getByTestId('context-usage-trigger-cost')).toHaveText('· $0.000114');
   expect(modelProvider.refusals()).toEqual([]);
 });
