@@ -397,9 +397,10 @@ function countStreamedChunk(run: RunFold, streamed: unknown): void {
  * upstreams that cannot cancel) records a charge the ledger cannot see, so the
  * call is counted as unreported rather than $0 or a guess. OpenAI does not
  * bill one (its catalog row says so). A request refused before the provider
- * answered is billed by none.
+ * answered is billed by none. A stalled attempt the host replaced settles when
+ * its replacement is sent, so each billed attempt counts once.
  */
-function countCutOffCall(run: RunFold, outcome: RunOutcome): void {
+function countCutOffCall(run: RunFold, outcome: RunOutcome | 'stalled'): void {
   const pending = run.pendingCall;
   run.pendingCall = undefined;
   if (
@@ -446,6 +447,8 @@ export class ThreadLedgerFold {
     }
     run.toolCalls.apply(event);
     if (event.type === 'provider.request.prepared') {
+      // A recovered attempt's new request replaces a stalled one the provider may have billed.
+      countCutOffCall(run, 'stalled');
       run.pendingCall = { answered: false };
     } else if (event.type === 'model.step') {
       run.pendingCall = undefined;

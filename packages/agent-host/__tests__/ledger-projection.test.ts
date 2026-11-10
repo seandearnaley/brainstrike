@@ -6,6 +6,7 @@ import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-
 };
 import { Schema } from 'effect';
 import { describe, expect, test } from 'vitest';
+import { hydratesHostEvent } from '../src/host-event-encoding.js';
 import {
   foldLatestRun,
   HostLedgerProjection,
@@ -292,8 +293,21 @@ describe('a call a Stop or failure cut off, which the provider never reported', 
   test('a stopped call is counted as unreported, never as $0 or a guess', () => {
     expect(unreported(MODEL, prepared, answered, finished('stopped'))).toBe(1);
   });
+  test('the step start that marks a call answered is replayed when the host reopens', () => {
+    expect(hydratesHostEvent(decode({ event: answered, seq: 1, threadId, ts: BASE }).event)).toBe(
+      true
+    );
+  });
   test('a call that failed after the provider answered is unreported too', () => {
     expect(unreported(MODEL, prepared, answered, finished('failed'))).toBe(1);
+  });
+  test('a stalled attempt the host replaced counts once, though its replacement succeeded', () => {
+    const replacement = rows.find(
+      ({ event }) => event.type === 'model.step' && event.runId === secondRunId
+    )?.event;
+    expect(
+      unreported(MODEL, prepared, answered, prepared, replacement ?? {}, finished('completed'))
+    ).toBe(1);
   });
   test('a request refused before the provider answered is billed by none', () => {
     expect(unreported(MODEL, prepared, finished('failed'))).toBe(0);
