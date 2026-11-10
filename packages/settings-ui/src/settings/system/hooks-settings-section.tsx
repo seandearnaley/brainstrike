@@ -216,7 +216,9 @@ export function HooksSettingsSection({
         <CardDescription>
           Approve a workspace’s <code>.brainstrike/hooks.json</code> before its shell hooks run.
           Approvals are pinned to the file’s exact contents — editing the file requires re-approval.
-          Global hooks at <code>{globalConfigPath}</code> run without approval.
+          A repository has one approved version, shared by its worktrees: approving another replaces
+          it for all of them, and Revoke removes it from all of them. Global hooks at{' '}
+          <code>{globalConfigPath}</code> run without approval.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

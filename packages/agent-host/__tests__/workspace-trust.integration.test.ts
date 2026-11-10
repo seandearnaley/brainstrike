@@ -4,8 +4,6 @@
  * the answer survives a host restart, and only trusted roots pass the filter
  * that run admission and discovery use.
  */
-import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +19,12 @@ import {
   trustedHostWorkspaceRoots,
   writeHostWorkspaceTrust,
 } from '../src/workspace-trust.js';
+import {
+  addManagedWorktree,
+  type Repository,
+  recordWorktree,
+  repositoryAt,
+} from './fixtures/managed-worktree.js';
 
 const dirs: string[] = [];
 const hosts: AgentHost[] = [];
@@ -124,6 +128,11 @@ test('every spelling of a folder shares one answer, and a folder that is gone lo
 
     await expect(readHostWorkspaceTrust(store, folder)).resolves.toBe('trusted');
     await expect(readHostWorkspaceTrust(store, join(folder, 'missing'))).resolves.toBe('undecided');
+    // A path that runs through a file names no folder either.
+    await writeFile(join(folder, 'notes.txt'), '');
+    await expect(readHostWorkspaceTrust(store, join(folder, 'notes.txt', 'below'))).resolves.toBe(
+      'undecided'
+    );
     await expect(
       writeHostWorkspaceTrust(store, join(folder, 'missing'), 'trusted')
     ).rejects.toThrow(/does not exist/u);
@@ -132,52 +141,8 @@ test('every spelling of a folder shares one answer, and a folder that is gone lo
   }
 });
 
-interface Repository {
-  readonly commonDir: string;
-  readonly path: string;
-}
-
-function git(cwd: string, args: readonly string[]): void {
-  execFileSync('git', args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
-}
-
-/** A real repository with one commit; its common dir is its primary checkout's `.git`. */
-async function repositoryAt(path: string): Promise<Repository> {
-  git(path, ['init', '-b', 'main']);
-  git(path, ['config', 'user.email', 'test@brainstrike.invalid']);
-  git(path, ['config', 'user.name', 'BrainStrike Test']);
-  git(path, ['commit', '--allow-empty', '-m', 'initial commit']);
-  return { commonDir: join(path, '.git'), path };
-}
-
 async function repositoryCheckout(): Promise<Repository> {
   return repositoryAt(await realpath(await tempDir('bs-workspace-trust-repo-')));
-}
-
-/** The ledger row Brainstrike keeps for a folder it manages as a worktree of `repoCommonDir`. */
-async function recordWorktree(
-  store: StateStore,
-  path: string,
-  repoCommonDir: string
-): Promise<ManagedWorktreeRow> {
-  const row: ManagedWorktreeRow = {
-    archivedAt: null,
-    archiveSnapshotRef: null,
-    baseRef: 'main',
-    branch: null,
-    createdAt: new Date().toISOString(),
-    createdBy: 'user',
-    id: randomUUID(),
-    path,
-    repoCommonDir,
-    runId: null,
-    setupOutput: null,
-    setupReason: null,
-    setupStatus: 'none',
-    threadId: null,
-  };
-  await store.worktreeLedger({ operation: 'insert', row });
-  return row;
 }
 
 /** A real linked worktree of `repository` and its ledger row, as worktree creation leaves them. */
@@ -187,9 +152,7 @@ async function recordManagedWorktree(
 ): Promise<ManagedWorktreeRow> {
   // The ledger keeps the real path, as worktree creation records it.
   const managed = await realpath(await tempDir('bs-workspace-trust-worktrees-'));
-  const path = join(managed, 'swift-badger');
-  git(repository.path, ['worktree', 'add', '--detach', path]);
-  return recordWorktree(store, path, repository.commonDir);
+  return addManagedWorktree(store, repository, managed);
 }
 
 test("a managed worktree shares its repository's answer, so a trusted repository's worktree never asks (ADR-0034)", async () => {

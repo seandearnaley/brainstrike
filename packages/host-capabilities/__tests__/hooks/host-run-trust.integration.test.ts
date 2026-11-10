@@ -1,7 +1,8 @@
 /**
- * A run's project hooks run only at the hash the host trusted their root at:
- * an untrusted root's file contributes nothing, a trusted one blocks through
- * its PreToolUse hook, and an edit after the trust skips it again.
+ * A run's project hooks run only at a hash the host approved for their root:
+ * an unapproved root's file contributes nothing, an approved one blocks
+ * through its PreToolUse hook, and an edit after the approval skips it again,
+ * reported as changed.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,11 @@ import { join } from 'node:path';
 import { trustHostHooks } from '@brainstrike/agent-host';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
-import { createHostRunHooks, trustedHookRoots } from '../../src/hooks/host-run-hooks.js';
+import {
+  createHostRunHooks,
+  loadHostRunHooks,
+  trustedHookRoots,
+} from '../../src/hooks/host-run-hooks.js';
 import { writeStdoutHook } from '../fixtures/native-hook-command.js';
 import { windowsCommandEntry } from '../fixtures/windows-command-entry.js';
 
@@ -43,14 +48,14 @@ test('a project hook runs only at the hash the host trusted its root at', async 
     mkdirSync(join(workspace, '.brainstrike'));
     const file = join(workspace, '.brainstrike', 'hooks.json');
     writeFileSync(file, JSON.stringify(blockingReads));
-    const runHooks = async () =>
-      createHostRunHooks({
-        globalPath: join(tempDir(), 'no-global-hooks.json'),
-        maxHookTimeoutMs: 30_000,
-        roots: await trustedHookRoots(store, [{ path: workspace, rootId: 'root-a' }]),
-        sessionId: 'thread-1',
-        windowsCommandEntry,
-      });
+    const runOptions = async () => ({
+      globalPath: join(tempDir(), 'no-global-hooks.json'),
+      maxHookTimeoutMs: 30_000,
+      roots: await trustedHookRoots(store, [{ path: workspace, rootId: 'root-a' }]),
+      sessionId: 'thread-1',
+      windowsCommandEntry,
+    });
+    const runHooks = async () => createHostRunHooks(await runOptions());
     const read = { input: { path: 'notes.txt' }, toolName: 'brainstrike.readFile' };
 
     // Untrusted: the project file contributes no hook.
@@ -58,7 +63,6 @@ test('a project hook runs only at the hash the host trusted its root at', async 
 
     await trustHostHooks(store, {
       path: workspace,
-      rootId: 'root-a',
       sha256: createHash('sha256').update(readFileSync(file)).digest('hex'),
     });
     expect(await (await runHooks())?.preToolUse(read)).toEqual({
@@ -66,9 +70,12 @@ test('a project hook runs only at the hash the host trusted its root at', async 
       reason: 'Project hook blocks reads',
     });
 
-    // Edited after the trust: skipped again until it is reviewed again.
+    // Edited after the trust: skipped again until it is reviewed again, and reported as changed.
     writeFileSync(file, JSON.stringify({ ...blockingReads, Stop: [] }));
     expect(await runHooks()).toBeUndefined();
+    expect(loadHostRunHooks(await runOptions()).skipped).toMatchObject([
+      { path: file, reason: 'changed', rootId: 'root-a' },
+    ]);
   } finally {
     await store.close();
   }

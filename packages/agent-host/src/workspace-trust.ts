@@ -1,12 +1,8 @@
-import { readFile, realpath } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute } from 'node:path';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
-import {
-  canonicalRoot,
-  repositoryRootFromCommonDir,
-  type StateStore,
-} from '@brainstrike/state-store';
+import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
+import { hostAnsweringFolder, hostFolderIdentity } from './answering-folder.ts';
 import type { HostMethodHandler } from './auth-connection.ts';
 import {
   type HostWorkspaceTrust,
@@ -35,87 +31,29 @@ export class HostWorkspaceTrustRefusal extends BoundaryFailureError {
  * one folder (a symlink, a trailing slash, another case) shares one answer.
  */
 const trustKey = (identity: string): string => `workspace.trust/${identity}`;
-/** The folder's canonical path; undefined when nothing exists there to trust. */
-function folderIdentity(path: string): string | undefined {
+/**
+ * The canonical path of the folder whose answer the folder at `path` shares:
+ * itself, or its repository's primary checkout when it is a managed worktree
+ * (ADR-0034 decision 6). Undefined when nothing exists at `path`.
+ */
+async function answeringIdentity(
+  store: HostWorkspaceTrustStore,
+  path: string
+): Promise<string | undefined> {
   if (!isAbsolute(path)) {
     throw new HostWorkspaceTrustRefusal(
       `Workspace trust needs a folder's absolute path, not ${path}`
     );
   }
-  try {
-    return canonicalRoot(path);
-  } catch (cause) {
-    if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
-      return;
-    }
-    throw cause;
-  }
-}
-const GITDIR_PREFIX = 'gitdir: ';
-/** What reading either link fails with when the folder is not a linked worktree. */
-const NO_LINK_CODES = new Set(['EISDIR', 'ENOENT', 'ENOTDIR']);
-/**
- * Whether the folder at `worktree` (its canonical path) is, now, a linked
- * worktree of the repository whose common dir is `repoCommonDir`, by git's own
- * two links. The folder's `.git` file names an admin directory under
- * `<common dir>/worktrees`, and that directory's `gitdir` file names the
- * folder's `.git` back. A folder cannot write the repository's link and a
- * repository cannot write the folder's, so neither can claim the other.
- */
-async function isLinkedWorktreeOf(worktree: string, repoCommonDir: string): Promise<boolean> {
-  const dotGit = join(worktree, '.git');
-  try {
-    // A repository of its own keeps a `.git` directory, which does not read as a file.
-    const pointer = await readFile(dotGit, 'utf8');
-    if (!pointer.startsWith(GITDIR_PREFIX)) {
-      return false;
-    }
-    const admin = await realpath(resolve(worktree, pointer.slice(GITDIR_PREFIX.length).trim()));
-    if (dirname(admin) !== (await realpath(join(repoCommonDir, 'worktrees')))) {
-      return false;
-    }
-    const back = (await readFile(join(admin, 'gitdir'), 'utf8')).trim();
-    return (await realpath(resolve(admin, back))) === dotGit;
-  } catch (cause) {
-    if (cause instanceof Error && 'code' in cause && NO_LINK_CODES.has(String(cause.code))) {
-      return false;
-    }
-    throw cause;
-  }
-}
-/**
- * The folder whose answer the folder at `path` shares: itself, by the canonical
- * path the checks below ran on, or its repository's primary checkout. Undefined
- * when nothing exists at `path`. ADR-0034 decision 6: a managed worktree is a checkout of
- * its repository, so it shares the repository's answer and never asks on its
- * own. A folder is one only while two records agree: the host's worktree
- * ledger lists it, and git's links still join it to that repository. A ledger
- * row alone is not enough, because a worktree inside an open folder is adopted
- * on the repository's listing, and a row outlives a folder deleted outside
- * Brainstrike.
- */
-async function answeringFolder(
-  store: HostWorkspaceTrustStore,
-  path: string
-): Promise<string | undefined> {
-  const folder = folderIdentity(path);
-  if (folder === undefined) {
-    return;
-  }
-  // The ledger keeps a worktree under its canonical path, as creation and adoption record it.
-  const { rows } = await store.worktreeLedger({ operation: 'by-path', path: folder });
-  const worktree = rows[0];
-  return worktree?.archivedAt === null && (await isLinkedWorktreeOf(folder, worktree.repoCommonDir))
-    ? repositoryRootFromCommonDir(worktree.repoCommonDir)
-    : folder;
+  const folder = hostFolderIdentity(path);
+  return folder === undefined ? undefined : hostAnsweringFolder(store, folder);
 }
 /** The person's answer for the folder at `path`; undecided until they give one. */
 export async function readHostWorkspaceTrust(
   store: HostWorkspaceTrustStore,
   path: string
 ): Promise<HostWorkspaceTrust> {
-  const folder = await answeringFolder(store, path);
-  const identity = folder === undefined ? undefined : folderIdentity(folder);
+  const identity = await answeringIdentity(store, path);
   // A folder that is not there loads nothing, whatever was answered for its path.
   const value = identity === undefined ? undefined : await store.getSetting(trustKey(identity));
   return value === undefined
@@ -128,11 +66,10 @@ export async function writeHostWorkspaceTrust(
   path: string,
   trust: HostWorkspaceTrustDecision
 ): Promise<void> {
-  const folder = (await answeringFolder(store, path)) ?? path;
-  const identity = folderIdentity(folder);
+  const identity = await answeringIdentity(store, path);
   if (identity === undefined) {
-    // Nothing is at `path`, or the answering folder went away while this request ran.
-    throw new HostWorkspaceTrustRefusal(`${folder} does not exist`);
+    // Nothing is at `path`, or its repository's folder went away while this request ran.
+    throw new HostWorkspaceTrustRefusal(`${path} does not exist`);
   }
   await store.setSetting(trustKey(identity), trust);
 }
