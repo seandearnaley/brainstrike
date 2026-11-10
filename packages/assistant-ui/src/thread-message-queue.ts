@@ -62,6 +62,13 @@ function decisionIdentityKey(message: AppendMessage): string | undefined {
   return isAssistantToolResumeAction(resume) ? getToolActionIdentityKey(resume) : undefined;
 }
 
+/**
+ * The vendor queue's initial dispatch transform. Declared at module scope: a
+ * function created where a conversation binds would hold that conversation's
+ * ports in its closure for as long as the queue kept it.
+ */
+const dispatchUnchanged = (message: AppendMessage): AppendMessage => message;
+
 type QueuePorts = Omit<ExternalThreadQueueAdapter, 'items' | 'steerItems'>;
 /** The owner's delivery of a message into the thread's running run. */
 export type SteerMessage = (message: AppendMessage) => Promise<void>;
@@ -189,6 +196,12 @@ export class ThreadMessageQueue {
         this.send = undefined;
         this.steerInto = undefined;
         this.controller.hold();
+        // The vendor queue keeps the dispatch transform its last runtime
+        // registered, and through it that runtime, its store and the thread's
+        // committed log. This queue outlives the conversation, so the
+        // transform goes back to the vendor's initial one; the next runtime
+        // registers its own when it is handed the queue.
+        this.controller.adapter.__internal_setDispatchTransform?.(dispatchUnchanged);
       }
     };
   }
