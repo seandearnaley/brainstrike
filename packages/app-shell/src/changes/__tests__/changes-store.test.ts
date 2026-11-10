@@ -9,6 +9,7 @@ function entry(overrides: Partial<ChangedFileEntry> = {}): ChangedFileEntry {
     deletions: 0,
     patch: null,
     path: 'src/a.ts',
+    pathInRoot: 'src/a.ts',
     repositoryRoot: '/repo',
     revision: 'r1',
     rootId: 'root-1',

@@ -43,6 +43,7 @@ function viewForRun(runId: string): ChangesetView {
         deletions: null,
         patch: null,
         path: `${runId}.ts`,
+        pathInRoot: `${runId}.ts`,
         repositoryRoot: null,
         revision: 'r1',
         rootId: 'root-1',

@@ -73,6 +73,7 @@ describe('useDiffCommentsToThread', () => {
     deletions: 1,
     patch: null,
     path: 'src/answer.ts',
+    pathInRoot: 'src/answer.ts',
     repositoryRoot: '/repo',
     revision: 'r1',
     rootId: 'root-app',

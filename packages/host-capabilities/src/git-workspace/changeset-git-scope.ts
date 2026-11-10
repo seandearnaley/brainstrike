@@ -152,6 +152,28 @@ export async function resolveContainedWorktreeCwd(
   rootId: unknown,
   worktreePath: string
 ): Promise<BoundaryResult<string>> {
+  const contained = await resolveContainedWorktree(deps, rootId, worktreePath);
+  return contained.ok ? { ok: true, value: contained.value.cwd } : contained;
+}
+
+/** A worktree the root contains: where git runs, and where that is inside the root. */
+interface ContainedWorktree {
+  /** The worktree's resolved path. */
+  readonly cwd: string;
+  /** The folder inside the root that is `cwd`, `/`-separated; empty when it is the root. */
+  readonly folderInRoot: string;
+}
+
+/**
+ * {@link resolveContainedWorktreeCwd}, with the worktree's place inside the
+ * root. Both paths are resolved here, so the place holds however the root's
+ * own path is spelled (a root opened through a symbolic link).
+ */
+async function resolveContainedWorktree(
+  deps: GitScopeDeps,
+  rootId: unknown,
+  worktreePath: string
+): Promise<BoundaryResult<ContainedWorktree>> {
   const rootCwd = await deps.resolveRootCwd(rootId);
   if (!rootCwd.ok) {
     return rootCwd;
@@ -190,7 +212,8 @@ export async function resolveContainedWorktreeCwd(
       `the git work tree of "${worktreePath}" is not inside the resolved workspace root.`
     );
   }
-  return { ok: true, value: worktreeReal };
+  const folderInRoot = path.relative(rootCwd.value, worktreeReal).split(path.sep).join('/');
+  return { ok: true, value: { cwd: worktreeReal, folderInRoot } };
 }
 
 /** `HEAD` is unborn (no commits yet) when `rev-parse --verify --quiet HEAD`
@@ -722,26 +745,27 @@ export async function resolveGitScopeChangesetView(
   if (!rootIdResult.ok) {
     return rootIdResult;
   }
-  const cwdResult = await resolveContainedWorktreeCwd(
+  const contained = await resolveContainedWorktree(
     deps,
     rootIdResult.value,
     changeset.worktreePath
   );
-  if (!cwdResult.ok) {
-    return cwdResult;
+  if (!contained.ok) {
+    return contained;
   }
-  const invoke = createInvoke(cwdResult.value, deps.run);
+  const { cwd, folderInRoot } = contained.value;
+  const invoke = createInvoke(cwd, deps.run);
   const listed = await resolveScopeChanges(
     invoke,
     changeset.scope,
-    untrackedDiffReader(cwdResult.value, deps.run)
+    untrackedDiffReader(cwd, deps.run)
   );
   if (!listed.ok) {
     return listed;
   }
   const changesResult =
     changeset.scope.kind === 'unstaged' || changeset.scope.kind === 'uncommitted'
-      ? await stampUndrawn(cwdResult.value, listed.value)
+      ? await stampUndrawn(cwd, listed.value)
       : listed;
   if (!changesResult.ok) {
     return changesResult;
@@ -763,11 +787,13 @@ export async function resolveGitScopeChangesetView(
       ...(record.oldPath === null ? {} : { oldPath: record.oldPath }),
       patch: record.patch,
       path: record.path,
+      // The listing is relative to the worktree (`--relative`), so this is the file in the root.
+      pathInRoot: folderInRoot === '' ? record.path : `${folderInRoot}/${record.path}`,
       repositoryRoot: changeset.repositoryRoot,
       revision: record.revision,
       rootId: rootIdResult.value,
       status: record.status,
-      worktreePath: cwdResult.value,
+      worktreePath: cwd,
     });
     totalAdditions += record.additions ?? 0;
     totalDeletions += record.deletions ?? 0;
