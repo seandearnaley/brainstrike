@@ -16,8 +16,8 @@ export interface CliHooksTrustOptions {
 /**
  * `hooks trust`: a standalone host names each launch root by its real path,
  * which is also the root's ID. The reviewer confirms the file's hash, and the
- * host re-hashes the file and trusts only those exact bytes. Desktop roots are
- * approved in Settings › Hooks.
+ * host re-hashes the file and approves only those exact bytes, for the root's
+ * repository. Desktop roots are approved in Settings › Hooks.
  */
 export async function trustCliProjectHooks(
   client: Pick<HostClient, 'request'>,
@@ -25,7 +25,7 @@ export async function trustCliProjectHooks(
 ): Promise<{ readonly rootId: string; readonly sha256: string; readonly trusted: true }> {
   const rootId = await realpath(options.root ?? process.cwd());
   const sha256 = options.sha256 ?? (await reviewProjectHooks(rootId, options.interactive));
-  await client.request('hooks/trust', { path: rootId, rootId, sha256 });
+  await client.request('hooks/trust', { path: rootId, sha256 });
   return { rootId, sha256, trusted: true };
 }
 

@@ -10,10 +10,10 @@
  *   that symlinks OUT of its root — is refused, so the renderer can never coax
  *   main into reading and returning file content outside the workspace (mirrors
  *   the asset-protocol containment precedent).
- * - DB-ID CORRELATION: the review returns the DB `roots.id` for the resolved
- *   root. The renderer keys trust by THAT id (stable across a remove→re-add),
- *   the same id the server matches on — so approve/revoke can never target a
- *   dead adapter-id entry while the server keeps trusting a live grant.
+ * - ROOT CORRELATION: the review returns the DB `roots.id` for the resolved
+ *   root, so the panel's row and its approve/revoke name one mounted root. The
+ *   host records the approval for that root's path (for a managed worktree, its
+ *   repository), never for an id the renderer supplies.
  */
 
 import { realpathSync } from 'node:fs';
