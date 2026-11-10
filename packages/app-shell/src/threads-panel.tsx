@@ -83,6 +83,7 @@ import {
   getThreadGroupsCapability,
 } from './thread-groups-capability';
 import { ThreadMarkChip } from './thread-identity-mark';
+import { buildThreadNeedsYouRows } from './thread-needs-you';
 import {
   filterThreadsByThreadFilters,
   hasActiveThreadFilters,
@@ -103,6 +104,7 @@ import { mapThreadRepositories } from './thread-repositories';
 import { type ThreadMoveTarget, type ThreadPinHandler, ThreadRow } from './thread-row';
 import { useThreadSearchStore } from './thread-search-store';
 import { ThreadSectionHeader } from './thread-section-header';
+import { ThreadsNeedsYouStrip } from './threads-needs-you-strip';
 import {
   resolveThreadsPanelDrop,
   type ThreadsPanelDragSource,
@@ -1679,6 +1681,16 @@ export function ThreadsPanelCore({
       getThreadLastActivityAt(thread, hostRuns.get(thread.id) ?? thread.latestRun),
     pinnedAtByThreadId,
   };
+  // What waits on the person, across every project: the same projections the
+  // rows' glyphs read, over ALL threads, so no filter or grouping hides a wait.
+  const needsYouRows = buildThreadNeedsYouRows({
+    failedUnseenThreadIds: unseenThreadIds.failedUnseen,
+    hostRuns,
+    lastActivityAt: ordering.lastActivityAt,
+    needsYouThreadIds: threadsAwaitingApproval.threadIds,
+    threads,
+    unseenThreadIds: unseenThreadIds.unseen,
+  });
   const now = useLocalDay();
   // The section builder's input is discriminated on `groupBy`: each grouping
   // takes exactly the inputs it reads, so the modes are separate calls rather
@@ -1997,7 +2009,8 @@ export function ThreadsPanelCore({
         </p>
       ) : null}
 
-      <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 overflow-hidden'}>
+      <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 flex-col overflow-hidden'}>
+        <ThreadsNeedsYouStrip onSelectThread={handleSelectThread} rows={needsYouRows} />
         <ThreadsPanelContent
           activeThreadIds={activeThreads.threadIds}
           failedUnseenThreadIds={unseenThreadIds.failedUnseen}

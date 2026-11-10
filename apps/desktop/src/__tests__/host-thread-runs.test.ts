@@ -135,6 +135,8 @@ test('only rows committed after the replay notify; a replayed approval never doe
     needsInput: true,
     startedAt,
     status: 'running',
+    // What it waits on, as committed: the thread list names it.
+    waitingOn: ['approval'],
   });
   expect(onNotification).not.toHaveBeenCalled();
   source.live(finishedAs('completed'));

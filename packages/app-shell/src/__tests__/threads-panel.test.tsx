@@ -195,6 +195,14 @@ function toThread(row: Record<string, unknown>): AssistantMemoryThread {
   };
 }
 
+/** A floor above every fixture run's completion time: all of them count as looked at. */
+const FIXTURES_SEEN_AT = Date.parse('2026-04-23T00:00:00Z');
+
+/** Lowers the floor, so the fixture runs finished while nobody was looking. */
+function leaveFixtureRunsUnseen(): void {
+  useAssistantThreadStore.setState({ unseenBaselineAt: 0 });
+}
+
 /** Replaces the host's run-state snapshot and notifies its subscribers. */
 function setHostRuns(running: readonly string[], needsInput: readonly string[] = []): void {
   runMocks.runs = new Map(
@@ -465,10 +473,10 @@ beforeEach(() => {
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
-    // The real store stamps this at creation, which is AFTER these fixtures'
-    // 2026-04 completion times — so the suite pins it to 0 and the tests that
-    // care about the floor set it themselves.
-    unseenBaselineAt: 0,
+    // As the real store stamps it at creation: AFTER these fixtures' 2026-04
+    // completion times, so nothing waits to be looked at by default and the
+    // Needs you strip is absent. A test about unseen runs lowers the floor.
+    unseenBaselineAt: FIXTURES_SEEN_AT,
   });
   threadRows.splice(
     0,
@@ -1968,7 +1976,9 @@ describe('ThreadsPanel folders', () => {
   });
 
   function rowFor(title: string): HTMLElement {
-    const row = screen.getByText(title).closest<HTMLElement>('[data-testid="thread-row"]');
+    const row = within(screen.getByRole('treegrid'))
+      .getByText(title)
+      .closest<HTMLElement>('[data-testid="thread-row"]');
     if (!row) {
       throw new Error(`Expected a rendered row for ${title}.`);
     }
@@ -2097,6 +2107,7 @@ describe('ThreadsPanel folders', () => {
   });
 
   it('narrows the list to running threads through the Show only filters', async () => {
+    leaveFixtureRunsUnseen();
     setHostRuns(['thread-b']);
     renderThreadsPanel();
     await waitFor(() => {
@@ -2114,8 +2125,14 @@ describe('ThreadsPanel folders', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
     });
-    expect(screen.getByText('Second thread')).toBeVisible();
-    expect(screen.queryByText('First thread')).not.toBeInTheDocument();
+    const tree = within(screen.getByRole('treegrid'));
+    expect(tree.getByText('Second thread')).toBeVisible();
+    expect(tree.queryByText('First thread')).not.toBeInTheDocument();
+    // The filter narrows the list, never what waits: the strip still names the
+    // thread that finished unseen.
+    expect(
+      within(screen.getByRole('region', { name: 'Needs you' })).getByText('First thread')
+    ).toBeVisible();
     expect(useAssistantThreadGroupsStore.getState().threadFilters.running).toBe(true);
     // The trigger's dot reports a narrowed list, not only a non-default sort.
     expect(screen.getByTestId('threads-view-options-dot')).toBeInTheDocument();
@@ -2141,6 +2158,7 @@ describe('ThreadsPanel folders', () => {
   });
 
   it('shows a needs-you glyph that outranks the running spinner', async () => {
+    leaveFixtureRunsUnseen();
     setHostRuns(['thread-b'], ['thread-b']);
     renderThreadsPanel();
 
@@ -2169,6 +2187,7 @@ describe('ThreadsPanel folders', () => {
   // mounted without that surface has nothing on screen — so even the row it has
   // selected carries its dot.
   it('marks every finished thread unseen, the selected one included, while nothing is on screen', async () => {
+    leaveFixtureRunsUnseen();
     renderThreadsPanel();
 
     await waitFor(() => {
@@ -2181,6 +2200,7 @@ describe('ThreadsPanel folders', () => {
   });
 
   it('exempts only the thread the transcript surface reports on screen', async () => {
+    leaveFixtureRunsUnseen();
     act(() => {
       useOnScreenThreadStore.getState().setOnScreenThreadId('thread-b');
     });
@@ -2205,6 +2225,7 @@ describe('ThreadsPanel folders', () => {
   // The Threads panel renders no transcript, so selecting a row there shows the
   // user nothing to have "seen". The transcript surface is the only stamper.
   it('never stamps the viewed watermark itself when a row is selected', async () => {
+    leaveFixtureRunsUnseen();
     renderThreadsPanel();
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-unseen-glyph')).toHaveLength(2);
@@ -2379,6 +2400,49 @@ describe('ThreadsPanel folders', () => {
 
     expect(screen.getAllByTestId('thread-folder-header')).toHaveLength(2);
     expect(screen.queryByTestId('thread-repositories-error')).toBeNull();
+  });
+
+  it('lists what waits on the person above the sections, and lets a row go once it is seen', async () => {
+    // The first thread finished before anyone looked; the second is held on its person.
+    leaveFixtureRunsUnseen();
+    setHostRuns(['thread-b'], ['thread-b']);
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+
+    const strip = screen.getByRole('region', { name: 'Needs you' });
+    expect(
+      within(strip)
+        .getAllByTestId('threads-needs-you-row')
+        .map((row) => row.textContent)
+    ).toEqual(['Second threadWaiting on you', 'First threadReady to review']);
+    // Above the sections: what waits shows before where it lives.
+    const tree = screen.getByRole('treegrid');
+    expect(strip.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // A row opens its thread…
+    fireEvent.click(within(strip).getByRole('button', { name: 'First thread: Ready to review' }));
+    expect(
+      useAssistantThreadStore.getState().selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBe('thread-a');
+
+    // …and leaves once the thread has been shown, as its glyph does.
+    act(() => {
+      useAssistantThreadStore.getState().markThreadViewed('thread-a', Date.now());
+    });
+    await waitFor(() => {
+      expect(within(strip).getAllByTestId('threads-needs-you-row')).toHaveLength(1);
+    });
+
+    // The held run is answered: nothing waits, so the strip goes.
+    act(() => {
+      useAssistantThreadStore.getState().markThreadViewed('thread-b', Date.now());
+      setHostRuns([]);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Needs you' })).toBeNull();
+    });
   });
 
   // Drag-reorder rewrites the whole listed section's ranks. Under a filter the
