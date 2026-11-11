@@ -730,9 +730,14 @@ function recordQuitOutput(process: ReturnType<ElectronApplication['process']>): 
   joined(): Promise<string>;
   stop(): void;
 } {
-  let output = '';
-  const append = (chunk: Buffer | string): void => {
-    output += chunk.toString();
+  // One buffer per stream, so a stderr chunk never splits a stdout record.
+  let stdout = '';
+  let stderr = '';
+  const appendStdout = (chunk: Buffer | string): void => {
+    stdout += chunk.toString();
+  };
+  const appendStderr = (chunk: Buffer | string): void => {
+    stderr += chunk.toString();
   };
   // `close` follows the exit once the pipes have delivered their last chunk.
   const closed =
@@ -741,23 +746,23 @@ function recordQuitOutput(process: ReturnType<ElectronApplication['process']>): 
           process.once('close', () => resolve());
         })
       : Promise.resolve();
-  process.stdout?.on('data', append);
-  process.stderr?.on('data', append);
+  process.stdout?.on('data', appendStdout);
+  process.stderr?.on('data', appendStderr);
   return {
     joined: async () => {
       await closed;
-      return output;
+      return `${stdout}\n${stderr}`;
     },
     stop: () => {
-      process.stdout?.off('data', append);
-      process.stderr?.off('data', append);
+      process.stdout?.off('data', appendStdout);
+      process.stderr?.off('data', appendStderr);
     },
   };
 }
 
 /** A quit that exited 0 with a failed shutdown step fails the test that closed the app. */
 function assertNoFailedShutdownStep(output: string): void {
-  // Matched, not parsed: stdout and stderr chunks may interleave.
+  // Matched, not parsed: Main's log lines are not all JSON.
   const reports = output.split(/\r?\n/u).filter((line) => line.includes(SHUTDOWN_FAILURES_RECORD));
   if (reports.length > 0) {
     throw new Error(
