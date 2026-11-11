@@ -272,9 +272,7 @@ async function moveHostThread(
     if ('noWorktree' in worktree) {
       return await share(worktree.noWorktree);
     }
-    // A deletion, a Stop or the host's close aborted this run and now waits for it to end. The
-    // binding's command would queue behind that wait, and a stopped run moves no thread.
-    signal.throwIfAborted();
+    // The entry refuses a run that was aborted meanwhile (`hostWorktreeEntry`); the catch rethrows it.
     await enter(worktree, 'checkout-contended');
     const branch = worktree.branch ? ` on branch ${worktree.branch}` : '';
     return {

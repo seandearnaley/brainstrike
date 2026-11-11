@@ -260,10 +260,11 @@ Not built:
 - The cap that archives idle worktrees.
 - Moving a thread for a worker's edit or for a shell command.
 - A note for a worker's own clashing edit. It is made in place with no note.
-- Cleaning up a worktree the host made and never entered. It stays in the
+- Cleaning up a worktree that was made and never entered. It stays in the
   ledger, bound to no thread, when the run is stopped or its thread is deleted
-  while the worktree is being made, and when a worker dispatched in the same
-  step keeps the thread where it is.
+  while the worktree is being made, whether the host made it or the model's
+  worktree tool did (`manageWorktree` create), and when a worker dispatched in
+  the same step keeps the thread where it is.
 - An action that brings a worktree's changes back.
 - The repository's setup script for a worktree the host made. Consent for it
   is kept by the renderer, so the host skips the script and the worktree shows

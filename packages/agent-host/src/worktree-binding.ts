@@ -27,6 +27,8 @@ const workersLiveError = (worktree: HostEnteredWorktree) =>
  * thread, and a root never moves away from workers still writing its checkout
  * (rule 5: one operating root), so neither is offered an entry. `cause` is
  * given when the host made the worktree itself (ADR-0034 Automatic isolation).
+ * The model's worktree tool and the host's own move both enter through here,
+ * and an aborted run enters nothing: its call ends with the abort.
  */
 export function hostWorktreeEntry(
   core: HostBindingCommands,
@@ -39,6 +41,10 @@ export function hostWorktreeEntry(
     return;
   }
   return async (worktree, cause) => {
+    // A deletion, a Stop or the host's close aborted this run and now waits for it to end. The
+    // binding's command would queue behind that wait, and a stopped run moves no thread. Nothing
+    // from here to the command's queueing awaits.
+    run.controller.signal.throwIfAborted();
     if (workersLive(children, runs, run.threadId)) {
       throw workersLiveError(worktree);
     }
