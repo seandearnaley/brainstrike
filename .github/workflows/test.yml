@@ -575,7 +575,10 @@ jobs:
         # outside desktop launch Electron too, and Electron fails without one
         # ("Missing X server or $DISPLAY", Test run 39079872105). Like the host
         # step, this is unconditional: membership is a filter list.
-        run: xvfb-run --auto-servernum pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
+        # `-noreset`: without it the server resets itself whenever its last
+        # client leaves, and a launch that arrives during the reset gets the
+        # same message (BST-2307). The screen is xvfb-run's own default.
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24 -noreset" pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
 
       # Every run but a merge-queue batch (nightly and manual; the names predate
       # the retired push-to-main runs): full non-affected suite routed through
@@ -620,7 +623,7 @@ jobs:
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
         # See the pull-request integration step above.
-        run: xvfb-run --auto-servernum pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24 -noreset" pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
   # Fan-in job preserving the required-check name "Unit": branch protection
   # points at this single check, not at the per-shard matrix jobs, so shard
