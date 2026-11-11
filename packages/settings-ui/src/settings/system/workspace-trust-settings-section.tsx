@@ -3,7 +3,9 @@
  * folders, whether the person trusts it, and what trusting it loads. A
  * repository and its worktrees share one answer, so they are one row. The
  * composer asks once for a folder that brings agent configuration; this panel
- * changes the answer.
+ * changes the answer. It also lists the trusted locations, inside which every
+ * folder is trusted without an ask, says which folders are trusted through
+ * one, and removes them.
  */
 
 import {
@@ -14,22 +16,35 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Checkbox,
   ErrorNotice,
 } from '@brainstrike/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import {
   describeWorkspaceAgentConfiguration,
   type WorkspaceTrustAnswer,
   type WorkspaceTrustCapability,
   type WorkspaceTrustDecision,
+  type WorkspaceTrustedLocation,
   type WorkspaceTrustRoot,
   workspaceTrustAnswers,
 } from './workspace-trust';
 
+/** The folders and the locations are read together, so the panel never shows half of an answer. */
 type ListState =
   | { readonly kind: 'error'; readonly message: string }
   | { readonly kind: 'loading' }
-  | { readonly kind: 'ready'; readonly roots: readonly WorkspaceTrustRoot[] };
+  | {
+      readonly kind: 'ready';
+      readonly locations: readonly WorkspaceTrustedLocation[];
+      readonly roots: readonly WorkspaceTrustRoot[];
+    };
+
+/** Why the host refused the last change, shown in the card the change was made in. */
+interface ActionError {
+  readonly card: 'folders' | 'locations';
+  readonly message: string;
+}
 
 const TRUST_LABEL: Record<WorkspaceTrustRoot['trust'], string> = {
   restricted: 'Restricted',
@@ -50,7 +65,16 @@ const errorMessage = (error: unknown, fallback: string): string =>
 const holdings = (root: WorkspaceTrustRoot): string =>
   describeWorkspaceAgentConfiguration(root.agentConfiguration) || 'no agent configuration';
 
-/** One answer: the folder it is recorded for, what it loads, and the worktrees that share it. */
+type Decide = (
+  answer: WorkspaceTrustAnswer,
+  decision: WorkspaceTrustDecision,
+  location?: string
+) => void;
+
+/**
+ * One answer: the folder it is recorded for, what it loads, the worktrees that
+ * share it, and the trusted location it comes from when the person gave none.
+ */
 function AnswerRow({
   answer,
   busy,
@@ -58,11 +82,24 @@ function AnswerRow({
 }: {
   readonly answer: WorkspaceTrustAnswer;
   readonly busy: boolean;
-  readonly onDecide: (answer: WorkspaceTrustAnswer, decision: WorkspaceTrustDecision) => void;
+  readonly onDecide: Decide;
 }): React.JSX.Element {
+  const parentBoxId = useId();
+  // Unticked until the person ticks it: trusting a folder never widens to its parent by itself.
+  const [alsoParent, setAlsoParent] = useState(false);
+  // Each decision starts the box over, so a tick never carries into a later offer.
+  const decide = (decision: WorkspaceTrustDecision, location?: string): void => {
+    setAlsoParent(false);
+    if (location === undefined) {
+      onDecide(answer, decision);
+    } else {
+      onDecide(answer, decision, location);
+    }
+  };
   // The answering folder's own entry: absent while only its worktrees are open.
   const own = answer.roots.find((root) => root.answeredBy === undefined);
   const worktrees = answer.roots.filter((root) => root.answeredBy !== undefined);
+  const { offeredLocation } = answer;
   return (
     <li
       className="flex items-center justify-between gap-4 rounded-md border p-3"
@@ -74,6 +111,12 @@ function AnswerRow({
           <Badge variant={TRUST_VARIANT[answer.trust]}>{TRUST_LABEL[answer.trust]}</Badge>
         </div>
         <p className="text-muted-foreground truncate text-xs">{answer.path}</p>
+        {answer.trustedThrough ? (
+          <p className="text-muted-foreground text-xs [overflow-wrap:anywhere]">
+            Trusted because it is in the trusted location{' '}
+            <span className="font-medium">{answer.trustedThrough}</span>.
+          </p>
+        ) : null}
         {own ? <p className="text-muted-foreground text-xs">Holds {holdings(own)}.</p> : null}
         {worktrees.length > 0 ? (
           <div className="text-muted-foreground text-xs">
@@ -88,22 +131,101 @@ function AnswerRow({
             </ul>
           </div>
         ) : null}
+        {answer.trust !== 'trusted' && offeredLocation ? (
+          <div className="flex items-start gap-2 pt-1 text-xs">
+            <Checkbox
+              checked={alsoParent}
+              className="mt-0.5"
+              disabled={busy}
+              id={parentBoxId}
+              onCheckedChange={(next) => setAlsoParent(next === true)}
+            />
+            <label className="[overflow-wrap:anywhere]" htmlFor={parentBoxId}>
+              Also trust every folder in <span className="font-medium">{offeredLocation}</span>
+            </label>
+          </div>
+        ) : null}
       </div>
       {answer.trust === 'trusted' ? (
-        <Button
-          disabled={busy}
-          onClick={() => onDecide(answer, 'restricted')}
-          size="sm"
-          variant="outline"
-        >
+        <Button disabled={busy} onClick={() => decide('restricted')} size="sm" variant="outline">
           Restrict
         </Button>
       ) : (
-        <Button disabled={busy} onClick={() => onDecide(answer, 'trusted')} size="sm">
+        <Button
+          disabled={busy}
+          // The parent is trusted only with the folder, and only when its box is ticked.
+          onClick={() =>
+            decide('trusted', offeredLocation && alsoParent ? offeredLocation : undefined)
+          }
+          size="sm"
+        >
           Trust
         </Button>
       )}
     </li>
+  );
+}
+
+/** The trusted locations, each with its removal. */
+function LocationsCard({
+  actionError,
+  busyPath,
+  locations,
+  onRemove,
+}: {
+  readonly actionError: string | null;
+  readonly busyPath: string | null;
+  /** Undefined until the lists are read; a failed read is reported with the folders. */
+  readonly locations: readonly WorkspaceTrustedLocation[] | undefined;
+  readonly onRemove: (location: WorkspaceTrustedLocation) => void;
+}): React.JSX.Element {
+  return (
+    <Card data-testid="workspace-trust-locations">
+      <CardHeader>
+        <CardTitle>Trusted locations</CardTitle>
+        <CardDescription>
+          Every folder in a trusted location is trusted without asking, including one put there
+          later, so keep these to places that hold your own work. A folder you restrict stays
+          restricted. To add one, tick “Also trust every folder in…” when you trust a folder.
+          Removing one keeps the answers you gave for folders; a folder trusted only through it asks
+          again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {locations?.length === 0 ? (
+          <p className="text-muted-foreground text-sm" data-testid="workspace-trust-no-locations">
+            No trusted locations.
+          </p>
+        ) : null}
+        {locations && locations.length > 0 ? (
+          <ul aria-label="Trusted locations" className="space-y-2">
+            {locations.map((location) => (
+              <li
+                className="flex items-center justify-between gap-4 rounded-md border p-3"
+                data-testid={`workspace-trust-location-${location.path}`}
+                key={location.path}
+              >
+                <p className="min-w-0 font-mono text-xs break-all">{location.path}</p>
+                <Button
+                  aria-label={`Remove ${location.path}`}
+                  disabled={busyPath === location.path}
+                  onClick={() => onRemove(location)}
+                  size="sm"
+                  variant="outline"
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {actionError ? (
+          <p className="text-destructive text-sm" role="alert">
+            {actionError}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -116,27 +238,26 @@ export function WorkspaceTrustSettingsSection({
   trust,
 }: WorkspaceTrustSettingsSectionProps): React.JSX.Element {
   const [list, setList] = useState<ListState>(
-    trust ? { kind: 'loading' } : { kind: 'ready', roots: [] }
+    trust ? { kind: 'loading' } : { kind: 'ready', locations: [], roots: [] }
   );
   const [generation, setGeneration] = useState(0);
   const [busyPath, setBusyPath] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<ActionError | null>(null);
 
   useEffect(() => {
     if (!trust) {
       return;
     }
     let cancelled = false;
-    trust
-      .listTrust()
-      .then((roots) => {
+    Promise.all([trust.listTrust(), trust.listTrustedLocations()])
+      .then(([roots, locations]) => {
         if (!cancelled) {
-          setList({ kind: 'ready', roots });
+          setList({ kind: 'ready', locations, roots });
         }
       })
       .catch((error: unknown) => {
         // A failed read is its own state: never an empty list, which would
-        // claim no folder is mounted.
+        // claim no folder is mounted or no location is trusted.
         if (!cancelled) {
           setList({
             kind: 'error',
@@ -151,61 +272,86 @@ export function WorkspaceTrustSettingsSection({
 
   const reload = () => setGeneration((value) => value + 1);
 
-  // An answer is given for the folder it is recorded for: the repository, not one of its worktrees.
-  const decide = async (answer: WorkspaceTrustAnswer, decision: WorkspaceTrustDecision) => {
+  /** One change at a time: records it with the host, reports a refusal in its card, then re-reads. */
+  const change = async (
+    path: string,
+    card: ActionError['card'],
+    record: (host: WorkspaceTrustCapability) => Promise<void>
+  ) => {
     if (!trust) {
       return;
     }
-    setBusyPath(answer.path);
+    setBusyPath(path);
     try {
-      await trust.setTrust(answer.path, decision);
+      await record(trust);
       setActionError(null);
     } catch (error: unknown) {
-      setActionError(errorMessage(error, 'The agent host refused the change'));
+      setActionError({ card, message: errorMessage(error, 'The agent host refused the change') });
     }
     setBusyPath(null);
     reload();
   };
 
+  // An answer is given for the folder it is recorded for: the repository, not one of its worktrees.
+  const decide: Decide = (answer, decision, location) =>
+    void change(answer.path, 'folders', (host) =>
+      location === undefined
+        ? host.setTrust(answer.path, decision)
+        : host.setTrust(answer.path, decision, location)
+    );
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Trusted folders</CardTitle>
-        <CardDescription>
-          A folder’s <code>AGENTS.md</code>, skills, slash commands and subagents can steer the
-          assistant, so Brainstrike loads them only from folders you trust. A folder you haven’t
-          trusted still works: the assistant can read and edit it under your permission settings. A
-          repository’s worktrees share its answer. Project hooks keep their own approval in Hooks.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {list.kind === 'loading' ? (
-          <p className="text-muted-foreground text-sm">Checking folders…</p>
-        ) : null}
-        {list.kind === 'error' ? <ErrorNotice message={list.message} onRetry={reload} /> : null}
-        {list.kind === 'ready' && list.roots.length === 0 ? (
-          <p className="text-muted-foreground text-sm" data-testid="workspace-trust-no-roots">
-            No folders are open. Open a folder to choose whether to trust it.
-          </p>
-        ) : null}
-        {list.kind === 'ready' && list.roots.length > 0 ? (
-          <ul className="space-y-3">
-            {workspaceTrustAnswers(list.roots).map((answer) => (
-              <AnswerRow
-                answer={answer}
-                busy={busyPath === answer.path}
-                key={answer.path}
-                onDecide={(target, decision) => void decide(target, decision)}
-              />
-            ))}
-          </ul>
-        ) : null}
-        {actionError ? (
-          <p className="text-destructive text-sm" role="alert">
-            {actionError}
-          </p>
-        ) : null}
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Trusted folders</CardTitle>
+          <CardDescription>
+            A folder’s <code>AGENTS.md</code>, skills, slash commands and subagents can steer the
+            assistant, so Brainstrike loads them only from folders you trust. A folder you haven’t
+            trusted still works: the assistant can read and edit it under your permission settings.
+            A repository’s worktrees share its answer. Project hooks keep their own approval in
+            Hooks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {list.kind === 'loading' ? (
+            <p className="text-muted-foreground text-sm">Checking folders…</p>
+          ) : null}
+          {list.kind === 'error' ? <ErrorNotice message={list.message} onRetry={reload} /> : null}
+          {list.kind === 'ready' && list.roots.length === 0 ? (
+            <p className="text-muted-foreground text-sm" data-testid="workspace-trust-no-roots">
+              No folders are open. Open a folder to choose whether to trust it.
+            </p>
+          ) : null}
+          {list.kind === 'ready' && list.roots.length > 0 ? (
+            <ul className="space-y-3">
+              {workspaceTrustAnswers(list.roots).map((answer) => (
+                <AnswerRow
+                  answer={answer}
+                  busy={busyPath === answer.path}
+                  key={answer.path}
+                  onDecide={decide}
+                />
+              ))}
+            </ul>
+          ) : null}
+          {actionError?.card === 'folders' ? (
+            <p className="text-destructive text-sm" role="alert">
+              {actionError.message}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+      <LocationsCard
+        actionError={actionError?.card === 'locations' ? actionError.message : null}
+        busyPath={busyPath}
+        locations={list.kind === 'ready' ? list.locations : undefined}
+        onRemove={(location) =>
+          void change(location.path, 'locations', (host) =>
+            host.removeTrustedLocation(location.path)
+          )
+        }
+      />
+    </div>
   );
 }

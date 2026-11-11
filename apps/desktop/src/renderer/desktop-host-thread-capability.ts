@@ -419,9 +419,20 @@ export function createWindowThreadCapability(
       listCommands: async () => await (await client()).request('workspace/commands', {}),
       // ADR-0032: each folder's trust and what trusting it loads; the host records each answer.
       listTrust: async () => (await (await client()).request('workspace/trust/list', {})).roots,
+      listTrustedLocations: async () =>
+        (await (await client()).request('workspace/trust/locations', {})).locations,
+      removeTrustedLocation: async (path) => {
+        await (await client()).request('workspace/trust/locations/remove', { path });
+        // A folder trusted only through the location asks again, and its skills leave the "/" menu.
+        notifyWorkspaceTrustChanged();
+      },
       scanSkills: async () => await (await client()).request('workspace/skills', {}),
-      setTrust: async (path, trust) => {
-        await (await client()).request('workspace/trust', { path, trust });
+      setTrust: async (path, trust, location) => {
+        await (await client()).request('workspace/trust', {
+          ...(location === undefined ? {} : { location }),
+          path,
+          trust,
+        });
         // The composer's chip and the "/" menu read the lists this answer changed.
         notifyWorkspaceTrustChanged();
       },

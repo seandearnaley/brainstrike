@@ -65,6 +65,7 @@ function trustAsks(roots: readonly WorkspaceTrustRoot[]): readonly WorkspaceBarT
       (total, root) => total + countWorkspaceAgentConfiguration(root.agentConfiguration),
       0
     ),
+    offeredLocation: answer.offeredLocation,
     path: answer.path,
     sharedWithWorktrees: answer.sharedWithWorktrees,
   }));
@@ -154,10 +155,13 @@ export function useWorkspaceTrustAsk({
     asks,
     busyPath,
     // The host records the answer; the revision it bumps reloads this list and the "/" menu.
-    onDecide: (ask, decision) => {
+    onDecide: (ask, decision, location) => {
       setBusyPath(ask.path);
-      discovery
-        .setTrust(ask.path, decision)
+      // A location is sent only when the person ticked the ask's box.
+      (location === undefined
+        ? discovery.setTrust(ask.path, decision)
+        : discovery.setTrust(ask.path, decision, location)
+      )
         .then(
           () => setActionError(null),
           (error: unknown) =>
