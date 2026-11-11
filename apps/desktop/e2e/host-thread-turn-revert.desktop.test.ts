@@ -17,6 +17,23 @@ const REPLY = 'The notes are rewritten.';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
+/**
+ * The file's text, or null while it is absent. A revert restores a file with
+ * `git checkout-index -f`, which removes the old file before it writes the new
+ * one, so a read in that moment finds nothing; `expect.poll` fails at once on a
+ * reader that throws instead of reading again (BST-2482).
+ */
+function readIfPresent(file: string): string | null {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch (cause) {
+    if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
+      return null;
+    }
+    throw cause;
+  }
+}
+
 /** One scripted write through the native write tool, then a final answer. */
 function writeScript(request: ModelProviderRequest) {
   const name = request.toolNames.find((tool) => tool.endsWith('writeWorkspaceFile'));
@@ -70,7 +87,7 @@ test("a turn's file reverts whole from its Changes view, back to before the turn
 
   // The file is back as it was before the turn; the turn still shows what it did,
   // and offers no revert of a file the turn's change is gone from.
-  await expect.poll(() => readFileSync(notes, 'utf8'), { timeout: 30_000 }).toBe(ORIGINAL);
+  await expect.poll(() => readIfPresent(notes), { timeout: 30_000 }).toBe(ORIGINAL);
   await expect(diff.getByRole('button', { name: 'Revert notes.txt' })).toHaveCount(0, {
     timeout: 30_000,
   });
