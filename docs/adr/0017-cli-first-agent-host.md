@@ -6,6 +6,8 @@
   [ADR-0026 (two-lane search)](0026-two-lane-agent-search.md).
   - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the host's embedding port (BST-2435) and
     its workspace index are deleted; the indexer port now serves only the host state index.
+  - 2026-11-11 (BST-2477): Main's lease close no longer probes the Root's flock; see
+    [Native processes hold the Root](#native-processes-hold-the-root).
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914; implementation BST-1941 to BST-1946
 
@@ -98,7 +100,8 @@ parent dies.
   extra stdio slot. A host that released its Root refuses further spawns.
 - **Desktop Main supervises** its host's native processes: the host reports pid, start time and
   process group; on unexpected utility exit Main sends SIGTERM, then SIGKILL after 2,000 ms.
-  Main's lease close succeeds only when those groups are gone and the flock is free.
+  Main's lease close succeeds once those groups are gone; it takes no hold of the Root (amended
+  2026-11-11, below).
 - **A CLI host has no supervisor:** surviving native processes keep the Root refused until they
   exit.
 - **Windows** has no inheritable lock; the host joins a kill-on-close Job Object
@@ -111,6 +114,17 @@ parent dies.
   - stdio MCP servers (`StdioClientTransport` uses `[pipe, pipe, stderr]`; stdin reaches EOF);
   - short `execFile` calls (git) and ripgrep searches, otherwise bounded by their own
     timeouts.
+
+**Amendment (Sean, 2026-11-11, BST-2477).** Main no longer probes the Root's flock when it
+closes a lost or finished host. The probe took the flock and released it at once, so it was
+itself a hold: a next owner that took the Root at that instant was refused as `native-tail`,
+naming the previous host although nothing it started survived, and a close that ran after the
+next legitimate owner took the Root failed as though a native process still held it (merge queue
+run 42926212906). The next owner's own `RootLock.acquire` is the one place that reports a
+surviving native process: it finds the flock held, withdraws its claim and refuses the Root as
+`native-tail`, naming the host that started it. Lost-host recovery, Factory Reset (its reset
+lease is a `RootLock.acquire`) and the next launch all meet that refusal before they open or
+delete anything under the Root.
 
 ## Consequences
 
