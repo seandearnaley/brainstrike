@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 import { migrate, SCHEMA_VERSION, UPGRADES } from '../src/schema.mjs';
 import { STATE_DB, StateStore } from '../src/state-store.js';
+import { executeWorkspaceRootRequest } from '../src/workspace-root-domain.mjs';
 import { WORKSPACE_ROOT_SCHEMA } from '../src/workspace-root-schema.mjs';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
@@ -16,6 +17,8 @@ const C_SMALL = [
 ];
 const DESKTOP_CATALOG = [
   'model_choices',
+  'project_folders',
+  'projects',
   'provider_choices',
   'roots',
   'thread_groups',
@@ -175,6 +178,55 @@ describe('state DB migrations', () => {
       PRAGMA user_version = 14;`);
       migrate(db);
       expect(db.prepare('SELECT canonical_path FROM roots').pluck().all()).toEqual(['/cur']);
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before projects keeps its folders, and each gets its project when it is next opened', () => {
+    const db = new Database(':memory:');
+    const paths = { isGranted: () => true };
+    try {
+      db.pragma('foreign_keys = ON');
+      db.exec(UPGRADES.slice(0, 14).join(';'));
+      db.exec(`DROP TABLE IF EXISTS roots;${WORKSPACE_ROOT_SCHEMA}
+      INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      PRAGMA user_version = 15;`);
+      migrate(db);
+      expect(executeWorkspaceRootRequest(db, { operation: 'list' }, paths).roots).toEqual([
+        expect.objectContaining({ id: 'r1', projectId: null }),
+      ]);
+      const { roots } = executeWorkspaceRootRequest(
+        db,
+        {
+          operation: 'register',
+          root: { canonicalPath: '/cur', displayName: 'cur', path: '/cur', preferredId: 'r1' },
+        },
+        paths
+      );
+      expect(roots).toEqual([
+        expect.objectContaining({ id: 'r1', projectId: expect.stringMatching(/\S/u) }),
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before projects that opens damaged, so is not upgraded, still lists its folders', () => {
+    const db = new Database(':memory:');
+    const paths = { isGranted: () => true };
+    try {
+      db.exec(UPGRADES.slice(0, 14).join(';'));
+      db.exec(`DROP TABLE IF EXISTS roots;${WORKSPACE_ROOT_SCHEMA}
+      INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      PRAGMA user_version = 15;`);
+      // The writer serves a damaged state DB read-only as it stands and never upgrades it.
+      db.pragma('query_only = ON');
+      for (const operation of ['list', 'list-open'] as const) {
+        expect(executeWorkspaceRootRequest(db, { operation }, paths).roots, operation).toEqual([
+          expect.objectContaining({ id: 'r1', projectId: null }),
+        ]);
+      }
     } finally {
       db.close();
     }

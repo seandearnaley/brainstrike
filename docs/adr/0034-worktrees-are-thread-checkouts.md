@@ -110,8 +110,35 @@ supersede the decisions above where they differ.
   the same project in the thread list. Trust follows only on proof that it is
   the same folder, never on a fingerprint such as a remote URL or a root
   commit, which a repository can copy. The record is new durable state, so it
-  needs one owner and joins the reset lifecycle (ADR-0015). Not designed or
-  built yet.
+  needs one owner and joins the reset lifecycle (ADR-0015).
+  - Built: the record. The state DB (version 16) has `projects` and
+    `project_folders`. The store gives a folder its project in the commit that
+    records the folder as opened, so the host's root registry stays the only
+    writer and a folder opened from version 16 on always has a project. A
+    folder recorded before it gets one when it is next opened. Clear Database
+    deletes projects with the folders and threads they group, and Factory
+    Reset deletes the store.
+  - How the record is kept was not part of Sean's answer. It is recorded here
+    as built, and the work that reads it may revisit it:
+    - The locator is the folder a project is kept in, by its canonical path:
+      a repository's own checkout, or a folder outside a repository. A folder
+      that answers for itself has the same identity in workspace trust. For a
+      repository whose `.git` is in its checkout, the usual case, that folder
+      and the common dir name the same place, and a folder that later becomes
+      a repository keeps its project.
+    - A root recorded as a managed worktree has no project of its own. A
+      folder opened first and adopted as a worktree afterwards keeps the one
+      it had, so the work that reads the id goes by the thread's checkout.
+    - A folder inside a repository that is opened by itself is a project of
+      its own. Nothing looks above the opened folder for a repository, so a
+      repository kept in a home directory does not take in every folder under
+      it.
+    - A folder the person picks again where its path now leads keeps its
+      project.
+    - Joining a second clone will be something the person does. Nothing joins
+      folders by a remote URL or a commit.
+  - Not built: reading the id in the Threads panel (`threadProjectKey`),
+    relinking a moved folder, joining a second clone and naming a project.
 - **The interface word is "Project".** Labels that say workspace or folder for
   this are renamed as each screen is touched.
 - **Built so far: the Threads panel lists threads by project** (#5329, #5337).
@@ -131,7 +158,7 @@ supersede the decisions above where they differ.
 ## Consequences
 
 - The duplicate folder goes away without new storage. The project record
-  (owner decisions, 2026-11-10) will add an identity of its own.
+  (owner decisions, 2026-11-10) adds an identity of its own.
 - The index stays one copy per repository. Deleted: the `worktrees` map in
   `index/config`, its Settings and Worktree Map toggles, and the worktree branch
   of `isPartitionRoot`.
