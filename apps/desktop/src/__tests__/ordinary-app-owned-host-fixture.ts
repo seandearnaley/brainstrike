@@ -713,12 +713,11 @@ setInterval(() => {}, 1000);
           // The sandbox's bubblewrap dies with its parent (--die-with-parent), and the
           // command's PID namespace with it, so nothing the command started holds the Root.
           await Promise.all(commandIdentities.map(({ pid, start }) => joinProcessExit(pid, start)));
-        }
-        if (process.platform !== 'darwin') {
           // BST-2475: with a window open the app is the Root's next owner. Its frame reconnects,
           // Main's close of the lost lease takes the Root's flock to check that it is free, and
           // the replacement host takes the Root. A contender asking during either hold is
-          // refused, so the app's exit is joined before the Root is read.
+          // refused, so the app's exit is joined before the Root is read. Windows is left as it
+          // was: Main takes no flock there, and this has not been seen on it.
           await capture(application);
           await closeElectronApp({ app: application });
           application = undefined;
