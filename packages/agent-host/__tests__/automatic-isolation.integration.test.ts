@@ -119,6 +119,8 @@ async function host(
   options: {
     /** The threads whose edits ask a person first; every other edit is allowed. */
     readonly asks?: (threadId: string) => boolean;
+    /** Holds the making of a worktree until it resolves, as `git worktree add` takes time. */
+    readonly holdCreate?: Promise<void>;
     /** Holds every write inside its tool until it resolves, so an edit stays in flight. */
     readonly holdWrites?: Promise<void>;
   } = {}
@@ -140,6 +142,7 @@ async function host(
   const created: { readonly rootId: string; readonly runId: string; readonly threadId: string }[] =
     [];
   const askedUncommitted: { readonly paths: readonly string[]; readonly rootId: string }[] = [];
+  const creating = Promise.withResolvers<void>();
   const requests: HostRunAdmissionRequest[] = [];
   const started = new Map<string, PromiseWithResolvers<void>>();
   const startedWriting = (path: string): PromiseWithResolvers<void> => {
@@ -222,6 +225,9 @@ async function host(
           return;
         }
         created.push({ rootId, runId, threadId });
+        creating.resolve();
+        // As the real one: none of the making reads the run's signal.
+        await options.holdCreate;
         const name = `quiet-otter-${created.length}`;
         const path = join(base, name);
         await mkdir(path);
@@ -272,6 +278,8 @@ async function host(
       return core;
     },
     created,
+    /** Resolves once the host has begun making a worktree. */
+    creating: creating.promise,
     files: async (rootId: string): Promise<string[]> =>
       (await readdir(folders.get(rootId) ?? '')).sort(),
     harness,
@@ -850,4 +858,68 @@ test('an edit in a folder that is not the thread’s own is refused there, never
   expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
   expect(outputOf(rows, 'b-write-back')).toMatchObject({ ok: false });
   expect(moves(rows)).toHaveLength(1);
+});
+
+/** The second thread's first edit clashed, and the host is still making its worktree. */
+async function secondThreadIsBeingMoved(
+  release: Promise<void>
+): Promise<{ first: string; hosted: Host; run: string; second: string }> {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': writesWhereverItIs('b.txt', 'b-write'),
+    }),
+    { holdCreate: release }
+  );
+  const first = await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt.');
+  await hosted.creating;
+  return { first, hosted, run, second };
+}
+
+test('a thread deleted while its worktree is being made is deleted, and the host goes on', async () => {
+  const made = Promise.withResolvers<void>();
+  const { first, hosted, second } = await secondThreadIsBeingMoved(made.promise);
+
+  // The deletion waits for the thread's run, whose edit is waiting for the worktree.
+  const deletion = hosted.core().deleteThread({ threadId: second });
+  made.resolve();
+
+  await expect(deletion).resolves.toEqual({ deleted: true, threadIds: [second] });
+  // Every other thread's commands go through the same admission queue.
+  await expect(hosted.core().startThread({ commandId: randomUUID() })).resolves.toEqual({
+    threadId: expect.any(String),
+  });
+  await expect(
+    hosted.core().updateWorkspaceBinding({
+      commandId: randomUUID(),
+      patch: { operatingRootDisplayName: 'beaker 2' },
+      threadId: first,
+    })
+  ).resolves.toEqual({ accepted: true });
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+});
+
+test('a run stopped while its worktree is being made leaves its thread where it was', async () => {
+  const made = Promise.withResolvers<void>();
+  const { hosted, run, second } = await secondThreadIsBeingMoved(made.promise);
+
+  const stopping = hosted.core().stop({ commandId: randomUUID(), runId: run, threadId: second });
+  // The Stop is committed while the worktree is still being made.
+  await rowsWhere(hosted.core(), second, (all) =>
+    all.some(({ event }) => event.type === 'command.accepted' && event.method === 'run/stop')
+  );
+  made.resolve();
+
+  await expect(stopping).resolves.toEqual({ outcome: 'stopped' });
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+  expect(rows.find(finished(run))?.event).toMatchObject({ outcome: 'stopped' });
+  // Nobody is waiting for the worktree any more: the thread is not moved and no turn carries on.
+  expect(moves(rows)).toEqual([]);
+  expect(hosted.core().readWorkspaceBinding(second).binding).toMatchObject({
+    operatingRootId: LOCAL,
+  });
+  expect(startedRuns(rows)).toHaveLength(1);
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
 });
