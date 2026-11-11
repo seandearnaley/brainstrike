@@ -63,7 +63,7 @@ function noWorktree(repository: BoundaryResult<GitRepository>): NoWorktree | und
 
 /** Undefined where the host cannot open a worktree as a folder: it isolates nothing. */
 export function hostCheckoutIsolation(options: {
-  /** The folder's repository, as the Changes panel reads it: its top folder and its last commit. */
+  /** The folder's repository as git reports it (`git/repository`): its top folder and last commit. */
   readonly repository: (rootId: string) => Promise<BoundaryResult<GitRepository>>;
   readonly services: HostWorktreeServices;
   /** The folder's `git status`, as the Changes panel reads it: paths relative to the folder. */
