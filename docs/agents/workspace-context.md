@@ -61,3 +61,10 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
   - Unavailable baselines stay visibly unavailable.
   - Renames and multi-run undo keep ordered, idempotent restoration.
 - Whole-turn shadow Git and per-edit baselines are separate owners; thread deletion and reset retire content through them.
+- Automatic isolation (ADR-0034, owner decisions 2026-11-11): a run's first file edit in a folder that another thread's run in progress has edited is not run there ([rule](../../packages/agent-host/src/checkout-isolation.ts)).
+  - The host makes a worktree of that checkout from its last commit, moves the thread through the binding's own command (ADR-0028 step 3) and settles the call unrun with what the model needs to carry on. The run ends after that step and the turn goes on in the worktree. Never re-bind a live run.
+  - "Being edited" is read from what Core already holds: each run in progress, its committed edit records and its edit calls in flight. A run's first edit in a folder is decided in the admission queue with the commit of its start. Add no second record of who writes a folder.
+  - Only the file tools count, and they are the tools that name their folder (`approvalTarget`). Shell commands do not. A worker's edit counts for its thread but never moves its parent.
+  - A thread stays, and its transcript says the folder is shared (`checkout.shared`), when it has uncommitted edits of its own there or its workers still work there.
+  - When no worktree can be made the edit is refused with the reason. Nothing is written in place.
+  - The platform supplies the git facts and the worktree (`HostPlatform.checkoutIsolation`, composed from the worktree tool's own create-and-open). A host without it (the standalone host) does not apply the rule.
