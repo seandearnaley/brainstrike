@@ -11,6 +11,8 @@
     access-mode cap for an untrusted folder (BST-2341).
   - 2026-11-10: trusted locations are built (the **Trusted locations** decision). No action in
     the app makes a folder yet, so that rule is written down for the feature that adds one.
+  - 2026-11-11 (owner decision, below): a folder its group can write to is never a trusted
+    location and is never covered by one.
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -103,19 +105,20 @@ location, and none lets a folder approve itself.
     - the person's home directory or a folder that holds it, which would cover
       every download, including under the second spelling macOS gives the same
       folder (`/System/Volumes/Data/Users/...`);
-    - a folder other people can put things in: one the person does not own, or
-      one open to everyone, such as `/tmp` or `/Users/Shared`. Git refuses a
-      repository another user owns for the same reason (`safe.directory`).
-      Windows reports neither an owner nor these mode bits, so this is not
-      checked there.
+    - a folder other people can put things in: one the person does not own,
+      one its group can write to, or one open to everyone, such as `/tmp` or
+      `/Users/Shared`. Git refuses a repository another user owns for the same
+      reason (`safe.directory`). Windows reports neither an owner nor these
+      mode bits, so this is not checked there.
 
     The last rule also holds on the way down from a location. A folder that
     other people can put things in, or that sits under one, is not covered and
     asks. That includes the location itself once it is opened to everyone.
 
     Sean's brief named the filesystem root and the home directory for this
-    first version. The others were added while building, for the same reason,
-    and he has not ruled on them.
+    first version. The others were added while building, for the same reason.
+    He has ruled on one of them: a folder its group can write to is refused
+    (owner decision, 2026-11-11, below).
   - Settings › Workspace Trust lists the locations and removes one
     (`workspace/trust/locations`, `workspace/trust/locations/remove`), and says
     which location a folder is trusted through (`trustedThrough`). Removing
@@ -231,16 +234,33 @@ location, and none lets a folder approve itself.
   carry such commands.
 - A volume's top folder, such as `/Volumes/Work`, can be offered on macOS and
   Linux when the person owns it, while a Windows drive root cannot.
-- A folder open to a group, or shared through an access control list, is not
-  told apart from the person's own. Telling a shared group from a person's own
-  needs the group's members, and Debian, Ubuntu and Fedora make a person's own
-  folders group-writable by default, so refusing every group-writable folder
-  would remove the offer there.
+- A folder its group can write to is never a location and is never covered by
+  one (owner decision, 2026-11-11). Debian, Ubuntu and Fedora make a person's
+  own folders group-writable by default, so there the offer does not appear
+  and a location covers nothing until group write is removed from the folders
+  (`chmod g-w`). The person trusts folder by folder, as before locations.
+  Nothing in the ask says why the box is missing.
+- A folder shared through an access control list is not told apart from the
+  person's own.
 - A folder inside a restricted folder is still asked about on its own, as
   before. A trusted location around both does not answer for it.
 - A location is kept by the path it had when it was added. If that folder is
   moved or renamed, the location covers nothing until it is removed in
   Settings and added again from its new place.
+
+## Owner decision, 2026-11-11
+
+- **A folder a group can write to is never a trusted location.** Asked whether
+  such a folder should still be allowed, Sean answered "No, never". Before
+  this, a folder counted as the person's own when they owned it and it was not
+  open to everyone, so another member of its group could put a folder in a
+  location and have it trusted with no ask. A review of the first build raised
+  it.
+  - The same test decides what a location covers, so a group-writable folder
+    inside a location, and everything under it, asks.
+  - The person's own group is refused too. Who is in a group cannot be told
+    from the folder. The option not taken was to allow the person's primary
+    group on Linux, which is private only by convention.
 
 ## Owner decisions, 2026-11-10
 
