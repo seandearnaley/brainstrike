@@ -349,6 +349,25 @@ export class HostWorkspaceEdits {
     this.threads.delete(threadId);
   }
 
+  /** Whether `runId` has a committed edit in the folder `rootId`. */
+  editedRoot(threadId: string, runId: string, rootId: string): boolean {
+    for (const entry of this.threads.get(threadId)?.entries.values() ?? []) {
+      if (entry.runId === runId && entry.rootId === rootId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The root-relative paths the thread's runs edited in the folder `rootId`; a rename names both. */
+  editedPaths(threadId: string, rootId: string): string[] {
+    return [...(this.threads.get(threadId)?.entries.values() ?? [])].flatMap((entry) =>
+      entry.rootId === rootId
+        ? [entry.path, ...(entry.fromPath === undefined ? [] : [entry.fromPath])]
+        : []
+    );
+  }
+
   /** Serialize every tracked edit and restore of the same absolute paths, host-wide. */
   private async exclusive<T>(paths: readonly string[], work: () => Promise<T>): Promise<T> {
     const keys = [...new Set(paths.map((candidate) => path.resolve(candidate)))].sort();

@@ -14,6 +14,11 @@ import {
 } from './approval-input.ts';
 import type { HostBrowserOriginStore } from './browser-origin-answers.ts';
 import {
+  type HostCheckoutFacts,
+  type HostWorktreeEnter,
+  startHostEdit,
+} from './checkout-isolation.ts';
+import {
   type HostContextCompactions,
   overflowCompaction,
   prepareCompactedContext,
@@ -29,7 +34,6 @@ import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetr
 import type { HostIntake } from './notices.ts';
 import { hostReadPersonInput } from './person-input.ts';
 import type {
-  HostEnteredWorktree,
   HostPlatform,
   HostPreparedStep,
   HostRunAdmission,
@@ -104,6 +108,8 @@ export interface HostRunExecutionPorts {
   ): Promise<HostLogRow[]>;
   /** BST-1932: a child's execution deadline for one leg; none for other runs. */
   armDeadline(run: Run): ReturnType<typeof setTimeout> | undefined;
+  /** ADR-0034 Automatic isolation: the folded facts that say which folders runs are writing. */
+  readonly checkouts: HostCheckoutFacts;
   closing(): boolean;
   commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void>;
   readonly compactions: HostContextCompactions;
@@ -114,10 +120,7 @@ export interface HostRunExecutionPorts {
   delegate(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   dispatch(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   /** ADR-0028 step 3: a root run's call binds its thread to a worktree; none for a child. */
-  enterWorktree(
-    run: Run,
-    action: HostRunAction
-  ): ((worktree: HostEnteredWorktree) => Promise<void>) | undefined;
+  enterWorktree(run: Run, action: HostRunAction): HostWorktreeEnter | undefined;
   finish(
     run: Run,
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
@@ -266,10 +269,32 @@ async function executeRegisteredTool(
   input: unknown,
   resumeData: unknown
 ): Promise<unknown> {
-  await ports.append(run.threadId, [action]);
-  run.started.add(action.toolCallId);
-  run.effectTools.set(action.toolCallId, action.toolCatalogId ?? action.toolId);
-  run.controller.signal.throwIfAborted();
+  // ADR-0034: a file edit in a folder another thread is editing is settled unrun.
+  const edit = await startHostEdit(ports, run, action, registered, input, async () => {
+    await ports.append(run.threadId, [action]);
+    run.started.add(action.toolCallId);
+    run.effectTools.set(action.toolCallId, action.toolCatalogId ?? action.toolId);
+  });
+  if (edit.kind === 'unrun') {
+    return edit.output;
+  }
+  try {
+    run.controller.signal.throwIfAborted();
+    return await runRegisteredTool(ports, run, action, registered, input, resumeData);
+  } finally {
+    edit.settle();
+  }
+}
+
+/** The registered executor, under its run's context. */
+async function runRegisteredTool(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  action: HostRunAction,
+  registered: HostTool,
+  input: unknown,
+  resumeData: unknown
+): Promise<unknown> {
   const enterWorktree = ports.enterWorktree(run, action);
   // The public SDK already validated/transformed this exact admitted input.
   // Revalidating a canonical value can transform it a second time.

@@ -115,5 +115,8 @@
 // project its folder belongs to, or null for a root recorded as a managed worktree (ADR-0034,
 // owner decisions 2026-11-10). Main decodes the record strictly, so it cannot read an older
 // host's records and an older Main cannot read these. The required field is why this is a
-// version bump.
+// version bump. Additive since (ADR-0034 Automatic isolation, owner decisions 2026-11-11):
+// `workspace.binding.updated` `enteredBy` carries `cause` when the host itself made the worktree
+// it moved the thread into, and `checkout.shared` (a thread that edits a folder another thread's
+// run is editing and was not moved), a new variant.
 export const AGENT_HOST_PROTOCOL_VERSION = 25;

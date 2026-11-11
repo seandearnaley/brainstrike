@@ -1,4 +1,6 @@
+import { refusalError } from '@brainstrike/assistant-contract';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
+import type { HostWorktreeEnter } from './checkout-isolation.ts';
 import type { HostCore } from './core.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
 import type { HostRunAction } from './core-run-execution.ts';
@@ -11,7 +13,9 @@ type HostWorktreeChildren = Pick<HostChildRuns, 'isChild' | 'subtree'>;
 
 /** Rule 5 at the entry, when a parallel call of the same step dispatched a worker. */
 const workersLiveError = (worktree: HostEnteredWorktree) =>
-  new Error(
+  refusalError(
+    'conflict',
+    'worktree.workers-running',
     `The worktree was created at ${worktree.root.path}, but this conversation stays in its checkout: a background worker started in the same step still writes there.`
   );
 
@@ -21,7 +25,8 @@ const workersLiveError = (worktree: HostEnteredWorktree) =>
  * commit ends the run after this step. Its next run is admitted there
  * (ADR-0017: a run keeps its binding). A child never moves its parent's
  * thread, and a root never moves away from workers still writing its checkout
- * (rule 5: one operating root), so neither is offered an entry.
+ * (rule 5: one operating root), so neither is offered an entry. `cause` is
+ * given when the host made the worktree itself (ADR-0034 Automatic isolation).
  */
 export function hostWorktreeEntry(
   core: HostBindingCommands,
@@ -29,22 +34,23 @@ export function hostWorktreeEntry(
   runs: ReadonlyMap<string, HostRunState>,
   run: HostRunState,
   action: HostRunAction
-): ((worktree: HostEnteredWorktree) => Promise<void>) | undefined {
+): HostWorktreeEnter | undefined {
   if (children.isChild(run.threadId) || workersLive(children, runs, run.threadId)) {
     return;
   }
-  return async (worktree) => {
+  return async (worktree, cause) => {
     if (workersLive(children, runs, run.threadId)) {
       throw workersLiveError(worktree);
     }
     const { binding } = core.readWorkspaceBinding(run.threadId);
     await core.updateWorkspaceBinding(
       {
-        commandId: `${action.toolCallId}-worktree`,
+        // Tool call ids are a provider's: only with its run is one this host's own.
+        commandId: `${run.id}-${action.toolCallId}-worktree`,
         patch: enteredWorktreeBinding(binding, worktree),
         threadId: run.threadId,
       },
-      { runId: run.id }
+      { ...(cause ? { cause } : {}), runId: run.id }
     );
   };
 }

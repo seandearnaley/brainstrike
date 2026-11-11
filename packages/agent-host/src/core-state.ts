@@ -3,6 +3,7 @@ import { refusalError } from '@brainstrike/assistant-contract';
 import type { ModelMessage, Tool } from 'ai';
 import { Schema } from 'effect';
 import { recordRawToolInputs } from './approval-input.ts';
+import type { HostCheckoutMove } from './checkout-isolation.ts';
 import { canonical, type Json, jsonValue } from './json-value.ts';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.ts';
 import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.ts';
@@ -289,6 +290,12 @@ export interface HostRunState {
   deadline?: string;
   /** The committed run.finished detail, once terminal. */
   detail?: string;
+  /**
+   * ADR-0034 Automatic isolation: this run's file edit calls in flight, by the
+   * folder each targets. With its committed edit records they are the folders
+   * the run is writing.
+   */
+  editing?: Map<string, Set<string>>;
   readonly effects: Set<Promise<unknown>>;
   /** The tool each committed effect ran, by call: catalog id, else provider name. */
   readonly effectTools: Map<string, string>;
@@ -307,6 +314,12 @@ export interface HostRunState {
   input?: HostRunInput;
   /** ADR-0028 step 3b: the notices this run took at its step boundaries, in commit order. */
   readonly intake: HostStepDelivery[];
+  /**
+   * ADR-0034 Automatic isolation: the host moving this run's thread into a
+   * worktree of its own, from the edit that began it. Every file edit of the
+   * same step joins it; it stays once the thread has moved.
+   */
+  isolation?: Promise<HostCheckoutMove> | undefined;
   readonly liveInputs: Map<
     string,
     {
