@@ -144,14 +144,20 @@ jobs:
       # the lane script's xvfb-maybe, which then finds DISPLAY set and runs the
       # command as it is. xvfb-maybe's xvfb-run sends the server's own output
       # to /dev/null; here it is kept, and `-audit 2` adds a line for each client
-      # that connects or leaves. One Electron launch got "Missing X server or
-      # $DISPLAY" while 32 others on the same server worked (BST-2307), and the
-      # shard's log held only Electron's side of it.
+      # that connects or leaves.
+      #
+      # `-noreset` stops the server resetting itself when its last client
+      # leaves. Without it, whenever both workers' apps were closed at the same
+      # moment the server reset, and an Electron launch that arrived during the
+      # reset got "Missing X server or $DISPLAY" while every other launch in the
+      # shard worked (BST-2307). The audit log of run 43106676756, shard 9,
+      # shows it: client 1 disconnects at 21:55:01, the server starts a new
+      # generation, and the launch refused at 21:55:01.69 falls in between.
       - name: Run full desktop regression
         working-directory: apps/desktop
         run: >-
           xvfb-run --auto-servernum --error-file="$RUNNER_TEMP/xvfb.log"
-          --server-args="-screen 0 1280x1024x24 -audit 2"
+          --server-args="-screen 0 1280x1024x24 -audit 2 -noreset"
           dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard
           --shard=${{ matrix.shard }}/12 --repeat-each=${{ inputs.repeat-each || 1 }}
 
