@@ -1,12 +1,29 @@
 // @ts-check
 
 // The root domain runs in the desktop writer worker.
-// A folder's project is the one recorded for its canonical path. A managed worktree has none of
-// its own, even at a path that was once opened as a folder: it is a checkout of its repository.
-const projection = `id, path, canonical_path AS canonicalPath, display_name AS displayName, kind,
-  status, created_at AS createdAt, last_verified_at AS lastVerifiedAt,
-  CASE WHEN kind = 'path' THEN (SELECT folder.project_id FROM project_folders AS folder
-    WHERE folder.canonical_path = roots.canonical_path) END AS projectId`;
+const columns = `id, path, canonical_path AS canonicalPath, display_name AS displayName, kind,
+  status, created_at AS createdAt, last_verified_at AS lastVerifiedAt`;
+
+/**
+ * The columns of a root record. A folder's project is the one recorded for its canonical path; a
+ * root recorded as a managed worktree has none, being a checkout of its repository.
+ *
+ * A state DB that opened damaged is served read-only as it stands and never upgraded, so one from
+ * before version 16 has no project tables. The table is probed, and such a DB's folders read with
+ * no project.
+ * @param {import('better-sqlite3').Database} db
+ * @returns {string}
+ */
+function rootProjection(db) {
+  const hasProjects = db
+    .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'project_folders'")
+    .get();
+  return hasProjects
+    ? `${columns}, CASE WHEN kind = 'path' THEN (SELECT folder.project_id
+        FROM project_folders AS folder WHERE folder.canonical_path = roots.canonical_path)
+        END AS projectId`
+    : `${columns}, NULL AS projectId`;
+}
 
 /**
  * How the writer's host names a root it was granted: desktop main grants absolute OS paths.
@@ -87,6 +104,7 @@ function register(db, request, paths) {
   ) {
     throw new Error('Workspace registration requires the granted absolute path and identity');
   }
+  const projection = rootProjection(db);
   return db.transaction(
     /** @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */ () => {
       const existing =
@@ -194,9 +212,11 @@ function register(db, request, paths) {
  * @param {RootPaths} paths
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */
 export function executeWorkspaceRootRequest(db, request, paths) {
+  if (request.operation === 'register') {
+    return register(db, request, paths);
+  }
+  const projection = rootProjection(db);
   switch (request.operation) {
-    case 'register':
-      return register(db, request, paths);
     case 'list':
       return {
         roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (

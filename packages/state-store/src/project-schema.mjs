@@ -7,11 +7,11 @@
  *
  * `project_folders` says which project the folder at a canonical path belongs to. A folder is
  * the place a project is kept: a repository's own checkout, or a folder outside a repository. A
- * managed worktree has no row; it is a checkout of its repository. One project may come to have
- * several folders; a folder has one project.
+ * root recorded as a managed worktree gets no row; it is a checkout of its repository. One
+ * project may have several folders; a folder has one project.
  *
  * The roots domain is the only writer, in the commit that records an opened folder
- * (workspace-root-domain.mjs), so no recorded folder is without a project.
+ * (workspace-root-domain.mjs), so a folder recorded from version 16 on always has a project.
  */
 export const PROJECT_SCHEMA = `
 CREATE TABLE projects (

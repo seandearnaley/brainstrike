@@ -18,8 +18,8 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 // identity. A DB whose `roots` already has that identity keeps it; one whose `roots` predates it drops those rows,
 // since an identity never recorded cannot be inferred, and the person opens them again.
 // Version 16 adds `projects` and `project_folders` (project-schema.mjs). It writes no rows: a folder
-// recorded before it gets its project in the commit that next records it, which each launch does
-// for the open folders.
+// recorded before it gets its project in the commit that next records it, which a launch does for
+// each open folder it mounts.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';

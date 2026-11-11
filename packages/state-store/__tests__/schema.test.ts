@@ -212,6 +212,26 @@ describe('state DB migrations', () => {
     }
   });
 
+  test('a profile from before projects that opens damaged, so is not upgraded, still lists its folders', () => {
+    const db = new Database(':memory:');
+    const paths = { isGranted: () => true };
+    try {
+      db.exec(UPGRADES.slice(0, 14).join(';'));
+      db.exec(`DROP TABLE IF EXISTS roots;${WORKSPACE_ROOT_SCHEMA}
+      INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      PRAGMA user_version = 15;`);
+      // The writer serves a damaged state DB read-only as it stands and never upgrades it.
+      db.pragma('query_only = ON');
+      for (const operation of ['list', 'list-open'] as const) {
+        expect(executeWorkspaceRootRequest(db, { operation }, paths).roots, operation).toEqual([
+          expect.objectContaining({ id: 'r1', projectId: null }),
+        ]);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
   test('the upgrader is idempotent and refuses a DB written by a newer build', () => {
     const db = new Database(':memory:');
     try {
