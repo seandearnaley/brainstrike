@@ -124,7 +124,11 @@ run 42926212906). The next owner's own `RootLock.acquire` is the one place that 
 surviving native process: it finds the flock held, withdraws its claim and refuses the Root as
 `native-tail`, naming the host that started it. Lost-host recovery, Factory Reset (its reset
 lease is a `RootLock.acquire`) and the next launch all meet that refusal before they open or
-delete anything under the Root.
+delete anything under the Root. The refusal reaches the launcher and the person at once: a
+host refused that way names the owner in its `failed` startup report, its launcher ends the
+launch with that refusal instead of starting another host, and desktop profile admission
+gives its borrowers a refusal saying a process the previous host started still holds the
+profile's data folder.
 
 ## Consequences
 

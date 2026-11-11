@@ -1,5 +1,6 @@
-import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type { HostAttachment } from '@brainstrike/host-lease';
+import { RootLockedError } from '@brainstrike/state-store';
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import {
   isHostLeaseClosed,
@@ -19,6 +20,26 @@ export interface HostProfileAdmission {
   resume(signal?: AbortSignal): Promise<void>;
   /** A factory reset or quit retires the profile; borrows close until `resume` reopens it. */
   retire(reason?: unknown): Promise<void>;
+}
+
+/**
+ * ADR-0017 (BST-2477): the host this profile started was refused because a native process the
+ * previous host started still holds the Root. A borrower is told so as a refusal, not a fault;
+ * the lock's own refusal stays its cause.
+ */
+function borrowFailure(cause: unknown): unknown {
+  if (!(cause instanceof RootLockedError && cause.holder === 'native-tail')) {
+    return cause;
+  }
+  return new BoundaryFailureError(
+    refusal({
+      category: 'availability',
+      code: 'desktop.profile-held-by-native-process',
+      message: `A process the previous agent host (pid ${cause.owner.pid}) started still holds this profile's data folder.`,
+      remedy: 'The agent host can start once that process exits. End it, then reconnect.',
+    }),
+    { cause }
+  );
 }
 
 /**
@@ -86,7 +107,10 @@ export function createHostProfileAdmission(
     } catch (refusal) {
       return Promise.reject(refusal);
     }
-    return Promise.race([admit(signal), fenced.promise]);
+    const admitted = admit(signal).catch((cause: unknown) => {
+      throw borrowFailure(cause);
+    });
+    return Promise.race([admitted, fenced.promise]);
   };
   return {
     acquire,

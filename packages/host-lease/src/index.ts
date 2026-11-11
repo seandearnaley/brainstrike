@@ -31,5 +31,5 @@ export {
   type HostStartOptions,
   startHost,
 } from './runtime.ts';
-export { RootContentionError, startupFailure } from './startup-failure.ts';
+export { failedStartupReport, RootContentionError, startupFailure } from './startup-failure.ts';
 export { decodeStartupMessage, type StartupMessage } from './startup-message.ts';
