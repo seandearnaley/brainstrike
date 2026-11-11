@@ -14,6 +14,7 @@
  */
 import type {
   HostGitWorkspace,
+  HostPlatform,
   HostRewindFiles,
   HostThreadReads,
   HostTurnSnapshot,
@@ -25,6 +26,7 @@ import type { StateStore } from '@brainstrike/state-store';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 import { createChangesMethods } from './changes-methods.ts';
 import { createHostThreadTurns } from './changeset-host-turns.ts';
+import { hostCheckoutIsolation } from './checkout-isolation.ts';
 import { createGitInventoryService, type GitInventoryService } from './git-inventory-service.ts';
 import { watchGitCommonDirNatively } from './git-inventory-watcher.ts';
 import { createGitMethods, execFileGitRunner } from './git-methods.ts';
@@ -194,6 +196,8 @@ export interface GitWorkspace {
     readonly runId: string;
     readonly threadId: string;
   }): Promise<readonly HostTurnSnapshot[]>;
+  /** ADR-0034 Automatic isolation: a checkout's uncommitted paths, and a worktree of it for a thread. */
+  readonly checkoutIsolation: HostPlatform['checkoutIsolation'];
   /** Retires every service while the state store and git remain available. */
   close(): Promise<void>;
   readonly rewindFiles: HostRewindFiles;
@@ -295,6 +299,10 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
         (await loadRoots()).map((root) => root.path)
       ),
   });
+  const tools: HostWorktreeServices = {
+    ...workspace.tools,
+    openWorktreeFolder: options.openWorktreeFolder,
+  };
   const service: HostGitWorkspace = {
     'changes/apply': (request) => changes.apply(request),
     'changes/commits': ({ rootId, worktreePath }) => changes.commits(rootId, worktreePath),
@@ -363,6 +371,10 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
       }
       return captured;
     },
+    checkoutIsolation: hostCheckoutIsolation({
+      services: tools,
+      status: (rootId) => git.status(rootId),
+    }),
     close: () =>
       (closing ??= (async () => {
         listeners.clear();
@@ -385,6 +397,6 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
       snapshots: () => snapshotService,
     }),
     service,
-    tools: { ...workspace.tools, openWorktreeFolder: options.openWorktreeFolder },
+    tools,
   };
 }
