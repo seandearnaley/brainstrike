@@ -30,12 +30,16 @@ export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
    * thread's run in progress is editing, and the thread was not moved to a
    * worktree: it has uncommitted edits of its own there, its workers still
    * work there, the folder is one of its other folders (only the folder a
-   * thread works in becomes its worktree), or the folder is not a git
-   * repository.
+   * thread works in becomes its worktree), or the folder cannot be given a
+   * worktree. That is a folder that is not a git repository, a repository
+   * with no commit yet, and a folder inside a repository, below its top
+   * folder.
    */
   Schema.Struct({
     reason: Schema.Literals([
       'another-folder',
+      'inside-a-repository',
+      'no-commit-yet',
       'not-a-repository',
       'own-uncommitted-edits',
       'workers-running',

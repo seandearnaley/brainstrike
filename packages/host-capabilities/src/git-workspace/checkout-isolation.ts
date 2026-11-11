@@ -8,11 +8,15 @@
  * run and thread, and the host opens it as a folder. Its name is the
  * service's own suggestion and its branch is `bs/<name>`, as the create sheet
  * defaults them. It starts from the checkout's last commit.
+ *
+ * A folder that cannot be given a worktree gets none, and Core is told why
+ * (`noWorktree`), read from the repository git reports for the folder before
+ * anything is created.
  */
 import type { HostPlatform } from '@brainstrike/agent-host';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { GitStatus } from '@brainstrike/types';
+import type { GitRepository, GitStatus } from '@brainstrike/types';
 import { gitRefused } from './git-failure.ts';
 import {
   type HostWorktreeServices,
@@ -20,6 +24,13 @@ import {
 } from './worktree-tool-dependencies.ts';
 
 type HostCheckoutIsolation = NonNullable<HostPlatform['checkoutIsolation']>;
+type NoWorktree = Extract<
+  Awaited<ReturnType<HostCheckoutIsolation['create']>>,
+  { readonly noWorktree: string }
+>;
+
+/** The object id git reports for a HEAD with no commit: every digit zero. */
+const NO_COMMIT = /^0+$/u;
 
 function settled<T>(result: BoundaryResult<T>): T {
   if (!result.ok) {
@@ -28,8 +39,32 @@ function settled<T>(result: BoundaryResult<T>): T {
   return result.value;
 }
 
+/**
+ * Why a folder cannot be given a worktree, read from what git reports of it
+ * before anything is created; undefined when it can. Its threads share it.
+ */
+function noWorktree(repository: BoundaryResult<GitRepository>): NoWorktree | undefined {
+  // A folder outside git has no checkout to make a worktree of.
+  if (!repository.ok && repository.error.code === 'git.not-a-repository') {
+    return { noWorktree: 'not-a-repository' };
+  }
+  const { currentWorktree, scope } = settled(repository);
+  // A worktree is a checkout of the whole repository. Opened in place of a folder inside
+  // one, it would take the thread's relative paths somewhere else.
+  if (scope === 'workspace') {
+    return { noWorktree: 'inside-a-repository' };
+  }
+  // A worktree starts from the last commit, and `git worktree add` fails without one.
+  if (currentWorktree.head === null || NO_COMMIT.test(currentWorktree.head)) {
+    return { noWorktree: 'no-commit-yet' };
+  }
+  return;
+}
+
 /** Undefined where the host cannot open a worktree as a folder: it isolates nothing. */
 export function hostCheckoutIsolation(options: {
+  /** The folder's repository, as the Changes panel reads it: its top folder and its last commit. */
+  readonly repository: (rootId: string) => Promise<BoundaryResult<GitRepository>>;
   readonly services: HostWorktreeServices;
   /** The folder's `git status`, as the Changes panel reads it: paths relative to the folder. */
   readonly status: (rootId: string) => Promise<BoundaryResult<GitStatus>>;
@@ -52,12 +87,11 @@ export function hostCheckoutIsolation(options: {
           ).error
         );
       }
-      const context = await service.createContext({ rootId });
-      // A folder outside git has no checkout to make a worktree of: its threads share it.
-      if (!context.ok && context.error.code === 'git.not-a-repository') {
-        return;
+      const none = noWorktree(await options.repository(rootId));
+      if (none) {
+        return none;
       }
-      const { suggestedName: name } = settled(context);
+      const { suggestedName: name } = settled(await service.createContext({ rootId }));
       signal.throwIfAborted();
       const created = settled(
         await worktreeTools.create({ baseRef: 'HEAD', branch: `bs/${name}`, name, rootId })

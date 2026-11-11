@@ -26,6 +26,7 @@ describe('the host isolates a checkout (real git + real SQLite)', () => {
   const isolation = (folder = repo) => {
     const service = buildTestService({ db, managedDirectory, repo: folder });
     const built = hostCheckoutIsolation({
+      repository: () => createGitService({ cwd: folder, run: execFileGitRunner }).repository(),
       services: {
         openWorktreeFolder: async (worktreePath) => {
           opened.push(worktreePath);
@@ -67,7 +68,7 @@ describe('the host isolates a checkout (real git + real SQLite)', () => {
       signal,
       threadId: 'thread-7',
     });
-    if (!worktree) {
+    if ('noWorktree' in worktree) {
       throw new Error('A repository has a checkout to make a worktree of');
     }
 
@@ -150,14 +151,48 @@ describe('the host isolates a checkout (real git + real SQLite)', () => {
     ).resolves.toEqual([decomposed]);
   });
 
+  /** Nothing was made for the folder: no worktree on disk or in the ledger, and no folder opened. */
+  const madeNothing = async (repository?: string): Promise<void> => {
+    expect(opened).toEqual([]);
+    expect((await db.worktreeLedger({ operation: 'list-active' })).rows).toEqual([]);
+    if (repository) {
+      expect(
+        git(repository, ['worktree', 'list', '--porcelain']).match(/^worktree /gmu)
+      ).toHaveLength(1);
+      expect(git(repository, ['branch', '--list', 'bs/*'])).toBe('');
+    }
+  };
+
   it('has no worktree to make when the folder is not a git repository', async () => {
     const folder = workspace.freshTempDir('bst-isolation-plain-');
 
     // Not a failure: there is no checkout here, so the host leaves its threads sharing the folder.
     await expect(
       isolation(folder).create({ rootId: 'r-1', runId: 'run-7', signal, threadId: 'thread-7' })
-    ).resolves.toBeUndefined();
-    expect(opened).toEqual([]);
-    expect((await db.worktreeLedger({ operation: 'list-active' })).rows).toEqual([]);
+    ).resolves.toEqual({ noWorktree: 'not-a-repository' });
+    await madeNothing();
+  });
+
+  it('has no worktree to make when the repository has no commit yet', async () => {
+    const unborn = workspace.freshTempDir('bst-isolation-unborn-');
+    git(unborn, ['init', '-b', 'main']);
+    writeFileSync(path.join(unborn, 'first.ts'), 'export const first = true;\n');
+
+    // A worktree starts from the last commit, and there is none: `git worktree add` would fail.
+    await expect(
+      isolation(unborn).create({ rootId: 'r-1', runId: 'run-7', signal, threadId: 'thread-7' })
+    ).resolves.toEqual({ noWorktree: 'no-commit-yet' });
+    await madeNothing(unborn);
+  });
+
+  it('has no worktree to make when the folder is inside a repository, below its top folder', async () => {
+    const inside = path.join(repo, 'packages', 'app');
+    mkdirSync(inside, { recursive: true });
+
+    // A worktree is a checkout of the whole repository: the same relative path would land elsewhere.
+    await expect(
+      isolation(inside).create({ rootId: 'r-1', runId: 'run-7', signal, threadId: 'thread-7' })
+    ).resolves.toEqual({ noWorktree: 'inside-a-repository' });
+    await madeNothing(repo);
   });
 });

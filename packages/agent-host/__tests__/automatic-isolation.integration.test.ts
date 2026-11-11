@@ -499,32 +499,40 @@ test('when the worktree cannot be made, the edit is refused and nothing is writt
   expect(rows.find(finished(run))?.event).toMatchObject({ outcome: 'completed' });
 });
 
-test('in a folder that is not a git repository the second thread edits in place, and says it shares the folder', async () => {
-  const hosted = await host(
-    scripted({
-      'A:': writesThenWorks('a.txt', 'a-write'),
-      'B:': (turn) => stream(turn.answered === 0 ? write('b.txt', 'b-write') : text('Done.')),
-    })
-  );
-  hosted.harness.notRepositories = true;
-  await firstThreadIsWriting(hosted);
-  const second = await hosted.thread();
-  const run = await hosted.run(second, 'B: write b.txt.');
-  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+test.each([
+  ['is not a git repository', 'not-a-repository'],
+  ['is a repository with no commit yet', 'no-commit-yet'],
+  ['is inside a repository, below its top folder', 'inside-a-repository'],
+] as const)(
+  'in a folder that %s the second thread edits in place, and says why it shares the folder',
+  async (_folder, reason) => {
+    const hosted = await host(
+      scripted({
+        'A:': writesThenWorks('a.txt', 'a-write'),
+        'B:': (turn) => stream(turn.answered === 0 ? write('b.txt', 'b-write') : text('Done.')),
+      })
+    );
+    hosted.harness.noWorktree = reason;
+    await firstThreadIsWriting(hosted);
+    const second = await hosted.thread();
+    const run = await hosted.run(second, 'B: write b.txt.');
+    const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
 
-  // No worktree can exist here, so both threads write the one folder, as before Automatic.
-  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
-  expect(hosted.created).toEqual([]);
-  expect(moves(rows)).toEqual([]);
-  expect(sharedNotes(rows)).toEqual([
-    expect.objectContaining({
-      reason: 'not-a-repository',
-      root: { displayName: LOCAL, rootId: LOCAL },
-      runId: run,
-      toolCallId: 'b-write',
-    }),
-  ]);
-});
+    // The folder cannot be given a worktree, so both threads write it, as before Automatic.
+    expect(outputOf(rows, 'b-write')).toEqual({ written: 'b.txt' });
+    expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+    expect(hosted.created).toEqual([]);
+    expect(moves(rows)).toEqual([]);
+    expect(sharedNotes(rows)).toEqual([
+      expect.objectContaining({
+        reason,
+        root: { displayName: LOCAL, rootId: LOCAL },
+        runId: run,
+        toolCallId: 'b-write',
+      }),
+    ]);
+  }
+);
 
 test('an edit in one of the thread’s other folders is made there, and says it shares that folder', async () => {
   const hosted = await host(

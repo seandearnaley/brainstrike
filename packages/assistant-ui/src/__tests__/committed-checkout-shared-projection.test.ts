@@ -74,6 +74,18 @@ it('says when the thread stayed because the folder is not a git repository', () 
   );
 });
 
+it('says when the thread stayed because the repository has no commit yet', () => {
+  expect(notices('no-commit-yet')[0]?.detail).toBe(
+    'Another thread is editing beaker too. This thread stayed here because this repository has no commit yet, so a worktree has nothing to start from.'
+  );
+});
+
+it('says when the thread stayed because the folder is inside a repository, below its top folder', () => {
+  expect(notices('inside-a-repository')[0]?.detail).toBe(
+    'Another thread is editing beaker too. This thread stayed here because this folder is inside a git repository and is not its top folder, so a worktree cannot take its place.'
+  );
+});
+
 it('says when the thread stayed because the folder is one of its other folders', () => {
   expect(notices('another-folder')[0]?.detail).toBe(
     'Another thread is editing beaker too. This thread stayed here because this is not the folder it works in, and only that folder can become its worktree.'

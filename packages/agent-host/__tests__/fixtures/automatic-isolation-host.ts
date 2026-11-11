@@ -16,6 +16,7 @@ import { StateStore } from '@brainstrike/state-store';
 import { MockLanguageModelV4 } from 'ai/test';
 import { expect } from 'vitest';
 import { z } from 'zod';
+import type { HostNoWorktree } from '../../src/checkout-isolation.js';
 import { withHostDelegationTools } from '../../src/child-runs.js';
 import { HostCore } from '../../src/core.js';
 import type {
@@ -98,8 +99,8 @@ export const writesWhereverItIs =
 interface Harness {
   /** Set to make the next worktree creation fail with this cause. */
   failCreate?: Error;
-  /** Set when the folders are not git repositories: there is nothing to make a worktree of. */
-  notRepositories?: boolean;
+  /** Set when the folders cannot be given a worktree, to the platform's reason. */
+  noWorktree?: HostNoWorktree['noWorktree'];
   /** The uncommitted paths the fake checkout reports, of those it is asked about. */
   uncommitted: string[];
 }
@@ -211,12 +212,16 @@ export async function automaticIsolationHost(
       };
     },
     checkoutIsolation: {
-      create: async ({ rootId, runId, threadId }): Promise<HostEnteredWorktree | undefined> => {
+      create: async ({
+        rootId,
+        runId,
+        threadId,
+      }): Promise<HostEnteredWorktree | HostNoWorktree> => {
         if (harness.failCreate) {
           throw harness.failCreate;
         }
-        if (harness.notRepositories) {
-          return;
+        if (harness.noWorktree) {
+          return { noWorktree: harness.noWorktree };
         }
         created.push({ rootId, runId, threadId });
         creating.resolve();

@@ -372,6 +372,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
       return captured;
     },
     checkoutIsolation: hostCheckoutIsolation({
+      repository: (rootId) => git.repository(rootId),
       services: tools,
       status: (rootId) => git.status(rootId),
     }),

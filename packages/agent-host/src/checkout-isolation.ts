@@ -35,6 +35,20 @@ export type HostWorktreeEntryCause = NonNullable<
 >;
 
 /**
+ * A folder that cannot be given a worktree, and why: it is not a git
+ * repository, its repository has no commit yet for a worktree to start from,
+ * or it is a folder inside a repository, below its top folder, which a
+ * worktree of the whole repository cannot stand in for. Its threads share it,
+ * and the reason is the one their note carries.
+ */
+export interface HostNoWorktree {
+  readonly noWorktree: Extract<
+    Shared['reason'],
+    'inside-a-repository' | 'no-commit-yet' | 'not-a-repository'
+  >;
+}
+
+/**
  * The platform's part of Automatic isolation: what git knows of a checkout,
  * and the worktree tool's own create-and-open. Absent where the host cannot
  * open a worktree as a folder (the standalone host): its threads share a
@@ -43,16 +57,16 @@ export type HostWorktreeEntryCause = NonNullable<
 export interface HostCheckoutIsolation {
   /**
    * A managed worktree of `rootId`'s checkout, created from its last commit
-   * under the run's identity and opened as a folder. Undefined when the folder
-   * is not a git repository: it has no checkout to make a worktree of. Rejects
-   * with the reason when a worktree should exist and could not be made.
+   * under the run's identity and opened as a folder. For a folder that cannot
+   * be given one it resolves the reason and creates nothing. Rejects with the
+   * reason when a worktree should exist and could not be made.
    */
   create(request: {
     readonly rootId: string;
     readonly runId: string;
     readonly signal: AbortSignal;
     readonly threadId: string;
-  }): Promise<HostEnteredWorktree | undefined>;
+  }): Promise<HostEnteredWorktree | HostNoWorktree>;
   /** Which of these root-relative `paths` differ from the checkout's last commit. */
   uncommitted(request: {
     readonly paths: readonly string[];
@@ -207,7 +221,9 @@ function sharedNote({ action, root, run }: EditCall, reason: Shared['reason']): 
  *   last commit would not hold;
  * - the folder is one of its other folders, and a thread has one checkout:
  *   only the folder it works in is replaced by a worktree;
- * - the folder is not a git repository, so there is no worktree to make.
+ * - the folder cannot be given a worktree (`HostNoWorktree`);
+ * - a worker it dispatched in the same step began while the worktree was
+ *   being made (ADR-0028 rule 5).
  * An edit is refused only when a worktree should exist and could not be made,
  * or when a thread reaches back into the checkout it left for its worktree.
  */
@@ -253,8 +269,8 @@ async function moveHostThread(
       signal,
       threadId: run.threadId,
     });
-    if (worktree === undefined) {
-      return await share('not-a-repository');
+    if ('noWorktree' in worktree) {
+      return await share(worktree.noWorktree);
     }
     // A deletion, a Stop or the host's close aborted this run and now waits for it to end. The
     // binding's command would queue behind that wait, and a stopped run moves no thread.
