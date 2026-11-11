@@ -206,7 +206,12 @@ async function superprojectWith(home: string, kind: 'embedded' | 'submodule'): P
   const source = await tempDir('bs-filter-guard-source-');
   git(source, ['init', '-q'], home);
   git(source, ['config', 'core.autocrlf', 'false'], home);
-  await writeFile(path.join(source, '.gitattributes'), 'file.txt filter=nested\n');
+  // `-text` keeps `file.txt` as committed in every clone of this repository.
+  // The clone below does not inherit `core.autocrlf=false`, so on a machine
+  // that turns it on, as Git for Windows does, checkout would write CRLF and
+  // the edit below would change the file's size, and git would see the change
+  // without reading the file through the filter.
+  await writeFile(path.join(source, '.gitattributes'), 'file.txt filter=nested -text\n');
   await writeFile(path.join(source, 'file.txt'), 'one\n');
   git(source, ['add', '-A'], home);
   git(source, ['commit', '-q', '-m', 'source'], home);
@@ -248,6 +253,10 @@ describe.each(['submodule', 'embedded'] as const)('a filter in a %s repository',
     }
 
     expect(nestedRan(dir)).toBe(false);
+    // Without the guard the same status runs the filter, so this test cannot
+    // pass on a machine where git would never have run it.
+    git(dir, ['status', '--porcelain=v2'], home);
+    expect(nestedRan(dir)).toBe(true);
   });
 
   it('runs in a trusted folder', async () => {
