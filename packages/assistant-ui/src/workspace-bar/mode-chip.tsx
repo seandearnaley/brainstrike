@@ -48,6 +48,29 @@ const WorktreeInfo = ({
   </div>
 );
 
+/** A row's label, with why the row is disabled underneath it when it is. */
+const RowLabel = ({
+  label,
+  reason,
+  reasonTestId,
+}: {
+  readonly label: string;
+  readonly reason: string | null;
+  readonly reasonTestId: string;
+}): ReactElement => (
+  <span className="min-w-0 flex-1">
+    <span className="block">{label}</span>
+    {reason ? (
+      <span
+        className="text-muted-foreground text-2xs block whitespace-normal"
+        data-testid={reasonTestId}
+      >
+        {reason}
+      </span>
+    ) : null}
+  </span>
+);
+
 /** The worktree-scoped actions — each present only when its handler exists (never a disabled stub). */
 const WorktreeActions = ({
   mode,
@@ -59,12 +82,17 @@ const WorktreeActions = ({
   <>
     {mode.onHandOffToLocal ? (
       <DropdownMenuItem
+        className={mode.checkoutChangeDisabledReason ? 'items-start' : undefined}
         data-testid="workspace-bar-mode-handoff"
-        disabled={mode.pending}
+        disabled={mode.pending || mode.checkoutChangeDisabledReason !== null}
         onSelect={mode.onHandOffToLocal}
       >
         <Home aria-hidden="true" className="size-3.5" />
-        Hand off to Local
+        <RowLabel
+          label="Hand off to Local"
+          reason={mode.checkoutChangeDisabledReason}
+          reasonTestId="workspace-bar-mode-handoff-disabled-reason"
+        />
       </DropdownMenuItem>
     ) : null}
     {mode.onCreateBranchHere ? (
@@ -99,12 +127,17 @@ const WorktreeActions = ({
     ) : null}
     {mode.onArchive ? (
       <DropdownMenuItem
+        className={mode.checkoutChangeDisabledReason ? 'items-start' : undefined}
         data-testid="workspace-bar-mode-archive"
-        disabled={mode.pending}
+        disabled={mode.pending || mode.checkoutChangeDisabledReason !== null}
         onSelect={mode.onArchive}
       >
         <Archive aria-hidden="true" className="size-3.5" />
-        Archive worktree…
+        <RowLabel
+          label="Archive worktree…"
+          reason={mode.checkoutChangeDisabledReason}
+          reasonTestId="workspace-bar-mode-archive-disabled-reason"
+        />
       </DropdownMenuItem>
     ) : null}
   </>
@@ -228,12 +261,17 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
           <ModeMenuBody mode={mode} />
           <DropdownMenuSeparator />
           <DropdownMenuItem
+            className={mode.checkoutChangeDisabledReason ? 'items-start' : undefined}
             data-testid="workspace-bar-mode-pick-worktree"
-            disabled={mode.pending}
+            disabled={mode.pending || mode.checkoutChangeDisabledReason !== null}
             onSelect={mode.onOpenPicker}
           >
             <FolderSearch aria-hidden="true" className="size-3.5" />
-            Use existing worktree…
+            <RowLabel
+              label="Use existing worktree…"
+              reason={mode.checkoutChangeDisabledReason}
+              reasonTestId="workspace-bar-mode-pick-worktree-disabled-reason"
+            />
           </DropdownMenuItem>
           <DropdownMenuItem
             className="items-start"
@@ -248,17 +286,11 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
             }}
           >
             <Plus aria-hidden="true" className="size-3.5" />
-            <span className="min-w-0 flex-1">
-              <span className="block">New worktree…</span>
-              {mode.createDisabledReason ? (
-                <span
-                  className="text-muted-foreground text-2xs block whitespace-normal"
-                  data-testid="workspace-bar-mode-create-disabled-reason"
-                >
-                  {mode.createDisabledReason}
-                </span>
-              ) : null}
-            </span>
+            <RowLabel
+              label="New worktree…"
+              reason={mode.createDisabledReason}
+              reasonTestId="workspace-bar-mode-create-disabled-reason"
+            />
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

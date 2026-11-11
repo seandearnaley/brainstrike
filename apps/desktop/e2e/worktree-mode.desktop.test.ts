@@ -6,7 +6,7 @@
  * cross the production preload, IPC, service, Git, mount, and thread-metadata
  * chain; only assistant model traffic is replaced at its external boundary.
  */
-import { existsSync, mkdtempSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -22,10 +22,12 @@ import {
   listWorktreePaths,
 } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import type { ModelProviderRequest } from './utils/model-provider-shim';
 import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
 
 const tempDirs = createTempDirTracker();
 const ROOT_ID = 'w3-worktree-mode-root-00000000-0000-4000-8000-000000000030';
+const RUN_IN_PROGRESS = "Available when this thread's run ends.";
 let managedDirectory: string;
 
 interface CreatedWorktree {
@@ -66,6 +68,18 @@ async function createAndUseWorktree(page: Page): Promise<CreatedWorktree> {
     timeout: 90_000,
   });
   return { branch, name, worktreePath };
+}
+
+/** The turn a model request belongs to: `BETWEEN_TURNS_<n>` in its last user message. */
+function betweenTurnsTurn({ messages }: ModelProviderRequest): string | undefined {
+  const lastUser = messages.findLast(
+    (message) =>
+      typeof message === 'object' &&
+      message !== null &&
+      'role' in message &&
+      message.role === 'user'
+  );
+  return /BETWEEN_TURNS_(\d)/u.exec(JSON.stringify(lastUser))?.[1];
 }
 
 test.beforeAll(() => {
@@ -254,6 +268,100 @@ test.describe('Worktree mode (desktop)', () => {
     await expect(page.getByTestId('workspace-bar-branch-chip')).toContainText(created.branch, {
       timeout: 30_000,
     });
+  });
+
+  test('moves a sent thread into a new worktree before its next send', async ({
+    modelProvider,
+    window: page,
+  }) => {
+    test.setTimeout(240_000);
+    // Canonical: macOS tmpdir is a symlink, and the folder watcher that
+    // refreshes the composer's git status after the run's write reports realpaths.
+    const repo = realpathSync(freshRepo('between-turns'));
+    await seedRoot(page, repo);
+    await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
+    // Each turn writes its own file into the thread's folder. Its run asks
+    // before the edit, so it stays in progress until the edit is approved.
+    modelProvider.setScript((request) => {
+      const turn = betweenTurnsTurn(request);
+      const runTurn =
+        (request.requestBody as { stream?: unknown }).stream === true &&
+        request.toolNames.length > 0;
+      if (!(runTurn && turn)) {
+        return { finalText: 'Between turns' };
+      }
+      return {
+        finalText: `BETWEEN_TURNS_REPLY_${turn}`,
+        toolCall: {
+          arguments: { content: `turn ${turn}\n`, path: `turn-${turn}.txt` },
+          name: 'brainstrike_writeWorkspaceFile',
+        },
+      };
+    });
+    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+    const approve = region.getByRole('button', {
+      exact: true,
+      name: 'Approve brainstrike.writeWorkspaceFile',
+    });
+    const stop = region.getByRole('button', { exact: true, name: 'Stop' });
+    const chip = page.getByTestId('workspace-bar-mode-chip');
+    const send = async (turn: number): Promise<void> => {
+      await region
+        .getByRole('textbox', { name: 'Message input' })
+        .fill(`BETWEEN_TURNS_${turn}: write turn-${turn}.txt`);
+      await region.getByRole('button', { exact: true, name: 'Send' }).click();
+      await expect(approve).toBeVisible({ timeout: 60_000 });
+    };
+
+    await send(1);
+    // While the run is in progress, the chip offers no checkout change and says why.
+    await chip.click();
+    await expect(page.getByTestId('workspace-bar-mode-create-disabled-reason')).toHaveText(
+      RUN_IN_PROGRESS,
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId('workspace-bar-mode-pick-worktree-disabled-reason')).toHaveText(
+      RUN_IN_PROGRESS
+    );
+    await page.keyboard.press('Escape');
+    await approve.click();
+    await expect(region.getByText('BETWEEN_TURNS_REPLY_1')).toBeVisible({ timeout: 90_000 });
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(stop).toHaveCount(0);
+    expect(readFileSync(path.join(repo, 'turn-1.txt'), 'utf8')).toBe('turn 1\n');
+    await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveAttribute(
+      'data-dirty',
+      'true',
+      { timeout: 30_000 }
+    );
+
+    // Between turns the sent thread can move: New worktree… is offered again.
+    await chip.click();
+    const newWorktree = page.getByTestId('workspace-bar-mode-new-worktree');
+    await expect(newWorktree).not.toHaveAttribute('data-disabled', { timeout: 30_000 });
+    await newWorktree.click();
+    const dialog = page.getByTestId('worktree-create-dialog');
+    await expect(dialog).toBeVisible({ timeout: 30_000 });
+    await expect(dialog.getByTestId('worktree-create-uncommitted-note')).toHaveText(
+      `Uncommitted changes in ${path.basename(repo)} stay there.`
+    );
+    const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
+    const worktreePath = (await dialog.getByTestId('worktree-create-location').innerText()).trim();
+    await dialog.getByTestId('worktree-create-submit').click();
+    await expect(chip).toContainText(name, { timeout: 90_000 });
+
+    // The next run works in the worktree; turn 1's uncommitted file stayed behind.
+    await send(2);
+    await approve.click();
+    await expect(region.getByText('BETWEEN_TURNS_REPLY_2')).toBeVisible({ timeout: 90_000 });
+    await expect(stop).toHaveCount(0);
+    await expect(chip).toContainText(name);
+    expect(readFileSync(path.join(worktreePath, 'turn-2.txt'), 'utf8')).toBe('turn 2\n');
+    expect(existsSync(path.join(repo, 'turn-2.txt'))).toBe(false);
+    expect(existsSync(path.join(worktreePath, 'turn-1.txt'))).toBe(false);
+    expect(existsSync(path.join(repo, 'turn-1.txt'))).toBe(true);
+    expect(modelProvider.refusals()).toEqual([]);
   });
 
   test('switches branches from the composer branch chip', async ({ window: page }) => {

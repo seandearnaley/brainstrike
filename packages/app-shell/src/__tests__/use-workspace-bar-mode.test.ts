@@ -1,8 +1,18 @@
-import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
+import type {
+  AssistantMemoryThread,
+  AssistantThreadRunRecord,
+  AssistantThreadRunStatus,
+} from '@brainstrike/assistant-data';
 import type { WorkspaceBarMode } from '@brainstrike/assistant-ui';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+  type AssistantThreadHostRun,
+} from '../assistant-thread-host-context';
 import { type UseWorkspaceBarModeArgs, useWorkspaceBarMode } from '../hooks/use-workspace-bar-mode';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 
@@ -34,6 +44,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   archiveConfirmation: null,
   baseRefs: [{ label: 'Current branch', value: 'HEAD' }],
+  checkoutChangeDisabledReason: null,
   createDisabledReason: null,
   defaultBranchPrefix: 'bs/',
   defaultName: 'bright-fox',
@@ -60,6 +71,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   },
   repositorySetupConsent: null,
   setupSummary: '',
+  uncommittedFolderName: null,
   worktree: null,
   ...overrides,
 });
@@ -102,7 +114,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: true });
   });
 
-  it('treats an unhydrated selected thread as loading, never as pre-first-request', () => {
+  it('treats an unhydrated selected thread as loading, never as between runs', () => {
     worktreeModeSpy.mockReturnValue(mode({ createDisabledReason: 'Thread is still loading.' }));
     renderHook(() =>
       useWorkspaceBarMode({
@@ -126,7 +138,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     );
 
     expect(worktreeModeSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ firstRequestState: 'loading' })
+      expect.objectContaining({ threadState: 'loading' })
     );
     expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
   });
@@ -155,7 +167,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     );
 
     expect(worktreeModeSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({ firstRequestState: 'no-thread' })
+      expect.objectContaining({ threadState: 'no-thread' })
     );
     expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
   });
@@ -184,11 +196,95 @@ describe('useWorkspaceBarMode branch escape', () => {
 
   it('omits the escape capability when creation has a disabled reason', () => {
     worktreeModeSpy.mockReturnValue(
-      mode({ createDisabledReason: 'Create a worktree before sending the first request.' })
+      mode({ createDisabledReason: "Available when this thread's run ends." })
     );
     renderComposition();
 
     expect(branchSwitcherSpy.mock.calls.at(-1)?.[0]?.onSwitchInNewWorktree).toBeUndefined();
+  });
+});
+
+describe('useWorkspaceBarMode thread run state (ADR-0034)', () => {
+  const hostRun = (status: AssistantThreadHostRun['status']): AssistantThreadHostRun => ({
+    completedAt: null,
+    needsInput: false,
+    startedAt: null,
+    status,
+  });
+  const catalogRun = (status: AssistantThreadRunStatus): AssistantThreadRunRecord => ({
+    completedAt: null,
+    createdAt: thread.createdAt,
+    error: null,
+    id: 'run-1',
+    model: 'gpt-5.4',
+    provider: 'openai',
+    resourceId: thread.resourceId,
+    runtimeKind: 'hosted',
+    startedAt: thread.createdAt,
+    status,
+    threadId: thread.id,
+    turnMessageId: null,
+    updatedAt: thread.createdAt,
+  });
+  /** A host that reports `runs` as its committed run state, as the desktop app's does. */
+  const hostReporting = (
+    runs: ReadonlyMap<string, AssistantThreadHostRun>
+  ): AssistantThreadHostCapability => ({
+    createThread: vi.fn(),
+    deleteThread: vi.fn(),
+    listThreads: vi.fn(),
+    ownsThread: vi.fn(),
+    renameThread: vi.fn(),
+    renderNewThread: vi.fn(),
+    renderThread: vi.fn(),
+    runs: { getSnapshot: () => runs, subscribe: () => () => undefined },
+    updateThreadBinding: vi.fn(),
+    workspaceRepository: vi.fn(),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: true });
+    worktreeModeSpy.mockReturnValue(mode());
+  });
+
+  it.each([
+    ['the host commits it running', [hostRun('running')], undefined, 'running'],
+    ['the host committed its end', [hostRun('completed')], catalogRun('running'), 'idle'],
+    ['its catalog run is being cancelled', [], catalogRun('cancelling'), 'running'],
+    ['it has no run at all', [], undefined, 'idle'],
+  ] as const)('reads the thread as %s', (_case, hostRuns, latestRun, threadState) => {
+    const host = hostReporting(new Map(hostRuns.map((run) => [thread.id, run])));
+    renderHook(
+      () =>
+        useWorkspaceBarMode({
+          checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+          checkoutFailure: null,
+          checkoutSettled: true,
+          foldersPending: false,
+          onHandOffToLocal: vi.fn(),
+          onSelectWorktree: vi.fn(),
+          primaryRootId: 'r-1',
+          primaryRootPath: '/work/app',
+          selectedMemoryThreadId: thread.id,
+          selectedThread: latestRun ? { ...thread, latestRun } : thread,
+          worktreeCheckout: { branch: null, mode: 'local', worktreeId: null, worktreePath: null },
+        }),
+      {
+        wrapper: ({ children }: { readonly children: ReactNode }) =>
+          createElement(AssistantThreadHostContext.Provider, { value: host }, children),
+      }
+    );
+
+    expect(worktreeModeSpy).toHaveBeenLastCalledWith(expect.objectContaining({ threadState }));
+  });
+
+  it('tells the mode when the thread folder has uncommitted changes', () => {
+    renderComposition();
+
+    expect(worktreeModeSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ uncommittedChanges: true })
+    );
   });
 });
 

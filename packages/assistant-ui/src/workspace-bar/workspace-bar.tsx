@@ -107,6 +107,12 @@ export interface WorkspaceBarMode {
   readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
   /** Base refs the create sheet offers, most useful first. */
   readonly baseRefs: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]];
+  /**
+   * Non-null while the thread's run is in progress: a run keeps the checkout it
+   * was admitted with, so Use existing, Hand off and Archive say why they wait,
+   * as New worktree… does with `createDisabledReason`.
+   */
+  readonly checkoutChangeDisabledReason: string | null;
   readonly createDisabledReason: string | null;
   readonly defaultBranchPrefix: string;
   readonly defaultName: string;
@@ -135,6 +141,11 @@ export interface WorkspaceBarMode {
   /** Present only while this repository's fallback script needs a decision. */
   readonly repositorySetupConsent: WorkspaceBarRepositorySetupConsent | null;
   readonly setupSummary: string;
+  /**
+   * The thread's folder by name while it has uncommitted changes, or null. A new
+   * worktree starts from a commit, so the create sheet says they stay there.
+   */
+  readonly uncommittedFolderName: string | null;
   readonly worktree: WorkspaceBarWorktreeSummary | null;
 }
 

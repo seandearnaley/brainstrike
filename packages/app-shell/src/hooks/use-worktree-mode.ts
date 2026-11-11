@@ -54,7 +54,12 @@ const BASE_REFS: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOpti
   { label: 'Default branch (fresh)', value: 'origin/HEAD' },
 ];
 
-const FIRST_REQUEST_CREATE_REASON = 'Create a worktree before sending the first request.';
+/**
+ * A run keeps the checkout it was admitted with: a binding changed mid-run
+ * reaches only the next run. So every checkout change waits for the run to end
+ * (ADR-0034), and the host accepts one at any time between runs.
+ */
+const RUN_IN_PROGRESS_REASON = "Available when this thread's run ends.";
 
 type SettingsState =
   | { readonly kind: 'error'; readonly message: string }
@@ -68,7 +73,6 @@ export interface UseWorktreeModeArgs {
     readonly worktreeId: string | null;
     readonly worktreePath: string | null;
   };
-  readonly firstRequestState: 'loading' | 'no-thread' | 'sent' | 'unsent';
   readonly isRepository: boolean;
   readonly onHandOffToLocal: () => Promise<void>;
   readonly onSelectWorktree: (worktree: {
@@ -93,6 +97,13 @@ export interface UseWorktreeModeArgs {
    */
   readonly statusFailure: string | null;
   readonly threadId: string | null;
+  /**
+   * The selected thread as a checkout change sees it: none, still loading,
+   * between runs, or with a run in progress (one being cancelled included).
+   */
+  readonly threadState: 'idle' | 'loading' | 'no-thread' | 'running';
+  /** The thread's folder has uncommitted changes (its last git status read). */
+  readonly uncommittedChanges: boolean;
 }
 
 function rejectWithToast(title: string, description: string): never {
@@ -258,17 +269,17 @@ function describeSetup(settings: SettingsState): string {
 }
 
 function createDisabledReason(
-  firstRequestState: UseWorktreeModeArgs['firstRequestState'],
+  threadState: UseWorktreeModeArgs['threadState'],
   settings: SettingsState
 ): string | null {
-  if (firstRequestState === 'no-thread') {
+  if (threadState === 'no-thread') {
     return 'No thread selected.';
   }
-  if (firstRequestState === 'loading') {
+  if (threadState === 'loading') {
     return 'Thread is still loading.';
   }
-  if (firstRequestState === 'sent') {
-    return FIRST_REQUEST_CREATE_REASON;
+  if (threadState === 'running') {
+    return RUN_IN_PROGRESS_REASON;
   }
   if (settings.kind === 'loading') {
     return 'Worktree settings are still loading.';
@@ -277,6 +288,11 @@ function createDisabledReason(
     return `Worktree settings are unavailable: ${settings.message}`;
   }
   return null;
+}
+
+/** `/managed/app/bright-fox` → `bright-fox`, on either path separator. */
+function folderName(path: string): string {
+  return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
 }
 
 function computeWorktreeSummary(params: {
@@ -401,7 +417,7 @@ export function unavailableRepositoryReason(statusFailure: string | null): strin
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
   // Plain function locals: the React Compiler memoizes a call through `args.`
   // on the whole `args` object, which is fresh on every render.
-  const { onHandOffToLocal: handOffToLocal, onSelectWorktree } = args;
+  const { onHandOffToLocal: handOffToLocal, onSelectWorktree, threadState } = args;
   const bridge = useWorktreesBridge();
   const platform = useMemo(() => resolvePlatformBridge(), []);
   const terminalAvailable = useTerminalBridge() !== null;
@@ -610,14 +626,14 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       if (!(bridge && args.primaryRootId)) {
         rejectWithToast('Could not create a worktree', 'Worktrees are not available here.');
       }
-      if (args.firstRequestState === 'no-thread') {
+      if (threadState === 'no-thread') {
         rejectWithToast('Could not create a worktree', 'No thread selected.');
       }
-      if (args.firstRequestState === 'loading') {
+      if (threadState === 'loading') {
         rejectWithToast('Could not create a worktree', 'Thread is still loading.');
       }
-      if (args.firstRequestState === 'sent') {
-        rejectWithToast('Could not create a worktree', FIRST_REQUEST_CREATE_REASON);
+      if (threadState === 'running') {
+        rejectWithToast('Could not create a worktree', RUN_IN_PROGRESS_REASON);
       }
       const primaryRootId = args.primaryRootId;
       setPending(true);
@@ -661,18 +677,22 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     },
     [
       addRootDirectoryByPath,
-      args.firstRequestState,
       onSelectWorktree,
       args.primaryRootId,
       args.runId,
       bridge,
       createSheetContext,
       refreshList,
+      threadState,
     ]
   );
 
   const onSelectExisting = useCallback(
     (option: WorkspaceBarWorktreeOption): void => {
+      if (threadState === 'running') {
+        toastFailure('Could not use that worktree', RUN_IN_PROGRESS_REASON);
+        return;
+      }
       setPending(true);
       void Promise.resolve(addRootDirectoryByPath?.(option.path))
         .then((mounted) => {
@@ -705,12 +725,21 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           setPending(false);
         });
     },
-    [addRootDirectoryByPath, onSelectWorktree, refreshList]
+    [addRootDirectoryByPath, onSelectWorktree, refreshList, threadState]
   );
 
-  const { archiveConfirmation, onArchive } = useWorktreeArchiveAction({
+  // Archive hands off first, so a run that starts while its confirmation is
+  // open still keeps its checkout.
+  const handOffBetweenRuns = useCallback(async (): Promise<void> => {
+    if (threadState === 'running') {
+      throw new Error(RUN_IN_PROGRESS_REASON);
+    }
+    await handOffToLocal();
+  }, [handOffToLocal, threadState]);
+
+  const { archiveConfirmation, onArchive: archive } = useWorktreeArchiveAction({
     bridge,
-    onHandOffToLocal: handOffToLocal,
+    onHandOffToLocal: handOffBetweenRuns,
     refreshList,
     runId: args.runId,
     setPending,
@@ -719,16 +748,24 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     worktreeName: currentEntry?.name ?? 'worktree',
   });
 
+  const onArchive = useCallback((): void => {
+    if (threadState === 'running') {
+      toastFailure('Could not archive the worktree', RUN_IN_PROGRESS_REASON);
+      return;
+    }
+    archive();
+  }, [archive, threadState]);
+
   const onHandOffToLocal = useCallback((): void => {
     setPending(true);
-    void handOffToLocal()
+    void handOffBetweenRuns()
       .catch((error: unknown) => {
         toastFailure('Could not hand off to Local', errorMessage(error));
       })
       .finally(() => {
         setPending(false);
       });
-  }, [handOffToLocal]);
+  }, [handOffBetweenRuns]);
 
   const onCreateBranchHere = useCallback(
     async (branch: string): Promise<void> => {
@@ -773,14 +810,14 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     if (!(bridge && args.primaryRootId)) {
       throw new Error('Worktrees are not available here.');
     }
-    if (args.firstRequestState === 'no-thread') {
+    if (threadState === 'no-thread') {
       rejectWithToast('Could not open worktree creation', 'No thread selected.');
     }
-    if (args.firstRequestState === 'loading') {
+    if (threadState === 'loading') {
       rejectWithToast('Could not open worktree creation', 'Thread is still loading.');
     }
-    if (args.firstRequestState === 'sent') {
-      rejectWithToast('Could not open worktree creation', FIRST_REQUEST_CREATE_REASON);
+    if (threadState === 'running') {
+      rejectWithToast('Could not open worktree creation', RUN_IN_PROGRESS_REASON);
     }
     let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
     try {
@@ -795,7 +832,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       rejectWithToast('Could not prepare worktree creation', describeBoundaryFailure(result.error));
     }
     setCreateSheetContext(result.value);
-  }, [args.firstRequestState, args.primaryRootId, bridge]);
+  }, [args.primaryRootId, bridge, threadState]);
 
   const managedParentPath =
     createSheetContext?.managedParentPath ??
@@ -823,9 +860,10 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       : undefined;
   const missingWorktreePath =
     currentWorktreeId && currentEntry === null ? args.checkout.worktreePath : null;
-  const missingWorktreeName = missingWorktreePath
-    ? (missingWorktreePath.split(/[\\/]/u).filter(Boolean).at(-1) ?? missingWorktreePath)
-    : null;
+  const missingWorktreeName = missingWorktreePath ? folderName(missingWorktreePath) : null;
+  const uncommittedFolderName =
+    args.uncommittedChanges && args.primaryRootPath ? folderName(args.primaryRootPath) : null;
+  const checkoutChangeDisabledReason = threadState === 'running' ? RUN_IN_PROGRESS_REASON : null;
   const missingWorktreeReason = missingWorktreeDiagnostic({
     currentWorktreeId,
     hasAttemptedForCurrentId,
@@ -847,12 +885,13 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       terminalAvailable && currentEntry?.rootId
         ? { cwd: currentEntry.path, rootId: currentEntry.rootId }
         : null;
-    const disabled = createDisabledReason(args.firstRequestState, settings);
+    const disabled = createDisabledReason(threadState, settings);
     if (!args.isRepository) {
       const reason = unavailableRepositoryReason(args.statusFailure);
       return {
         archiveConfirmation: null,
         baseRefs: BASE_REFS,
+        checkoutChangeDisabledReason: null,
         createDisabledReason: reason,
         defaultBranchPrefix: 'bs/',
         defaultName: '',
@@ -879,12 +918,14 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         },
         repositorySetupConsent: null,
         setupSummary: '',
+        uncommittedFolderName: null,
         worktree: null,
       };
     }
     return {
       archiveConfirmation,
       baseRefs: BASE_REFS,
+      checkoutChangeDisabledReason,
       createDisabledReason: disabled,
       defaultBranchPrefix: 'bs/',
       defaultName,
@@ -924,6 +965,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         onRepositorySetupDecision
       ),
       setupSummary: describeSetup(settings),
+      uncommittedFolderName,
       worktree: computeWorktreeSummary({
         checkoutBranch: args.checkout.branch,
         currentEntry,
@@ -936,13 +978,13 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   }, [
     args.checkout.branch,
     archiveConfirmation,
-    args.firstRequestState,
     args.isRepository,
     args.primaryRootId,
     args.primaryRootPath,
     args.statusFailure,
     args.threadId,
     bridge,
+    checkoutChangeDisabledReason,
     createBranchHereHandler,
     currentEntry,
     currentWorktreeId,
@@ -969,5 +1011,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     repositorySetupDecision,
     settings,
     terminalAvailable,
+    threadState,
+    uncommittedFolderName,
   ]);
 }

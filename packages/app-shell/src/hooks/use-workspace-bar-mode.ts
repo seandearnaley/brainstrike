@@ -8,6 +8,7 @@ import type {
 import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
 import { useEffect, useRef } from 'react';
+import { useAssistantThreadHostRuns } from '../assistant-thread-host-context';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { useBranchSwitcher } from './use-branch-switcher';
 import type { ThreadCheckoutState } from './use-thread-checkout';
@@ -130,22 +131,26 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     pendingIntent,
     selectedThread?.id,
   ]);
-  // `latestRun` is populated from the durable run ledger after the first request.
-  // A known id with no row is still hydrating, not evidence that no request was sent.
-  const firstRequestState =
+  // The host's committed run state, as the Threads panel reads it: current
+  // while the thread is open. A thread the host does not report keeps its
+  // catalog row's latest run. A known id with no row is still hydrating.
+  const hostRuns = useAssistantThreadHostRuns();
+  const latestRun = selectedThread
+    ? (hostRuns.get(selectedThread.id) ?? selectedThread.latestRun)
+    : undefined;
+  const threadState =
     selectedMemoryThreadId === undefined
       ? 'no-thread'
       : selectedThread === undefined
         ? 'loading'
-        : selectedThread.latestRun === undefined
-          ? 'unsent'
-          : 'sent';
+        : latestRun?.status === 'running' || latestRun?.status === 'cancelling'
+          ? 'running'
+          : 'idle';
   const activeRunId =
     selectedThread?.latestRun?.status === 'running' ? selectedThread.latestRun.id : null;
 
   const resolvedMode = useWorktreeMode({
     checkout: worktreeCheckout,
-    firstRequestState,
     isRepository: checkout !== undefined,
     onHandOffToLocal,
     onSelectWorktree,
@@ -154,6 +159,8 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     runId: activeRunId,
     statusFailure: checkoutFailure,
     threadId: selectedMemoryThreadId ?? null,
+    threadState,
+    uncommittedChanges: checkout?.dirty === true,
   });
   // While the root's first status read is in flight, `isRepository` above is
   // false only because nothing is known yet. Withhold the chip until it

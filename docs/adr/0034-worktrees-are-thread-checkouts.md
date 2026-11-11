@@ -154,6 +154,17 @@ supersede the decisions above where they differ.
   repository's `repoCommonDir` through one function (`threadProjectKey`),
   where the project record's id will replace it; until then a second clone is
   a section of its own. A saved grouping is kept.
+- **Built: a person moves a sent thread into a new worktree between turns.**
+  This is a build decision, not one of Sean's answers. The composer's checkout
+  chip (New worktree…) and the Branch chip's Switch in a new worktree now work
+  after a thread's first send. The first-send refusal they had (BST-1390) was
+  removed because it guarded cost, not safety: the host accepts a binding change
+  at any time and admits the next run with it. Every checkout change (New
+  worktree…, Switch in a new worktree, Use existing worktree…, Hand off to Local
+  and Archive worktree…) waits for the thread's run to end, because a run keeps
+  the checkout it was admitted with. Uncommitted changes stay in the thread's
+  folder, and the create sheet says so. Not built: the single control that says
+  where a thread works.
 
 ## Consequences
 
