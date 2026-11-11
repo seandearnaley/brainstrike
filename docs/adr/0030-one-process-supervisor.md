@@ -3,6 +3,8 @@
 - **Status:** Accepted (Sean adopted all five stages, 2026-10-25)
   - 2026-11-01 (BST-2436, [ADR-0035](0035-workspace-retrieval-is-live-search.md)): the indexer, query reader and embedding
     host processes are deleted. The host state index is the one index process left.
+  - 2026-11-10 (BST-2472): decision 6 brings worker threads that load a native add-on under the
+    same close rule as processes.
 - **Date:** 2026-10-25
 - **Amends:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) (R2 and R5 are held
   by one implementation instead of each owner), [ADR-0027](0027-canonical-electron-quit.md)
@@ -65,6 +67,25 @@ share three causes.
    - No other lifecycle constant exists.
 5. **Quit is the supervisor closing children in dependency order:** factory reset, renderers,
    host stop, utilities, database (ADR-0029's end state).
+6. **A worker thread that loads a native add-on is asked to close, never terminated while it
+   starts.**
+   - `Worker.terminate()` that lands inside a native add-on's initialisation (better-sqlite3's
+     `new Database`) aborts the whole owning process: `FATAL ERROR: Error::New
+     napi_get_last_error_info`, exit 134. The agent host died that way during quit, before it
+     closed the state DB (BST-2472).
+   - So such a thread gets a close request whether it is ready or still starting, and its exit is
+     joined. As for a process, the close window (`CHILD_CLOSE_BUDGET_MS`) is the only terminate.
+   - The threads that load an add-on today, and how each ends:
+     - The host state index's writer (better-sqlite3): asked to close, ready or starting (#5331).
+     - The state store's writer (better-sqlite3): terminated only after it answered `close`, or
+       once its start has ended (ready or failed), so never inside its add-on's initialisation.
+     - The keyring worker (OS credential add-on): closed by message, never terminated.
+   - Left open: a transport or protocol fault still retires the host state index's thread at
+     once (ADR-0026 R2), which ends its writer with it. A fault while that writer starts could
+     still abort the host; no such fault is known.
+   - A thread that loads no add-on may be terminated at any time. The memory calculator and the
+     token counter load none (checked 2026-11-10 by hooking `process.dlopen` in the worker while
+     each one's module loads).
 
 ## Stages
 
