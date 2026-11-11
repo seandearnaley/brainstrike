@@ -142,10 +142,13 @@ test('a folder the ledger lists but git does not link to the repository answers 
   ).resolves.toEqual([{ answeredBy: undefined, rootId: 'root-claimed', trust: 'undecided' }]);
 });
 
-/** A new folder named `name` inside `parent`. */
+/**
+ * A new folder named `name` inside `parent` that only the person can add to, whatever the
+ * machine's umask: a folder its group can write to is never offered as a location.
+ */
 async function folderIn(parent: string, name: string): Promise<string> {
   const folder = path.join(parent, name);
-  await mkdir(folder, { recursive: true });
+  await mkdir(folder, { mode: 0o755, recursive: true });
   return folder;
 }
 
