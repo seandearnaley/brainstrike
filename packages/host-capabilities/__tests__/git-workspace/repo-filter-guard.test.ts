@@ -312,8 +312,10 @@ describe('which folder decides', () => {
     const kept = path.join(code, 'kept');
     const insideKept = path.join(kept, 'packages', 'tool');
     const outside = await tempDir('bs-filter-guard-outside-');
+    // Folders only the person can add to, whatever the machine's umask: a location never
+    // covers a folder its group can write to.
     await Promise.all(
-      [cloned, later, insideKept].map((folder) => mkdir(folder, { recursive: true }))
+      [cloned, later, insideKept].map((folder) => mkdir(folder, { mode: 0o755, recursive: true }))
     );
     const store = settingsStore();
     await writeHostWorkspaceTrust(store, kept, 'restricted');

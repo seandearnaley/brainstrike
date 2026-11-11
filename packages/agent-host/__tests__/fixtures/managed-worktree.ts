@@ -5,6 +5,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import type { StateStore } from '@brainstrike/state-store';
 import type { ManagedWorktreeRow } from '@brainstrike/types';
@@ -60,6 +61,9 @@ export async function recordWorktree(
 export function linkWorktree(repository: Repository, managedDir: string): string {
   const path = join(managedDir, 'swift-badger');
   git(repository.path, ['worktree', 'add', '--detach', path]);
+  // Git makes the folder under the machine's umask, which on Debian, Ubuntu and Fedora leaves
+  // it writable by its group. These tests are about a folder only the person can add to.
+  chmodSync(path, 0o755);
   return path;
 }
 

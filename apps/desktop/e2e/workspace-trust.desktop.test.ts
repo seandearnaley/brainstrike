@@ -41,7 +41,9 @@ test.use({
  * This test's own folders: two kept in one `projects` folder, as a person keeps
  * their repositories, which a trust ask may offer as a trusted location. They
  * sit in the workspace root the harness makes for the test and removes after
- * its app closes, so no test finds another's folders or loses its own.
+ * its app closes, so no test finds another's folders or loses its own. Only
+ * the person can add to them, whatever the machine's umask: a folder its group
+ * can write to is never offered as a location (ADR-0032).
  */
 function projectFolders(electron: ElectronHarness): {
   readonly later: string;
@@ -51,8 +53,8 @@ function projectFolders(electron: ElectronHarness): {
   const projects = join(electron.getWorkspaceRoot(), 'projects');
   const workspace = join(projects, 'cloned');
   const later = join(projects, 'later');
-  mkdirSync(join(workspace, '.brainstrike', 'skills', SKILL), { recursive: true });
-  mkdirSync(later);
+  mkdirSync(join(workspace, '.brainstrike', 'skills', SKILL), { mode: 0o755, recursive: true });
+  mkdirSync(later, { mode: 0o755 });
   writeFileSync(join(later, 'AGENTS.md'), `# Conventions\n${LATER_CONVENTIONS}\n`);
   writeFileSync(join(workspace, 'AGENTS.md'), `# Conventions\n${CONVENTIONS}\n`);
   writeFileSync(
