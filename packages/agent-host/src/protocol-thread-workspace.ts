@@ -28,11 +28,18 @@ export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
   /**
    * ADR-0034 Automatic isolation: this run's edit went into a folder another
    * thread's run in progress is editing, and the thread was not moved to a
-   * worktree: it has uncommitted edits of its own there, or its workers still
-   * work there.
+   * worktree: it has uncommitted edits of its own there, its workers still
+   * work there, the folder is one of its other folders (only the folder a
+   * thread works in becomes its worktree), or the folder is not a git
+   * repository.
    */
   Schema.Struct({
-    reason: Schema.Literals(['own-uncommitted-edits', 'workers-running']),
+    reason: Schema.Literals([
+      'another-folder',
+      'not-a-repository',
+      'own-uncommitted-edits',
+      'workers-running',
+    ]),
     root: HostApprovalTargetRootSchema,
     runId: Id,
     toolCallId: Id,

@@ -68,6 +68,18 @@ it('says when the thread stayed because its workers are still working there', ()
   );
 });
 
+it('says when the thread stayed because the folder is not a git repository', () => {
+  expect(notices('not-a-repository')[0]?.detail).toBe(
+    'Another thread is editing beaker too. This thread stayed here because this folder is not a git repository, so it has no worktrees.'
+  );
+});
+
+it('says when the thread stayed because the folder is one of its other folders', () => {
+  expect(notices('another-folder')[0]?.detail).toBe(
+    'Another thread is editing beaker too. This thread stayed here because this is not the folder it works in, and only that folder can become its worktree.'
+  );
+});
+
 it('refuses a reason it does not know rather than showing a wrong one', () => {
   expect(() => notices('because')).toThrow('Committed shared checkout has an unsupported reason.');
 });

@@ -8,7 +8,6 @@
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { hostCheckoutIsolation } from '../../src/git-workspace/checkout-isolation.ts';
@@ -68,6 +67,9 @@ describe('the host isolates a checkout (real git + real SQLite)', () => {
       signal,
       threadId: 'thread-7',
     });
+    if (!worktree) {
+      throw new Error('A repository has a checkout to make a worktree of');
+    }
 
     // The last commit's file, and nothing another thread left uncommitted in the checkout.
     expect(readFileSync(path.join(worktree.root.path, 'hello.ts'), 'utf8')).toBe(
@@ -121,15 +123,14 @@ describe('the host isolates a checkout (real git + real SQLite)', () => {
     ).resolves.toEqual([]);
   });
 
-  it('refuses with the reason when the folder is not a repository', async () => {
+  it('has no worktree to make when the folder is not a git repository', async () => {
     const folder = workspace.freshTempDir('bst-isolation-plain-');
-    const refusal = await isolation(folder)
-      .create({ rootId: 'r-1', runId: 'run-7', signal, threadId: 'thread-7' })
-      .catch((cause: unknown) => cause);
 
-    expect(refusal).toBeInstanceOf(BoundaryFailureError);
-    expect((refusal as BoundaryFailureError).failure.kind).toBe('refusal');
-    expect((refusal as BoundaryFailureError).message).toContain('not a git repository');
+    // Not a failure: there is no checkout here, so the host leaves its threads sharing the folder.
+    await expect(
+      isolation(folder).create({ rootId: 'r-1', runId: 'run-7', signal, threadId: 'thread-7' })
+    ).resolves.toBeUndefined();
     expect(opened).toEqual([]);
+    expect((await db.worktreeLedger({ operation: 'list-active' })).rows).toEqual([]);
   });
 });

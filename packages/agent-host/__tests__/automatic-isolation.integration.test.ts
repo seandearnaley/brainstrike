@@ -106,9 +106,13 @@ const writesWhereverItIs =
 interface Harness {
   /** Set to make the next worktree creation fail with this cause. */
   failCreate?: Error;
+  /** Set when the folders are not git repositories: there is nothing to make a worktree of. */
+  notRepositories?: boolean;
   /** The uncommitted paths the fake checkout reports, of those it is asked about. */
   uncommitted: string[];
 }
+
+const DOCS = 'docs-root';
 
 async function host(
   model: MockLanguageModelV4,
@@ -125,7 +129,13 @@ async function host(
   const storeRoot = join(base, 'store');
   await mkdir(storeRoot);
   const store = await StateStore.open(storeRoot);
-  const folders = new Map([[LOCAL, local]]);
+  // A second folder a thread can have open beside the one it works in.
+  const docs = join(base, 'docs');
+  await mkdir(docs);
+  const folders = new Map([
+    [LOCAL, local],
+    [DOCS, docs],
+  ]);
   const harness: Harness = { uncommitted: [] };
   const created: { readonly rootId: string; readonly runId: string; readonly threadId: string }[] =
     [];
@@ -204,9 +214,12 @@ async function host(
       };
     },
     checkoutIsolation: {
-      create: async ({ rootId, runId, threadId }): Promise<HostEnteredWorktree> => {
+      create: async ({ rootId, runId, threadId }): Promise<HostEnteredWorktree | undefined> => {
         if (harness.failCreate) {
           throw harness.failCreate;
+        }
+        if (harness.notRepositories) {
+          return;
         }
         created.push({ rootId, runId, threadId });
         const name = `quiet-otter-${created.length}`;
@@ -270,8 +283,11 @@ async function host(
     /** Resolves once a write of `path` is inside its tool, changing the folder. */
     startedWriting: (path: string): Promise<void> => startedWriting(path).promise,
     store,
-    /** A new thread; `bound` works in the repository's own checkout, as a thread opened on it does. */
-    thread: async (bound = true): Promise<string> => {
+    /**
+     * A new thread; `bound` works in the repository's own checkout, as a thread opened on it
+     * does, with `others` open beside it.
+     */
+    thread: async (bound = true, others: readonly string[] = []): Promise<string> => {
       const { threadId } = await core.startThread({ commandId: randomUUID() });
       if (bound) {
         await core.updateWorkspaceBinding({
@@ -280,6 +296,7 @@ async function host(
             operatingRootDisplayName: 'beaker',
             operatingRootId: LOCAL,
             operatingRootPath: local,
+            ...(others.length > 0 ? { secondaryRootIds: [...others] } : {}),
           },
           threadId,
         });
@@ -671,7 +688,7 @@ test('when the worktree cannot be made, the edit is refused and nothing is writt
   hosted.harness.failCreate = refusalError(
     'conflict',
     'git.command-failed',
-    'fatal: not a git repository'
+    'fatal: could not create work tree dir'
   );
   await firstThreadIsWriting(hosted);
   const second = await hosted.thread();
@@ -682,11 +699,67 @@ test('when the worktree cannot be made, the edit is refused and nothing is writt
   expect(moves(rows)).toEqual([]);
   // The model reads why, in the refused call's result, and the run goes on where it was.
   expect(outputOf(rows, 'b-write')).toMatchObject({
-    error: { message: expect.stringContaining('fatal: not a git repository') },
+    error: { message: expect.stringContaining('fatal: could not create work tree dir') },
     ok: false,
   });
   expect(startedRuns(rows)).toHaveLength(1);
   expect(rows.find(finished(run))?.event).toMatchObject({ outcome: 'completed' });
+});
+
+test('in a folder that is not a git repository the second thread edits in place, and says it shares the folder', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': (turn) => stream(turn.answered === 0 ? write('b.txt', 'b-write') : text('Done.')),
+    })
+  );
+  hosted.harness.notRepositories = true;
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // No worktree can exist here, so both threads write the one folder, as before Automatic.
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({
+      reason: 'not-a-repository',
+      root: { displayName: LOCAL, rootId: LOCAL },
+      runId: run,
+      toolCallId: 'b-write',
+    }),
+  ]);
+});
+
+test('an edit in one of the thread’s other folders is made there, and says it shares that folder', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': (turn, call) =>
+        turn.answered === 0 ? stream(write('a.md', 'a-write', DOCS)) : blocked(call),
+      'B:': (turn) => stream(turn.answered === 0 ? write('b.md', 'b-write', DOCS) : text('Done.')),
+    })
+  );
+  const first = await hosted.thread(true, [DOCS]);
+  await hosted.run(first, 'A: write a.md in docs and keep working.');
+  await hosted.startedWriting('a.md');
+  const second = await hosted.thread(true, [DOCS]);
+  const run = await hosted.run(second, 'B: write b.md in docs.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // Only the folder a thread works in can become its worktree; its other folders stay shared.
+  expect(await hosted.files(DOCS)).toEqual(['a.md', 'b.md']);
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({
+      reason: 'another-folder',
+      root: { displayName: DOCS, rootId: DOCS },
+      runId: run,
+      toolCallId: 'b-write',
+    }),
+  ]);
 });
 
 /** The second thread edited the checkout in a turn of its own, before the first began. */

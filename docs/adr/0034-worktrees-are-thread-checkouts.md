@@ -193,11 +193,16 @@ revisit:
 - The host names the worktree as the create sheet does (`generateWorktreeName`)
   and puts it on the branch `bs/<name>`. The ledger records it as the agent's,
   with the run and the thread.
-- A thread has one checkout, so only the folder it works in is replaced by a
-  worktree. A clashing edit in another of its folders, such as the checkout it
-  has already left, is refused with that reason.
-- A folder outside git cannot have a worktree. A later thread's edit there is
-  refused, under Sean's first answer, until the other thread's run has ended.
+- Where a thread cannot be given a worktree it shares the folder, with the
+  note, as Sean's third answer does for a thread with uncommitted edits. An
+  edit is refused only when a worktree should exist and could not be made, or
+  when a thread reaches back into the checkout it left for its worktree.
+  - A thread has one checkout, so only the folder it works in is replaced by a
+    worktree. A clashing edit in another of its folders is made there.
+  - A folder outside git cannot have a worktree. Threads share it as they did
+    before Automatic. The option not taken was to refuse the later thread's
+    edit until the other run ends, which would stop work in a plain folder
+    whenever another thread is running or waiting on an approval.
 - A host that cannot open a worktree as a folder (the standalone host) does
   not apply the rule: its threads share a folder as they did.
 - The refused call's result is how the model learns of the move. It names the

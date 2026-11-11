@@ -154,6 +154,9 @@ function worktreeCreatedNotice(
 }
 
 const SHARED_CHECKOUT_REASONS: Readonly<Record<string, string>> = {
+  'another-folder':
+    'this is not the folder it works in, and only that folder can become its worktree',
+  'not-a-repository': 'this folder is not a git repository, so it has no worktrees',
   'own-uncommitted-edits': 'it has uncommitted edits of its own in this folder',
   'workers-running': 'its workers are still working in this folder',
 };

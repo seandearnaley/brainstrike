@@ -42,15 +42,16 @@ export type HostWorktreeEntryCause = NonNullable<
 export interface HostCheckoutIsolation {
   /**
    * A managed worktree of `rootId`'s checkout, created from its last commit
-   * under the run's identity and opened as a folder. Rejects with the reason
-   * when it cannot be made.
+   * under the run's identity and opened as a folder. Undefined when the folder
+   * is not a git repository: it has no checkout to make a worktree of. Rejects
+   * with the reason when a worktree should exist and could not be made.
    */
   create(request: {
     readonly rootId: string;
     readonly runId: string;
     readonly signal: AbortSignal;
     readonly threadId: string;
-  }): Promise<HostEnteredWorktree>;
+  }): Promise<HostEnteredWorktree | undefined>;
   /** Which of these root-relative `paths` differ from the checkout's last commit. */
   uncommitted(request: {
     readonly paths: readonly string[];
@@ -185,9 +186,16 @@ function sharedNote({ action, root, run }: EditCall, reason: Shared['reason']): 
 }
 
 /**
- * The move, once the call's start is committed. A thread with uncommitted
- * edits of its own in the folder stays and shares it, with a committed note
- * (`checkout.shared`): a worktree made from the last commit would not hold them.
+ * The move, once the call's start is committed. Where the thread cannot be
+ * given a worktree it stays and shares the folder, with a committed note
+ * (`checkout.shared`) saying why:
+ * - it has uncommitted edits of its own there, which a worktree made from the
+ *   last commit would not hold;
+ * - the folder is one of its other folders, and a thread has one checkout:
+ *   only the folder it works in is replaced by a worktree;
+ * - the folder is not a git repository, so there is no worktree to make.
+ * An edit is refused only when a worktree should exist and could not be made,
+ * or when a thread reaches back into the checkout it left for its worktree.
  */
 async function moveHostThread(
   ports: HostEditStartPorts,
@@ -198,6 +206,10 @@ async function moveHostThread(
   const { root, run } = call;
   const { rootId } = root;
   const signal = run.controller.signal;
+  const share = async (reason: Shared['reason']): Promise<HostCheckoutMove> => {
+    await ports.append(run.threadId, [sharedNote(call, reason)]);
+    return { kind: 'run', settle: claim(call) };
+  };
   try {
     const own = ports.checkouts.children
       .subtree(run.threadId)
@@ -208,13 +220,18 @@ async function moveHostThread(
         : [];
     signal.throwIfAborted();
     if (uncommitted.length > 0) {
-      await ports.append(run.threadId, [sharedNote(call, 'own-uncommitted-edits')]);
-      return { kind: 'run', settle: claim(call) };
+      return await share('own-uncommitted-edits');
     }
-    // A thread has one checkout: only the folder it works in is replaced by a worktree.
-    const bound = run.snapshot?.workspaceBinding?.operatingRootId;
+    const binding = run.snapshot?.workspaceBinding;
+    const bound = binding?.operatingRootId;
     if (bound !== undefined && bound !== rootId) {
-      return refused(call, `${root.displayName} is not the folder this conversation works in.`);
+      // The checkout it left stays the other thread's: its own work is in its worktree.
+      return binding?.checkoutLocalRootId === rootId
+        ? refused(
+            call,
+            `This conversation already works in a worktree of ${root.displayName}. Make the edit there.`
+          )
+        : await share('another-folder');
     }
     const worktree = await isolation.create({
       rootId,
@@ -222,6 +239,9 @@ async function moveHostThread(
       signal,
       threadId: run.threadId,
     });
+    if (worktree === undefined) {
+      return await share('not-a-repository');
+    }
     await enter(worktree, 'checkout-contended');
     const branch = worktree.branch ? ` on branch ${worktree.branch}` : '';
     return {

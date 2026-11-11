@@ -52,7 +52,12 @@ export function hostCheckoutIsolation(options: {
           ).error
         );
       }
-      const { suggestedName: name } = settled(await service.createContext({ rootId }));
+      const context = await service.createContext({ rootId });
+      // A folder outside git has no checkout to make a worktree of: its threads share it.
+      if (!context.ok && context.error.code === 'git.not-a-repository') {
+        return;
+      }
+      const { suggestedName: name } = settled(context);
       signal.throwIfAborted();
       const created = settled(
         await worktreeTools.create({ baseRef: 'HEAD', branch: `bs/${name}`, name, rootId })
