@@ -6,7 +6,7 @@
  * checkout's last commit and is recorded as the agent's, and a checkout's
  * uncommitted paths are the ones git reports.
  */
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -121,6 +121,33 @@ describe('the host isolates a checkout (real git + real SQLite)', () => {
     await expect(
       isolation().uncommitted({ paths: ['hello.ts', 'new.ts', 'kept.ts'], rootId: 'r-1', signal })
     ).resolves.toEqual([]);
+  });
+
+  it('names a path inside a nested repository, which git reports as one folder', async () => {
+    const nested = path.join(repo, 'vendor', 'tool');
+    mkdirSync(nested, { recursive: true });
+    git(nested, ['init', '-b', 'main']);
+    writeFileSync(path.join(nested, 'inner.ts'), 'export const inner = true;\n');
+
+    // Git's status has the one entry `vendor/tool/` for everything in it.
+    await expect(
+      isolation().uncommitted({
+        paths: ['vendor/tool/inner.ts', 'vendor/other.ts', 'hello.ts'],
+        rootId: 'r-1',
+        signal,
+      })
+    ).resolves.toEqual(['vendor/tool/inner.ts']);
+  });
+
+  it('names a path whose name git reports in another Unicode form', async () => {
+    // "é" as e and a combining accent, the form a tool given that name writes it in.
+    const decomposed = 'café.ts';
+    writeFileSync(path.join(repo, decomposed), 'export const cafe = true;\n');
+
+    // On macOS git reports the name precomposed; the edit record holds it as it was written.
+    await expect(
+      isolation().uncommitted({ paths: [decomposed, 'hello.ts'], rootId: 'r-1', signal })
+    ).resolves.toEqual([decomposed]);
   });
 
   it('has no worktree to make when the folder is not a git repository', async () => {

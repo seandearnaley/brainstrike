@@ -72,10 +72,17 @@ export function hostCheckoutIsolation(options: {
     uncommitted: async ({ paths, rootId, signal }) => {
       const { files } = settled(await options.status(rootId));
       signal.throwIfAborted();
-      const changed = new Set(
-        files.flatMap((file) => [file.path, ...(file.originalPath ? [file.originalPath] : [])])
-      );
-      return paths.filter((candidate) => changed.has(candidate));
+      // One Unicode form on both sides: macOS git reports a name precomposed however it is stored.
+      const changed = files
+        .flatMap((file) => [file.path, ...(file.originalPath ? [file.originalPath] : [])])
+        .map((entry) => entry.normalize('NFC'));
+      const names = new Set(changed);
+      // A folder git reports as one entry (a nested repository) covers every path in it.
+      const folders = changed.filter((entry) => entry.endsWith('/'));
+      return paths.filter((candidate) => {
+        const name = candidate.normalize('NFC');
+        return names.has(name) || folders.some((folder) => name.startsWith(folder));
+      });
     },
   };
 }
