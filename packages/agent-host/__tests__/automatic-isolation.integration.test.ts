@@ -686,6 +686,50 @@ test('a thread whose workers are still working is not moved, and says it shares 
   ]);
 });
 
+test('a worker dispatched in the same step as the first edit keeps the thread, which says it shares the folder', async () => {
+  const WORKER_TASK = 'WORKER_TASK: keep working.';
+  const workerStarted = Promise.withResolvers<void>();
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          return writesThenWorks('a.txt', 'a-write')(turn, call);
+        }
+        if (first.includes(WORKER_TASK)) {
+          workerStarted.resolve();
+          return blocked(call);
+        }
+        return stream(
+          turn.answered === 0
+            ? toolCalls([
+                ['write_file', { content: 'b', path: 'b.txt' }, 'b-write'],
+                ['agent-worker', { prompt: WORKER_TASK }, 'delegate'],
+              ])
+            : text('Parent done.')
+        );
+      },
+    }),
+    // The worktree is still being made when the worker of the same step starts.
+    { holdCreate: workerStarted.promise }
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt and delegate.');
+  // The edit was decided before the worker existed, so the host began the move.
+  await hosted.creating;
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // It stays with the worker (ADR-0028 rule 5): the edit ran in place, never refused.
+  expect(outputOf(rows, 'b-write')).toEqual({ written: 'b.txt' });
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({ reason: 'workers-running', runId: run, toolCallId: 'b-write' }),
+  ]);
+});
+
 test('when the worktree cannot be made, the edit is refused and nothing is written', async () => {
   const hosted = await host(
     scripted({

@@ -262,6 +262,11 @@ async function moveHostThread(
     const failure = toBoundaryFailure(cause, (message, fields) =>
       logger.error(message, { ...fields, runId: run.id, threadId: run.threadId })
     );
+    // A worker dispatched in the same step began while the worktree was being made, so the
+    // entry refused (`hostWorktreeEntry`): the thread stays with it, as with any worker.
+    if (failure.code === 'worktree.workers-running') {
+      return await share('workers-running');
+    }
     return refused(call, describeBoundaryFailureForModel(failure));
   }
 }
