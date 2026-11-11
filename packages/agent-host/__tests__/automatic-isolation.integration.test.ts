@@ -625,6 +625,42 @@ test("a delegated worker's edit never moves its parent", async () => {
   expect(startedRuns(rows)).toHaveLength(1);
 });
 
+test('a thread whose workers are still working is not moved, and says it shares the folder', async () => {
+  const WORKER_TASK = 'WORKER_TASK: keep working.';
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          return writesThenWorks('a.txt', 'a-write')(turn, call);
+        }
+        if (first.includes(WORKER_TASK)) {
+          return blocked(call);
+        }
+        return stream(
+          [
+            toolCall('agent-worker', { prompt: WORKER_TASK }, 'delegate'),
+            write('b.txt', 'b-write'),
+          ][turn.answered] ?? text('Parent done.')
+        );
+      },
+    })
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: delegate, then write b.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // It stays with the worker it dispatched (ADR-0028 rule 5), so its edit ran in place.
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({ reason: 'workers-running', runId: run, toolCallId: 'b-write' }),
+  ]);
+});
+
 test('when the worktree cannot be made, the edit is refused and nothing is written', async () => {
   const hosted = await host(
     scripted({
