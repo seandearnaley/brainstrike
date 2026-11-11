@@ -32,12 +32,13 @@ export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
    * work there, the folder is one of its other folders (only the folder a
    * thread works in becomes its worktree), or the folder cannot be given a
    * worktree. That is a folder that is not a git repository, a repository
-   * with no commit yet, and a folder inside a repository, below its top
-   * folder.
+   * with no commit yet, a folder inside a repository, below its top folder,
+   * and a folder git cannot read on this machine.
    */
   Schema.Struct({
     reason: Schema.Literals([
       'another-folder',
+      'git-unavailable',
       'inside-a-repository',
       'no-commit-yet',
       'not-a-repository',

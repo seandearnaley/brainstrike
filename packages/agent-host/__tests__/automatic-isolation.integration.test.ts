@@ -503,6 +503,7 @@ test.each([
   ['is not a git repository', 'not-a-repository'],
   ['is a repository with no commit yet', 'no-commit-yet'],
   ['is inside a repository, below its top folder', 'inside-a-repository'],
+  ['git cannot read on this machine', 'git-unavailable'],
 ] as const)(
   'in a folder that %s the second thread edits in place, and says why it shares the folder',
   async (_folder, reason) => {
@@ -651,6 +652,43 @@ test('an edit in a folder that is not the thread’s own is refused there, never
   expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
   expect(outputOf(rows, 'b-write-back')).toMatchObject({ ok: false });
   expect(moves(rows)).toHaveLength(1);
+});
+
+test('a thread reaching back into the checkout it left is refused there, even where that checkout holds a path it once edited', async () => {
+  let otherThreadChangedB1 = (): void => undefined;
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': (turn) => {
+        if (turn.answered > 0) {
+          return stream(text('Done.'));
+        }
+        if (turn.text.includes(MOVED)) {
+          // Thread A has since changed b1.txt in the checkout, so a path B once edited there is
+          // uncommitted again, though the change is not B's.
+          otherThreadChangedB1();
+          return stream(write('b1.txt', 'b1-write-back', LOCAL));
+        }
+        return stream(
+          turn.text.includes('b2.txt') ? write('b2.txt', 'b2-write') : write('b1.txt', 'b1-write')
+        );
+      },
+    })
+  );
+  otherThreadChangedB1 = () => {
+    hosted.harness.uncommitted = ['b1.txt'];
+  };
+  const second = await secondThreadEditedEarlier(hosted);
+  await firstThreadIsWriting(hosted);
+  // The person committed B's earlier work, so B is moved at its next clashing edit.
+  hosted.harness.uncommitted = [];
+  const run = await hosted.run(second, 'Now write b2.txt.');
+  const rows = await turnFinishedAfter(hosted, second, run);
+
+  expect(moves(rows)).toHaveLength(1);
+  // Its own work is in its worktree: the checkout it left stays the other thread's.
+  expect(outputOf(rows, 'b1-write-back')).toMatchObject({ ok: false });
+  expect(sharedNotes(rows)).toEqual([]);
 });
 
 /** The second thread's first edit clashed, and the host is still making its worktree. */

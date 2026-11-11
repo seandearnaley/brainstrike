@@ -11,6 +11,7 @@ import path from 'node:path';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { hostCheckoutIsolation } from '../../src/git-workspace/checkout-isolation.ts';
+import { gitRefused } from '../../src/git-workspace/git-failure.ts';
 import { execFileGitRunner } from '../../src/git-workspace/git-methods.ts';
 import { createGitService } from '../../src/git-workspace/git-service.ts';
 import { buildTestService, createTestWorkspace, git } from './worktree-service.shared.ts';
@@ -162,6 +163,32 @@ describe('the host isolates a checkout (real git + real SQLite)', () => {
       expect(git(repository, ['branch', '--list', 'bs/*'])).toBe('');
     }
   };
+
+  it('has no worktree to make when git cannot read the folder on this machine', async () => {
+    const service = buildTestService({ db, managedDirectory, repo });
+    const built = hostCheckoutIsolation({
+      // As the git runner reports a spawn that found no `git` on PATH.
+      repository: async () => gitRefused('configuration', 'git.not-installed', 'spawn git ENOENT'),
+      services: {
+        openWorktreeFolder: async (worktreePath) => {
+          opened.push(worktreePath);
+          return { displayName: 'worktree', path: worktreePath, rootId: 'worktree-root' };
+        },
+        resolveWorktreeService: () => service,
+      },
+      status: () => createGitService({ cwd: repo, run: execFileGitRunner }).status(),
+    });
+    if (!built) {
+      throw new Error('A host that opens worktrees as folders isolates checkouts');
+    }
+
+    // Not a refused edit: with no git to ask, its threads share the folder, as before Automatic.
+    await expect(
+      built.create({ rootId: 'r-1', runId: 'run-7', signal, threadId: 'thread-7' })
+    ).resolves.toEqual({ noWorktree: 'git-unavailable' });
+    expect(opened).toEqual([]);
+    expect((await db.worktreeLedger({ operation: 'list-active' })).rows).toEqual([]);
+  });
 
   it('has no worktree to make when the folder is not a git repository', async () => {
     const folder = workspace.freshTempDir('bst-isolation-plain-');

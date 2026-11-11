@@ -220,12 +220,18 @@ revisit:
     before Automatic. The option not taken was to refuse the later thread's
     edit until the other run ends, which would stop work in a plain folder
     whenever another thread is running or waiting on an approval.
-  - Two more folders cannot have one, and share the same way. A repository
+  - Three more folders cannot have one, and share the same way. A repository
     with no commit yet has nothing for a worktree to start from. A folder
     inside a repository, below its top folder, cannot be replaced by a
     worktree of the whole repository: the same relative path would land
-    somewhere else. The platform reads each case from what git reports of
-    the folder, before it creates anything.
+    somewhere else. And on a machine where git is missing or cannot read the
+    folder, nothing says a worktree could exist; git's failure is logged. The
+    platform reads each case from what git reports of the folder, before it
+    creates anything.
+  - A thread in a worktree that reaches back into the checkout it left is
+    refused before anything else is weighed. A path it once edited there may
+    be uncommitted again by the other thread's change, which is not its own
+    work.
 - "Uncommitted edits of its own" (Sean's third answer) is read as the paths in
   the edit records of the thread and its workers that git's status still
   reports as changed.

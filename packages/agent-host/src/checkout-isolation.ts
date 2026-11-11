@@ -37,14 +37,14 @@ export type HostWorktreeEntryCause = NonNullable<
 /**
  * A folder that cannot be given a worktree, and why: it is not a git
  * repository, its repository has no commit yet for a worktree to start from,
- * or it is a folder inside a repository, below its top folder, which a
- * worktree of the whole repository cannot stand in for. Its threads share it,
- * and the reason is the one their note carries.
+ * it is a folder inside a repository, below its top folder, which a worktree
+ * of the whole repository cannot stand in for, or git cannot read it on this
+ * machine. Its threads share it, and the reason is the one their note carries.
  */
 export interface HostNoWorktree {
   readonly noWorktree: Extract<
     Shared['reason'],
-    'inside-a-repository' | 'no-commit-yet' | 'not-a-repository'
+    'git-unavailable' | 'inside-a-repository' | 'no-commit-yet' | 'not-a-repository'
   >;
 }
 
@@ -241,6 +241,16 @@ async function moveHostThread(
     return { kind: 'run', settle: claim(call) };
   };
   try {
+    const binding = run.snapshot?.workspaceBinding;
+    // The checkout it left stays the other thread's: its own work is in its worktree. This
+    // comes first, because a path it once edited there can be uncommitted again by the other
+    // thread's change, and is not its own work any more.
+    if (binding?.checkoutMode === 'worktree' && binding.checkoutLocalRootId === rootId) {
+      return refused(
+        call,
+        `This conversation already works in a worktree of ${root.displayName}. Make the edit there.`
+      );
+    }
     const own = ports.checkouts.children
       .subtree(run.threadId)
       .flatMap((threadId) => ports.checkouts.edits.editedPaths(threadId, rootId));
@@ -252,16 +262,10 @@ async function moveHostThread(
     if (uncommitted.length > 0) {
       return await share('own-uncommitted-edits');
     }
-    const binding = run.snapshot?.workspaceBinding;
+    // A thread has one checkout: only the folder it works in is replaced by a worktree.
     const bound = binding?.operatingRootId;
     if (bound !== undefined && bound !== rootId) {
-      // The checkout it left stays the other thread's: its own work is in its worktree.
-      return binding?.checkoutLocalRootId === rootId
-        ? refused(
-            call,
-            `This conversation already works in a worktree of ${root.displayName}. Make the edit there.`
-          )
-        : await share('another-folder');
+      return await share('another-folder');
     }
     const worktree = await isolation.create({
       rootId,

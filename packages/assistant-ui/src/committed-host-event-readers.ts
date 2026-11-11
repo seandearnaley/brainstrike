@@ -156,6 +156,7 @@ function worktreeCreatedNotice(
 const SHARED_CHECKOUT_REASONS: Readonly<Record<string, string>> = {
   'another-folder':
     'this is not the folder it works in, and only that folder can become its worktree',
+  'git-unavailable': 'git could not read this folder on this machine, so no worktree can be made',
   'inside-a-repository':
     'this folder is inside a git repository and is not its top folder, so a worktree cannot take its place',
   'no-commit-yet': 'this repository has no commit yet, so a worktree has nothing to start from',

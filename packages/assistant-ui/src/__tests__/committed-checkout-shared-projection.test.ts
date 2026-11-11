@@ -92,6 +92,12 @@ it('says when the thread stayed because the folder is one of its other folders',
   );
 });
 
+it('says when the thread stayed because git could not read the folder', () => {
+  expect(notices('git-unavailable')[0]?.detail).toBe(
+    'Another thread is editing beaker too. This thread stayed here because git could not read this folder on this machine, so no worktree can be made.'
+  );
+});
+
 it('refuses a reason it does not know rather than showing a wrong one', () => {
   expect(() => notices('because')).toThrow('Committed shared checkout has an unsupported reason.');
 });

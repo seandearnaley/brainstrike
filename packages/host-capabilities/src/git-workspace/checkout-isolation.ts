@@ -16,6 +16,7 @@
 import type { HostPlatform } from '@brainstrike/agent-host';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import { createLogger } from '@brainstrike/logging';
 import type { GitRepository, GitStatus } from '@brainstrike/types';
 import { gitRefused } from './git-failure.ts';
 import {
@@ -28,6 +29,8 @@ type NoWorktree = Extract<
   Awaited<ReturnType<HostCheckoutIsolation['create']>>,
   { readonly noWorktree: string }
 >;
+
+const logger = createLogger('CheckoutIsolation');
 
 /** The object id git reports for a HEAD with no commit: every digit zero. */
 const NO_COMMIT = /^0+$/u;
@@ -44,11 +47,22 @@ function settled<T>(result: BoundaryResult<T>): T {
  * before anything is created; undefined when it can. Its threads share it.
  */
 function noWorktree(repository: BoundaryResult<GitRepository>): NoWorktree | undefined {
-  // A folder outside git has no checkout to make a worktree of.
-  if (!repository.ok && repository.error.code === 'git.not-a-repository') {
-    return { noWorktree: 'not-a-repository' };
+  if (!repository.ok) {
+    // A folder outside git has no checkout to make a worktree of.
+    if (repository.error.code === 'git.not-a-repository') {
+      return { noWorktree: 'not-a-repository' };
+    }
+    // Git is missing or cannot read the folder here (no `git` on PATH, a stub that only asks
+    // for developer tools), so nothing says a worktree could exist. Refusing the edit would
+    // stop a second thread's work in that folder whenever another thread runs; it shares
+    // instead, and git's own failure is logged.
+    logger.warn('Git could not read a folder another thread is editing; its threads share it', {
+      code: repository.error.code,
+      message: repository.error.message,
+    });
+    return { noWorktree: 'git-unavailable' };
   }
-  const { currentWorktree, scope } = settled(repository);
+  const { currentWorktree, scope } = repository.value;
   // A worktree is a checkout of the whole repository. Opened in place of a folder inside
   // one, it would take the thread's relative paths somewhere else.
   if (scope === 'workspace') {
