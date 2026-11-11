@@ -15,6 +15,10 @@ import { canonical, jsonValue } from './json-value.ts';
 import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from './ports.ts';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
 import { foldHostWorktreeEntry } from './worktree-binding.ts';
+/** The run a committed binding names as having moved its thread, and why when the host did it. */
+export type HostWorktreeEntry = NonNullable<
+  Extract<HostEvent, { type: 'workspace.binding.updated' }>['enteredBy']
+>;
 /** In-memory projections of Core's existing thread log; owns no writer or queue. */
 export class HostThreadWorkspaceState {
   private readonly snapshots = new Map<string, HostParams<'thread/workspace/set'>['snapshot']>();
@@ -92,7 +96,7 @@ export class HostThreadWorkspaceState {
     platform: HostPlatform,
     pending: Map<AbortController, string>,
     /** Core's own worktree entry (ADR-0028); a client's binding update never names a run. */
-    enteredBy?: { readonly runId: string }
+    enteredBy?: HostWorktreeEntry
   ): Promise<{
     accepted: true;
   }> {

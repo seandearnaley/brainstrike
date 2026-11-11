@@ -1,0 +1,756 @@
+/**
+ * ADR-0034, owner decisions 2026-11-11: Automatic isolation. A thread starts in
+ * the repository's own checkout. When its first file edit would land in a
+ * folder another thread's run in progress has already edited, the host does
+ * not run that edit: it makes a worktree of that checkout, moves the thread
+ * into it and the same turn carries on there. A thread that only reads creates
+ * nothing, and threads that take turns share the checkout.
+ */
+import { randomUUID } from 'node:crypto';
+import { refusalError } from '@brainstrike/assistant-contract';
+import { MockLanguageModelV4 } from 'ai/test';
+import { afterEach, expect, test } from 'vitest';
+import {
+  automaticIsolationHost,
+  DOCS,
+  firstThreadIsWriting,
+  type Host,
+  LOCAL,
+  latestTurn,
+  MOVED,
+  moves,
+  outputOf,
+  rowsWhere,
+  type Scripted,
+  scripted,
+  sharedNotes,
+  startedRuns,
+  turnFinishedAfter,
+  write,
+  writesThenWorks,
+  writesWhereverItIs,
+} from './fixtures/automatic-isolation-host.js';
+import {
+  blocked,
+  finished,
+  stream,
+  text,
+  toolCall,
+  toolCalls,
+  userTexts,
+} from './fixtures/child-run-host.js';
+
+const cleanup: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) {
+    await close();
+  }
+});
+
+const host = (
+  model: MockLanguageModelV4,
+  options?: Parameters<typeof automaticIsolationHost>[2]
+): ReturnType<typeof automaticIsolationHost> => automaticIsolationHost(model, cleanup, options);
+
+test("the second thread's first edit leaves the shared folder unchanged and lands in a worktree", async () => {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': writesWhereverItIs('b.txt', 'b-write'),
+    })
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const firstRun = await hosted.run(second, 'B: write b.txt.');
+  const rows = await turnFinishedAfter(hosted, second, firstRun);
+
+  // Nothing of the second thread reached the folder the first is writing.
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+  expect(await hosted.files('worktree-root-1')).toEqual(['b.txt']);
+  // The host made one worktree of that checkout, for this thread and run.
+  expect(hosted.created).toEqual([{ rootId: LOCAL, runId: firstRun, threadId: second }]);
+  // The move went through the binding's own command, and says the host made it and why.
+  const [moved] = moves(rows);
+  expect(moves(rows)).toHaveLength(1);
+  expect(moved).toMatchObject({
+    binding: {
+      checkoutBranch: 'bs/quiet-otter-1',
+      checkoutLocalRootId: LOCAL,
+      checkoutMode: 'worktree',
+      checkoutWorktreeId: 'worktree-1',
+      operatingRootId: 'worktree-root-1',
+      secondaryRootIds: [LOCAL],
+    },
+    enteredBy: { cause: 'checkout-contended', runId: firstRun },
+  });
+  // The refused edit was settled unrun, with a reason the model reads.
+  expect(outputOf(rows, 'b-write')).toMatchObject({
+    error: { message: expect.stringContaining('bs/quiet-otter-1') },
+    ok: false,
+  });
+  // The same turn carried on in the worktree, in a run the host started there.
+  const [, next] = startedRuns(rows);
+  expect(next).toMatchObject({ hostPrompt: true, parentMessageId: firstRun, turnId: firstRun });
+  expect(rows.find(finished(next?.runId ?? ''))?.event).toMatchObject({ outcome: 'completed' });
+  expect(hosted.requests.at(-1)?.workspaceBinding).toMatchObject({
+    operatingRootId: 'worktree-root-1',
+  });
+  expect(rows.find(finished(firstRun))?.event).toMatchObject({ outcome: 'completed' });
+});
+
+test('a thread with no folder of its own is moved the same way', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': writesWhereverItIs('b.txt', 'b-write'),
+    })
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread(false);
+  const firstRun = await hosted.run(second, 'B: write b.txt.');
+  const rows = await turnFinishedAfter(hosted, second, firstRun);
+
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+  expect(await hosted.files('worktree-root-1')).toEqual(['b.txt']);
+  expect(moves(rows)[0]?.binding).toMatchObject({
+    checkoutLocalRootId: LOCAL,
+    checkoutMode: 'worktree',
+    operatingRootId: 'worktree-root-1',
+  });
+});
+
+test('a second thread that only reads creates nothing', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': (turn) =>
+        stream(
+          turn.answered === 0
+            ? toolCall('read_file', { path: 'a.txt' }, 'b-read')
+            : text('It says a.txt content.')
+        ),
+    })
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: read a.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  expect(outputOf(rows, 'b-read')).toEqual({ content: 'a.txt content' });
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(startedRuns(rows)).toHaveLength(1);
+});
+
+test('the first thread finished, so the second edits in place', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': (turn) => stream(turn.answered === 0 ? write('a.txt', 'a-write') : text('Done.')),
+      'B:': writesWhereverItIs('b.txt', 'b-write'),
+    })
+  );
+  const first = await hosted.thread();
+  const firstRun = await hosted.run(first, 'A: write a.txt.');
+  await rowsWhere(hosted.core(), first, (all) => all.some(finished(firstRun)));
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // Threads that take turns share the checkout.
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([]);
+});
+
+test('two first edits race and exactly one thread moves', async () => {
+  const release = Promise.withResolvers<void>();
+  const hosted = await host(
+    scripted({
+      'A:': writesWhereverItIs('a.txt', 'a-write'),
+      'B:': writesWhereverItIs('b.txt', 'b-write'),
+    }),
+    { holdWrites: release.promise }
+  );
+  const [first, second] = [await hosted.thread(), await hosted.thread()];
+  // Neither has recorded an edit when the other's begins: both writes are held in their tools.
+  const [firstRun, secondRun] = await Promise.all([
+    hosted.run(first, 'A: write a.txt.'),
+    hosted.run(second, 'B: write b.txt.'),
+  ]);
+  await rowsWhere(hosted.core(), first, () => hosted.created.length === 1);
+  release.resolve();
+  await Promise.all([hosted.core().idle(first), hosted.core().idle(second)]);
+
+  const moved = hosted.created[0]?.threadId;
+  const stayed = moved === first ? second : first;
+  expect([first, second]).toContain(moved);
+  expect(hosted.created).toHaveLength(1);
+  // The one that stayed wrote the shared folder; the one that moved wrote its worktree only.
+  const stayedFile = stayed === first ? 'a.txt' : 'b.txt';
+  const movedFile = stayed === first ? 'b.txt' : 'a.txt';
+  expect(await hosted.files(LOCAL)).toEqual([stayedFile]);
+  expect(await hosted.files('worktree-root-1')).toEqual([movedFile]);
+  expect(moves(await hosted.core().read(stayed, 0))).toEqual([]);
+  expect(moves(await hosted.core().read(moved ?? '', 0))).toHaveLength(1);
+  expect([firstRun, secondRun]).toContain(hosted.created[0]?.runId);
+});
+
+test('every edit of the step that moved the thread is left unrun', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': (turn) => {
+        if (turn.text.includes(MOVED)) {
+          return stream(
+            turn.answered === 0
+              ? toolCalls([
+                  ['write_file', { content: 'b', path: 'b.txt' }, 'b-write-moved'],
+                  ['write_file', { content: 'c', path: 'c.txt' }, 'c-write-moved'],
+                ])
+              : text('Done.')
+          );
+        }
+        return stream(
+          toolCalls([
+            ['write_file', { content: 'b', path: 'b.txt' }, 'b-write'],
+            ['write_file', { content: 'c', path: 'c.txt' }, 'c-write'],
+          ])
+        );
+      },
+    })
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const firstRun = await hosted.run(second, 'B: write b.txt and c.txt.');
+  const rows = await turnFinishedAfter(hosted, second, firstRun);
+
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+  expect(await hosted.files('worktree-root-1')).toEqual(['b.txt', 'c.txt']);
+  expect(hosted.created).toHaveLength(1);
+  expect(outputOf(rows, 'b-write')).toMatchObject({ ok: false });
+  expect(outputOf(rows, 'c-write')).toMatchObject({ ok: false });
+});
+
+test('a host restarted after the move was committed continues the turn in the worktree', async () => {
+  let restarted = false;
+  // The thread whose edits ask a person: the second, until its approved edit is settled.
+  let asking = '';
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': async (turn, call) => {
+        if (turn.text.includes(MOVED)) {
+          return stream(turn.answered === 0 ? write('b.txt', 'b-write-moved') : text('Done.'));
+        }
+        if (turn.answered === 0) {
+          return stream(write('b.txt', 'b-write'));
+        }
+        if (!restarted) {
+          // The process dies while the step after the move is in flight.
+          return await new Promise<never>((_resolve, reject) => {
+            call.abortSignal?.addEventListener('abort', () => reject(new Error('aborted')));
+          });
+        }
+        return stream(text('Carrying on in the worktree.'));
+      },
+    }),
+    { asks: (threadId) => threadId === asking }
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  asking = second;
+  const firstRun = await hosted.run(second, 'B: write b.txt.');
+  const asked = await rowsWhere(hosted.core(), second, (all) =>
+    all.some(({ event }) => event.type === 'interaction.requested')
+  );
+  const request = asked.find(({ event }) => event.type === 'interaction.requested')?.event;
+  if (request?.type !== 'interaction.requested') {
+    throw new Error('Expected an approval request');
+  }
+  await hosted.core().respond({
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: request.interactionId,
+    runId: firstRun,
+    threadId: second,
+  });
+  // The approved edit was refused and the move committed; its run's next step is in flight.
+  await rowsWhere(hosted.core(), second, (all) => outputOf(all, 'b-write') !== undefined);
+  expect(moves(await hosted.core().read(second, 0))).toHaveLength(1);
+
+  restarted = true;
+  asking = '';
+  await hosted.crash();
+  const rows = await turnFinishedAfter(hosted, second, firstRun);
+
+  expect(rows.find(finished(firstRun))?.event).toMatchObject({ outcome: 'completed' });
+  expect(startedRuns(rows).find((run) => run.runId !== firstRun)).toMatchObject({
+    hostPrompt: true,
+    parentMessageId: firstRun,
+  });
+  expect(hosted.requests.at(-1)?.workspaceBinding).toMatchObject({
+    operatingRootId: 'worktree-root-1',
+  });
+  // The restart made no second worktree and wrote nothing into the shared folder.
+  expect(hosted.created).toHaveLength(1);
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+  expect(await hosted.files('worktree-root-1')).toEqual(['b.txt']);
+});
+
+test("a delegated worker's edit never moves its parent", async () => {
+  const CHILD_TASK = 'CHILD_TASK: write w.txt.';
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          return writesThenWorks('a.txt', 'a-write')(turn, call);
+        }
+        if (first.includes(CHILD_TASK)) {
+          return stream(turn.answered === 0 ? write('w.txt', 'w-write') : text('Worker done.'));
+        }
+        return stream(
+          turn.answered === 0
+            ? toolCall(
+                'agent-worker',
+                { _background: { disposition: 'awaited', enabled: true }, prompt: CHILD_TASK },
+                'delegate'
+              )
+            : text('Parent done.')
+        );
+      },
+    })
+  );
+  const first = await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: delegate the write.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+  const [workerThread] = (await hosted.store.threads()).filter(
+    (threadId) => threadId !== first && threadId !== second
+  );
+  const workerRows = await hosted.core().read(workerThread ?? '', 0);
+
+  // The worker's edit clashed with the first thread's, and it ran where its parent works.
+  expect(outputOf(workerRows, 'w-write')).toEqual({ written: 'w.txt' });
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'w.txt']);
+  // The host decided nothing for it: no worktree, no move and no note, on either thread.
+  expect(hosted.created).toEqual([]);
+  expect(moves([...rows, ...workerRows])).toEqual([]);
+  expect(sharedNotes([...rows, ...workerRows])).toEqual([]);
+  expect(startedRuns(rows)).toHaveLength(1);
+});
+
+test("a finished worker's edit still counts as its thread writing while the thread's run goes on", async () => {
+  const CHILD_TASK = 'CHILD_TASK: write w.txt.';
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          // Its awaited worker makes the edit, then its own run keeps working.
+          return turn.answered === 0
+            ? stream(
+                toolCall(
+                  'agent-worker',
+                  { _background: { disposition: 'awaited', enabled: true }, prompt: CHILD_TASK },
+                  'delegate'
+                )
+              )
+            : blocked(call);
+        }
+        if (first.includes(CHILD_TASK)) {
+          return stream(turn.answered === 0 ? write('w.txt', 'w-write') : text('Worker done.'));
+        }
+        return writesWhereverItIs('b.txt', 'b-write')(turn);
+      },
+    })
+  );
+  const first = await hosted.thread();
+  const firstRun = await hosted.run(first, 'A: delegate the write and keep working.');
+  // The worker has ended and its result is back; the first thread's run is still in progress.
+  const delegated = await rowsWhere(
+    hosted.core(),
+    first,
+    (all) => outputOf(all, 'delegate') !== undefined
+  );
+  expect(delegated.some(finished(firstRun))).toBe(false);
+  expect(await hosted.files(LOCAL)).toEqual(['w.txt']);
+
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // A thread and its workers are one writer, so the second thread is the later one and moves.
+  expect(moves(rows)).toHaveLength(1);
+  expect(sharedNotes(rows)).toEqual([]);
+  await turnFinishedAfter(hosted, second, run);
+  expect(await hosted.files(LOCAL)).toEqual(['w.txt']);
+  expect(await hosted.files('worktree-root-1')).toEqual(['b.txt']);
+});
+
+test('a thread whose workers are still working is not moved, and says it shares the folder', async () => {
+  const WORKER_TASK = 'WORKER_TASK: keep working.';
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          return writesThenWorks('a.txt', 'a-write')(turn, call);
+        }
+        if (first.includes(WORKER_TASK)) {
+          return blocked(call);
+        }
+        return stream(
+          [
+            toolCall('agent-worker', { prompt: WORKER_TASK }, 'delegate'),
+            write('b.txt', 'b-write'),
+          ][turn.answered] ?? text('Parent done.')
+        );
+      },
+    })
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: delegate, then write b.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // It stays with the worker it dispatched (ADR-0028 rule 5), so its edit ran in place.
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({ reason: 'workers-running', runId: run, toolCallId: 'b-write' }),
+  ]);
+});
+
+test('a worker dispatched in the same step as the first edit keeps the thread, which says it shares the folder', async () => {
+  const WORKER_TASK = 'WORKER_TASK: keep working.';
+  const workerStarted = Promise.withResolvers<void>();
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          return writesThenWorks('a.txt', 'a-write')(turn, call);
+        }
+        if (first.includes(WORKER_TASK)) {
+          workerStarted.resolve();
+          return blocked(call);
+        }
+        return stream(
+          turn.answered === 0
+            ? toolCalls([
+                ['write_file', { content: 'b', path: 'b.txt' }, 'b-write'],
+                ['agent-worker', { prompt: WORKER_TASK }, 'delegate'],
+              ])
+            : text('Parent done.')
+        );
+      },
+    }),
+    // The worktree is still being made when the worker of the same step starts.
+    { holdCreate: workerStarted.promise }
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt and delegate.');
+  // The edit was decided before the worker existed, so the host began the move.
+  await hosted.creating;
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // It stays with the worker (ADR-0028 rule 5): the edit ran in place, never refused.
+  expect(outputOf(rows, 'b-write')).toEqual({ written: 'b.txt' });
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({ reason: 'workers-running', runId: run, toolCallId: 'b-write' }),
+  ]);
+});
+
+test('when the worktree cannot be made, the edit is refused and nothing is written', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': (turn) => stream(turn.answered === 0 ? write('b.txt', 'b-write') : text('Blocked.')),
+    })
+  );
+  hosted.harness.failCreate = refusalError(
+    'conflict',
+    'git.command-failed',
+    'fatal: could not create work tree dir'
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+  expect(moves(rows)).toEqual([]);
+  // The model reads why, in the refused call's result, and the run goes on where it was.
+  expect(outputOf(rows, 'b-write')).toMatchObject({
+    error: { message: expect.stringContaining('fatal: could not create work tree dir') },
+    ok: false,
+  });
+  expect(startedRuns(rows)).toHaveLength(1);
+  expect(rows.find(finished(run))?.event).toMatchObject({ outcome: 'completed' });
+});
+
+test.each([
+  ['is not a git repository', 'not-a-repository'],
+  ['is a repository with no commit yet', 'no-commit-yet'],
+  ['is inside a repository, below its top folder', 'inside-a-repository'],
+  ['git cannot read on this machine', 'git-unavailable'],
+] as const)(
+  'in a folder that %s the second thread edits in place, and says why it shares the folder',
+  async (_folder, reason) => {
+    const hosted = await host(
+      scripted({
+        'A:': writesThenWorks('a.txt', 'a-write'),
+        'B:': (turn) => stream(turn.answered === 0 ? write('b.txt', 'b-write') : text('Done.')),
+      })
+    );
+    hosted.harness.noWorktree = reason;
+    await firstThreadIsWriting(hosted);
+    const second = await hosted.thread();
+    const run = await hosted.run(second, 'B: write b.txt.');
+    const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+    // The folder cannot be given a worktree, so both threads write it, as before Automatic.
+    expect(outputOf(rows, 'b-write')).toEqual({ written: 'b.txt' });
+    expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b.txt']);
+    expect(hosted.created).toEqual([]);
+    expect(moves(rows)).toEqual([]);
+    expect(sharedNotes(rows)).toEqual([
+      expect.objectContaining({
+        reason,
+        root: { displayName: LOCAL, rootId: LOCAL },
+        runId: run,
+        toolCallId: 'b-write',
+      }),
+    ]);
+  }
+);
+
+test('an edit in one of the thread’s other folders is made there, and says it shares that folder', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': (turn, call) =>
+        turn.answered === 0 ? stream(write('a.md', 'a-write', DOCS)) : blocked(call),
+      'B:': (turn) => stream(turn.answered === 0 ? write('b.md', 'b-write', DOCS) : text('Done.')),
+    })
+  );
+  const first = await hosted.thread(true, [DOCS]);
+  await hosted.run(first, 'A: write a.md in docs and keep working.');
+  await hosted.startedWriting('a.md');
+  const second = await hosted.thread(true, [DOCS]);
+  const run = await hosted.run(second, 'B: write b.md in docs.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // Only the folder a thread works in can become its worktree; its other folders stay shared.
+  expect(await hosted.files(DOCS)).toEqual(['a.md', 'b.md']);
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({
+      reason: 'another-folder',
+      root: { displayName: DOCS, rootId: DOCS },
+      runId: run,
+      toolCallId: 'b-write',
+    }),
+  ]);
+});
+
+/** The second thread edited the checkout in a turn of its own, before the first began. */
+async function secondThreadEditedEarlier(hosted: Host): Promise<string> {
+  const second = await hosted.thread();
+  const earlier = await hosted.run(second, 'B: write b1.txt.');
+  await rowsWhere(hosted.core(), second, (all) => all.some(finished(earlier)));
+  return second;
+}
+
+const writesTwoTurns = (turn: ReturnType<typeof latestTurn>): Scripted => {
+  if (turn.answered > 0) {
+    return stream(text('Done.'));
+  }
+  if (turn.text.includes(MOVED)) {
+    return stream(write('b2.txt', 'b2-write-moved'));
+  }
+  return stream(
+    turn.text.includes('b2.txt') ? write('b2.txt', 'b2-write') : write('b1.txt', 'b1-write')
+  );
+};
+
+test('a thread with uncommitted edits of its own in the checkout is not moved, and says it shares it', async () => {
+  const hosted = await host(
+    scripted({ 'A:': writesThenWorks('a.txt', 'a-write'), 'B:': writesTwoTurns })
+  );
+  const second = await secondThreadEditedEarlier(hosted);
+  await firstThreadIsWriting(hosted);
+  hosted.harness.uncommitted = ['b1.txt'];
+  const run = await hosted.run(second, 'Now write b2.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // Its edit ran in place, beside the work it had not committed.
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b1.txt', 'b2.txt']);
+  expect(hosted.created).toEqual([]);
+  expect(moves(rows)).toEqual([]);
+  expect(hosted.askedUncommitted).toEqual([{ paths: ['b1.txt'], rootId: LOCAL }]);
+  // The thread's log says the checkout is shared, and why it was not moved.
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({
+      reason: 'own-uncommitted-edits',
+      root: { displayName: LOCAL, rootId: LOCAL },
+      runId: run,
+      toolCallId: 'b2-write',
+    }),
+  ]);
+});
+
+test('a thread whose earlier edits were committed is moved like any other', async () => {
+  const hosted = await host(
+    scripted({ 'A:': writesThenWorks('a.txt', 'a-write'), 'B:': writesTwoTurns })
+  );
+  const second = await secondThreadEditedEarlier(hosted);
+  await firstThreadIsWriting(hosted);
+  // The person committed b1.txt: the checkout's last commit holds the thread's earlier work.
+  hosted.harness.uncommitted = [];
+  const run = await hosted.run(second, 'Now write b2.txt.');
+  const rows = await turnFinishedAfter(hosted, second, run);
+
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'b1.txt']);
+  expect(await hosted.files('worktree-root-1')).toEqual(['b2.txt']);
+  expect(moves(rows)).toHaveLength(1);
+  expect(sharedNotes(rows)).toEqual([]);
+});
+
+test('an edit in a folder that is not the thread’s own is refused there, never moved', async () => {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': (turn) => {
+        if (turn.text.includes(MOVED)) {
+          // In its worktree, the thread reaches back into the checkout it left.
+          return stream(
+            turn.answered === 0 ? write('b.txt', 'b-write-back', LOCAL) : text('Staying here.')
+          );
+        }
+        return stream(write('b.txt', 'b-write'));
+      },
+    })
+  );
+  await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const firstRun = await hosted.run(second, 'B: write b.txt.');
+  const rows = await turnFinishedAfter(hosted, second, firstRun);
+
+  // One worktree, not one per attempt, and the first thread's folder is untouched.
+  expect(hosted.created).toHaveLength(1);
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+  expect(outputOf(rows, 'b-write-back')).toMatchObject({ ok: false });
+  expect(moves(rows)).toHaveLength(1);
+});
+
+test('a thread reaching back into the checkout it left is refused there, even where that checkout holds a path it once edited', async () => {
+  let otherThreadChangedB1 = (): void => undefined;
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': (turn) => {
+        if (turn.answered > 0) {
+          return stream(text('Done.'));
+        }
+        if (turn.text.includes(MOVED)) {
+          // Thread A has since changed b1.txt in the checkout, so a path B once edited there is
+          // uncommitted again, though the change is not B's.
+          otherThreadChangedB1();
+          return stream(write('b1.txt', 'b1-write-back', LOCAL));
+        }
+        return stream(
+          turn.text.includes('b2.txt') ? write('b2.txt', 'b2-write') : write('b1.txt', 'b1-write')
+        );
+      },
+    })
+  );
+  otherThreadChangedB1 = () => {
+    hosted.harness.uncommitted = ['b1.txt'];
+  };
+  const second = await secondThreadEditedEarlier(hosted);
+  await firstThreadIsWriting(hosted);
+  // The person committed B's earlier work, so B is moved at its next clashing edit.
+  hosted.harness.uncommitted = [];
+  const run = await hosted.run(second, 'Now write b2.txt.');
+  const rows = await turnFinishedAfter(hosted, second, run);
+
+  expect(moves(rows)).toHaveLength(1);
+  // Its own work is in its worktree: the checkout it left stays the other thread's.
+  expect(outputOf(rows, 'b1-write-back')).toMatchObject({ ok: false });
+  expect(sharedNotes(rows)).toEqual([]);
+});
+
+/** The second thread's first edit clashed, and the host is still making its worktree. */
+async function secondThreadIsBeingMoved(
+  release: Promise<void>
+): Promise<{ first: string; hosted: Host; run: string; second: string }> {
+  const hosted = await host(
+    scripted({
+      'A:': writesThenWorks('a.txt', 'a-write'),
+      'B:': writesWhereverItIs('b.txt', 'b-write'),
+    }),
+    { holdCreate: release }
+  );
+  const first = await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt.');
+  await hosted.creating;
+  return { first, hosted, run, second };
+}
+
+test('a thread deleted while its worktree is being made is deleted, and the host goes on', async () => {
+  const made = Promise.withResolvers<void>();
+  const { first, hosted, second } = await secondThreadIsBeingMoved(made.promise);
+
+  // The deletion waits for the thread's run, whose edit is waiting for the worktree.
+  const deletion = hosted.core().deleteThread({ threadId: second });
+  made.resolve();
+
+  await expect(deletion).resolves.toEqual({ deleted: true, threadIds: [second] });
+  // Every other thread's commands go through the same admission queue.
+  await expect(hosted.core().startThread({ commandId: randomUUID() })).resolves.toEqual({
+    threadId: expect.any(String),
+  });
+  await expect(
+    hosted.core().updateWorkspaceBinding({
+      commandId: randomUUID(),
+      patch: { operatingRootDisplayName: 'beaker 2' },
+      threadId: first,
+    })
+  ).resolves.toEqual({ accepted: true });
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+});
+
+test('a run stopped while its worktree is being made leaves its thread where it was', async () => {
+  const made = Promise.withResolvers<void>();
+  const { hosted, run, second } = await secondThreadIsBeingMoved(made.promise);
+
+  const stopping = hosted.core().stop({ commandId: randomUUID(), runId: run, threadId: second });
+  // The Stop is committed while the worktree is still being made.
+  await rowsWhere(hosted.core(), second, (all) =>
+    all.some(({ event }) => event.type === 'command.accepted' && event.method === 'run/stop')
+  );
+  made.resolve();
+
+  await expect(stopping).resolves.toEqual({ outcome: 'stopped' });
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+  expect(rows.find(finished(run))?.event).toMatchObject({ outcome: 'stopped' });
+  // Nobody is waiting for the worktree any more: the thread is not moved and no turn carries on.
+  expect(moves(rows)).toEqual([]);
+  expect(hosted.core().readWorkspaceBinding(second).binding).toMatchObject({
+    operatingRootId: LOCAL,
+  });
+  expect(startedRuns(rows)).toHaveLength(1);
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt']);
+});

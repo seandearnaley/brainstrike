@@ -153,6 +153,48 @@ function worktreeCreatedNotice(
   };
 }
 
+const SHARED_CHECKOUT_REASONS: Readonly<Record<string, string>> = {
+  'another-folder':
+    'this is not the folder it works in, and only that folder can become its worktree',
+  'git-unavailable': 'git could not read this folder on this machine, so no worktree can be made',
+  'inside-a-repository':
+    'this folder is inside a git repository and is not its top folder, so a worktree cannot take its place',
+  'no-commit-yet': 'this repository has no commit yet, so a worktree has nothing to start from',
+  'not-a-repository': 'this folder is not a git repository, so it has no worktrees',
+  'own-uncommitted-edits': 'it has uncommitted edits of its own in this folder',
+  'workers-running': 'its workers are still working in this folder',
+};
+
+/**
+ * A committed `checkout.shared` (ADR-0034 Automatic isolation) as the run
+ * timeline's always-visible notice: the thread edits a folder another thread
+ * is editing, and why it was not moved to a worktree of its own.
+ */
+function checkoutSharedNotice(
+  event: Readonly<Record<string, unknown>>,
+  row: CommittedRowAddress,
+  runId: string,
+  timestamp: string
+): AssistantRunEvent {
+  const root = record(event['root']);
+  const reason = requiredString(event, 'reason');
+  const stayed = SHARED_CHECKOUT_REASONS[reason];
+  if (!(root && stayed)) {
+    throw new Error('Committed shared checkout has an unsupported reason.');
+  }
+  const folder = requiredString(root, 'displayName');
+  return {
+    detail: `Another thread is editing ${folder} too. This thread stayed here because ${stayed}.`,
+    id: `run-event-${row.threadId}-${row.seq}`,
+    kind: 'checkout.shared',
+    label: `Sharing ${folder} with another thread`,
+    metadata: { reason, rootId: requiredString(root, 'rootId') },
+    runId,
+    status: 'info',
+    timestamp,
+  };
+}
+
 /**
  * Memory the run launched (Mastra's buffered observation) failed after its
  * `run.finished`: the answer's outcome stands, so it is a notice of its own.
@@ -187,6 +229,8 @@ export function committedRunNotice(
   const runId = (): string => requiredString(event, 'runId');
   const at = runCreatedAt.toISOString();
   switch (event['type']) {
+    case 'checkout.shared':
+      return checkoutSharedNotice(event, row, runId(), at);
     case 'mcp.tools.unavailable':
       return mcpToolsUnavailableNotice(event, row, runId(), at);
     case 'worktree.created':

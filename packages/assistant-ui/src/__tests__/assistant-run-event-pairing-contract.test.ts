@@ -127,6 +127,10 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     ['tool.approval.requested', ['tool.completed', 'tool.failed', 'tool.resume.unsupported']],
   ] as const;
   const NEVER_RUNNING = [
+    // ADR-0034's shared-checkout notice. Emitted `status: 'info'`
+    // (`checkoutSharedNotice` in committed-host-event-readers.ts, from a
+    // committed `checkout.shared` row), never `'running'`: a standalone breadcrumb.
+    'checkout.shared',
     // BST-1737's swallowed-compaction breadcrumb. Emitted `status: 'failed'`
     // (`compactionFailureChunk` in
     // packages/assistant-service/src/stream-init-compaction.ts), never
