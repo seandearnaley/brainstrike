@@ -111,4 +111,9 @@
 // root carries `trustedThrough` and `offeredLocation`, `workspace/trust/read` answers
 // `offeredLocation`, and `workspace/trust/locations` and `workspace/trust/locations/remove` are
 // new methods.
-export const AGENT_HOST_PROTOCOL_VERSION = 24;
+// v25 (2026-11-11): a root record Main reads over `host/workspace-roots` carries `projectId`, the
+// project its folder belongs to, or null for a root recorded as a managed worktree (ADR-0034,
+// owner decisions 2026-11-10). Main decodes the record strictly, so it cannot read an older
+// host's records and an older Main cannot read these. The required field is why this is a
+// version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 25;

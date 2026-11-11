@@ -8,6 +8,13 @@ export interface WorkspaceRootRecord {
   readonly kind: 'path' | 'worktree';
   readonly lastVerifiedAt: number;
   readonly path: string;
+  /**
+   * The project this folder belongs to (ADR-0034, owner decisions 2026-11-10): an id of its own,
+   * which the folder keeps however its path is spelled and when the person picks it again
+   * somewhere else. Null for a root recorded as a managed worktree, which is a checkout of its
+   * repository, and for a folder recorded before projects existed that has not been opened since.
+   */
+  readonly projectId: string | null;
   readonly status: 'live' | 'disconnected';
 }
 

@@ -21,6 +21,7 @@ export function registryRoot(
     kind,
     lastVerifiedAt: 1,
     path: rootPath,
+    projectId: kind === 'path' ? `project-${rootPath}` : null,
     status: 'live',
   };
 }

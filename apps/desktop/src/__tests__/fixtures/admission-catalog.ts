@@ -24,6 +24,7 @@ export function admissionCatalogFixture(
       createdAt: 1,
       kind: 'path' as const,
       lastVerifiedAt: 1,
+      projectId: `project-${root.path}`,
       status: 'live' as const,
     })),
   }));
