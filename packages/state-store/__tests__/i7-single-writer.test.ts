@@ -8,7 +8,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 import { readAll, SqliteReader } from '../src/sqlite-reader.js';
 import { STATE_DB, StateStore } from '../src/state-store.js';
-import { cleanupDirs, freshDir, sleep } from './helpers/fs.js';
+import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { fixture, killKids, runTs } from './helpers/proc.js';
 import {
   appendInputs,
@@ -51,17 +51,14 @@ describe('item 7 · single writer', () => {
         await appendInputs(store, T, seedInputs(120, 0, 72));
         const reader = runTs(fixture('reader-proc.ts'), [root, T]);
         const readerPid = Number((await reader.line('reading')).split(' ')[1]);
+        // Sampled a set number of times, each after a write, never for a length of time: on a
+        // busy machine one `lsof` takes long enough that a fixed window holds too few samples
+        // (BST-2476).
         const samples: OpenFile[][] = [];
         const r = rng(7);
-        const end = Date.now() + 1500;
-        let next = Date.now();
-        while (Date.now() < end) {
+        for (let sample = 0; sample < 6; sample++) {
           await appendInputs(store, T, [{ content: prose(r, 120), type: 'text' }]);
-          if (Date.now() >= next) {
-            samples.push(lsofUnder([process.pid, readerPid], root));
-            next = Date.now() + 150;
-          }
-          await sleep(1);
+          samples.push(lsofUnder([process.pid, readerPid], root));
         }
         reader.p.stdin?.write('stop\n');
         expect(Number((await reader.line('read')).split(' ')[1])).toBeGreaterThan(120);
@@ -71,7 +68,6 @@ describe('item 7 · single writer', () => {
         const rel = (n: string): string => relative(real, n).split('\\').join('/');
         const dataFile = (f: OpenFile): boolean =>
           rel(f.name).endsWith(STATE_DB) && /^\d+$/u.test(f.fd);
-        expect(samples.length).toBeGreaterThan(3);
         // positive controls: the instrument sees both processes on the truth
         expect(flat.some((f) => f.pid === process.pid && dataFile(f))).toBe(true);
         expect(flat.some((f) => f.pid === readerPid && dataFile(f))).toBe(true);
