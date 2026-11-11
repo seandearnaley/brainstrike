@@ -323,16 +323,72 @@ test("a delegated worker's edit never moves its parent", async () => {
       },
     })
   );
-  await firstThreadIsWriting(hosted);
+  const first = await firstThreadIsWriting(hosted);
   const second = await hosted.thread();
   const run = await hosted.run(second, 'B: delegate the write.');
   const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+  const [workerThread] = (await hosted.store.threads()).filter(
+    (threadId) => threadId !== first && threadId !== second
+  );
+  const workerRows = await hosted.core().read(workerThread ?? '', 0);
 
-  // The worker wrote where its parent works; nothing was created and nobody moved.
+  // The worker's edit clashed with the first thread's, and it ran where its parent works.
+  expect(outputOf(workerRows, 'w-write')).toEqual({ written: 'w.txt' });
   expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'w.txt']);
+  // The host decided nothing for it: no worktree, no move and no note, on either thread.
   expect(hosted.created).toEqual([]);
-  expect(moves(rows)).toEqual([]);
+  expect(moves([...rows, ...workerRows])).toEqual([]);
+  expect(sharedNotes([...rows, ...workerRows])).toEqual([]);
   expect(startedRuns(rows)).toHaveLength(1);
+});
+
+test("a finished worker's edit still counts as its thread writing while the thread's run goes on", async () => {
+  const CHILD_TASK = 'CHILD_TASK: write w.txt.';
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          // Its awaited worker makes the edit, then its own run keeps working.
+          return turn.answered === 0
+            ? stream(
+                toolCall(
+                  'agent-worker',
+                  { _background: { disposition: 'awaited', enabled: true }, prompt: CHILD_TASK },
+                  'delegate'
+                )
+              )
+            : blocked(call);
+        }
+        if (first.includes(CHILD_TASK)) {
+          return stream(turn.answered === 0 ? write('w.txt', 'w-write') : text('Worker done.'));
+        }
+        return writesWhereverItIs('b.txt', 'b-write')(turn);
+      },
+    })
+  );
+  const first = await hosted.thread();
+  const firstRun = await hosted.run(first, 'A: delegate the write and keep working.');
+  // The worker has ended and its result is back; the first thread's run is still in progress.
+  const delegated = await rowsWhere(
+    hosted.core(),
+    first,
+    (all) => outputOf(all, 'delegate') !== undefined
+  );
+  expect(delegated.some(finished(firstRun))).toBe(false);
+  expect(await hosted.files(LOCAL)).toEqual(['w.txt']);
+
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: write b.txt.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // A thread and its workers are one writer, so the second thread is the later one and moves.
+  expect(moves(rows)).toHaveLength(1);
+  expect(sharedNotes(rows)).toEqual([]);
+  await turnFinishedAfter(hosted, second, run);
+  expect(await hosted.files(LOCAL)).toEqual(['w.txt']);
+  expect(await hosted.files('worktree-root-1')).toEqual(['b.txt']);
 });
 
 test('a thread whose workers are still working is not moved, and says it shares the folder', async () => {

@@ -9,8 +9,9 @@
  *
  * A folder is being written by a run in progress that edited it with the file
  * tools: its committed edit records, and its edit calls in flight. Nothing is
- * stored for it. A thread and its workers are one writer; a worker's own edits
- * never move its parent.
+ * stored for it. A thread and its workers are one writer: a worker's edits
+ * count for as long as the run that dispatched it is in progress, and a
+ * worker's own edit is made in place and never moves its parent.
  */
 import {
   describeBoundaryFailureForModel,
@@ -114,12 +115,25 @@ function writes(facts: HostCheckoutFacts, run: Run, rootId: string): boolean {
   );
 }
 
+/**
+ * Whether `run` still counts as in progress: until it ends, and for a worker's
+ * run until the run that dispatched it ends too (`origin.parentRunId`). A
+ * thread that has its workers make its edits is writing between workers.
+ */
+function inProgress(facts: HostCheckoutFacts, run: Run): boolean {
+  if (!run.terminal) {
+    return true;
+  }
+  const dispatcher = run.origin ? facts.runs.get(run.origin.parentRunId) : undefined;
+  return dispatcher !== undefined && inProgress(facts, dispatcher);
+}
+
 /** Whether a run in progress of another thread's tree is writing `rootId`. */
 function contended(facts: HostCheckoutFacts, run: Run, rootId: string): boolean {
   const tree = facts.children.rootThread(run.threadId);
   for (const other of facts.runs.values()) {
     if (
-      !other.terminal &&
+      inProgress(facts, other) &&
       facts.children.rootThread(other.threadId) !== tree &&
       writes(facts, other, rootId)
     ) {

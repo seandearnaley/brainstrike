@@ -7,7 +7,9 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // one of its other folders, or it is not a git repository). Standalone
   // breadcrumb, status 'info', from the host's committed `checkout.shared`. It
   // is in `isAlwaysVisibleRunEvent`: the edit's own card reports a normal
-  // edit, so this row is the only sign that two threads write one folder.
+  // edit, so nothing else in the answer says the folder is shared. Not every
+  // shared folder has this row: a worker's own clashing edit is made in place
+  // without one.
   'checkout.shared',
   // The pre-request conversation-compaction pass THREW, so this turn reached
   // the provider uncompacted and over budget (BST-1737). The turn still
