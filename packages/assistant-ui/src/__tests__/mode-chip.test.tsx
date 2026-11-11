@@ -27,6 +27,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
     { label: 'main (current)', value: 'main' },
     { label: 'origin/main (fresh)', value: 'origin/main' },
   ],
+  checkoutChangeDisabledReason: null,
   createDisabledReason: null,
   defaultBranchPrefix: 'bs/',
   defaultName: 'bright-fox',
@@ -53,6 +54,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   },
   repositorySetupConsent: null,
   setupSummary: '.worktreeinclude: 1 pattern · setup script: present',
+  uncommittedFolderName: null,
   worktree: null,
   ...overrides,
 });
@@ -415,6 +417,35 @@ describe('ModeChip', () => {
     );
     expect(screen.getByTestId('workspace-bar-mode-create-disabled-reason')).toHaveTextContent(
       'Create before sending the first request.'
+    );
+  });
+
+  it('disables every row that moves the thread while its run is in progress, each saying why', async () => {
+    const user = setup();
+    const reason = "Available when this thread's run ends.";
+    const value = interactiveWorktreeMode();
+    render(
+      <WorkspaceBar
+        {...baseBarProps}
+        mode={{ ...value.mode, checkoutChangeDisabledReason: reason, createDisabledReason: reason }}
+      />
+    );
+    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+
+    for (const row of ['handoff', 'archive', 'pick-worktree', 'new-worktree']) {
+      expect(await screen.findByTestId(`workspace-bar-mode-${row}`)).toHaveAttribute(
+        'data-disabled'
+      );
+    }
+    for (const row of ['handoff', 'archive', 'pick-worktree', 'create']) {
+      expect(screen.getByTestId(`workspace-bar-mode-${row}-disabled-reason`)).toHaveTextContent(
+        reason
+      );
+    }
+    // Rows that leave the thread where it is stay available.
+    expect(screen.getByTestId('workspace-bar-mode-reveal')).not.toHaveAttribute('data-disabled');
+    expect(screen.getByTestId('workspace-bar-mode-create-branch-here')).not.toHaveAttribute(
+      'data-disabled'
     );
   });
 

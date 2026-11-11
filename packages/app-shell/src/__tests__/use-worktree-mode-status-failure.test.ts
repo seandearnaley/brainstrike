@@ -37,7 +37,6 @@ vi.mock('@brainstrike/ui', () => ({ toast: vi.fn() }));
 
 const ARGS = {
   checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },
-  firstRequestState: 'unsent' as const,
   isRepository: false,
   onHandOffToLocal: vi.fn(() => Promise.resolve()),
   onSelectWorktree: vi.fn(() => Promise.resolve()),
@@ -46,6 +45,8 @@ const ARGS = {
   runId: null,
   statusFailure: null,
   threadId: 'thread-1',
+  threadState: 'idle' as const,
+  uncommittedChanges: false,
 };
 
 describe('useWorktreeMode without a readable repository (BST-2133)', () => {

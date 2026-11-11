@@ -67,7 +67,6 @@ const onSelectWorktree = vi.fn(() => Promise.resolve());
 
 const ARGS = {
   checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },
-  firstRequestState: 'unsent' as const,
   isRepository: true,
   onHandOffToLocal,
   onSelectWorktree,
@@ -76,6 +75,8 @@ const ARGS = {
   runId: null,
   statusFailure: null,
   threadId: 'thread-1',
+  threadState: 'idle' as const,
+  uncommittedChanges: false,
 };
 
 const WORKTREE_CHECKOUT = {

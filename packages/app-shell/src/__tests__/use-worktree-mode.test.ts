@@ -7,7 +7,6 @@ import { useWorktreeMode } from '../hooks/use-worktree-mode';
 import { gitFailure } from './helpers/git-failure';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
-type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
 const {
   addRootByPathSpy,
   addRootDirectorySpy,
@@ -77,7 +76,6 @@ const onHandOffToLocal = vi.fn(() => Promise.resolve());
 const onSelectWorktree = vi.fn(() => Promise.resolve());
 const ARGS = {
   checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },
-  firstRequestState: 'unsent' as const,
   isRepository: true,
   onHandOffToLocal,
   onSelectWorktree,
@@ -86,6 +84,8 @@ const ARGS = {
   runId: null,
   statusFailure: null,
   threadId: 'thread-1',
+  threadState: 'idle' as const,
+  uncommittedChanges: false,
 };
 const WORKTREE_CHECKOUT: UseWorktreeModeArgs['checkout'] = {
   branch: 'bs/bright-fox',
@@ -100,6 +100,8 @@ const ARCHIVE_SELECTION_CHANGES = [
   ],
   ['thread', { checkout: WORKTREE_CHECKOUT, threadId: 'thread-2' }],
 ] as const;
+
+const RUN_IN_PROGRESS = "Available when this thread's run ends.";
 
 const CREATE_REQUEST = {
   baseRef: 'main',
@@ -224,26 +226,45 @@ describe('useWorktreeMode', () => {
     await act(async () => {});
   });
 
-  it('disables creation after the first request while leaving handoff available', async () => {
+  it('a sent thread with no run in progress can create', async () => {
     const { result, rerender } = renderHook(
-      ({ firstRequestState }) =>
-        useWorktreeMode({
-          ...ARGS,
-          checkout: WORKTREE_CHECKOUT,
-          firstRequestState,
-        }),
-      { initialProps: { firstRequestState: 'unsent' as FirstRequestState }, wrapper }
+      ({ threadState }) => useWorktreeMode({ ...ARGS, threadState }),
+      { initialProps: { threadState: 'running' as UseWorktreeModeArgs['threadState'] }, wrapper }
     );
+    rerender({ threadState: 'idle' });
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
-
-    rerender({ firstRequestState: 'sent' });
-
-    expect(result.current?.createDisabledReason).toContain('first request');
-    expect(result.current?.onHandOffToLocal).toBeDefined();
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+      await result.current?.onCreate(CREATE_REQUEST);
+    });
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(onSelectWorktree).toHaveBeenCalledTimes(1);
   });
 
+  it('a thread with a run in progress is refused, with the reason', async () => {
+    const { result } = renderWorktreeMode({ ...ARGS, threadState: 'running' });
+    await waitFor(() => expect(result.current?.createDisabledReason).toBe(RUN_IN_PROGRESS));
+    await act(async () => {
+      await expect(result.current?.onOpenCreateSheet()).rejects.toThrow(RUN_IN_PROGRESS);
+      await expect(result.current?.onCreate(CREATE_REQUEST)).rejects.toThrow(RUN_IN_PROGRESS);
+    });
+    for (const title of ['Could not open worktree creation', 'Could not create a worktree']) {
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: RUN_IN_PROGRESS,
+        title,
+        variant: 'destructive',
+      });
+    }
+    expect(createContextSpy).not.toHaveBeenCalled();
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  // Use existing, Hand off to Local and Archive during a run, and the create
+  // sheet's uncommitted-changes note, are in `use-worktree-mode-between-turns.test.ts`
+  // (split to keep both files under the ceiling).
+
   it('disables and rejects worktree creation when no thread is selected', async () => {
-    const { result } = renderWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' });
+    const { result } = renderWorktreeMode({ ...ARGS, threadState: 'no-thread' });
     await waitFor(() => expect(result.current?.createDisabledReason).toBe('No thread selected.'));
 
     await act(async () => {
@@ -487,27 +508,8 @@ describe('useWorktreeMode', () => {
   // branch-menu create path are covered in
   // `use-worktree-mode-repository-setup-consent.test.ts` (split to keep both files under the ceiling).
 
-  it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {
-    const { result, rerender } = renderHook(
-      ({ firstRequestState }) => useWorktreeMode({ ...ARGS, firstRequestState }),
-      { initialProps: { firstRequestState: 'unsent' as FirstRequestState }, wrapper }
-    );
-    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
-    rerender({ firstRequestState: 'sent' });
-
-    await expect(result.current?.onOpenCreateSheet()).rejects.toThrow(
-      'Create a worktree before sending the first request.'
-    );
-    expect(toastSpy).toHaveBeenCalledWith({
-      description: 'Create a worktree before sending the first request.',
-      title: 'Could not open worktree creation',
-      variant: 'destructive',
-    });
-    expect(createContextSpy).not.toHaveBeenCalled();
-  });
-
   it('refuses to open the create sheet when no thread is selected', async () => {
-    const { result } = renderWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' });
+    const { result } = renderWorktreeMode({ ...ARGS, threadState: 'no-thread' });
     await waitFor(() => expect(result.current?.createDisabledReason).toBe('No thread selected.'));
 
     await expect(result.current?.onOpenCreateSheet()).rejects.toThrow('No thread selected.');
