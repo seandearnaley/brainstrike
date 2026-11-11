@@ -57,10 +57,13 @@ async function openStore(): Promise<StateStore> {
   return store;
 }
 
-/** A new folder named `name` inside `parent`. */
+/**
+ * A new folder named `name` inside `parent` that only the person can add to, whatever the
+ * machine's umask: Debian, Ubuntu and Fedora would otherwise make it writable by its group.
+ */
 async function folderIn(parent: string, name: string): Promise<string> {
   const folder = join(parent, name);
-  await mkdir(folder, { recursive: true });
+  await mkdir(folder, { mode: 0o755, recursive: true });
   return folder;
 }
 
@@ -275,6 +278,53 @@ test.skipIf(process.platform === 'win32')(
 
     // A location opened to everyone after it was added covers nothing until it is closed again.
     await chmod(code, 0o1777);
+    await expect(readHostWorkspaceTrust(store, join(code, 'later'))).resolves.toBe('undecided');
+    await chmod(code, 0o755);
+    await expect(readHostWorkspaceTrust(store, join(code, 'later'))).resolves.toBe('trusted');
+  }
+);
+
+test.skipIf(process.platform === 'win32')(
+  "a folder a group can write to is never offered as a location, the person's own group included",
+  async () => {
+    const store = await openStore();
+    const { home } = await codeFolder();
+    // The person owns it and it is closed to everyone else, but its group may add folders.
+    const team = await folderIn(await tempDir('bs-trusted-locations-group-'), 'team');
+    await chmod(team, 0o775);
+    const dropped = await folderIn(team, 'dropped');
+
+    expect(hostTrustedLocationOffer(dropped, home)).toBeUndefined();
+    await expect(
+      writeHostWorkspaceTrust(store, dropped, 'trusted', { home, location: team })
+    ).rejects.toThrow(/other people can write/u);
+    await expect(readHostTrustedLocations(store)).resolves.toEqual([]);
+    await expect(readHostWorkspaceTrust(store, dropped)).resolves.toBe('undecided');
+  }
+);
+
+test.skipIf(process.platform === 'win32')(
+  'a location does not cover a folder a group can write to, or what is under it',
+  async () => {
+    const store = await openStore();
+    const { code, home } = await codeFolder();
+    const cloned = await folderIn(code, 'cloned');
+    await writeHostWorkspaceTrust(store, cloned, 'trusted', { home, location: code });
+    const team = await folderIn(code, 'team');
+    await chmod(team, 0o775);
+
+    // A member of the group can write an AGENTS.md into it, or put a folder in it.
+    await expect(readHostWorkspaceTrust(store, team)).resolves.toBe('undecided');
+    await expect(readHostWorkspaceTrust(store, await folderIn(team, 'dropped'))).resolves.toBe(
+      'undecided'
+    );
+    // Everything beside it is still the person's own.
+    await expect(readHostWorkspaceTrust(store, await folderIn(code, 'later'))).resolves.toBe(
+      'trusted'
+    );
+
+    // A location opened to a group after it was added covers nothing until it is closed again.
+    await chmod(code, 0o775);
     await expect(readHostWorkspaceTrust(store, join(code, 'later'))).resolves.toBe('undecided');
     await chmod(code, 0o755);
     await expect(readHostWorkspaceTrust(store, join(code, 'later'))).resolves.toBe('trusted');

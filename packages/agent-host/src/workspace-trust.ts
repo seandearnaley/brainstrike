@@ -89,18 +89,24 @@ function changeHostTrustedLocations<T>(
   );
   return next;
 }
-/** S_IWOTH: anyone on the machine may add entries to the folder. */
-const WORLD_WRITABLE = 0o002n;
+/** S_IWGRP and S_IWOTH: the folder's group, or anyone on the machine, may add entries to it. */
+const OTHERS_MAY_WRITE = 0o022n;
 /** A folder as the disk identifies it, whatever path spells it; undefined when none is there. */
 const folderOnDisk = (folder: string) => statSync(folder, { bigint: true, throwIfNoEntry: false });
 /**
- * True when only the person can put folders in the folder: they own it and it
- * is not open to everyone. A shared folder such as `/tmp` or `/Users/Shared`
- * fails, as a repository another user owns fails git's `safe.directory`.
+ * True when only the person can put folders in the folder: they own it, and
+ * neither its group nor everyone may write to it. A shared folder such as
+ * `/tmp` or `/Users/Shared` fails, as a repository another user owns fails
+ * git's `safe.directory`.
+ *
+ * A folder its group may write to fails even when that group is the person's
+ * own (owner decision 2026-11-11): who is in a group cannot be told from the
+ * folder. Debian, Ubuntu and Fedora make a person's own folders group-writable
+ * by default, so there a folder counts only once group write is removed from
+ * it, and otherwise asks as it did before locations.
+ *
  * Windows reports neither an owner id nor these mode bits, so nothing is
- * checked there. A folder open to a group is not told apart: that would need
- * the group's members, and a person's own folders are group-writable by
- * default where each person has a group of their own.
+ * checked there.
  */
 function onlyThePersonAddsTo(onDisk: { mode: bigint; uid: bigint } | undefined): boolean {
   if (onDisk === undefined) {
@@ -108,7 +114,8 @@ function onlyThePersonAddsTo(onDisk: { mode: bigint; uid: bigint } | undefined):
   }
   const person = process.getuid?.();
   return (
-    person === undefined || (onDisk.uid === BigInt(person) && (onDisk.mode & WORLD_WRITABLE) === 0n)
+    person === undefined ||
+    (onDisk.uid === BigInt(person) && (onDisk.mode & OTHERS_MAY_WRITE) === 0n)
   );
 }
 /**
