@@ -1,13 +1,75 @@
 // @ts-check
 
 // The root domain runs in the desktop writer worker.
+// A folder's project is the one recorded for its canonical path. A managed worktree has none of
+// its own, even at a path that was once opened as a folder: it is a checkout of its repository.
 const projection = `id, path, canonical_path AS canonicalPath, display_name AS displayName, kind,
-  status, created_at AS createdAt, last_verified_at AS lastVerifiedAt`;
+  status, created_at AS createdAt, last_verified_at AS lastVerifiedAt,
+  CASE WHEN kind = 'path' THEN (SELECT folder.project_id FROM project_folders AS folder
+    WHERE folder.canonical_path = roots.canonical_path) END AS projectId`;
 
 /**
  * How the writer's host names a root it was granted: desktop main grants absolute OS paths.
  * @typedef {{ isGranted(root: { readonly path: string; readonly preferredId: string }): boolean }} RootPaths
  */
+
+/**
+ * The project of the folder at `canonicalPath`. A folder recorded for the first time starts a
+ * project (ADR-0034, owner decisions 2026-11-10); this is the only place one is created, inside
+ * the commit that records the folder.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} canonicalPath
+ * @param {number} now
+ * @returns {string}
+ */
+function folderProject(db, canonicalPath, now) {
+  const recorded = /** @type {string | undefined} */ (
+    db
+      .prepare('SELECT project_id FROM project_folders WHERE canonical_path = ?')
+      .pluck()
+      .get(canonicalPath)
+  );
+  if (recorded !== undefined) {
+    return recorded;
+  }
+  const id = crypto.randomUUID();
+  db.prepare('INSERT INTO projects (id, created_at) VALUES (?, ?)').run(id, now);
+  db.prepare('INSERT INTO project_folders (canonical_path, project_id) VALUES (?, ?)').run(
+    canonicalPath,
+    id
+  );
+  return id;
+}
+
+/**
+ * The project of a recorded folder registered again, which now resolves to `canonicalPath`. It
+ * keeps its project. When the person picked it again at a new place, the project's folder moves
+ * there with it, or the new place joins the project while another record still resolves to the
+ * old one, so no record loses its project. When the new place already belongs to a project the
+ * folder joins that one instead, and the place it left keeps the project it had.
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ readonly canonicalPath: string; readonly id: string; readonly kind: 'path' | 'worktree' }} recorded
+ * @param {string} canonicalPath
+ * @param {number} now
+ * @returns {string | null}
+ */
+function recordedFolderProject(db, recorded, canonicalPath, now) {
+  if (recorded.kind !== 'path') {
+    return null;
+  }
+  if (recorded.canonicalPath !== canonicalPath) {
+    const stillThere = db
+      .prepare("SELECT 1 FROM roots WHERE canonical_path = ? AND id <> ? AND kind = 'path'")
+      .get(recorded.canonicalPath, recorded.id);
+    db.prepare(
+      stillThere
+        ? `INSERT OR IGNORE INTO project_folders (canonical_path, project_id)
+            SELECT ?, project_id FROM project_folders WHERE canonical_path = ?`
+        : 'UPDATE OR IGNORE project_folders SET canonical_path = ? WHERE canonical_path = ?'
+    ).run(canonicalPath, recorded.canonicalPath);
+  }
+  return folderProject(db, canonicalPath, now);
+}
 
 /** @param {import('better-sqlite3').Database} db
  * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'register'}} request
@@ -54,6 +116,7 @@ function register(db, request, paths) {
               ...existing,
               canonicalPath: root.canonicalPath,
               lastVerifiedAt: now,
+              projectId: recordedFolderProject(db, existing, root.canonicalPath, now),
               status: /** @type {const} */ ('live'),
             },
           ],
@@ -84,6 +147,7 @@ function register(db, request, paths) {
                 displayName: root.displayName,
                 lastVerifiedAt: now,
                 path: root.path,
+                projectId: recordedFolderProject(db, pinned, root.canonicalPath, now),
                 status: /** @type {const} */ ('live'),
               },
             ],
@@ -116,6 +180,7 @@ function register(db, request, paths) {
             kind,
             lastVerifiedAt: now,
             path: root.path,
+            projectId: managed ? null : folderProject(db, root.canonicalPath, now),
             status: /** @type {const} */ ('live'),
           },
         ],

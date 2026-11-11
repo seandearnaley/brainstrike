@@ -69,6 +69,36 @@ test('the private platform transports typed root operations and rejects extra au
   }
 });
 
+test('Main reads a recorded folder with its project, and a managed worktree with none', async () => {
+  const recorded = {
+    canonicalPath: '/disposable/Alpha',
+    createdAt: 1,
+    displayName: 'Alpha',
+    id: 'root-alpha',
+    kind: 'path',
+    lastVerifiedAt: 2,
+    path: '/disposable/Alpha',
+    projectId: 'project-alpha',
+    status: 'live',
+  } as const;
+  const worktree = {
+    ...recorded,
+    canonicalPath: '/disposable/linked',
+    id: 'root-linked',
+    kind: 'worktree',
+    path: '/disposable/linked',
+    projectId: null,
+  } as const;
+  const fixture = transport({ workspaceRoots: async () => ({ roots: [recorded, worktree] }) });
+  try {
+    await expect(fixture.client.workspaceRoots({ operation: 'list' })).resolves.toEqual({
+      roots: [recorded, worktree],
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('a store read in flight joins before the private endpoint closes', async () => {
   const entered = Promise.withResolvers<void>();
   const committed = Promise.withResolvers<void>();

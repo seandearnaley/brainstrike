@@ -51,6 +51,12 @@ Implementation: `packages/state-store` and `packages/agent-host`.
   - The agent host's root registry is their only writer.
   - `register` refuses a recorded path that now resolves to another folder unless the person picked it afresh (`repin`).
   - State DB version 15 creates this table where it is missing. A `roots` table without `canonical_path` is dropped with its source catalog rows instead of inferring an identity, and the person opens those folders again; a table that has it keeps its rows.
+- A project is a row of `projects` with an id of its own. `project_folders` says which project the folder at a canonical path belongs to (ADR-0034, owner decisions 2026-11-10).
+  - The roots domain is their only writer. `register` gives a folder its project in the commit that records the folder, so the root registry stays the one owner and no recorded folder is without a project. A root record carries it as `projectId`.
+  - A managed worktree has no project of its own (`projectId` is null): it is a checkout of its repository.
+  - A folder the person picks again where it now resolves (`repin`) keeps its project. The project's folder row moves with it, unless that place already has a project, which the folder then joins.
+  - State DB version 16 creates both tables and writes no rows. A folder recorded before it has a null `projectId` until it is next registered, which each launch does for the open folders.
+  - Clear Database deletes both tables' rows with `roots`.
 - Content-addressed blobs store canonical edit baselines and current-format content through their existing owner.
   - Hashes and scope must match the bytes; a transient cache or derived embedding never becomes a source of truth.
   - Delete and purge join referencing work before collecting blobs and canonical records.

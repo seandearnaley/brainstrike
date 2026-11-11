@@ -15,6 +15,9 @@ const CONTENT_TABLES = [
   'run_sync',
   'purge_intent',
   'roots',
+  // A project goes with the folders and threads it groups; its folders first, which reference it.
+  'project_folders',
+  'projects',
 ];
 
 /** @param {import('better-sqlite3').Database} db */

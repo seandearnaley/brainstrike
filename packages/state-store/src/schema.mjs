@@ -17,13 +17,17 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 // Version 15 creates `roots`, the table the agent host's root registry writes, which pins each folder's grant-time
 // identity. A DB whose `roots` already has that identity keeps it; one whose `roots` predates it drops those rows,
 // since an identity never recorded cannot be inferred, and the person opens them again.
+// Version 16 adds `projects` and `project_folders` (project-schema.mjs). It writes no rows: a folder
+// recorded before it gets its project in the commit that next records it, which each launch does
+// for the open folders.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
+import { PROJECT_SCHEMA } from './project-schema.mjs';
 import { WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -73,6 +77,7 @@ export const UPGRADES = [
   '',
   THREAD_PINS_SCHEMA,
   '',
+  PROJECT_SCHEMA,
 ];
 
 /**
