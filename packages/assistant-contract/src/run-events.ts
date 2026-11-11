@@ -1,6 +1,13 @@
 export const ASSISTANT_RUN_EVENT_DATA_NAME = 'brainstrike.run-event';
 
 export const ASSISTANT_RUN_EVENT_KINDS = [
+  // ADR-0034 Automatic isolation: this thread's edit went into a folder another
+  // thread's run is editing, and it was not moved to a worktree of its own (it
+  // has uncommitted edits there, or its workers still work there). Standalone
+  // breadcrumb, status 'info', from the host's committed `checkout.shared`. It
+  // is in `isAlwaysVisibleRunEvent`: the edit's own card reports a normal
+  // edit, so this row is the only sign that two threads write one folder.
+  'checkout.shared',
   // The pre-request conversation-compaction pass THREW, so this turn reached
   // the provider uncompacted and over budget (BST-1737). The turn still
   // answers — keeping it alive is correct — but before this kind the only
