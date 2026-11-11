@@ -70,6 +70,7 @@ import {
 import { HostStateHealthSchema } from './protocol-state-health.ts';
 import { TERMINAL_METHOD_SCHEMAS, TERMINAL_RESULT_SCHEMAS } from './protocol-terminals.ts';
 import {
+  THREAD_WORKSPACE_EVENT_SCHEMAS,
   THREAD_WORKSPACE_METHOD_SCHEMAS,
   THREAD_WORKSPACE_RESULT_SCHEMAS,
 } from './protocol-thread-workspace.ts';
@@ -594,12 +595,7 @@ function interactionRequestedSchema(json: JsonSchemaFactory) {
 export function hostEventSchema(json: JsonSchemaFactory) {
   return Schema.Union(
     [
-      Schema.Struct({
-        binding: ThreadWorkspaceBindingSchema,
-        /** ADR-0028 step 3: the root run that moved its thread into a worktree it created. */
-        enteredBy: Schema.optional(Schema.Struct({ runId: Id })),
-        type: Schema.Literal('workspace.binding.updated'),
-      }),
+      ...THREAD_WORKSPACE_EVENT_SCHEMAS,
       Schema.Struct({
         ...McpOrigin,
         handle: McpTaskHandleSchema,

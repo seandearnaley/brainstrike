@@ -98,7 +98,7 @@ import { HostThreadSelections } from './thread-selection-state.ts';
 import { HostThreadTrees } from './thread-summary.ts';
 import { HostToolRecords } from './tool-records.ts';
 import { revertHostRunEdits } from './workspace-edits.ts';
-import { HostThreadWorkspaceState } from './workspace-state.ts';
+import { HostThreadWorkspaceState, type HostWorktreeEntry } from './workspace-state.ts';
 import { hostWorktreeEntry } from './worktree-binding.ts';
 
 export type { HostEventStore } from './thread-catalog.ts';
@@ -404,7 +404,7 @@ export class HostCore {
 
   updateWorkspaceBinding(
     params: HostParams<'thread/workspace/binding/update'>,
-    enteredBy?: { readonly runId: string }
+    enteredBy?: HostWorktreeEntry
   ): Promise<{ accepted: true }> {
     return this.command('thread/workspace/binding/update', params, () =>
       this.workspaces.setBinding(params, this.platform, this.pendingAdmissions, enteredBy)
@@ -696,6 +696,7 @@ export class HostCore {
       append: (threadId, events, durability, beforePublish, referenced) =>
         this.append(threadId, events, durability, beforePublish, referenced),
       armDeadline: (run) => this.children.armDeadline(run),
+      checkouts: { children: this.children, edits: this.records.edits, runs: this.runs },
       closing: () => this.closing,
       commitMessages: (run, messages) => this.commitMessages(run, messages),
       compactions: this.compactions,
