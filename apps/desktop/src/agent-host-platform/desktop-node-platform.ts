@@ -362,6 +362,8 @@ export async function createDesktopHostConfiguration(
       rootRegistry.attachThreadReads(reads);
     },
     auth: host.auth,
+    // ADR-0034: a thread's first edit in a folder another thread is editing moves it to a worktree.
+    checkoutIsolation: gitWorkspace.checkoutIsolation,
     childConfiguration: desktopChildConfiguration,
     close: async () => {
       // Runs' workspace borrows end, then admitted folder changes finish while the store is open.

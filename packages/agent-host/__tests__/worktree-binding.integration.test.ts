@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
@@ -18,7 +19,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostCore } from '../src/core.js';
-import type { HostPlatform, HostRunAdmissionRequest } from '../src/ports.js';
+import type { HostPlatform, HostRunAdmissionRequest, HostToolContext } from '../src/ports.js';
 import type { HostLogRow } from '../src/protocol.js';
 import {
   blocked,
@@ -58,7 +59,11 @@ async function host(
   offered: string[],
   risk: 'edit' | 'read' = 'read',
   /** Auto access mode's quick model: an edit is reviewed by it instead of asking. */
-  review?: LanguageModel
+  review?: LanguageModel,
+  /** How the tool makes the worktree and enters it: at once, unless a test holds it. */
+  enter: (context: HostToolContext) => Promise<void> = async (context) => {
+    await context.enterWorktree?.(WORKTREE);
+  }
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-worktree-binding-'));
   const store = await StateStore.open(root);
@@ -81,7 +86,7 @@ async function host(
         description: 'Create a worktree and work in it',
         execute: async (_input, context) => {
           offered.push(context.enterWorktree ? 'offered' : 'absent');
-          await context.enterWorktree?.(WORKTREE);
+          await enter(context);
           return { path: WORKTREE.root.path };
         },
         identity: 'create-worktree-generation-1',
@@ -380,6 +385,124 @@ test('a host restarted after an approved worktree entry ends that run there and 
     operatingRootId: WORKTREE.root.rootId,
   });
   expect(offered).toEqual(['offered']);
+});
+
+type CallEnd = 'entered' | 'guard' | 'other' | 'run-aborted';
+
+/**
+ * The worktree tool's call, held while it makes the worktree: `git worktree
+ * add` takes time and reads no signal. The test also plays the desktop's tool
+ * guard, which answers a native call that outlives its budget (60 s by
+ * default, `BRAINSTRIKE_TOOL_TIMEOUT_MS`). That guard is all that would end a
+ * call whose entry waits on a command queued behind its own run's end.
+ */
+function heldWorktreeCall() {
+  const making = Promise.withResolvers<void>();
+  const made = Promise.withResolvers<void>();
+  const guard = Promise.withResolvers<never>();
+  guard.promise.catch(() => undefined);
+  const ended = Promise.withResolvers<CallEnd>();
+  const answered = new Error('The tool guard answered');
+  const endOf = (cause: unknown, signal: AbortSignal): CallEnd => {
+    if (cause === answered) {
+      return 'guard';
+    }
+    return signal.aborted && cause === signal.reason ? 'run-aborted' : 'other';
+  };
+  return {
+    /** What ended the call. */
+    ended: ended.promise,
+    enter: async ({ enterWorktree, signal }: HostToolContext): Promise<void> => {
+      making.resolve();
+      await made.promise;
+      try {
+        await Promise.race([enterWorktree?.(WORKTREE), guard.promise]);
+        ended.resolve('entered');
+      } catch (cause) {
+        ended.resolve(endOf(cause, signal));
+        throw cause;
+      }
+    },
+    /** The guard answers, if nothing else has ended the call. */
+    guard: (): void => guard.reject(answered),
+    made: (): void => made.resolve(),
+    /** Resolves once the call is making the worktree. */
+    making: making.promise,
+  };
+}
+
+const callsWorktreeTool = (): MockLanguageModelV4 =>
+  new MockLanguageModelV4({
+    doStream: async (call) =>
+      stream(
+        userTexts(call).some((input) => input.includes(WORKTREE.root.path))
+          ? text('Continuing in the worktree.')
+          : toolCall('create_worktree', {}, 'wt-call')
+      ),
+  });
+
+test('a thread deleted while its worktree tool makes the worktree is deleted, and the host goes on', async () => {
+  const call = heldWorktreeCall();
+  const { core, threadId } = await host(callsWorktreeTool(), [], 'read', undefined, call.enter);
+  await core.startRun({
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Make a worktree.',
+    threadId,
+  });
+  await call.making;
+
+  // The deletion aborts the run and waits for it to end, while the call still makes the worktree.
+  const deletion = core.deleteThread({ threadId });
+  call.made();
+  // The guard answers only once everything that waits on nothing else has settled.
+  await nextTurn();
+  call.guard();
+
+  // The run's abort ended the call: its entry queued nothing behind the deletion.
+  expect(await call.ended).toBe('run-aborted');
+  await expect(deletion).resolves.toEqual({ deleted: true, threadIds: [threadId] });
+  // Every other thread's commands, and the host's close, go through the same admission queue.
+  await expect(core.startThread({ commandId: randomUUID() })).resolves.toEqual({
+    threadId: expect.any(String),
+  });
+  await expect(core.close()).resolves.toBeUndefined();
+});
+
+test('a run stopped while its worktree tool makes the worktree leaves its thread where it was', async () => {
+  const call = heldWorktreeCall();
+  const { core, threadId } = await host(callsWorktreeTool(), [], 'read', undefined, call.enter);
+  const run = (
+    await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Make a worktree.',
+      threadId,
+    })
+  ).runId;
+  await call.making;
+
+  const stopping = core.stop({ commandId: randomUUID(), runId: run, threadId });
+  // The Stop is committed while the call still makes the worktree.
+  await rowsWhere(core, threadId, (all) =>
+    all.some(({ event }) => event.type === 'command.accepted' && event.method === 'run/stop')
+  );
+  call.made();
+
+  await expect(stopping).resolves.toEqual({ outcome: 'stopped' });
+  const rows = await rowsWhere(core, threadId, (all) => all.some(finished(run)));
+  expect(rows.find(finished(run))?.event).toMatchObject({ outcome: 'stopped' });
+  // Nobody asked for the worktree any more: the thread is not moved and no turn carries on there.
+  expect(
+    rows.filter(({ event }) => event.type === 'workspace.binding.updated' && event.enteredBy)
+  ).toEqual([]);
+  expect(core.readWorkspaceBinding(threadId).binding).toMatchObject({
+    operatingRootId: 'local-root',
+    operatingRootPath: '/repos/beaker',
+  });
+  expect(started(rows)).toHaveLength(1);
+  // The call ends with the run's abort, as the run's other tools do.
+  expect(await call.ended).toBe('run-aborted');
 });
 
 test('a delegated child is never offered a worktree to move its parent into', async () => {

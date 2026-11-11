@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { configureAssistantProvider, setupAssistantMock } from './utils/assistant-mock';
 import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
@@ -120,6 +120,93 @@ test.describe('Worktree mode (desktop)', () => {
     expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(
       `branch refs/heads/${created.branch}`
     );
+  });
+
+  // ADR-0034 Automatic isolation: nothing here waits on a clock. The first
+  // thread's run stays in progress because it waits for a person, and each
+  // step follows an approval card.
+  test('a second thread moves to a worktree at its first edit in a folder a running thread has edited', async ({
+    modelProvider,
+    window: page,
+  }) => {
+    test.setTimeout(240_000);
+    const repo = freshRepo('automatic');
+    const tool = 'brainstrike.writeWorkspaceFile';
+    const write = (file: string) => ({
+      arguments: { content: `${file}\n`, path: file },
+      name: 'brainstrike_writeWorkspaceFile',
+    });
+    const carriedOn = 'The second thread works in its worktree.';
+    modelProvider.setScript(({ messages, requestBody }) => {
+      const history = JSON.stringify(messages);
+      const second = history.includes('The second thread');
+      // A thread's title is not streamed; every run request is.
+      if ((requestBody as { stream?: unknown }).stream !== true) {
+        return { finalText: second ? 'Second' : 'First' };
+      }
+      if (!second) {
+        return {
+          finalText: 'The first thread is done.',
+          toolCallStages: [[write('first.txt')], [write('first-more.txt')]],
+        };
+      }
+      // The host's own message starts the run that carries the turn on in the worktree.
+      return {
+        finalText: history.includes('Continue the task in the worktree')
+          ? carriedOn
+          : 'The second thread was moved.',
+        toolCallStages: [[write('second.txt')]],
+      };
+    });
+    await seedRoot(page, repo);
+    await configureAssistantProvider(page);
+    await ensureAssistantShellVisible(page);
+    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+    const input = region.getByRole('textbox', { name: 'Message input' });
+    const chip = region.getByTestId('workspace-bar-mode-chip');
+    const approve = region.getByRole('button', { exact: true, name: `Approve ${tool}` });
+    const asksAbout = region.getByTestId('approval-file-target-summary');
+
+    // The first thread edits the checkout, then waits for a person: its run is in progress.
+    await chooseThreadFolder(region, path.basename(repo));
+    await input.fill('The first thread: write two files.');
+    await region.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(asksAbout).toContainText('first.txt', { timeout: 60_000 });
+    await approve.click();
+    await expect(asksAbout).toContainText('first-more.txt', { timeout: 60_000 });
+    expect(existsSync(path.join(repo, 'first.txt'))).toBe(true);
+
+    // The second thread starts in the same checkout.
+    await page.getByRole('button', { exact: true, name: 'New thread' }).click();
+    await chooseThreadFolder(region, path.basename(repo));
+    await expect(chip).toContainText('Local', { timeout: 30_000 });
+    await input.fill('The second thread: write a file.');
+    await region.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(asksAbout).toContainText('second.txt', { timeout: 60_000 });
+    await approve.click();
+
+    // Its edit was not made there: the host moved it to a worktree of its own.
+    await expect(chip).not.toContainText('Local', { timeout: 90_000 });
+    const worktrees = listWorktreePaths(repo).filter((worktree) =>
+      worktree.startsWith(managedDirectory)
+    );
+    expect(worktrees).toHaveLength(1);
+    const name = path.basename(worktrees[0] ?? '');
+    await expect(chip).toContainText(name);
+    await expect(region.getByTestId('workspace-bar-branch-chip')).toContainText(`bs/${name}`, {
+      timeout: 30_000,
+    });
+    expect(existsSync(path.join(repo, 'second.txt'))).toBe(false);
+
+    // The same turn carried on there: the edit is asked for again, in the worktree, and lands in it.
+    await expect(region.getByTestId('approval-workspace-root-value')).toHaveText(name, {
+      timeout: 60_000,
+    });
+    await approve.click();
+    await expect(region.getByText(carriedOn).first()).toBeVisible({ timeout: 60_000 });
+    expect(existsSync(path.join(worktrees[0] ?? '', 'second.txt'))).toBe(true);
+    expect(existsSync(path.join(repo, 'second.txt'))).toBe(false);
+    expect(modelProvider.refusals()).toEqual([]);
   });
 
   test('lists an external-tool worktree as disabled with a reason and grant action', async ({

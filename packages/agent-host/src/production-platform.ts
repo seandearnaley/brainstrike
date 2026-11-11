@@ -115,6 +115,8 @@ export interface ProductionHostPlatformOptions {
   readonly attachThreadReads?: HostPlatform['attachThreadReads'];
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
+  /** ADR-0034 Automatic isolation: a checkout's git facts and the worktree tool's create-and-open. */
+  readonly checkoutIsolation?: HostPlatform['checkoutIsolation'];
   /** ADR-0037: a delegated child's run configuration on another model. */
   readonly childConfiguration?: HostPlatform['childConfiguration'];
   close(): Promise<void>;
@@ -698,6 +700,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       ? { attachMcpTaskOwner: options.mcp.attachTaskOwner.bind(options.mcp) }
       : {}),
     ...(options.attachThreadReads ? { attachThreadReads: options.attachThreadReads } : {}),
+    ...(options.checkoutIsolation ? { checkoutIsolation: options.checkoutIsolation } : {}),
     ...(options.childConfiguration ? { childConfiguration: options.childConfiguration } : {}),
     ...(options.commandSessionExits ? { commandSessionExits: options.commandSessionExits } : {}),
     ...productionMemoryReadiness(options),

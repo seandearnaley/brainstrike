@@ -210,6 +210,9 @@ function composeHostRoot(
   };
   let catalogStore: StateStore | undefined;
   const ownedPlatform: HostPlatform = {
+    get checkoutIsolation(): HostPlatform['checkoutIsolation'] {
+      return currentPlatform().checkoutIsolation;
+    },
     close: closePlatform,
     get commandSessionExits(): HostPlatform['commandSessionExits'] {
       return currentPlatform().commandSessionExits;

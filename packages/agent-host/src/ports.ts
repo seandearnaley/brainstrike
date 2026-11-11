@@ -42,6 +42,7 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.ts';
+import type { HostCheckoutIsolation } from './checkout-isolation.ts';
 import type {
   HostApprovalTargetRoot,
   HostEditOp,
@@ -900,6 +901,8 @@ export interface HostPlatform {
   attachThreadReads?(reads: HostThreadReads): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
+  /** ADR-0034 Automatic isolation; absent where the host opens no worktree as a folder (the CLI). */
+  readonly checkoutIsolation?: HostCheckoutIsolation | undefined;
   /**
    * ADR-0037: the run configuration a delegated child on `target` is admitted
    * with, from its parent run's own: the same intent with the child's model
