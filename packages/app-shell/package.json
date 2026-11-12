@@ -63,6 +63,7 @@
     "./context-map": "./src/context-map/index.ts",
     "./cost-tracking-settings": "./src/cost-tracking/index.tsx",
     "./diagnostics": "./src/diagnostics/index.ts",
+    "./status-items/diagnostics-status-item": "./src/status-items/diagnostics-status-item.tsx",
     "./navigation": "./src/navigation.ts",
     "./platform-bridge": "./src/platform-bridge.ts",
     "./worktree-map": "./src/worktree-map/index.ts",
