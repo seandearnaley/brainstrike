@@ -218,6 +218,8 @@ describe('useWorktreeMode repository setup consent', () => {
       createdBy: 'user',
       name: 'bright-fox',
       rootId: 'r-1',
+      // The selected thread, which hears which idle worktrees the creation's cap archived.
+      threadId: 'thread-1',
     });
     expect(toastSpy).not.toHaveBeenCalled();
   });
