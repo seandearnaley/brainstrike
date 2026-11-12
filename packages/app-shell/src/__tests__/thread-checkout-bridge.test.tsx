@@ -151,7 +151,7 @@ describe("the Explorer header's words for the active thread", () => {
 });
 
 describe("the Explorer header's control for the active thread", () => {
-  it("opens the composer's where-control, offered only while one is shown", () => {
+  it("opens the active thread's where-control, offered only while it is shown", () => {
     selectThread(LOCAL);
     renderHeaders();
     // Nothing to open: the header offers no control.
@@ -159,11 +159,10 @@ describe("the Explorer header's control for the active thread", () => {
 
     let hide = (): void => undefined;
     act(() => {
-      hide = showWhereControl();
+      hide = showWhereControl(THREAD_ID);
     });
-    const before = useWhereControlRequests.getState().openRequest;
     fireEvent.click(screen.getByTestId('control-r-main'));
-    expect(useWhereControlRequests.getState().openRequest).toBe(before + 1);
+    expect(useWhereControlRequests.getState().requests[THREAD_ID]).toBe(1);
     // Only on the folder the thread works in.
     expect(screen.queryByTestId('control-r-docs')).not.toBeInTheDocument();
 
@@ -171,5 +170,21 @@ describe("the Explorer header's control for the active thread", () => {
       hide();
     });
     expect(screen.queryByTestId('control-r-main')).not.toBeInTheDocument();
+  });
+
+  // Inactive thread tabs stay mounted, hidden, with their own composers.
+  it("never asks another thread's where-control to open", () => {
+    selectThread(LOCAL);
+    renderHeaders();
+    let hide = (): void => undefined;
+    act(() => {
+      hide = showWhereControl('thread-in-another-tab');
+    });
+    // Only another thread's where-control is shown: nothing for this one to open.
+    expect(screen.queryByTestId('control-r-main')).not.toBeInTheDocument();
+    expect(useWhereControlRequests.getState().requests['thread-in-another-tab']).toBeUndefined();
+    act(() => {
+      hide();
+    });
   });
 });

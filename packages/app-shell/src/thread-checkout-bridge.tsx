@@ -46,11 +46,11 @@ export function ThreadCheckoutBridge({ children }: { readonly children: ReactNod
   const project = useFileExplorerStoreSelector((state) =>
     projectRootId ? state.rootDescriptors[projectRootId]?.displayName : undefined
   );
-  const whereControlShown = useWhereControlRequests((state) => state.shown > 0);
+  const whereControlShown = useWhereControlRequests((state) => (state.shown[threadId] ?? 0) > 0);
   const header =
     operatingRootId && project
       ? {
-          changeCheckout: whereControlShown ? requestWhereControlOpen : null,
+          changeCheckout: whereControlShown ? () => requestWhereControlOpen(threadId) : null,
           label: `${project} · ${checkoutName(worktreePath)}`,
           rootId: operatingRootId,
         }

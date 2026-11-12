@@ -427,11 +427,12 @@ Decisions the build made for the control, which are not Sean's:
 - It opens the composer's where-control rather than drawing the rows in the
   Explorer. The where-control already holds them, with Branch and Folders,
   and the same wait for the thread's run to end.
-- It shows only while a composer where-control is shown, so it never does
-  nothing. The two share an in-memory count of shown controls and a request
-  the header raises (`where-control-requests.ts` in app-shell); a
-  where-control opens for a request raised while it is shown, never for one
-  from before.
+- It shows only while the active thread's composer where-control is shown,
+  so it never does nothing. The two share, by thread id, an in-memory count of
+  shown controls and a request the header raises (`where-control-requests.ts`
+  in app-shell). Inactive thread tabs keep their composers mounted, hidden, so
+  only the active thread's where-control opens; it opens for a request raised
+  while it is shown, never for one from before.
 
 ## Consequences
 

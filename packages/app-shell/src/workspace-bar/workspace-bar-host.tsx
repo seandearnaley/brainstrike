@@ -39,8 +39,12 @@ export function WorkspaceBarHost(args: WorkspaceBarHostProps): ReactElement {
     openFolders: args.rootDescriptors,
     threadId: args.selectedMemoryThreadId,
   });
-  // ADR-0034 decision 3: the Explorer's header opens this where-control while it is shown.
-  useEffect(() => showWhereControl(), []);
-  const openRequest = useWhereControlRequests((state) => state.openRequest);
+  // ADR-0034 decision 3: the Explorer's header opens this thread's where-control while it is
+  // shown. An inactive thread tab stays mounted, so each is shown and asked by its thread.
+  const threadId = args.selectedMemoryThreadId;
+  useEffect(() => (threadId === undefined ? undefined : showWhereControl(threadId)), [threadId]);
+  const openRequest = useWhereControlRequests((state) =>
+    threadId === undefined ? 0 : (state.requests[threadId] ?? 0)
+  );
   return <WorkspaceBar {...barProps} openRequest={openRequest} {...(trust ? { trust } : {})} />;
 }
