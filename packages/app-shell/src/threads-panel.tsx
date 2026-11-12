@@ -20,10 +20,12 @@ import {
   type ThreadsPanelFolderSortBy,
   type ThreadsPanelGroupBy,
   type ThreadsPanelSortBy,
+  threadFolderSectionLabel,
   useAssistantThreadGroupsStore,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
+import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import {
   Button,
   type CheckboxState,
@@ -100,6 +102,7 @@ import {
   type ThreadPanelGroupRow,
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
+import { ThreadProjectActionsContext, usePanelProjectActions } from './thread-project-actions';
 import { mapThreadRepositories } from './thread-repositories';
 import { type ThreadMoveTarget, type ThreadPinHandler, ThreadRow } from './thread-row';
 import { useThreadSearchStore } from './thread-search-store';
@@ -538,9 +541,8 @@ function getThreadPanelSectionLabel(row: ThreadPanelGroupRow): string {
     case 'group':
       return row.header.group.name;
     case 'folder':
-      return row.header.folder.displayName;
     case 'repository':
-      return row.header.repository.displayName;
+      return threadFolderSectionLabel(row.header);
     case 'unassigned':
       return 'No project';
     case 'date':
@@ -1732,6 +1734,14 @@ export function ThreadsPanelCore({
     sortBy,
   ]);
   const moveTargets = groups.map((group) => ({ id: group.id, name: group.name }));
+  // ADR-0034: a project section names its project, moves its folder into another and locates a
+  // folder that moved; a located folder is shown in the Explorer as a reopened one is.
+  const { addRootDirectoryByPath } = useFileSystem();
+  const projectActions = usePanelProjectActions({
+    projects: host.projects,
+    showFolder: addRootDirectoryByPath,
+    view,
+  });
   // Disclosure limits + bulk selection live here so the toolbar's count and
   // select-visible toggle read the same state the treegrid renders. FILTERED
   // threads, not all of them: a thread the Show only filters removed is not in
@@ -1984,6 +1994,15 @@ export function ThreadsPanelCore({
           {groupActionError}
         </p>
       ) : null}
+      {projectActions.error ? (
+        <p
+          className="text-destructive text-2xs px-3 pb-2"
+          data-testid="thread-project-action-error"
+          role="alert"
+        >
+          {projectActions.error}
+        </p>
+      ) : null}
       {/* These lines qualify the tree's rows; a state card standing in for the tree already names the failure. */}
       {contentState.kind === 'tree' && groupsLoadState.status === 'error' ? (
         <p className="text-destructive text-2xs px-3 pb-2" data-testid="thread-groups-error-card">
@@ -2009,70 +2028,74 @@ export function ThreadsPanelCore({
 
       <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 flex-col overflow-hidden'}>
         <ThreadsNeedsYouStrip onSelectThread={handleSelectThread} rows={needsYouRows} />
-        <ThreadsPanelContent
-          activeThreadIds={activeThreads.threadIds}
-          failedUnseenThreadIds={unseenThreadIds.failedUnseen}
-          folderGrouping={folderGroupingState}
-          groupHandlers={{
-            collapsedGroupIds,
-            onDeleteGroup: handleDeleteGroup,
-            onGroupColorChange: (groupId, color) => {
-              if (!groupsRepository) {
-                return;
-              }
-              setGroupActionError(null);
-              setGroupColor(groupsRepository, resourceId, groupId, color).catch(
-                (error: unknown) => {
-                  setGroupActionError(error instanceof Error ? error.message : String(error));
+        <ThreadProjectActionsContext.Provider value={projectActions.actions}>
+          <ThreadsPanelContent
+            activeThreadIds={activeThreads.threadIds}
+            failedUnseenThreadIds={unseenThreadIds.failedUnseen}
+            folderGrouping={folderGroupingState}
+            groupHandlers={{
+              collapsedGroupIds,
+              onDeleteGroup: handleDeleteGroup,
+              onGroupColorChange: (groupId, color) => {
+                if (!groupsRepository) {
+                  return;
                 }
-              );
-            },
-            onGroupIconChange: (groupId, icon) => {
-              if (!groupsRepository) {
-                return;
-              }
-              setGroupActionError(null);
-              setGroupIcon(groupsRepository, resourceId, groupId, icon).catch((error: unknown) => {
-                setGroupActionError(error instanceof Error ? error.message : String(error));
-              });
-            },
-            onGroupRenameCancel: () => {
-              setRenamingGroupId(null);
-              setRenamingGroupDraftName('');
-            },
-            onGroupRenameDraftChange: setRenamingGroupDraftName,
-            onGroupRenameStart: (group: AssistantThreadGroup) => {
-              setRenamingGroupId(group.id);
-              setRenamingGroupDraftName(group.name);
-            },
-            onGroupRenameSubmit: handleGroupRenameSubmit,
-            onToggleGroupCollapsed: toggleGroupCollapsed,
-            renamingGroupDraftName,
-            renamingGroupId,
-            savingGroupId,
-          }}
-          loadState={loadState}
-          membershipByThreadId={membershipByThreadId}
-          moveTargets={moveTargets}
-          needsYouThreadIds={threadsAwaitingApproval.threadIds}
-          onBulkColor={handleBulkColor}
-          onBulkDelete={handleBulkDelete}
-          onBulkMove={handleBulkMove}
-          onDeleteThread={handleDeleteThread}
-          onMoveThreadToGroup={handleMoveThreadToGroup}
-          onNewThreadInFolder={handleNewThreadInFolder}
-          onRenameThread={handleRenameThread}
-          onSelectThread={handleSelectThread}
-          onSetThreadPinned={groupsRepository ? handleSetThreadPinned : null}
-          onUpdateThreadAppearance={handleUpdateThreadAppearance}
-          pinnedAtByThreadId={pinnedAtByThreadId}
-          selectedThreadId={selectedThreadId}
-          selection={selection}
-          threadFiltersActive={threadFiltersActive}
-          threads={filteredThreads}
-          unseenThreadIds={unseenThreadIds.unseen}
-          view={view}
-        />
+                setGroupActionError(null);
+                setGroupColor(groupsRepository, resourceId, groupId, color).catch(
+                  (error: unknown) => {
+                    setGroupActionError(error instanceof Error ? error.message : String(error));
+                  }
+                );
+              },
+              onGroupIconChange: (groupId, icon) => {
+                if (!groupsRepository) {
+                  return;
+                }
+                setGroupActionError(null);
+                setGroupIcon(groupsRepository, resourceId, groupId, icon).catch(
+                  (error: unknown) => {
+                    setGroupActionError(error instanceof Error ? error.message : String(error));
+                  }
+                );
+              },
+              onGroupRenameCancel: () => {
+                setRenamingGroupId(null);
+                setRenamingGroupDraftName('');
+              },
+              onGroupRenameDraftChange: setRenamingGroupDraftName,
+              onGroupRenameStart: (group: AssistantThreadGroup) => {
+                setRenamingGroupId(group.id);
+                setRenamingGroupDraftName(group.name);
+              },
+              onGroupRenameSubmit: handleGroupRenameSubmit,
+              onToggleGroupCollapsed: toggleGroupCollapsed,
+              renamingGroupDraftName,
+              renamingGroupId,
+              savingGroupId,
+            }}
+            loadState={loadState}
+            membershipByThreadId={membershipByThreadId}
+            moveTargets={moveTargets}
+            needsYouThreadIds={threadsAwaitingApproval.threadIds}
+            onBulkColor={handleBulkColor}
+            onBulkDelete={handleBulkDelete}
+            onBulkMove={handleBulkMove}
+            onDeleteThread={handleDeleteThread}
+            onMoveThreadToGroup={handleMoveThreadToGroup}
+            onNewThreadInFolder={handleNewThreadInFolder}
+            onRenameThread={handleRenameThread}
+            onSelectThread={handleSelectThread}
+            onSetThreadPinned={groupsRepository ? handleSetThreadPinned : null}
+            onUpdateThreadAppearance={handleUpdateThreadAppearance}
+            pinnedAtByThreadId={pinnedAtByThreadId}
+            selectedThreadId={selectedThreadId}
+            selection={selection}
+            threadFiltersActive={threadFiltersActive}
+            threads={filteredThreads}
+            unseenThreadIds={unseenThreadIds.unseen}
+            view={view}
+          />
+        </ThreadProjectActionsContext.Provider>
       </div>
     </section>
   );

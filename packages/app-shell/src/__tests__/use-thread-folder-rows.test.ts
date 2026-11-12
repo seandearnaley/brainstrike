@@ -2,7 +2,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useThreadFolderRows } from '../hooks/use-thread-folder-rows';
-import { notifyRootRegistered } from '../roots/root-registration-events';
+import { notifyRootRecordsChanged, notifyRootRegistered } from '../roots/root-registration-events';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: {
@@ -24,12 +24,19 @@ interface RootsRow {
   readonly id: string;
   readonly path: string | null;
   readonly projectId: string | null;
+  readonly projectName: string | null;
 }
 
 const ROOT_ROWS: readonly RootsRow[] = [
-  { displayName: 'Project A', id: 'root-a', path: '/work/a', projectId: 'project-a' },
+  {
+    displayName: 'Project A',
+    id: 'root-a',
+    path: '/work/a',
+    projectId: 'project-a',
+    projectName: 'Alpha app',
+  },
   // A managed worktree's root, or a folder recorded before projects: no project of its own.
-  { displayName: 'Project B', id: 'root-b', path: null, projectId: null },
+  { displayName: 'Project B', id: 'root-b', path: null, projectId: null, projectName: null },
 ];
 
 const readRoots = vi.fn();
@@ -64,15 +71,42 @@ describe('useThreadFolderRows', () => {
       displayName: 'Project A',
       path: '/work/a',
       projectId: 'project-a',
+      projectName: 'Alpha app',
       rootId: 'root-a',
+      status: 'live',
     });
     expect(result.current.rowsByRootId.get('root-b')).toEqual({
       displayName: 'Project B',
       path: null,
       projectId: null,
+      projectName: null,
       rootId: 'root-b',
+      status: 'live',
     });
     expect(readRoots).toHaveBeenCalledTimes(1);
+  });
+
+  // ADR-0034: naming a project or moving a folder into another changes a record without a
+  // registration, so the panel reads the records again when the person does it.
+  it("reads a folder's project name again when the person renames or joins a project", async () => {
+    const { result } = renderHook(() => useThreadFolderRows(['root-a']));
+    await waitFor(() => {
+      expect(result.current.rowsByRootId.get('root-a')?.projectName).toBe('Alpha app');
+    });
+
+    readRoots.mockImplementation(async () => [
+      { ...ROOT_ROWS[0], projectName: 'Renamed', status: 'disconnected' as const },
+    ]);
+    act(() => {
+      notifyRootRecordsChanged();
+    });
+
+    await waitFor(() => {
+      expect(result.current.rowsByRootId.get('root-a')).toMatchObject({
+        projectName: 'Renamed',
+        status: 'disconnected',
+      });
+    });
   });
 
   // A folder picked again where another project's folder is keeps its root id and joins that

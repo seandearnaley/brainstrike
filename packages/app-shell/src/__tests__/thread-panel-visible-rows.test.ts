@@ -1,7 +1,7 @@
 import type {
   AssistantMemoryThread,
   AssistantThreadGroup,
-  ThreadFolderRow,
+  ThreadFolderGroupingRow,
   ThreadListView,
 } from '@brainstrike/assistant-data';
 import {
@@ -34,6 +34,13 @@ function thread(id: string): AssistantMemoryThread {
 
 function group(id: string): AssistantThreadGroup {
   return { color: null, icon: null, id, name: id, rank: id, resourceId: 'workspace-a' };
+}
+
+/** A mounted folder with no project, as a folder section names it. */
+function folderRow(
+  row: Pick<ThreadFolderGroupingRow, 'displayName' | 'path' | 'rootId'>
+): ThreadFolderGroupingRow {
+  return { ...row, projectId: null, projectName: null, status: 'live' };
 }
 
 describe('buildThreadPanelVisibleRows', () => {
@@ -184,11 +191,11 @@ describe('buildThreadPanelVisibleRows', () => {
   });
 
   it('renders a folders view as section rows keyed by their own section ids', () => {
-    const folder: ThreadFolderRow = {
+    const folder = folderRow({
       displayName: 'brainstrike',
       path: '/tmp/brainstrike',
       rootId: 'root-1',
-    };
+    });
     const view: ThreadListView = {
       kind: 'folders',
       pinned: null,
@@ -231,11 +238,11 @@ describe('buildThreadPanelVisibleRows', () => {
   });
 
   it("renders a project's section, collapsed through its own section key", () => {
-    const folder: ThreadFolderRow = {
+    const folder = folderRow({
       displayName: 'brainstrike',
       path: '/tmp/brainstrike',
       rootId: 'root-1',
-    };
+    });
     const view: ThreadListView = {
       kind: 'folders',
       pinned: null,
@@ -265,7 +272,7 @@ describe('buildThreadPanelVisibleRows', () => {
   });
 
   it('collapses and discloses folder sections through their own section keys', () => {
-    const folder: ThreadFolderRow = { displayName: 'work', path: null, rootId: 'root-2' };
+    const folder = folderRow({ displayName: 'work', path: null, rootId: 'root-2' });
     const view: ThreadListView = {
       kind: 'folders',
       pinned: null,
@@ -340,7 +347,7 @@ describe('thread panel section addresses', () => {
   });
 
   it('addresses folder sections by their section id, never by a group id', () => {
-    const folder: ThreadFolderRow = { displayName: 'work', path: null, rootId: 'root-2' };
+    const folder = folderRow({ displayName: 'work', path: null, rootId: 'root-2' });
     const row = groupRow({ folder, kind: 'folder' }, 'folder:root-2');
     expect(getThreadPanelMemberSectionId(row)).toBe('folder:root-2');
     expect(getThreadPanelCollapseId(row)).toBe('folder:root-2');

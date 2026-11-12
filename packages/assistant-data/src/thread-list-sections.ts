@@ -30,6 +30,10 @@ export interface ThreadFolderGroupingRow extends ThreadFolderRow {
    * and for a folder recorded before projects existed and not opened since.
    */
   readonly projectId: string | null;
+  /** The name the person gave the project; null while it has none, so it is named by its folder. */
+  readonly projectName: string | null;
+  /** Whether the folder is mounted now; a disconnected one may have moved. */
+  readonly status: 'live' | 'disconnected';
 }
 
 /**
@@ -53,6 +57,8 @@ export interface ThreadRepositoryRow {
   readonly path: string;
   /** The project of its own checkout's folder; null while that folder is not open or has none. */
   readonly projectId: string | null;
+  /** That project's name; null while it has none. */
+  readonly projectName: string | null;
 }
 
 /** The run times a thread's activity is read from: its latest run, if it has one. */
@@ -96,7 +102,7 @@ export interface ThreadListGroupHeader {
 }
 /** A workspace-folder section (folder mode). */
 export interface ThreadListFolderHeader {
-  readonly folder: ThreadFolderRow;
+  readonly folder: ThreadFolderGroupingRow;
   readonly kind: 'folder';
 }
 /** A repository section (folder mode): its own checkout's threads and its worktrees'. */
@@ -301,9 +307,19 @@ function sortSection(
 
 type FolderSectionHeader = ThreadListFolderHeader | ThreadListRepositoryHeader;
 
-/** The name a section sorts and reads by, with its id as the tie-break. */
+/** The name of the repository or folder a header stands for. */
 function folderSectionName(header: FolderSectionHeader): string {
   return header.kind === 'repository' ? header.repository.displayName : header.folder.displayName;
+}
+
+/**
+ * What a project section is called and sorted by (ADR-0034): the name the person gave its
+ * project, else the name of the repository or folder that names it.
+ */
+export function threadFolderSectionLabel(header: FolderSectionHeader): string {
+  const projectName =
+    header.kind === 'repository' ? header.repository.projectName : header.folder.projectName;
+  return projectName ?? folderSectionName(header);
 }
 
 /** The path a section's header falls back to after its name, so the choice between two is total. */
@@ -410,8 +426,8 @@ function buildFolderSections(
   const compareThreads = input.folderSortBy === 'name' ? compareByName : byRecency(input.ordering);
   const sections: ThreadListFolderSection[] = [...bucketsById.values()]
     .sort((left, right) => {
-      const byName = folderSectionName(left.header).localeCompare(
-        folderSectionName(right.header),
+      const byName = threadFolderSectionLabel(left.header).localeCompare(
+        threadFolderSectionLabel(right.header),
         undefined,
         { sensitivity: 'base' }
       );

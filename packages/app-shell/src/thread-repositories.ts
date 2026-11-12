@@ -76,6 +76,7 @@ function repositoryRow(
     key: repositoryKey(first),
     path: first.repositoryRoot,
     projectId: folder?.projectId ?? null,
+    projectName: folder?.projectName ?? null,
   };
 }
 
