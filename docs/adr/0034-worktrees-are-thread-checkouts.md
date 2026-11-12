@@ -416,10 +416,22 @@ Decisions the build made, which are not Sean's:
   first send: its worktree stands in for its folder and the header names it.
   Before, the Explorer followed only a thread that had been sent.
 
-Not built: the header's rows (Local, the repository's worktrees, New worktree
-and Archive). When they are, they should act through the composer's
-where-control and the thread binding, its only writer, not through a second
-`useWorkspaceBar`.
+- The header's rows (Local, the repository's worktrees, New worktree and
+  Archive) are the composer's where-control: the header of the folder the
+  thread works in has a control, Change where this thread works, that opens
+  it. They act through the thread binding, its only writer, and
+  `useWorkspaceBar` still runs once.
+
+Decisions the build made for the control, which are not Sean's:
+
+- It opens the composer's where-control rather than drawing the rows in the
+  Explorer. The where-control already holds them, with Branch and Folders,
+  and the same wait for the thread's run to end.
+- It shows only while a composer where-control is shown, so it never does
+  nothing. The two share an in-memory count of shown controls and a request
+  the header raises (`where-control-requests.ts` in app-shell); a
+  where-control opens for a request raised while it is shown, never for one
+  from before.
 
 ## Consequences
 

@@ -130,6 +130,27 @@ test.describe('Workspace bar (desktop)', () => {
     await page.keyboard.press('Escape');
   });
 
+  // ADR-0034 decision 3: the Explorer's header changes where the thread works through the
+  // composer's where-control, the one place a checkout is changed.
+  test("the Explorer header's control opens the where-control of the thread working in its folder", async ({
+    window: page,
+  }) => {
+    test.setTimeout(90_000);
+    const repo = freshRepo('explorer-header');
+    await seedRoot(page, repo);
+    await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
+
+    const header = page.getByTestId('single-root-header-row');
+    await expect(header).toContainText(`${path.basename(repo)} · Local`, { timeout: 30_000 });
+    await header.getByRole('button', { name: 'Change where this thread works' }).click();
+
+    await expect(page.getByRole('menu').first()).toBeVisible();
+    await expect(branchRow(page)).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+  });
+
   test('offers no Branch row for a non-git folder', async ({ window: page }) => {
     const plain = freshNonGitDir('plain');
     await seedRoot(page, plain);

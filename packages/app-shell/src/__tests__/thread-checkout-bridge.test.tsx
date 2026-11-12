@@ -4,12 +4,14 @@
  * binding and the open folders' names; the Explorer shows it on that folder.
  */
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { useRootHeaderLabel } from '@brainstrike/file-explorer-ui/shell';
+import { useRootCheckoutChange, useRootHeaderLabel } from '@brainstrike/file-explorer-ui/shell';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileExplorerState } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThreadCheckoutBridge } from '../thread-checkout-bridge';
+import { showWhereControl, useWhereControlRequests } from '../workspace-bar/where-control-requests';
 
 const explorer = {
   rootDescriptors: {
@@ -78,12 +80,23 @@ function Header({ rootId }: { readonly rootId: string }): ReactElement {
   return <span data-testid={`header-${rootId}`}>{useRootHeaderLabel(rootId, '')}</span>;
 }
 
+function Control({ rootId }: { readonly rootId: string }): ReactElement | null {
+  const changeCheckout = useRootCheckoutChange(rootId);
+  return changeCheckout ? (
+    <button data-testid={`control-${rootId}`} onClick={changeCheckout} type="button">
+      Change
+    </button>
+  ) : null;
+}
+
 function renderHeaders(): void {
   render(
     <ThreadCheckoutBridge>
       <Header rootId="r-main" />
       <Header rootId="r-wt" />
       <Header rootId="r-docs" />
+      <Control rootId="r-main" />
+      <Control rootId="r-docs" />
     </ThreadCheckoutBridge>
   );
 }
@@ -134,5 +147,29 @@ describe("the Explorer header's words for the active thread", () => {
     selectThread({});
     renderHeaders();
     expect(screen.getByTestId('header-r-main')).toBeEmptyDOMElement();
+  });
+});
+
+describe("the Explorer header's control for the active thread", () => {
+  it("opens the composer's where-control, offered only while one is shown", () => {
+    selectThread(LOCAL);
+    renderHeaders();
+    // Nothing to open: the header offers no control.
+    expect(screen.queryByTestId('control-r-main')).not.toBeInTheDocument();
+
+    let hide = (): void => undefined;
+    act(() => {
+      hide = showWhereControl();
+    });
+    const before = useWhereControlRequests.getState().openRequest;
+    fireEvent.click(screen.getByTestId('control-r-main'));
+    expect(useWhereControlRequests.getState().openRequest).toBe(before + 1);
+    // Only on the folder the thread works in.
+    expect(screen.queryByTestId('control-r-docs')).not.toBeInTheDocument();
+
+    act(() => {
+      hide();
+    });
+    expect(screen.queryByTestId('control-r-main')).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,8 @@
 import { WorkspaceBar } from '@brainstrike/assistant-ui';
-import type { ReactElement } from 'react';
+import { type ReactElement, useEffect } from 'react';
 import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspace-bar';
 import { useWorkspaceTrustAsk } from '../workspace-trust/use-workspace-trust-ask';
+import { showWhereControl, useWhereControlRequests } from './where-control-requests';
 
 export type WorkspaceBarHostProps = UseWorkspaceBarArgs;
 
@@ -38,5 +39,8 @@ export function WorkspaceBarHost(args: WorkspaceBarHostProps): ReactElement {
     openFolders: args.rootDescriptors,
     threadId: args.selectedMemoryThreadId,
   });
-  return <WorkspaceBar {...barProps} {...(trust ? { trust } : {})} />;
+  // ADR-0034 decision 3: the Explorer's header opens this where-control while it is shown.
+  useEffect(() => showWhereControl(), []);
+  const openRequest = useWhereControlRequests((state) => state.openRequest);
+  return <WorkspaceBar {...barProps} openRequest={openRequest} {...(trust ? { trust } : {})} />;
 }

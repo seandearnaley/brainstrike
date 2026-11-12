@@ -259,6 +259,22 @@ describe('the where-control, closed', () => {
     expect(chip()).toHaveAccessibleName('Where this thread works: brainstrike (closed)');
   });
 
+  // ADR-0034 decision 3: the Explorer's header changes where the thread works through this
+  // control, by asking it to open.
+  it('opens its menu when another surface asks it to', async () => {
+    const { rerender } = render(<WorkspaceBar {...local()} openRequest={0} />);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    rerender(<WorkspaceBar {...local()} openRequest={1} />);
+
+    expect(await screen.findByRole('menu')).toBeVisible();
+  });
+
+  it('stays closed for a request made before it was shown', () => {
+    render(<WorkspaceBar {...local()} openRequest={3} />);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   // The folder's git status is read again after every checkout change and on
   // a thread switch; app-shell withholds `mode` meanwhile (BST-2129).
   it('keeps saying Local while the folder’s git status is read again', () => {
