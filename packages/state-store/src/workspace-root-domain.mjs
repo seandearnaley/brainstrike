@@ -15,14 +15,24 @@ const columns = `id, path, canonical_path AS canonicalPath, display_name AS disp
  * @returns {string}
  */
 function rootProjection(db) {
-  const hasProjects = db
-    .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'project_folders'")
-    .get();
-  return hasProjects
+  return hasTable(db, 'project_folders')
     ? `${columns}, CASE WHEN kind = 'path' THEN (SELECT folder.project_id
         FROM project_folders AS folder WHERE folder.canonical_path = roots.canonical_path)
         END AS projectId`
     : `${columns}, NULL AS projectId`;
+}
+
+/**
+ * Whether the state DB has `table`. A damaged DB is served as it stands, so one from before the
+ * table's version lacks it, and a read that needs it is probed rather than failed.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} table
+ * @returns {boolean}
+ */
+function hasTable(db, table) {
+  return Boolean(
+    db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table)
+  );
 }
 
 /**
@@ -65,7 +75,7 @@ function folderProject(db, canonicalPath, now) {
  * old one, so no record loses its project. When the new place already belongs to a project the
  * folder joins that one instead, and the place it left keeps the project it had.
  * @param {import('better-sqlite3').Database} db
- * @param {{ readonly canonicalPath: string; readonly id: string; readonly kind: 'path' | 'worktree' }} recorded
+ * @param {{ readonly canonicalPath: string; readonly id: string; readonly kind: 'path' | 'worktree' | 'scratch' }} recorded
  * @param {string} canonicalPath
  * @param {number} now
  * @returns {string | null}
@@ -113,8 +123,11 @@ function register(db, request, paths) {
         );
       const now = Date.now();
       // A registered folder is open: it keeps its place, or joins the end of the open folders.
-      // A managed worktree never opens: it is a thread's checkout, not a folder (ADR-0034).
+      // A managed worktree or a scratch folder never opens: each is a thread's own folder
+      // (ADR-0034).
       const nextPosition = '(SELECT COALESCE(MAX(open_position) + 1, 0) FROM roots)';
+      const openPosition = `CASE WHEN kind IN ('worktree', 'scratch') THEN NULL
+            ELSE COALESCE(open_position, ${nextPosition}) END`;
       if (existing) {
         // A folder at a recorded path that resolves elsewhere is another folder: only a fresh
         // grant by the person re-pins the record to it.
@@ -122,12 +135,7 @@ function register(db, request, paths) {
           throw new Error('The workspace folder at this path is not the one that was granted');
         }
         db.prepare(`UPDATE roots SET status = 'live', last_verified_at = ?, canonical_path = ?,
-          open_position = CASE WHEN kind = 'worktree' THEN NULL
-            ELSE COALESCE(open_position, ${nextPosition}) END WHERE id = ?`).run(
-          now,
-          root.canonicalPath,
-          existing.id
-        );
+          open_position = ${openPosition} WHERE id = ?`).run(now, root.canonicalPath, existing.id);
         return {
           roots: [
             {
@@ -149,14 +157,8 @@ function register(db, request, paths) {
           );
         if (pinned) {
           db.prepare(`UPDATE roots SET path = ?, display_name = ?, canonical_path = ?,
-            status = 'live', last_verified_at = ?,
-            open_position = COALESCE(open_position, ${nextPosition}) WHERE id = ?`).run(
-            root.path,
-            root.displayName,
-            root.canonicalPath,
-            now,
-            pinned.id
-          );
+            status = 'live', last_verified_at = ?, open_position = ${openPosition}
+            WHERE id = ?`).run(root.path, root.displayName, root.canonicalPath, now, pinned.id);
           return {
             roots: [
               {
@@ -207,6 +209,101 @@ function register(db, request, paths) {
   )();
 }
 
+/**
+ * Records a folder the host just made as `threadId`'s scratch folder (ADR-0034), in one commit
+ * with its root: the root is live, of kind `scratch`, never open and in no project. The kind
+ * comes from this record, so no other registration can make a root one. A folder already
+ * recorded, as a root or as a scratch folder, is not one the host made, and a thread has one.
+ * @param {import('better-sqlite3').Database} db
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'register-scratch'}} request
+ * @param {RootPaths} paths
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function registerScratch(db, request, paths) {
+  const { root, threadId } = request;
+  if (
+    !(
+      root.preferredId.trim() &&
+      root.displayName.trim() &&
+      root.canonicalPath.trim() &&
+      threadId.trim() &&
+      paths.isGranted(root)
+    )
+  ) {
+    throw new Error('A scratch folder requires its absolute path, its identity and its thread');
+  }
+  return db.transaction(
+    /** @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */ () => {
+      const recorded =
+        db
+          .prepare('SELECT 1 FROM roots WHERE path = ? OR canonical_path = ? OR id = ?')
+          .get(root.path, root.canonicalPath, root.preferredId) ??
+        db.prepare('SELECT 1 FROM scratch_folders WHERE path = ?').get(root.path);
+      if (recorded) {
+        throw new Error(
+          'A scratch folder is a folder the host just made; this one is already recorded'
+        );
+      }
+      if (db.prepare('SELECT 1 FROM scratch_folders WHERE thread_id = ?').get(threadId)) {
+        throw new Error('This thread already has a scratch folder');
+      }
+      const now = Date.now();
+      db.prepare('INSERT INTO scratch_folders (path, thread_id, created_at) VALUES (?, ?, ?)').run(
+        root.path,
+        threadId,
+        now
+      );
+      db.prepare(`INSERT INTO roots (id, path, canonical_path, display_name, kind, status,
+        created_at, last_verified_at, open_position)
+      VALUES (?, ?, ?, ?, 'scratch', 'live', ?, ?, NULL)`).run(
+        root.preferredId,
+        root.path,
+        root.canonicalPath,
+        root.displayName,
+        now,
+        now
+      );
+      return {
+        roots: [
+          {
+            canonicalPath: root.canonicalPath,
+            createdAt: now,
+            displayName: root.displayName,
+            id: root.preferredId,
+            kind: /** @type {const} */ ('scratch'),
+            lastVerifiedAt: now,
+            path: root.path,
+            projectId: null,
+            status: /** @type {const} */ ('live'),
+          },
+        ],
+      };
+    }
+  )();
+}
+
+/**
+ * `threadId`'s scratch folder, as its root records it: none, or one. A state DB from before
+ * version 17 that opened damaged has none.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} projection
+ * @param {string} threadId
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootRecord[]}
+ */
+function scratchOfThread(db, projection, threadId) {
+  if (!hasTable(db, 'scratch_folders')) {
+    return [];
+  }
+  return /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
+    db
+      .prepare(
+        `SELECT ${projection} FROM roots WHERE kind = 'scratch' AND path IN
+          (SELECT path FROM scratch_folders WHERE thread_id = ?)`
+      )
+      .all(threadId)
+  );
+}
+
 /** @param {import('better-sqlite3').Database} db
  * @param {import('./workspace-root-types.ts').WorkspaceRootRequest} request
  * @param {RootPaths} paths
@@ -214,6 +311,9 @@ function register(db, request, paths) {
 export function executeWorkspaceRootRequest(db, request, paths) {
   if (request.operation === 'register') {
     return register(db, request, paths);
+  }
+  if (request.operation === 'register-scratch') {
+    return registerScratch(db, request, paths);
   }
   const projection = rootProjection(db);
   switch (request.operation) {
@@ -246,6 +346,29 @@ export function executeWorkspaceRootRequest(db, request, paths) {
             .all()
         ),
       };
+    case 'list-scratch':
+      return {
+        roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
+          db
+            .prepare(
+              `SELECT ${projection} FROM roots WHERE kind = 'scratch' ORDER BY created_at, rowid`
+            )
+            .all()
+        ),
+      };
+    case 'scratch-of-thread':
+      return { roots: scratchOfThread(db, projection, request.threadId) };
+    case 'forget-scratch':
+      // The thread's root and its scratch record go together, in one commit.
+      return db.transaction(() => {
+        const forgotten = scratchOfThread(db, projection, request.threadId);
+        const remove = db.prepare('DELETE FROM roots WHERE id = ?');
+        for (const root of forgotten) {
+          remove.run(root.id);
+        }
+        db.prepare('DELETE FROM scratch_folders WHERE thread_id = ?').run(request.threadId);
+        return { roots: forgotten };
+      })();
     case 'disconnect-except':
       // Closing a folder and disconnecting what is not mounted commit together.
       return db.transaction(() => {

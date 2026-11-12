@@ -283,16 +283,18 @@ They supersede the text above where they differ.
   a folder that already existed. A managed worktree is not one of these: it
   still shares its repository's answer, whether trusted, restricted or
   undecided.
-  - Nothing to build yet (checked 2026-11-10). The app makes no folder that
-    becomes a thread's working folder, apart from managed worktrees. Every
-    way a folder opens (`workspace/roots/add`, `open`, `pick`, `restore`) takes
-    a folder that already exists, the folder picker cannot create one, and a
-    thread with no folder gets none.
-  - The rule for the feature that adds such an action: at the moment the app
-    creates the folder, the host records it as `trusted` through its one
-    writer (`writeHostWorkspaceTrust`). It records nothing when the folder
-    already existed, so a path the app merely reuses still asks. The record is
-    the folder's own answer, which the person can change in Settings.
+  - The rule: at the moment the app creates the folder, the host records it
+    as `trusted` through its one writer (`writeHostWorkspaceTrust`). It records
+    nothing when the folder already existed, so a path the app merely reuses
+    still asks. The record is the folder's own answer, which the person can
+    change in Settings.
+  - Built 2026-11-12 for scratch folders (ADR-0034, scratch threads): a thread
+    sent with no folder while none is open works in a folder the host makes
+    under `<userData>/scratch`. The host makes the folder's leaf alone, so it
+    never existed, and records it as `trusted` before it is used. A thread's
+    folder that is reused is not recorded again. When the thread is deleted,
+    the answer is forgotten before the folder goes to the Trash
+    (`forgetHostWorkspaceTrust`). Creating a project in the app is not built.
 - **An untrusted folder does not cap the access mode** (BST-2341). A run keeps
   the access mode the composer shows, and the sandbox and permission policy
   still apply. The options not taken were capping at Ask, and capping at Ask

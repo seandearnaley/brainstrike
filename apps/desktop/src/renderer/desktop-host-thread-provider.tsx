@@ -62,6 +62,7 @@ import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
 import { NewHostThread } from './new-host-thread';
+import { listedThreadFolders, threadSelectionFolderId } from './thread-selection-folder';
 import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
@@ -250,7 +251,9 @@ function HostThread({
   const conversationColor = useConversationColor(threadId, agentColor);
   // ADR-0019: the composer's model is the host thread's selection.
   const selection = useHostThreadSelection(client, threadId);
-  const readSelectionFolderId = () => explorer.getState().currentFolderId;
+  // ADR-0034: a run names the Explorer's focus only while this thread can see that folder.
+  const readSelectionFolderId = () =>
+    threadSelectionFolderId(explorer.getState(), listedThreadFolders(threadId));
   const { catalogKey, readConfiguration, readModelId, readPlanMode, ...presentation } =
     useDesktopHostPresentation(threadId, selection, readSelectionFolderId, providerReadErrors);
   const configuration = useRef(readConfiguration);
@@ -271,7 +274,10 @@ function HostThread({
       client,
       modelId: '',
       onEntryCommitted,
-      readConfiguration: () => configuration.current(explorer.getState().currentFolderId),
+      readConfiguration: () =>
+        configuration.current(
+          threadSelectionFolderId(explorer.getState(), listedThreadFolders(threadId))
+        ),
       readModelId: () => modelId.current(),
       readPlanMode: () => planMode.current(),
       replacement,
@@ -289,7 +295,7 @@ function HostThread({
   const readMemoryRequest = () => ({
     ...hostRunSettings({
       modelId: '',
-      readConfiguration: () => readConfiguration(explorer.getState().currentFolderId),
+      readConfiguration: () => readConfiguration(readSelectionFolderId()),
       readModelId,
       readPlanMode: () => planModeEnabled,
     }),

@@ -10,7 +10,10 @@ import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { type CommittedHostThreadOptions, startCommittedTurn } from './committed-host-thread';
 
 export interface NewThreadFirstSend {
-  /** Commits the new thread's folder and checkout to the thread just created. */
+  /**
+   * Commits the new thread's folder and checkout to the thread just created, or, with none
+   * picked and none open, has the host make it a scratch folder (ADR-0034), before its run.
+   */
   readonly bind: (threadId: string) => Promise<void>;
   readonly client: CommittedHostThreadOptions['client'];
   /** Opens the created thread as the active tab, with the new thread's settings. */

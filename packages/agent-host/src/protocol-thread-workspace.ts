@@ -82,6 +82,13 @@ export const THREAD_WORKSPACE_METHOD_SCHEMAS = {
     patch: ThreadWorkspaceBindingSchema,
   }),
   'thread/workspace/read': Schema.Struct(Thread),
+  /**
+   * ADR-0034 scratch threads: before a thread's first run, gives a thread with
+   * no folder, while none is open in the workspace, a folder the host makes for
+   * it, and binds the thread to it through the binding's own command. A thread
+   * that already works in a folder keeps it.
+   */
+  'thread/workspace/scratch': Schema.Struct({ ...Command, ...Thread }),
   'thread/workspace/set': Schema.Struct({
     ...Command,
     ...Thread,
@@ -95,5 +102,12 @@ export const THREAD_WORKSPACE_RESULT_SCHEMAS = {
   }),
   'thread/workspace/binding/update': Schema.Struct({ accepted: Schema.Literal(true) }),
   'thread/workspace/read': Schema.Struct({ snapshot: Schema.NullOr(WorkspaceSnapshotSchema) }),
+  /**
+   * The thread's scratch folder, which it now works in; null when it has none:
+   * a folder is open in the workspace, or the thread works in another folder.
+   */
+  'thread/workspace/scratch': Schema.Struct({
+    root: Schema.NullOr(Schema.Struct({ displayName: Id, path: Id, rootId: Id })),
+  }),
   'thread/workspace/set': Schema.Struct({ accepted: Schema.Literal(true) }),
 } as const;

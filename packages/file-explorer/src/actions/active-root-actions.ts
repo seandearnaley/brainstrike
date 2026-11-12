@@ -61,7 +61,11 @@ export const createActiveRootActions = (
 ): ActiveRootActions => ({
   addActiveRoot: (root: StoredRootDescriptor) => {
     set((state: FileExplorerState) => {
-      const alreadyPresent = root.worktree === true || state.activeRootIds.includes(root.rootId);
+      // A thread's own folder (a managed worktree or a scratch folder) is never an open folder.
+      const alreadyPresent =
+        root.worktree === true ||
+        root.scratch === true ||
+        state.activeRootIds.includes(root.rootId);
       return {
         // Only append the id if it is not already in the list
         activeRootIds: alreadyPresent ? state.activeRootIds : [...state.activeRootIds, root.rootId],
@@ -102,7 +106,9 @@ export const createActiveRootActions = (
   },
   setActiveRoots: (roots: StoredRootDescriptor[]) => {
     set((state: FileExplorerState) => {
-      const reportedIds = roots.filter((r) => r.worktree !== true).map((r) => r.rootId);
+      const reportedIds = roots
+        .filter((r) => r.worktree !== true && r.scratch !== true)
+        .map((r) => r.rootId);
       const reportedIdSet = new Set(reportedIds);
       // Keep the existing (possibly Main-reordered) relative order for ids
       // still reported; a ghost id no longer reported is dropped.

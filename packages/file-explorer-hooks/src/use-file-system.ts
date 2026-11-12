@@ -281,7 +281,8 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
       const handles = [
         action.handle,
         ...state.rootDirectoryHandles.filter(
-          (handle) => handle.worktree === true && rootKeyOf(handle) !== key
+          (handle) =>
+            (handle.worktree === true || handle.scratch === true) && rootKeyOf(handle) !== key
         ),
       ];
       return {
@@ -400,7 +401,8 @@ async function runMultiRootRestore({
     }
 
     // Register persisted roots in the store. Accessed via ref to avoid reactive dep.
-    // A managed worktree keeps its descriptor but is never an open folder (ADR-0034).
+    // A managed worktree or a scratch folder keeps its descriptor but is never an open folder
+    // (ADR-0034).
     const storedDescriptors: StoredRootDescriptor[] = granted
       .filter((d) => d.persisted)
       .map((d) => ({
@@ -408,6 +410,7 @@ async function runMultiRootRestore({
         path: d.handle.path,
         rootId: d.rootId,
         ...(d.handle.worktree ? { worktree: true as const } : {}),
+        ...(d.handle.scratch ? { scratch: true as const } : {}),
       }));
     setActiveRootsRef.current(storedDescriptors);
   } catch (error) {
@@ -527,6 +530,7 @@ export function useFileSystem({
             path: getCanonicalFolderId(handle),
             rootId,
             ...(handle.worktree ? { worktree: true as const } : {}),
+            ...(handle.scratch ? { scratch: true as const } : {}),
           });
         }
         dispatch({ type: 'recordRecentRootMutation' });
@@ -583,6 +587,7 @@ export function useFileSystem({
             path: getCanonicalFolderId(handle),
             rootId,
             ...(handle.worktree ? { worktree: true as const } : {}),
+            ...(handle.scratch ? { scratch: true as const } : {}),
           });
         }
         dispatch({ type: 'recordRecentRootMutation' });

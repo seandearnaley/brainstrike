@@ -144,6 +144,12 @@ export interface DirectoryHandle {
    */
   rootId?: RootId;
   /**
+   * The root is a scratch folder: one the host made for a thread sent with no folder while none
+   * was open, mounted for that thread but never one of the open folders (ADR-0034). The Explorer
+   * shows it only while the active thread works in it.
+   */
+  scratch?: true;
+  /**
    * The root is a managed worktree: a thread's checkout, mounted for the thread but never one
    * of the open folders (ADR-0034). The Explorer shows it only in place of its repository's
    * folder while the active thread works in it.
