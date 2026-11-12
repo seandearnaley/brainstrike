@@ -8,6 +8,8 @@
   - 2026-11-11 (owner decisions, below): how Automatic isolation is built, and its first part;
     the composer's folder, branch and checkout chips become one control that says where a thread
     works.
+  - 2026-11-12 (owner decisions, below): a thread sent with no folder while none is open works
+    in a scratch folder the host makes for it.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -438,6 +440,96 @@ Decisions the build made for the control, which are not Sean's:
   in app-shell). Inactive thread tabs keep their composers mounted, hidden, so
   only the active thread's where-control opens; it opens for a request raised
   while it is shown, never for one from before.
+
+## Owner decisions, 2026-11-12: scratch threads
+
+Sean's answers, approved as written:
+
+- **A thread first sent while it has no folder and no folder is open in the
+  workspace works in a scratch folder.** The app makes the folder and binds
+  the thread to it before the run starts, so file tools work from the first
+  message. Before, with no folder open, they refused ("No folder is open in
+  the workspace…").
+  - With any folder open nothing changes: the run gets the live folders and
+    the Explorer's focused one.
+  - A thread that never sends makes nothing.
+- **The folder lives under Electron's userData**, `<userData>/scratch/<name>`,
+  named as managed worktrees are (`generateWorktreeName`). Factory Reset
+  already deletes userData.
+- **App-made folders are trusted with no question** (ADR-0032, owner
+  decisions 2026-11-10): at the moment the app makes the folder, the host
+  records it as `trusted` through `writeHostWorkspaceTrust`, never for a
+  folder that already existed.
+- **Deleting the thread moves its scratch folder to the system Trash.**
+- Approved changes of owner: the host makes a folder and registers it as a
+  root without the folder picker; Core binds the thread before its run is
+  admitted; a new durable record marks scratch folders, with a state DB and
+  protocol bump, joining the reset lifecycle (ADR-0015).
+
+Built: all of the above. State DB version 17 (`scratch_folders`, root kind
+`scratch`), host protocol version 26 (`thread/workspace/scratch`, the root
+kind and the roots' `scratch` flag), `HostPlatform.scratchFolders`, and Main's
+`platform/workspace/trash-scratch-folder`.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **The renderer asks, the host decides.** The new-thread first send calls
+  `thread/workspace/scratch` before `run/start` when its draft has no folder
+  and the window shows no open folder. The host makes nothing while a folder
+  is open: its root registry checks, in its own order of changes, so a folder
+  opened meanwhile is seen and the thread runs as before. A thread that
+  already works in a folder keeps it; the answer names its scratch folder when
+  that is the one.
+- **Made outside Core's admission queue, bound through the binding's
+  command.** The queue is shared by every thread, so the folder is made
+  outside it, as Automatic isolation makes a worktree, and the binding
+  commits through `updateWorkspaceBinding`, its only writer. A deletion of the
+  thread or the host's close aborts the making; the binding is then refused.
+- **One folder per thread, reused.** The store refuses a second scratch folder
+  for a thread, and a scratch command repeated after the folder was made, but
+  before the binding committed, finds the recorded folder and binds it.
+- **Its root is the thread's own, like a managed worktree's.** It is recorded
+  in the commit that records `scratch_folders`, so no other registration can
+  make a root a scratch folder. It is live, mounted for its thread at every
+  launch, never an open folder, never in Recents, has no project, and is
+  refused as the window's project. It reaches the renderer marked `scratch`.
+- **The Explorer shows only the active thread's.** The thread-checkout seam
+  that puts the active thread's worktree in the Explorer now carries its
+  scratch folder too (`ThreadCheckout.threadRootId`, renamed from
+  `worktreeRootId`), with no Local folder. Every other thread's is left out,
+  as other threads' worktrees are. Its header and the composer's
+  where-control read `<folder> · Local`: the folder is a project with one
+  checkout (decision 1), in the words a folder outside git already had.
+- **A run with no folder of its own never sees another thread's scratch
+  folder.** Main's admission roots leave scratch roots out, so a thread's
+  trusted folder (and its instructions) never reach another thread's run. A
+  thread bound to its scratch folder acquires it through its binding, and the
+  folder may be that run's selected folder.
+- **Made at its canonical path.** The host resolves the scratch directory
+  before naming a folder in it, so the root, its watch and its trust answer
+  spell it one way (a profile reached through a symbolic link, as the OS
+  temporary folder is on macOS, otherwise showed no changes in the Explorer).
+- **Retired by thread, not by binding.** A deleted thread's scratch folder is
+  the one recorded for it, so it goes even when the thread had moved to
+  another folder. After the thread's rows are erased, outside the admission
+  queue: the folder unmounts once its borrows end, its root and record are
+  deleted together, its trust answer goes, and Main moves it to the Trash.
+  Main moves only a folder directly inside `<userData>/scratch`, by canonical
+  path. A folder already removed outside Brainstrike is logged and skipped. A
+  failure is logged and answers the deletion, which says the thread itself is
+  gone.
+
+Not built:
+
+- A "Scratch" section in the Threads panel. A scratch thread lists under its
+  folder's name, as any thread with one folder does.
+- Cleaning up scratch folders on Clear Database. Their rows go with the
+  roots; the folders stay in the profile until Factory Reset, as worktrees do.
+- Moving a scratch thread's work into a project, and starting one from a
+  thread that already ran with no folder.
+- Mounting only the scratch folders of open threads. Every one mounts at
+  launch, as every managed worktree does, each with its own handle.
 
 ## Consequences
 
