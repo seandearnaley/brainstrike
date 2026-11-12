@@ -106,6 +106,14 @@ export function WorktreeCreateDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {mode.uncommittedFolderName ? (
+            <p
+              className="text-muted-foreground text-xs"
+              data-testid="worktree-create-uncommitted-note"
+            >
+              {`Uncommitted changes in ${mode.uncommittedFolderName} stay there.`}
+            </p>
+          ) : null}
           <div className="space-y-2">
             <Label htmlFor="worktree-base-ref">Start from</Label>
             <Select onValueChange={setBaseRef} value={baseRef}>

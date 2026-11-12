@@ -8,6 +8,7 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
   return {
     archiveConfirmation: null,
     baseRefs: [{ label: 'Current branch', value: 'HEAD' }],
+    checkoutChangeDisabledReason: null,
     createDisabledReason: null,
     defaultBranchPrefix: 'bs/',
     defaultName: 'bright-fox',
@@ -34,10 +35,35 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
     },
     repositorySetupConsent: null,
     setupSummary: 'Repository setup script',
+    uncommittedFolderName: null,
     worktree: null,
     ...overrides,
   };
 }
+
+describe('WorktreeCreateDialog uncommitted changes', () => {
+  it("says the thread folder's uncommitted changes stay there", () => {
+    render(
+      <WorktreeCreateDialog
+        mode={mode({ uncommittedFolderName: 'brainstrike' })}
+        onOpenChange={vi.fn()}
+        open
+      />
+    );
+
+    expect(screen.getByTestId('worktree-create-uncommitted-note')).toHaveTextContent(
+      'Uncommitted changes in brainstrike stay there.'
+    );
+  });
+
+  it('says nothing about uncommitted changes when the folder has none', () => {
+    render(<WorktreeCreateDialog mode={mode()} onOpenChange={vi.fn()} open />);
+
+    expect(screen.getByTestId('worktree-create-dialog')).toBeVisible();
+    expect(screen.queryByTestId('worktree-create-uncommitted-note')).toBeNull();
+    expect(screen.queryByText(/uncommitted/iu)).toBeNull();
+  });
+});
 
 describe('WorktreeCreateDialog repository setup consent', () => {
   it('identifies the repository and script, explains the consequences, and blocks create', async () => {
