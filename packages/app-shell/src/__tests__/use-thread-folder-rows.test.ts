@@ -1,6 +1,8 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useThreadFolderRows } from '../hooks/use-thread-folder-rows';
+import { notifyRootRegistered } from '../roots/root-registration-events';
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: {
@@ -21,11 +23,13 @@ interface RootsRow {
   readonly displayName: string;
   readonly id: string;
   readonly path: string | null;
+  readonly projectId: string | null;
 }
 
 const ROOT_ROWS: readonly RootsRow[] = [
-  { displayName: 'Project A', id: 'root-a', path: '/work/a' },
-  { displayName: 'Project B', id: 'root-b', path: null },
+  { displayName: 'Project A', id: 'root-a', path: '/work/a', projectId: 'project-a' },
+  // A managed worktree's root, or a folder recorded before projects: no project of its own.
+  { displayName: 'Project B', id: 'root-b', path: null, projectId: null },
 ];
 
 const readRoots = vi.fn();
@@ -50,7 +54,7 @@ beforeEach(() => {
 afterEach(() => Reflect.deleteProperty(window, 'threadGroups'));
 
 describe('useThreadFolderRows', () => {
-  it('resolves display rows for the requested root ids in ONE catalog read', async () => {
+  it('resolves display rows and their projects for the requested root ids in ONE catalog read', async () => {
     const { result } = renderHook(() => useThreadFolderRows(['root-b', 'root-a']));
 
     await waitFor(() => {
@@ -59,14 +63,38 @@ describe('useThreadFolderRows', () => {
     expect(result.current.rowsByRootId.get('root-a')).toEqual({
       displayName: 'Project A',
       path: '/work/a',
+      projectId: 'project-a',
       rootId: 'root-a',
     });
     expect(result.current.rowsByRootId.get('root-b')).toEqual({
       displayName: 'Project B',
       path: null,
+      projectId: null,
       rootId: 'root-b',
     });
     expect(readRoots).toHaveBeenCalledTimes(1);
+  });
+
+  // A folder picked again where another project's folder is keeps its root id and joins that
+  // project, so the thread list has to read the folder's project again to move it there.
+  it("reads a folder's project again when a registration commits, with the same ids", async () => {
+    const { result } = renderHook(() => useThreadFolderRows(['root-a']));
+    await waitFor(() => {
+      expect(result.current.rowsByRootId.get('root-a')?.projectId).toBe('project-a');
+    });
+
+    readRoots.mockImplementation(async () => [
+      { ...ROOT_ROWS[0], projectId: 'project-joined', status: 'live' as const },
+    ]);
+    act(() => {
+      notifyRootRegistered(['root-a', '/work/a']);
+    });
+
+    await waitFor(() => {
+      expect(result.current.rowsByRootId.get('root-a')?.projectId).toBe('project-joined');
+    });
+    // The rows stay drawn while the second read is out.
+    expect(result.current.loading).toBe(false);
   });
 
   it('re-queries only when the distinct id SET changes, not on reordering or repeats', async () => {

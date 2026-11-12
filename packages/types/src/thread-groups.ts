@@ -68,6 +68,11 @@ export interface ThreadCatalogRoot {
   readonly displayName: string;
   readonly id: string;
   readonly path: string;
+  /**
+   * The project the root's record names (ADR-0034, owner decisions 2026-11-10);
+   * null for a managed worktree's root and a folder recorded before projects.
+   */
+  readonly projectId: string | null;
   readonly status: 'live' | 'disconnected';
 }
 export interface ThreadGroupsCapability {
