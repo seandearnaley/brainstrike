@@ -4,11 +4,11 @@
 import '@brainstrike/secure-fs-native/default-owner';
 import {
   decodeStartOptions,
+  failedStartupReport,
   type HostRuntime,
   type StartupMessage,
   startHost,
 } from '@brainstrike/host-lease';
-import { ForeignLockError, RootLockedError } from '@brainstrike/state-store';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
 import { installHostLifetimePort } from './host-lifetime-port';
 
@@ -57,16 +57,7 @@ async function main(): Promise<void> {
       throw controlFailure;
     }
   } catch (cause) {
-    parent.postMessage({
-      event: 'failed',
-      kind:
-        cause instanceof RootLockedError
-          ? 'root-locked'
-          : cause instanceof ForeignLockError
-            ? 'foreign-lock'
-            : 'error',
-      message: cause instanceof Error ? cause.message : String(cause),
-    } satisfies StartupMessage);
+    parent.postMessage(failedStartupReport(cause));
     throw cause;
   } finally {
     parent.off('message', message);

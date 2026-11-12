@@ -380,7 +380,9 @@ async function attachWinner(launch: Launch, cause: unknown): Promise<Step> {
   if (cause instanceof RootContentionError) {
     return AGAIN;
   }
-  if (!(cause instanceof RootLockedError)) {
+  // ADR-0017 (BST-2477): a native process an earlier owner started still holds the Root. No
+  // owner is leaving it, so the launch ends with that refusal rather than starting another host.
+  if (!(cause instanceof RootLockedError) || cause.holder === 'native-tail') {
     throw cause;
   }
   // Only a proved acquisition race is attachable. Unrelated spawn errors are

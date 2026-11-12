@@ -10,6 +10,18 @@ const StartupMessageSchema = Schema.Union([
     event: Schema.Literal('failed'),
     kind: Schema.Literals(['root-locked', 'foreign-lock', 'error']),
     message: Schema.String,
+    // ADR-0017 (BST-2477): a `root-locked` refusal by a native process that this owner (its
+    // lock record's identity and token) started, which still holds the Root. Starters decode
+    // this strictly; each starts a host of its own build, so no reader older than the field
+    // meets it.
+    nativeTail: Schema.optional(
+      Schema.Struct({
+        host: Schema.String,
+        pid: Schema.Int,
+        start: Schema.String,
+        token: Schema.String,
+      })
+    ),
     ownership: Schema.optional(Schema.Literals(['released', 'retained'])),
   }),
 ]);
