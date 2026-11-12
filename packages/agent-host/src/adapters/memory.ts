@@ -517,8 +517,24 @@ export class HostMemory implements HostRunOwner {
     );
   }
 
-  /** Only after the host committed the SDK step; preserve its stable projection IDs. */
+  /**
+   * Only after the host committed the SDK step; preserve its stable projection IDs.
+   *
+   * A run cancelled before its save begins (a Stop, or the app quitting just
+   * after a reply, BST-2478) leaves nothing unsaved: the step is already in the
+   * canonical transcript, and with no vector store Memory keeps no copy of it
+   * (its storage only checks the committed rows, BST-2428). A save that began
+   * and then failed, even with the run's own abort reason, stays a failure, and
+   * so does a cancelled save that would have embedded the step.
+   */
   commitStep(committedMessages: readonly MastraDBMessage[]): Promise<void> {
+    if (
+      !(this.closing || this.ending) &&
+      this.identity.signal.aborted &&
+      this.memory.vector === undefined
+    ) {
+      return Promise.resolve();
+    }
     return this.admit('save', async () => {
       // Immutable committed segments retain their existing row addresses. The
       // list already holds earlier steps' segments, and re-adding one that
