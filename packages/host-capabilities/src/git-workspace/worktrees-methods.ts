@@ -30,6 +30,7 @@ import type {
 } from '@brainstrike/types';
 import { Predicate } from 'effect';
 import { gitInvalid, gitRefused, gitThrew } from './git-failure.ts';
+import { newestArchiveFirst } from './worktree-ledger.ts';
 import type { WorktreeService } from './worktree-service.ts';
 import {
   decideWorktreeSetupConsent,
@@ -52,6 +53,9 @@ export interface WorktreesMethods {
   readonly getSettings: () => Promise<BoundaryResult<WorktreeSettings>>;
   readonly inspectArchive: (payload: unknown) => Promise<BoundaryResult<WorktreeArchivePreview>>;
   readonly list: () => Promise<BoundaryResult<readonly WorktreeListEntry[]>>;
+  readonly listArchived: (
+    payload: unknown
+  ) => Promise<BoundaryResult<readonly ManagedWorktreeRow[]>>;
   readonly listManagedPaths: () => Promise<BoundaryResult<readonly ManagedWorktreePathEntry[]>>;
   readonly listSetupConsent: () => Promise<BoundaryResult<readonly WorktreeSetupConsent[]>>;
   readonly restore: (payload: unknown) => Promise<BoundaryResult<WorktreeCreateResult>>;
@@ -62,6 +66,10 @@ export interface WorktreesMethods {
 }
 
 export interface WorktreesMethodsOptions {
+  /** A repository's managed worktrees as the ledger records them, archived ones too. */
+  readonly listRepositoryWorktrees: (
+    repoCommonDir: string
+  ) => Promise<readonly ManagedWorktreeRow[]>;
   readonly readSettings: () => Promise<WorktreeSettings>;
   readonly resolveService: () => WorktreeService | null;
   /** The host's state store, which holds the repositories' setup script consent. */
@@ -227,11 +235,12 @@ function validateCreateBranchHere(payload: unknown): BoundaryResult<{
   return { ok: true, value: { branch: payload['branch'], worktreeId: payload['worktreeId'] } };
 }
 
-function validateCreateContext(payload: unknown): BoundaryResult<{
-  readonly rootId: string;
-}> {
+function validateRootRequest(
+  channel: string,
+  payload: unknown
+): BoundaryResult<{ readonly rootId: string }> {
   if (!(Predicate.isObject(payload) && nonEmptyString(payload['rootId']))) {
-    return gitInvalid('worktrees:createContext requires { rootId }.');
+    return gitInvalid(`${channel} requires { rootId }.`);
   }
   return { ok: true, value: { rootId: payload['rootId'] } };
 }
@@ -343,7 +352,7 @@ export function createWorktreesMethods(options: WorktreesMethodsOptions): Worktr
       );
     },
     createContext: async (payload) => {
-      const params = validateCreateContext(payload);
+      const params = validateRootRequest('worktrees:createContext', payload);
       if (!params.ok) {
         return params;
       }
@@ -387,6 +396,22 @@ export function createWorktreesMethods(options: WorktreesMethodsOptions): Worktr
       );
     },
     list: async () => await withService('worktrees:list', (service) => service.list()),
+    // ADR-0034 decision 7: the archived worktrees of the repository the root is in, which the
+    // where-control's picker offers to restore.
+    listArchived: async (payload) => {
+      const params = validateRootRequest('worktrees:listArchived', payload);
+      if (!params.ok) {
+        return params;
+      }
+      return await withService('worktrees:listArchived', async (service) => {
+        const repository = await service.repositoryContextForRoot(params.value.rootId);
+        if (!repository.ok) {
+          return repository;
+        }
+        const rows = await options.listRepositoryWorktrees(repository.value.commonDir);
+        return { ok: true, value: newestArchiveFirst(rows) };
+      });
+    },
     listManagedPaths: async () =>
       await withService('worktrees:listManagedPaths', (service) => service.listManagedPaths()),
     listSetupConsent: async () => {
