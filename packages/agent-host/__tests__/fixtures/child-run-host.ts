@@ -138,6 +138,8 @@ export interface ChildRunFixture {
   readonly commandSessionExits?: HostPlatform['commandSessionExits'];
   /** Holds a batch's commit until it resolves, to observe the host between a reservation and its commit. */
   readonly holdAppend?: (items: readonly AppendItem[]) => Promise<void>;
+  /** ADR-0034 decision 7: the idle worktrees the platform's cap archives. */
+  readonly idleWorktreeArchives?: HostPlatform['idleWorktreeArchives'];
   /** The production run owner over the fixture's own store, as the host platform opens it. */
   readonly memory?: (store: StateStore) => HostPlatform['openRun'];
   /** ADR-0037: the models a delegation may name. */
@@ -176,6 +178,7 @@ function fixturePlatform(
     ...(fixture.childConfiguration ? { childConfiguration: fixture.childConfiguration } : {}),
     close: async () => undefined,
     ...(fixture.commandSessionExits ? { commandSessionExits: fixture.commandSessionExits } : {}),
+    ...(fixture.idleWorktreeArchives ? { idleWorktreeArchives: fixture.idleWorktreeArchives } : {}),
     delegation: {
       ...(fixture.models ? { models: fixture.models } : {}),
       personas: fixture.personas ?? [explorer],

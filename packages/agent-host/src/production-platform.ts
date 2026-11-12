@@ -132,6 +132,8 @@ export interface ProductionHostPlatformOptions {
   readonly forgetThread?: HostPlatform['forgetThread'];
   /** ADR-0029 stage 2: the desktop's git cluster. */
   readonly gitWorkspace?: HostPlatform['gitWorkspace'];
+  /** ADR-0034 decision 7: the idle worktrees the cap archives, which Core tells their thread. */
+  readonly idleWorktreeArchives?: HostPlatform['idleWorktreeArchives'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   /** The desktop's MCP content browsing (BST-1930 c5d). */
@@ -703,6 +705,7 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...(options.checkoutIsolation ? { checkoutIsolation: options.checkoutIsolation } : {}),
     ...(options.childConfiguration ? { childConfiguration: options.childConfiguration } : {}),
     ...(options.commandSessionExits ? { commandSessionExits: options.commandSessionExits } : {}),
+    ...(options.idleWorktreeArchives ? { idleWorktreeArchives: options.idleWorktreeArchives } : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.mcp ? { mcp: options.mcp } : {}),

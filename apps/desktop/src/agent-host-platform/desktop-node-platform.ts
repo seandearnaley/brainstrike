@@ -405,6 +405,8 @@ export async function createDesktopHostConfiguration(
     fileWatches: fileWatches.service,
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     gitWorkspace: gitWorkspace.service,
+    // ADR-0034 decision 7: Core tells a thread which idle worktrees its creation's cap archived.
+    idleWorktreeArchives: gitWorkspace.idleWorktreeArchives,
     mcp: mcpHost.services.mcp,
     mcpContent: mcpHost.content,
     mcpPresentation: mcpHost.presentation,

@@ -130,6 +130,9 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     event.kind === 'run.stalled' ||
     event.kind === 'run.resumed' ||
     event.kind === 'tool.approval.requested' ||
+    // ADR-0034 decision 7: the idle worktrees the cap archived. Nothing else
+    // in the thread says a worktree went away.
+    event.kind === 'worktree.archived' ||
     event.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
   );
 }

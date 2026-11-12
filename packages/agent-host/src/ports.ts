@@ -890,6 +890,17 @@ export interface HostCommandSessionExit {
   readonly threadId: string;
 }
 
+/**
+ * ADR-0034 decision 7: the idle worktrees the platform's cap archived after a worktree was
+ * created for `threadId`, which Core tells that thread (`worktrees.archived`).
+ */
+export interface HostIdleWorktreeArchive
+  extends Pick<Extract<HostEvent, { type: 'worktrees.archived' }>, 'limit' | 'worktrees'> {
+  /** The run that made the worktree; absent when the person made it. */
+  readonly runId?: string;
+  readonly threadId: string;
+}
+
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   /**
@@ -938,6 +949,20 @@ export interface HostPlatform {
   readonly generatesThreadTitles?: boolean | undefined;
   /** The desktop's git cluster; absent where the host owns no workspace git (the CLI). */
   readonly gitWorkspace?: HostGitWorkspace;
+  /**
+   * ADR-0034 decision 7: the idle worktrees the cap archives after each creation for a thread,
+   * until the returned function unsubscribes. Absent where the host creates no worktree.
+   */
+  readonly idleWorktreeArchives?:
+    | {
+        /**
+         * Starts no further cap and settles once the archive in flight has finished and been
+         * reported, so Core can tell its thread before it stops admitting.
+         */
+        settle(): Promise<void>;
+        subscribe(listener: (archive: HostIdleWorktreeArchive) => void): () => void;
+      }
+    | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
   /** Runs the MCP App tool calls Core admits; absent where the host has no MCP. */
