@@ -279,9 +279,10 @@ async function readDesktopNativeAdmission(
       : undefined;
   };
   const attachedMentions = attachedMentionsOf(request.prompt ?? '');
+  // A folder of the thread's own counts, though no other run sees it: its scratch folder (ADR-0034).
   if (
     intent.selectionFolderId &&
-    !liveRoots.some((root) => root.rootId === intent.selectionFolderId)
+    ![...liveRoots, ...roots].some((root) => root.rootId === intent.selectionFolderId)
   ) {
     throw refusalError(
       'conflict',

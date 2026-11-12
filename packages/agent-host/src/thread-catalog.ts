@@ -149,9 +149,12 @@ export class HostThreadCatalog {
     }
   }
 
-  /** How many stored threads hydration could not read; each still lists as damaged. */
-  damagedThreadCount(): number {
-    return this.damaged.size;
+  /**
+   * BST-1880: the state store's damage, and how many stored threads hydration could not read
+   * (each still lists as damaged), for the damaged-store notice.
+   */
+  stateHealth(store: Pick<StateStore, 'health'>): HostResults['state/health/read'] {
+    return { damagedThreads: this.damaged.size, stateDamage: store.health().stateDamage };
   }
 
   /** A committed row's append time is the store's latest time for its thread. */

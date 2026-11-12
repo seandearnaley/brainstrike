@@ -50,7 +50,7 @@ const ROOT_IDS = new Map([
   [swiftBadger.path, ROOT_WORKTREE],
   [docs.path, ROOT_DOCS],
 ]);
-const IN_WORKTREE: ThreadCheckout = { localRootId: ROOT_LOCAL, worktreeRootId: ROOT_WORKTREE };
+const IN_WORKTREE: ThreadCheckout = { localRootId: ROOT_LOCAL, threadRootId: ROOT_WORKTREE };
 
 function renderExplorer(options: {
   readonly checkout?: ThreadCheckout | null;
