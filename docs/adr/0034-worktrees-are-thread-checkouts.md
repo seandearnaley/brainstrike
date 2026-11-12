@@ -242,7 +242,9 @@ revisit:
     made in place, where its parent works, and never moves its parent. The
     person's own thread shows the note for it, at the run and the call that
     dispatched the worker, through any workers between; the worker's thread
-    shows none.
+    shows none. Every worker under that call notes at it, so each folder is
+    noted once there, however many of them edit it (a build decision: the
+    dispatching run keeps the call and folder pairs it has noted).
   - A thread whose workers are still working stays with them (ADR-0028
     rule 5) and shares the folder, with the note. That includes a worker
     dispatched in the same step as the edit, which begins while the worktree
