@@ -905,10 +905,13 @@ export class WorkspaceRootRegistry {
         if (!root) {
           throw new Error('The scratch folder was not recorded');
         }
+        // A record whose folder its maker then removes is never left behind.
         await this.installSourceRoot(
           { addedAt: root.createdAt, path: folder, rootId: root.id },
           probe
-        );
+        ).catch(async (cause: unknown) => {
+          await this.forgetUnmountedScratch(request.threadId, cause);
+        });
         adopted = true;
         logger.info('Made a scratch folder for a thread', {
           rootId: root.id,
@@ -921,6 +924,22 @@ export class WorkspaceRootRegistry {
         }
       }
     });
+  }
+
+  /** Deletes the record of a scratch folder that was not mounted, then rethrows why. */
+  private async forgetUnmountedScratch(threadId: string, cause: unknown): Promise<never> {
+    try {
+      await (await this.getRootsCatalog()).workspaceRoots({
+        operation: 'forget-scratch',
+        threadId,
+      });
+    } catch (cleanup) {
+      throw new AggregateError(
+        [cause, cleanup],
+        'The scratch folder was not mounted, and its record could not be deleted'
+      );
+    }
+    throw cause;
   }
 
   /** The thread's scratch folder as recorded, or null (ADR-0034). */

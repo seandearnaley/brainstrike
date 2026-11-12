@@ -52,13 +52,8 @@ function desktopAdmissionReads(
     },
     // A scratch folder is its own thread's (ADR-0034): a run bound to it acquires it through its
     // binding, and a run with no folder of its own never sees another thread's.
-    liveWorkspaceRoots: async () => {
-      const { roots } = await dependencies.workspaceRoots.workspaceRoots({ operation: 'list' });
-      const scratch = new Set(roots.flatMap((root) => (root.kind === 'scratch' ? [root.id] : [])));
-      return (await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots)).filter(
-        (root) => !scratch.has(root.rootId)
-      );
-    },
+    liveWorkspaceRoots: async () =>
+      await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots, { omitKind: 'scratch' }),
   };
 }
 
