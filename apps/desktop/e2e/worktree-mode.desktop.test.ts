@@ -213,14 +213,15 @@ test.describe('Worktree mode (desktop)', () => {
     await expect(asksAbout).toContainText('second.txt', { timeout: 60_000 });
     await approve.click();
 
-    // Its edit was not made there: the host moved it to a worktree of its own.
-    await expect(chip).not.toContainText('Local', { timeout: 90_000 });
-    const worktrees = listWorktreePaths(repo).filter((worktree) =>
-      worktree.startsWith(managedDirectory)
-    );
-    expect(worktrees).toHaveLength(1);
+    // Its edit was not made there: the host made a worktree of its own and moved it there.
+    // Awaited by the worktree itself, then its name on the control: a label that has stopped
+    // saying Local is no sign of the move, since the label drops it while its git status loads.
+    const agentWorktrees = (): string[] =>
+      listWorktreePaths(repo).filter((worktree) => worktree.startsWith(managedDirectory));
+    await expect.poll(agentWorktrees, { timeout: 90_000 }).toHaveLength(1);
+    const worktrees = agentWorktrees();
     const name = path.basename(worktrees[0] ?? '');
-    await expect(chip).toContainText(name);
+    await expect(chip).toContainText(name, { timeout: 30_000 });
     await openWhereMenu(region);
     await expect(branchRow(page)).toContainText(`bs/${name}`, {
       timeout: 30_000,
