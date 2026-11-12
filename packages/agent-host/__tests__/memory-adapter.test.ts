@@ -310,6 +310,78 @@ test('a Memory tool call that fails answers the model and never fails the turn',
   }
 });
 
+test('a step save the run cancelled before it began has nothing left to save (BST-2478)', async () => {
+  let saves = 0;
+  const f = await fixture({
+    createNativeMemory: (native) => {
+      const memory = new Memory(native);
+      const save = memory.saveMessages.bind(memory);
+      memory.saveMessages = (args) => {
+        saves += 1;
+        return save(args);
+      };
+      return memory;
+    },
+  });
+  try {
+    const user = message(f.identity, 'user');
+    await f.adapter.commitStep([user]);
+    expect(saves).toBe(1);
+    // The app quits after the reply's step committed, before Memory took it.
+    f.controller.abort(new Error('Host is closing'));
+    await expect(f.adapter.commitStep([message(f.identity, 'assistant')])).resolves.toBeUndefined();
+    expect(saves).toBe(1);
+    await expect(f.adapter.close()).resolves.toBeUndefined();
+  } finally {
+    await f.adapter.close().catch(() => undefined);
+    await f.storage.close();
+  }
+});
+
+test("a step save that began and then failed with the run's own abort reason stays a failure (BST-2478)", async () => {
+  const entered = Promise.withResolvers<void>();
+  const f = await fixture({
+    createNativeMemory: (native) => {
+      const memory = new Memory(native);
+      memory.saveMessages = async () => {
+        entered.resolve();
+        await new Promise((resolve) => f.controller.signal.addEventListener('abort', resolve));
+        throw f.controller.signal.reason;
+      };
+      return memory;
+    },
+  });
+  try {
+    const saving = f.adapter.commitStep([message(f.identity, 'assistant')]);
+    await entered.promise;
+    const reason = new Error('Host is closing');
+    f.controller.abort(reason);
+    await expect(saving).rejects.toBe(reason);
+  } finally {
+    await f.adapter.close().catch(() => undefined);
+    await f.storage.close();
+  }
+});
+
+test('a cancelled step save that would embed the step is still refused (BST-2478)', async () => {
+  const f = await fixture({
+    createNativeMemory: (native) => {
+      const memory = new Memory(native);
+      // Only its presence matters: a save would embed the step for semantic recall.
+      memory.vector = {} as NonNullable<Memory['vector']>;
+      return memory;
+    },
+  });
+  try {
+    const reason = new Error('Host is closing');
+    f.controller.abort(reason);
+    await expect(f.adapter.commitStep([message(f.identity, 'assistant')])).rejects.toBe(reason);
+  } finally {
+    await f.adapter.close().catch(() => undefined);
+    await f.storage.close();
+  }
+});
+
 test('explicitly disabled OM needs no concrete models and keeps the committed history', async () => {
   const f = await fixture({}, { observationalMemory: { enabled: false } });
   try {

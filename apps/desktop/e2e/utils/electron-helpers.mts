@@ -693,6 +693,8 @@ export async function closeElectronApp(
     exitListener = (code, signal) => resolve({ code, signal });
     process.once('exit', exitListener);
   });
+  // Listen before the close request: Main writes its shutdown report while it quits.
+  const quitOutput = recordQuitOutput(process);
   try {
     try {
       // Hidden windows retain their command listeners until app-owned retirement.
@@ -708,9 +710,64 @@ export async function closeElectronApp(
       // Retirement must not turn a broken graceful-shutdown test green.
       throw closeError;
     }
+    assertNoFailedShutdownStep(await quitOutput.joined());
   } finally {
+    quitOutput.stop();
     process.off('exit', exitListener);
     intentionallyClosingApps.delete(app);
+  }
+}
+
+/**
+ * Main's one record of a quit whose steps did not all succeed (ADR-0026 R4). Main still exits 0
+ * after it, because a failed step is logged and the next step runs, so exit 0 alone does not
+ * prove a clean quit. It is a warning, so Main prints it at its default console level.
+ */
+const SHUTDOWN_FAILURES_RECORD = '"msg":"Graceful shutdown completed with cleanup failures"';
+
+/** What the app writes to stdout and stderr from the close request until its pipes close. */
+function recordQuitOutput(process: ReturnType<ElectronApplication['process']>): {
+  joined(): Promise<string>;
+  stop(): void;
+} {
+  // One buffer per stream, so a stderr chunk never splits a stdout record.
+  let stdout = '';
+  let stderr = '';
+  const appendStdout = (chunk: Buffer | string): void => {
+    stdout += chunk.toString();
+  };
+  const appendStderr = (chunk: Buffer | string): void => {
+    stderr += chunk.toString();
+  };
+  // `close` follows the exit once the pipes have delivered their last chunk.
+  const closed =
+    process.stdout || process.stderr
+      ? new Promise<void>((resolve) => {
+          process.once('close', () => resolve());
+        })
+      : Promise.resolve();
+  process.stdout?.on('data', appendStdout);
+  process.stderr?.on('data', appendStderr);
+  return {
+    joined: async () => {
+      await closed;
+      return `${stdout}\n${stderr}`;
+    },
+    stop: () => {
+      process.stdout?.off('data', appendStdout);
+      process.stderr?.off('data', appendStderr);
+    },
+  };
+}
+
+/** A quit that exited 0 with a failed shutdown step fails the test that closed the app. */
+function assertNoFailedShutdownStep(output: string): void {
+  // Matched, not parsed: Main's log lines are not all JSON.
+  const reports = output.split(/\r?\n/u).filter((line) => line.includes(SHUTDOWN_FAILURES_RECORD));
+  if (reports.length > 0) {
+    throw new Error(
+      `The app exited 0 but a shutdown step failed (ADR-0026 R4):\n${reports.join('\n')}`
+    );
   }
 }
 
