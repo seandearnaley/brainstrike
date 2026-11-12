@@ -1,8 +1,9 @@
 /**
  * Section header for the Threads panel's `groupBy: 'folder'` view (BST-1405,
- * ADR-0034, owner decisions 2026-11-10): a repository, a folder outside one, or "No project".
- * Each is a project, the interface word for it; a folder outside git is a
- * project with one checkout.
+ * ADR-0034, owner decisions 2026-11-10): a repository, a folder outside one, "Scratch" or
+ * "No project". Each of the first two is a project, the interface word for it; a folder outside
+ * git is a project with one checkout. Scratch holds every thread that works in a scratch folder
+ * the host made for it, and offers no new thread: one starts from New thread with no folder open.
  *
  * Deliberately NOT `ThreadGroupHeader` with a different icon. A custom group is
  * a durable object the user creates, renames, colors, reorders and drops
@@ -22,7 +23,7 @@ import {
   threadFolderSectionLabel,
 } from '@brainstrike/assistant-data';
 import { Button } from '@brainstrike/ui';
-import { Folder, FolderX, GitBranch, Plus } from 'lucide-react';
+import { Folder, FolderPen, FolderX, GitBranch, Plus } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { THREAD_CONTROL_ACTION_CLASS_NAME } from './assistant-thread-presentation';
@@ -42,6 +43,10 @@ import { ThreadSectionHeader } from './thread-section-header';
  */
 const THREAD_FOLDER_GROUPING_HINT =
   "Grouped by the project each thread works in — change it from the composer's Folders menu.";
+
+/** What the Scratch section holds, since its name is not a folder's. */
+const THREAD_SCRATCH_SECTION_HINT =
+  'Threads sent with no folder open, each working in a scratch folder Brainstrike made for it.';
 
 /** What a header shows, whichever kind of section it leads. */
 interface ThreadFolderHeaderFacts {
@@ -73,6 +78,8 @@ function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFol
         newThreadFolder: header.folder,
         path: header.folder.path,
       };
+    case 'scratch':
+      return { branch: null, displayName: 'Scratch', newThreadFolder: null, path: null };
     case 'unassigned':
       return { branch: null, displayName: 'No project', newThreadFolder: null, path: null };
     default: {
@@ -84,10 +91,10 @@ function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFol
 
 /**
  * The project a section stands for, with the folder its actions act on: the repository's own
- * checkout, or the folder. Null for a section with no project (and for No project).
+ * checkout, or the folder. Null for a section with no project, and for Scratch and No project.
  */
 function sectionProject(header: ThreadListFolderSection['header']): ThreadSectionProject | null {
-  if (header.kind === 'unassigned') {
+  if (header.kind === 'unassigned' || header.kind === 'scratch') {
     return null;
   }
   const folder = header.kind === 'repository' ? header.repository.folder : header.folder;
@@ -117,7 +124,6 @@ export function ThreadFolderHeader({
   readonly threadCount: number;
 }): ReactElement {
   const { branch, displayName, newThreadFolder, path } = folderHeaderFacts(header);
-  const unassigned = header.kind === 'unassigned';
   const projectActions = useThreadProjectActions();
   const project = projectActions ? sectionProject(header) : null;
   const [renaming, setRenaming] = useState(false);
@@ -196,16 +202,35 @@ export function ThreadFolderHeader({
           ) : null}
         </span>
       }
-      mark={
-        <ThreadMarkChip
-          color={null}
-          testId={unassigned ? 'thread-folder-unassigned-icon' : 'thread-folder-icon'}
-        >
-          {unassigned ? <FolderX className="size-3" /> : <Folder className="size-3" />}
-        </ThreadMarkChip>
-      }
+      mark={<ThreadFolderMark kind={header.kind} />}
       testId="thread-folder-header"
-      title={THREAD_FOLDER_GROUPING_HINT}
+      title={header.kind === 'scratch' ? THREAD_SCRATCH_SECTION_HINT : THREAD_FOLDER_GROUPING_HINT}
     />
+  );
+}
+
+function ThreadFolderMark({
+  kind,
+}: {
+  readonly kind: ThreadListFolderSection['header']['kind'];
+}): ReactElement {
+  if (kind === 'scratch') {
+    return (
+      <ThreadMarkChip color={null} testId="thread-folder-scratch-icon">
+        <FolderPen className="size-3" />
+      </ThreadMarkChip>
+    );
+  }
+  if (kind === 'unassigned') {
+    return (
+      <ThreadMarkChip color={null} testId="thread-folder-unassigned-icon">
+        <FolderX className="size-3" />
+      </ThreadMarkChip>
+    );
+  }
+  return (
+    <ThreadMarkChip color={null} testId="thread-folder-icon">
+      <Folder className="size-3" />
+    </ThreadMarkChip>
   );
 }

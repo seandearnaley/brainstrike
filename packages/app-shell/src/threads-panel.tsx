@@ -12,7 +12,9 @@ import {
   buildThreadMembership,
   getGroupMemberIds,
   getThreadLastActivityAt,
+  getThreadPrimaryRootId,
   type ThreadFilters,
+  type ThreadFolderGroupingRow,
   type ThreadFolderRow,
   type ThreadListOrdering,
   type ThreadListView,
@@ -543,6 +545,8 @@ function getThreadPanelSectionLabel(row: ThreadPanelGroupRow): string {
     case 'folder':
     case 'repository':
       return threadFolderSectionLabel(row.header);
+    case 'scratch':
+      return 'Scratch';
     case 'unassigned':
       return 'No project';
     case 'date':
@@ -575,6 +579,8 @@ interface ThreadRowContextProps {
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   /** Folder sections project a thread's root binding; they are not move targets. */
   readonly folderMode: boolean;
+  /** The `roots` rows folder grouping read, empty in every other grouping; see {@link scratchFolderOf}. */
+  readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
   readonly needsYouThreadIds: ReadonlySet<string>;
@@ -596,6 +602,20 @@ interface ThreadRowContextProps {
   readonly rowsDraggable: boolean;
   readonly selectedThreadId: string | undefined;
   readonly unseenThreadIds: ReadonlySet<string>;
+}
+
+/**
+ * The scratch folder `thread` works in, which its row's checkout chip names: in Project grouping
+ * its section, Scratch, names no folder (ADR-0034). Null for any other thread, and in every other
+ * grouping, which reads no `roots` rows and names no project on a row.
+ */
+function scratchFolderOf(
+  thread: AssistantMemoryThread,
+  folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>
+): ThreadFolderGroupingRow | null {
+  const rootId = getThreadPrimaryRootId(thread);
+  const folder = rootId === null ? undefined : folderRowsByRootId.get(rootId);
+  return folder?.scratch ? folder : null;
 }
 
 function ThreadPanelContentLane({ children }: { readonly children: ReactNode }): ReactElement {
@@ -685,7 +705,12 @@ function ThreadPanelGroupCell({
       </div>
     );
   }
-  if (header.kind === 'folder' || header.kind === 'repository' || header.kind === 'unassigned') {
+  if (
+    header.kind === 'folder' ||
+    header.kind === 'repository' ||
+    header.kind === 'scratch' ||
+    header.kind === 'unassigned'
+  ) {
     return (
       <div data-testid="thread-group-section">
         <ThreadFolderHeader
@@ -782,6 +807,7 @@ function ThreadPanelCell({
         onSetThreadPinned={rowsProps.onSetThreadPinned}
         onUpdateThreadAppearance={rowsProps.onUpdateThreadAppearance}
         pinned={pinned}
+        scratchFolder={scratchFolderOf(row.thread, rowsProps.folderRowsByRootId)}
         selected={rowsProps.selectedThreadId === row.thread.id}
         status={resolveThreadRowStatusState({
           failedUnseen: rowsProps.failedUnseenThreadIds.has(row.thread.id),
@@ -1037,6 +1063,7 @@ function ThreadBulkSelectionOverlay({
 function ThreadPanelTree({
   activeThreadIds,
   failedUnseenThreadIds,
+  folderRowsByRootId,
   groupHandlers,
   membershipByThreadId,
   moveTargets,
@@ -1060,6 +1087,7 @@ function ThreadPanelTree({
 }: {
   readonly activeThreadIds: ReadonlySet<string>;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
+  readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
@@ -1119,6 +1147,7 @@ function ThreadPanelTree({
     activeThreadIds,
     failedUnseenThreadIds,
     folderMode,
+    folderRowsByRootId,
     membershipByThreadId,
     // A folder is not a custom group, so folder mode offers no "Move to …"
     // row action: the binding is the thread's own, re-bound from the
@@ -1284,6 +1313,7 @@ function ThreadsPanelContent({
   activeThreadIds,
   failedUnseenThreadIds,
   folderGrouping,
+  folderRowsByRootId,
   groupHandlers,
   loadState,
   membershipByThreadId,
@@ -1310,6 +1340,7 @@ function ThreadsPanelContent({
   readonly activeThreadIds: ReadonlySet<string>;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   readonly folderGrouping: ThreadPanelFolderGroupingState | null;
+  readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly loadState: ThreadPanelLoadState | null;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
@@ -1360,6 +1391,7 @@ function ThreadsPanelContent({
     <ThreadPanelTree
       activeThreadIds={activeThreadIds}
       failedUnseenThreadIds={failedUnseenThreadIds}
+      folderRowsByRootId={folderRowsByRootId}
       groupHandlers={groupHandlers}
       membershipByThreadId={membershipByThreadId}
       moveTargets={moveTargets}
@@ -2033,6 +2065,7 @@ export function ThreadsPanelCore({
             activeThreadIds={activeThreads.threadIds}
             failedUnseenThreadIds={unseenThreadIds.failedUnseen}
             folderGrouping={folderGroupingState}
+            folderRowsByRootId={folderGroupingReads.folderRowsByRootId}
             groupHandlers={{
               collapsedGroupIds,
               onDeleteGroup: handleDeleteGroup,

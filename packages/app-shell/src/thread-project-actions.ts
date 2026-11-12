@@ -53,7 +53,8 @@ function listedProjects(view: ThreadListView): ThreadProjectChoice[] {
   }
   const listed: ThreadProjectChoice[] = [];
   for (const { header } of view.sections) {
-    if (header.kind === 'unassigned') {
+    // Scratch and No project are no project, so nothing moves into them.
+    if (header.kind === 'unassigned' || header.kind === 'scratch') {
       continue;
     }
     const projectId =

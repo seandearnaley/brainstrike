@@ -670,15 +670,38 @@ revisit:
   with none) does not fail the deletion: it is logged, the deletion's answer
   names the folder and Main's reason (`scratchFolderNotRetired`), and the
   window says so in a notice, so the person can remove the folder.
+- **The Threads panel lists every scratch thread in one Scratch section.** In
+  Project grouping a thread whose folder is a scratch folder lists in one
+  section labelled Scratch, after every project and folder section and before
+  No project. Before, each listed in a section of its own named by its folder
+  (`quiet-otter`), as if each were a project.
+  - Its id is the sentinel `folder-scratch`, built like `folder-unassigned`,
+    so no `project:`, `repository:` or `folder:` id can produce it. Its
+    collapse state is kept like the other keys: the prune reads only
+    `folder:` keys.
+  - Which folders are scratch folders comes from their `roots` records: Main's
+    `readRoots` answer marks a root of kind `scratch`
+    (`ThreadCatalogRoot.scratch`), never a path or a name. The kind already
+    reached Main on the catalog wire, so the host protocol is unchanged. The mounted roots'
+    `scratch` flag was not used: it is missing until the folders are restored
+    at each launch and for a folder that cannot be mounted, and either would
+    list the thread under its folder's name again.
+  - A scratch folder that has become a repository's own checkout still lists
+    in Scratch.
+  - Each row's checkout chip names its folder instead of Local, because the
+    section does not, so two scratch threads are told apart. Under 420px it is
+    its folder icon alone, as a worktree's chip is its branch icon. Other
+    groupings read no `roots` rows, so their chips still read Local.
+  - The section offers no New thread here: a new scratch thread starts from
+    the ordinary New thread with no folder open.
 
 Not built:
 
-- A "Scratch" section in the Threads panel. A scratch thread lists under its
-  folder's name, as any thread with one folder does.
 - Cleaning up scratch folders on Clear Database. Their rows go with the
   roots; the folders stay in the profile until Factory Reset, as worktrees do.
-- Moving a scratch thread's work into a project, and starting one from a
-  thread that already ran with no folder.
+- Turning a scratch thread into a project ("Turn into a project"): moving its
+  work into a project, and starting one from a thread that already ran with
+  no folder.
 - Mounting only the scratch folders of open threads. Every one mounts at
   launch, as every managed worktree does, each with its own handle.
 

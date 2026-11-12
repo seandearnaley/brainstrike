@@ -1900,6 +1900,8 @@ interface BoundRoot {
   readonly projectId: string | null;
   /** The name the person gave its project; none unless a test names one. */
   readonly projectName?: string;
+  /** A folder the host made for a thread sent with no folder open, as its record marks it. */
+  readonly scratch?: true;
   /** Mounted unless a test disconnects it. */
   readonly status?: 'live' | 'disconnected';
 }
@@ -1931,6 +1933,7 @@ describe('ThreadsPanel folders', () => {
         projectId: root.projectId,
         ...(root.projectName === undefined ? {} : { projectName: root.projectName }),
         ...(root.status === undefined ? {} : { status: root.status }),
+        ...(root.scratch ? { scratch: true } : {}),
       });
     }
   }
@@ -2064,6 +2067,68 @@ describe('ThreadsPanel folders', () => {
     expect(within(folderSection).getByTestId('thread-folder-new-thread')).toBeVisible();
   });
 
+  // ADR-0034 scratch threads: each works in a folder of its own the host made, and a section
+  // per folder would list each as a project.
+  it('lists every scratch thread in one Scratch section with no New thread here, each row chipped with its folder', async () => {
+    const quietOtter: BoundRoot = {
+      displayName: 'quiet-otter',
+      id: 'root-quiet-otter',
+      path: '/profile/scratch/quiet-otter',
+      projectId: null,
+      scratch: true,
+    };
+    const amberFox: BoundRoot = {
+      displayName: 'amber-fox',
+      id: 'root-amber-fox',
+      path: '/profile/scratch/amber-fox',
+      projectId: null,
+      scratch: true,
+    };
+    threadRows.push({
+      createdAt: new Date('2026-04-22T08:00:00Z'),
+      id: 'thread-c',
+      metadata: null,
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Third thread',
+      updatedAt: new Date('2026-04-22T08:00:00Z'),
+    });
+    bindThreadToRoot('thread-a');
+    bindThreadToRoot('thread-b', quietOtter);
+    bindThreadToRoot('thread-c', amberFox);
+    renderThreadsPanel();
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
+    });
+
+    await enterFolderGrouping();
+
+    const headers = screen.getAllByTestId('thread-folder-header');
+    expect(headers).toHaveLength(2);
+    const [project, scratch] = headers as [HTMLElement, HTMLElement];
+    expect(within(project).getByText('workspace-a')).toBeVisible();
+    // One section for both, after the project, not one named by each folder.
+    expect(within(scratch).getByText('Scratch')).toBeVisible();
+    expect(within(scratch).getByTestId('thread-folder-count')).toHaveTextContent('2');
+    expect(within(scratch).getByTestId('thread-folder-scratch-icon')).toBeInTheDocument();
+    expect(screen.getByText('Second thread').closest('tr')).toHaveAttribute('data-depth', '1');
+    // A new scratch thread starts from New thread with no folder open, not from this section.
+    expect(within(scratch).queryByTestId('thread-folder-new-thread')).not.toBeInTheDocument();
+    expect(within(project).getByTestId('thread-folder-new-thread')).toBeVisible();
+    // Each row names its own folder, so two scratch threads are told apart.
+    const quietChip = within(rowFor('Second thread')).getByTestId('thread-checkout-chip');
+    expect(quietChip).toHaveTextContent('quiet-otter');
+    expect(quietChip).toHaveAttribute(
+      'title',
+      'Scratch folder quiet-otter at /profile/scratch/quiet-otter'
+    );
+    expect(within(rowFor('Third thread')).getByTestId('thread-checkout-chip')).toHaveTextContent(
+      'amber-fox'
+    );
+    expect(within(rowFor('First thread')).getByTestId('thread-checkout-chip')).toHaveTextContent(
+      'Local'
+    );
+  });
+
   // `collapsedGroupIds` is persisted, and folder sections mint their own keys.
   // Group keys are pruned when their group is deleted; nothing pruned a folder
   // key when the root behind it went away.
@@ -2072,6 +2137,7 @@ describe('ThreadsPanel folders', () => {
     act(() => {
       useAssistantThreadGroupsStore.setState({
         collapsedGroupIds: {
+          'folder-scratch': true,
           'folder-unassigned': true,
           'folder:root-1': true,
           'folder:root-deleted': true,
@@ -2094,6 +2160,8 @@ describe('ThreadsPanel folders', () => {
     const collapsed = useAssistantThreadGroupsStore.getState().collapsedGroupIds;
     expect(collapsed['folder:root-1']).toBe(true);
     expect(collapsed['folder-unassigned']).toBe(true);
+    // The Scratch section's key names no root, so no root going away prunes it.
+    expect(collapsed['folder-scratch']).toBe(true);
     expect(collapsed['group-research']).toBe(true);
   });
 
@@ -2563,6 +2631,28 @@ describe('ThreadsPanel folders', () => {
       expect(
         within(headers()[0] as HTMLElement).getByTestId('thread-folder-count')
       ).toHaveTextContent('2');
+    });
+
+    // Scratch is where folderless threads work, not a project: nothing names it or moves into it.
+    it('gives the Scratch section no project actions and never offers it as a project to move into', async () => {
+      bindThreadToRoot('thread-a');
+      bindThreadToRoot('thread-b', {
+        displayName: 'quiet-otter',
+        id: 'root-quiet-otter',
+        path: '/profile/scratch/quiet-otter',
+        projectId: null,
+        scratch: true,
+      });
+      await showProjects(hostWithProjects().host);
+      const [project, scratch] = headers() as [HTMLElement, HTMLElement];
+      expect(within(scratch).getByText('Scratch')).toBeVisible();
+
+      expect(within(scratch).queryByTestId('thread-project-actions')).toBeNull();
+      await openProjectActions('workspace-a');
+      fireEvent.click(await screen.findByRole('button', { name: 'Move to project…' }));
+      const choices = within(screen.getByTestId('thread-project-move-list'));
+      expect(choices.queryByRole('button', { name: 'Scratch' })).toBeNull();
+      expect(within(project).getByTestId('thread-project-actions')).toBeVisible();
     });
 
     it('offers Locate folder… for a folder that is not mounted, and shows the folder it finds', async () => {

@@ -7,6 +7,7 @@ import type {
 import {
   folderSectionId,
   projectSectionId,
+  SCRATCH_FOLDER_SECTION_ID,
   UNASSIGNED_FOLDER_SECTION_ID,
 } from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
@@ -308,6 +309,59 @@ describe('buildThreadPanelVisibleRows', () => {
     expect(collapsed.visibleThreadIds).toEqual([]);
   });
 
+  it('renders the Scratch section under its own id, before No project, and collapses it', () => {
+    const view: ThreadListView = {
+      kind: 'folders',
+      pinned: null,
+      sections: [
+        {
+          header: { kind: 'scratch' },
+          id: SCRATCH_FOLDER_SECTION_ID,
+          threads: [thread('scratch-a'), thread('scratch-b')],
+        },
+        {
+          header: { kind: 'unassigned' },
+          id: UNASSIGNED_FOLDER_SECTION_ID,
+          threads: [thread('no-folder')],
+        },
+      ],
+    };
+
+    const open = buildThreadPanelVisibleRows({
+      collapsedGroupIds: {},
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(open.rows.map((row) => row.id)).toEqual([
+      'folder-scratch',
+      'scratch-a',
+      'scratch-b',
+      'folder-unassigned',
+      'no-folder',
+    ]);
+    expect(open.rows[0]).toMatchObject({
+      collapsed: false,
+      header: { kind: 'scratch' },
+      kind: 'group',
+      sectionKey: 'folder-scratch',
+      totalCount: 2,
+    });
+    expect(open.rows[1]).toMatchObject({ parentId: 'folder-scratch' });
+
+    const collapsed = buildThreadPanelVisibleRows({
+      collapsedGroupIds: { [SCRATCH_FOLDER_SECTION_ID]: true },
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(collapsed.rows.map((row) => row.id)).toEqual([
+      'folder-scratch',
+      'folder-unassigned',
+      'no-folder',
+    ]);
+    expect(collapsed.rows[0]).toMatchObject({ collapsed: true, totalCount: 2 });
+    expect(collapsed.visibleThreadIds).toEqual(['no-folder']);
+  });
+
   it('refuses a folder section id it did not mint instead of rendering it as a node', () => {
     const view: ThreadListView = {
       kind: 'folders',
@@ -355,6 +409,10 @@ describe('thread panel section addresses', () => {
     const unassigned = groupRow({ kind: 'unassigned' }, UNASSIGNED_FOLDER_SECTION_ID);
     expect(getThreadPanelMemberSectionId(unassigned)).toBe('folder-unassigned');
     expect(getThreadPanelCollapseId(unassigned)).toBe('folder-unassigned');
+
+    const scratch = groupRow({ kind: 'scratch' }, SCRATCH_FOLDER_SECTION_ID);
+    expect(getThreadPanelMemberSectionId(scratch)).toBe('folder-scratch');
+    expect(getThreadPanelCollapseId(scratch)).toBe('folder-scratch');
   });
 });
 

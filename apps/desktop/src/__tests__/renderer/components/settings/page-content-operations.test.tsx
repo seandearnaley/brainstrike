@@ -10,6 +10,11 @@ import {
 } from '@brainstrike/assistant-contract';
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+// Imported here, while the file is collected, not inside the first test
+// (BST-2491). The settings page's module graph takes 0.5-1.4 s to transform
+// and evaluate alone and over 15 s under parallel load; no test budget bounds
+// collection. The vi.mock calls below are hoisted above this import.
+import SettingsPageContent from '../../../../renderer/components/settings/page-content';
 
 /** The agent host's MCP settings over this window's client, as the renderer reaches them. */
 interface FakeHostMcpSettings {
@@ -402,10 +407,7 @@ function requireSettings(): FakeHostMcpSettings {
   return hostMcpSettings.current;
 }
 
-async function renderOperations(): Promise<CapturedToolsOperations> {
-  const { default: SettingsPageContent } = await import(
-    '../../../../renderer/components/settings/page-content'
-  );
+function renderOperations(): CapturedToolsOperations {
   render(<SettingsPageContent />);
   if (!capturedOperations) {
     throw new Error('Expected tools operations to be captured');
@@ -447,7 +449,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   });
 
   it('forwards tool preference reload to the agent host', async () => {
-    const operations = await renderOperations();
+    const operations = renderOperations();
     if (!operations.reloadToolPreferences) {
       throw new Error('Expected reload operation');
     }
@@ -458,7 +460,7 @@ describe('desktop SettingsPageContent tool operations', () => {
 
   it('omits the host MCP settings operations where the window has no agent host', async () => {
     hostMcpSettings.current = null;
-    const operations = await renderOperations();
+    const operations = renderOperations();
     expect(operations.reloadToolPreferences).toBeUndefined();
     expect(operations).not.toHaveProperty('getMcpExtensionPreferences');
     expect(operations).not.toHaveProperty('readMcpConfigText');
@@ -484,7 +486,7 @@ describe('desktop SettingsPageContent tool operations', () => {
         }
         return;
       });
-      const operations = await renderOperations();
+      const operations = renderOperations();
 
       await expect(operations[operation](['mcp-search'])).rejects.toThrow(faultMessage);
       expect(requireSettings().request).toHaveBeenCalledWith('mcp/tools/set', {
@@ -495,7 +497,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   );
 
   it('wires desktop MCP and native tool operations through the settings category', async () => {
-    const operations = await renderOperations();
+    const operations = renderOperations();
 
     expect(createToolsSettingsCategoryMock).toHaveBeenCalledWith(
       expect.objectContaining({ mcpAvailable: true })
@@ -594,7 +596,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   });
 
   it('forwards user-initiated MCP content browsing to the agent host (BST-1585)', async () => {
-    const operations = await renderOperations();
+    const operations = renderOperations();
     const mcp = hostMcpContent.current;
     const authority = { configuredServerId: parseConfiguredMcpServerId('local'), generation: 1 };
     const readRequest = { authority, uri: 'linear://issue/BST-1585' };
@@ -618,9 +620,9 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(mcp?.complete).toHaveBeenCalledWith(completeRequest);
   });
 
-  it('omits MCP content browsing operations where the window has no agent host', async () => {
+  it('omits MCP content browsing operations where the window has no agent host', () => {
     hostMcpContent.current = null;
-    const operations = await renderOperations();
+    const operations = renderOperations();
     expect(operations).not.toHaveProperty('readMcpResource');
     expect(operations).not.toHaveProperty('getMcpPrompt');
     expect(operations).not.toHaveProperty('completeMcpContent');
@@ -628,7 +630,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   });
 
   it('reads server status from the agent host, hears its revisions, and runs control there', async () => {
-    const operations = await renderOperations();
+    const operations = renderOperations();
     const settings = requireSettings();
     const toolReads = settings.request.mock.calls.filter(([method]) => method === 'mcp/tools/list');
     if (
@@ -666,7 +668,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   });
 
   it("carries the config watcher's failure from the host's config status", async () => {
-    const operations = await renderOperations();
+    const operations = renderOperations();
     const settings = requireSettings();
     settings.request.mockResolvedValueOnce({
       exists: true,
@@ -682,8 +684,8 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(settings.request).toHaveBeenLastCalledWith('mcp/config/status', {});
   });
 
-  it('hears config and tools changes from the host settings stream', async () => {
-    const operations = await renderOperations();
+  it('hears config and tools changes from the host settings stream', () => {
+    const operations = renderOperations();
     const settings = requireSettings();
     const unsubscribe = vi.fn();
     settings.subscribe.mockReturnValue(unsubscribe);
@@ -711,7 +713,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   });
 
   it('exposes the global MCP extension dials backed by the agent host', async () => {
-    const operations = await renderOperations();
+    const operations = renderOperations();
     const settings = requireSettings();
     if (
       !(
@@ -745,9 +747,9 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(disposer).toHaveBeenCalledOnce();
   });
 
-  it('omits server status and control where the window has no agent host', async () => {
+  it('omits server status and control where the window has no agent host', () => {
     hostMcpSettings.current = null;
-    await renderOperations();
+    renderOperations();
 
     expect(capturedOperations).not.toHaveProperty('getMcpServerStatus');
     expect(capturedOperations).not.toHaveProperty('subscribeMcpServerStatus');
@@ -769,24 +771,20 @@ describe('desktop SettingsPageContent tool operations', () => {
           }
         : undefined
     );
-    const operations = await renderOperations();
+    const operations = renderOperations();
 
     await expect(operations.getTools()).rejects.toThrow(
       'MCP tool projection identity mismatch: group "local" contains server "different-server"'
     );
   });
 
-  it('passes status provider key sources into the Assistant Memory category', async () => {
+  it('passes status provider key sources into the Assistant Memory category', () => {
     getDesktopWindow().agentHost = { connect: async () => undefined };
     assistantAvailability.current = {
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
       providers: ['openai', 'anthropic'],
       state: 'enabled',
     };
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-
     render(<SettingsPageContent />);
 
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenCalledWith({
@@ -797,11 +795,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(modelSelectionPageMock).toHaveBeenCalledWith({}, undefined);
   });
 
-  it('omits provider key sources from Assistant Memory while availability is loading', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-
+  it('omits provider key sources from Assistant Memory while availability is loading', () => {
     render(<SettingsPageContent />);
 
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenLastCalledWith({
@@ -809,18 +803,14 @@ describe('desktop SettingsPageContent tool operations', () => {
     });
   });
 
-  it('lists Assistant Memory right after Model Catalog', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-
+  it('lists Assistant Memory right after Model Catalog', () => {
     const { getAllByTestId } = render(<SettingsPageContent />);
 
     const titles = getAllByTestId('settings-category-title').map((node) => node.textContent);
     expect(titles.indexOf('Assistant Memory')).toBe(titles.indexOf('Model Catalog') + 1);
   });
 
-  it('threads the live mounted workspace roots into the Hooks settings category', async () => {
+  it('threads the live mounted workspace roots into the Hooks settings category', () => {
     fileExplorerMockState.current = {
       activeRootIds: ['root-b', 'root-a'],
       devInlineFixtureEnabled: true,
@@ -830,10 +820,6 @@ describe('desktop SettingsPageContent tool operations', () => {
       },
       setDevInlineFixtureEnabled: () => {},
     };
-
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
 
     render(<SettingsPageContent />);
 
@@ -846,11 +832,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     });
   });
 
-  it('passes an empty roots list to the Hooks category when nothing is mounted', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-
+  it('passes an empty roots list to the Hooks category when nothing is mounted', () => {
     render(<SettingsPageContent />);
 
     expect(createHooksSettingsCategoryMock).toHaveBeenCalledWith({ roots: [] });

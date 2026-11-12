@@ -144,6 +144,7 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
                 projectId: row.projectId,
                 projectName: row.projectName,
                 rootId: row.id,
+                ...(row.scratch ? { scratch: true as const } : {}),
                 status: row.status,
               },
             ])

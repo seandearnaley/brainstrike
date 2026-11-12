@@ -877,7 +877,9 @@ describe('project sections in folder grouping', () => {
     // `alpha` would sort before `brainstrike`; their names put Core before Zed app.
     expect(
       view.sections.map((section) =>
-        section.header.kind === 'unassigned' ? null : threadFolderSectionLabel(section.header)
+        section.header.kind === 'unassigned' || section.header.kind === 'scratch'
+          ? null
+          : threadFolderSectionLabel(section.header)
       )
     ).toEqual(['Core', 'Zed app']);
     expect(view.sections.map((section) => section.id)).toEqual([
