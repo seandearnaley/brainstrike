@@ -65,8 +65,12 @@ test('an error Main logged before the window loaded shows in the status bar, and
     value: { onDurableRecord: () => () => undefined },
   });
 
-  // The window loads after Main logged the error.
-  const { DiagnosticsStatusItem } = await import('@brainstrike/app-shell');
+  // The window loads after Main logged the error. The status item's own entry, not the app-shell
+  // barrel: transforming the whole shell to render one chip took this test past its timeout
+  // under parallel load (BST-2490).
+  const { DiagnosticsStatusItem } = await import(
+    '@brainstrike/app-shell/status-items/diagnostics-status-item'
+  );
   render(<DiagnosticsStatusItem />);
 
   expect(await screen.findByTestId('diagnostics-status-item')).toHaveTextContent('1 error');
