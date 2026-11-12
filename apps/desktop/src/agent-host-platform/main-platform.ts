@@ -78,7 +78,7 @@ export interface DesktopPlatformCapabilities {
     readonly grantedPath?: string;
     readonly recentPaths: readonly string[];
   }): void;
-  /** ADR-0034: Factory Reset's archive of the managed worktrees, asked on this connection only. */
+  /** ADR-0034: a reset's archive of the managed worktrees, asked on this connection only. */
   readonly worktreeReset?: MainWorktreeReset;
 }
 type Execute = <T>(

@@ -1,6 +1,8 @@
-import { realpath } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract';
+import type { ScratchFolderRetained, ScratchFolderTrash } from '@brainstrike/types';
 
 const notScratch = (folder: string) =>
   refusalError(
@@ -53,4 +55,45 @@ export async function trashScratchFolder(
       `${resolved} was not moved to the Trash: ${cause instanceof Error ? cause.message : String(cause)}`
     );
   }
+}
+
+/**
+ * ADR-0015, ADR-0034: Clear Database deletes every scratch thread's row, so once the clear has
+ * succeeded Main moves every folder directly inside `<userData>/scratch` to the system Trash,
+ * each through `trashScratchFolder`'s guard. A file or a link there is left alone; a folder the
+ * Trash refuses is named with why and never stops the next. No `scratch` folder is nothing to
+ * move; one that cannot be read throws, for the clear's outcome to name.
+ */
+export async function trashEveryScratchFolder(
+  userDataPath: string,
+  trash: (folder: string) => Promise<void>
+): Promise<ScratchFolderTrash> {
+  const directory = path.join(userDataPath, 'scratch');
+  let entries: Dirent[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (cause) {
+    if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
+      return { retained: [], trashed: [] };
+    }
+    throw cause;
+  }
+  const retained: ScratchFolderRetained[] = [];
+  const trashed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const folder = path.join(directory, entry.name);
+    try {
+      await trashScratchFolder(userDataPath, folder, trash);
+      trashed.push(folder);
+    } catch (cause) {
+      retained.push({
+        path: folder,
+        reason: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }
+  return { retained, trashed };
 }

@@ -1,7 +1,12 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
-import type { WorktreeResetOutcome } from '@brainstrike/types';
+import type {
+  ResetOutcome,
+  ScratchFolderTrash,
+  ScratchFolderTrashOutcome,
+  WorktreeResetOutcome,
+} from '@brainstrike/types';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import {
@@ -9,6 +14,10 @@ import {
   resetDesktopApplicationData,
 } from './desktop-factory-reset';
 import { isQuitTerminalRefusal, RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
+import {
+  archiveManagedWorktreesForReset,
+  trashScratchFoldersAfterClear,
+} from './reset-managed-folders';
 
 interface DesktopResetRuntime {
   readonly name: string;
@@ -28,8 +37,8 @@ export type DesktopResetMode = 'factory' | 'content';
 
 export interface CreateDesktopFactoryResetHandlerOptions {
   /**
-   * ADR-0034: Factory Reset archives every managed worktree through the host before it deletes
-   * the state DB that holds their ledger. Clear Database keeps them and does not call it.
+   * ADR-0034: both resets archive every managed worktree through the host before they delete
+   * the ledger: Factory Reset with the state DB, Clear Database with its rows.
    */
   readonly archiveManagedWorktrees?: ResetDesktopApplicationDataOptions['archiveManagedWorktrees'];
   /** Terminal clear through the current host writer; retains configuration in place. */
@@ -57,13 +66,20 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly runtimes: readonly DesktopResetRuntime[];
   /** Electron owns this dedicated container; clear its sessions before purge. */
   readonly sessionDataPath: string;
+  /**
+   * ADR-0034: Clear Database moves every scratch folder to the Trash once the clear has deleted
+   * their threads' rows, never before. Factory Reset deletes userData, and them, itself.
+   */
+  readonly trashScratchFolders?: () => Promise<ScratchFolderTrash>;
   readonly userDataPath: string;
 }
 
 export interface DesktopFactoryResetResult {
-  /** ADR-0034: what a Factory Reset did with the managed worktrees, when it got that far. */
+  /** ADR-0034: what the reset did with the managed worktrees, when it got that far. */
   managedWorktrees?: WorktreeResetOutcome;
   message?: string;
+  /** ADR-0034: what Clear Database did with the scratch folders. */
+  scratchFolders?: ScratchFolderTrashOutcome;
   success: boolean;
 }
 
@@ -81,11 +97,15 @@ export interface DesktopFactoryReset {
   inFlight(): Promise<DesktopFactoryResetResult> | null;
   reset(): Promise<DesktopFactoryResetResult>;
   /**
-   * The last Factory Reset's managed worktrees, once. The window that asked for the reset is
-   * replaced before the reset answers it, so the replacement window takes this as it starts.
+   * The last reset's outcome for the folders it made outside the database, once. The window that
+   * asked for the reset is replaced before the reset answers it, so the replacement window takes
+   * this as it starts.
    */
-  takeWorktreeOutcome(): WorktreeResetOutcome | null;
+  takeResetOutcome(): ResetOutcome | null;
 }
+
+/** What a reset did with the folders the app made outside its database (ADR-0034). */
+type ResetFolders = Omit<ResetOutcome, 'mode'>;
 
 type ResetFailure =
   | { readonly kind: 'failed'; readonly error: unknown }
@@ -179,22 +199,39 @@ export function createDesktopFactoryResetHandler({
   resumeAfterReset,
   runtimes,
   sessionDataPath,
+  trashScratchFolders,
   userDataPath,
 }: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
   const shutdown = new AbortController();
   let profileResetLease: ProfileResetLease | null = null;
   // ADR-0034: kept for the replacement window, which takes it once.
-  let untakenWorktreeOutcome: WorktreeResetOutcome | null = null;
-  /** Deletes what `mode` deletes; a Factory Reset answers with its managed worktrees. */
-  const resetData = async (mode: DesktopResetMode): Promise<WorktreeResetOutcome | undefined> => {
-    if (mode === 'content') {
-      if (!clearRetainedContent) {
-        throw new Error('Content clearing is unavailable.');
-      }
-      await stopDesktopResetRuntimes(runtimes, 'content');
-      await clearRetainedContent();
-      return;
+  let untakenOutcome: ResetOutcome | null = null;
+  /**
+   * ADR-0015, ADR-0034: Clear Database keeps configuration and deletes content, the worktree
+   * ledger and scratch threads' rows among it. The managed worktrees are archived while the host
+   * still serves the ledger; the scratch folders go to the Trash only once the clear succeeded.
+   */
+  const clearData = async (): Promise<ResetFolders> => {
+    if (!clearRetainedContent) {
+      throw new Error('Content clearing is unavailable.');
     }
+    await stopDesktopResetRuntimes(runtimes, 'content');
+    const managedWorktrees =
+      archiveManagedWorktrees === undefined
+        ? undefined
+        : await archiveManagedWorktreesForReset(archiveManagedWorktrees);
+    await clearRetainedContent();
+    const scratchFolders =
+      trashScratchFolders === undefined
+        ? undefined
+        : await trashScratchFoldersAfterClear(trashScratchFolders);
+    return {
+      ...(managedWorktrees === undefined ? {} : { managedWorktrees }),
+      ...(scratchFolders === undefined ? {} : { scratchFolders }),
+    };
+  };
+  /** Factory Reset: deletes the state DB and purges userData, archiving the worktrees first. */
+  const purgeData = async (): Promise<ResetFolders> => {
     const { managedWorktrees } = await resetDesktopApplicationData({
       ...(archiveManagedWorktrees === undefined ? {} : { archiveManagedWorktrees }),
       ...(crashDumpsPath === undefined ? {} : { crashDumpsPath }),
@@ -223,16 +260,24 @@ export function createDesktopFactoryResetHandler({
       },
       userDataPath,
     });
-    untakenWorktreeOutcome = managedWorktrees ?? null;
-    return managedWorktrees;
+    return managedWorktrees === undefined ? {} : { managedWorktrees };
+  };
+  /** Deletes what `mode` deletes, and answers with what became of the folders the app made. */
+  const resetData = async (mode: DesktopResetMode): Promise<ResetFolders> => {
+    untakenOutcome = null;
+    const folders = mode === 'content' ? await clearData() : await purgeData();
+    if (folders.managedWorktrees !== undefined || folders.scratchFolders !== undefined) {
+      untakenOutcome = { ...folders, mode };
+    }
+    return folders;
   };
   const runReset = async (mode: DesktopResetMode): Promise<DesktopFactoryResetResult> => {
     let failure: ResetFailure = NO_RESET_FAILURE;
     let resetDataSucceeded = false;
     let rendererReplacementSucceeded = false;
-    let managedWorktrees: WorktreeResetOutcome | undefined;
+    let folders: ResetFolders = {};
     try {
-      managedWorktrees = await resetData(mode);
+      folders = await resetData(mode);
       resetDataSucceeded = true;
       profileResetLease?.release();
       profileResetLease = null;
@@ -263,7 +308,7 @@ export function createDesktopFactoryResetHandler({
     logger.info(
       mode === 'factory' ? 'Desktop factory reset completed' : 'Desktop content clear completed'
     );
-    return { ...(managedWorktrees === undefined ? {} : { managedWorktrees }), success: true };
+    return { ...folders, success: true };
   };
   let resetInFlight: {
     readonly mode: DesktopResetMode;
@@ -313,9 +358,9 @@ export function createDesktopFactoryResetHandler({
     },
     inFlight: () => resetInFlight?.result ?? null,
     reset: () => startReset('factory'),
-    takeWorktreeOutcome: () => {
-      const outcome = untakenWorktreeOutcome;
-      untakenWorktreeOutcome = null;
+    takeResetOutcome: () => {
+      const outcome = untakenOutcome;
+      untakenOutcome = null;
       return outcome;
     },
   };
