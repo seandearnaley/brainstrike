@@ -32,16 +32,12 @@ merge_protections_settings:
 # thread is resolved, and Mergify merges nothing while a thread is open, so a
 # thread posted after the PR queued holds it too. Thread counts are read on the
 # PR itself, not on the batch draft. The Mergify Merge Protections check on the
-# PR names the rule it waits for. A Codex (or other review bot's) thread that a
-# push makes outdated is resolved by resolve-outdated-bot-threads.yml, and
-# Claude Review resolves the findings a push fixed (owner decision 2026-11-12),
-# so only findings nobody addressed, and threads people started, still hold it.
+# PR names the rule it waits for.
 merge_protections:
   - name: Review threads resolved
     description: >-
       Every review thread, from Claude, Codex or a person, is resolved: fixed by
-      a push, or answered and resolved. A reply alone does not resolve it; a
-      push that fixes a Claude finding or changes a Codex finding's lines does.
+      a push, or answered and resolved. A reply alone does not resolve it.
     if:
       - base = main
     success_conditions:
