@@ -3,12 +3,12 @@
  * (BST-1404). `thread-list-sections.ts` stays DB-free and takes
  * `folderRowsByRootId` from its caller; this hook is that caller's resolver.
  *
- * ONE batched `roots` query per distinct id set, NOT a live query. The columns
- * it reads are immutable after insert — `reconcileRoots` never modifies
- * `id`/`kind`/`path`/`display_name` on a matched row, and disconnecting a root
- * flips `status`, it does not delete the row — so there is no live-ness for a
- * subscription to track. A newly connected folder reaches the panel through the
- * INPUT instead: a thread only lands in a folder section once its
+ * ONE batched `roots` query per distinct id set, read again whenever a root
+ * registration commits. A registration can change a recorded folder's row
+ * under the same id: a folder picked again at a new place takes that path and
+ * name, and joins the project already there, and a folder recorded before
+ * projects gets one when it is next opened. A newly connected folder reaches
+ * the panel through the INPUT: a thread only lands in a folder section once its
  * `metadata.operatingRootId` names that root, and that write changes the thread
  * row, hence the distinct id set, hence this query.
  *
@@ -20,6 +20,7 @@
 import type { ThreadFolderGroupingRow } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { subscribeRootRegistered } from '../roots/root-registration-events';
 import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 const logger = createLogger('ThreadFolderRows');
@@ -116,47 +117,61 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
     if (!catalog || distinctRootIds.length === 0) {
       return;
     }
-    let cancelled = false;
     const warnedRootIds = warnedRootIdsRef.current;
-    catalog
-      .readRoots()
-      .then((rows) => ({ rows: rows.filter((row) => distinctRootIds.includes(row.id)) }))
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        const rowsByRootId = new Map(
-          result.rows.map((row) => [
-            row.id,
-            {
-              displayName: row.displayName,
-              path: row.path,
-              projectId: row.projectId,
-              rootId: row.id,
-            },
-          ])
-        );
-        warnUnresolvedRootIds(distinctRootIds, rowsByRootId, warnedRootIds);
-        setResolved({ error: null, key: rootIdsKey, rowsByRootId });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        logger.error('failed to load thread folder rows', { error });
-        // Tagged with the key it failed for: the failure is not retried on
-        // every render, and no other id set inherits the empty result OR the
-        // error. The map stays EMPTY — no folder name is invented — and the
-        // error is what stops the caller reading that emptiness as "no thread
-        // has a folder".
-        setResolved({
-          error: error instanceof Error ? error : new Error(String(error)),
-          key: rootIdsKey,
-          rowsByRootId: NO_FOLDER_ROWS,
+    let cancelRead = (): void => {};
+    // A later read supersedes an earlier one still out, so an older result
+    // never overwrites a newer registration's.
+    const read = (): void => {
+      cancelRead();
+      let cancelled = false;
+      cancelRead = () => {
+        cancelled = true;
+      };
+      catalog
+        .readRoots()
+        .then((rows) => ({ rows: rows.filter((row) => distinctRootIds.includes(row.id)) }))
+        .then((result) => {
+          if (cancelled) {
+            return;
+          }
+          const rowsByRootId = new Map(
+            result.rows.map((row) => [
+              row.id,
+              {
+                displayName: row.displayName,
+                path: row.path,
+                projectId: row.projectId,
+                rootId: row.id,
+              },
+            ])
+          );
+          warnUnresolvedRootIds(distinctRootIds, rowsByRootId, warnedRootIds);
+          setResolved({ error: null, key: rootIdsKey, rowsByRootId });
+        })
+        .catch((error: unknown) => {
+          if (cancelled) {
+            return;
+          }
+          logger.error('failed to load thread folder rows', { error });
+          // Tagged with the key it failed for: the failure is not retried on
+          // every render, and no other id set inherits the empty result OR the
+          // error. The map stays EMPTY — no folder name is invented — and the
+          // error is what stops the caller reading that emptiness as "no thread
+          // has a folder".
+          setResolved({
+            error: error instanceof Error ? error : new Error(String(error)),
+            key: rootIdsKey,
+            rowsByRootId: NO_FOLDER_ROWS,
+          });
         });
-      });
+    };
+    // Subscribe before reading: a registration that commits during the first
+    // read supersedes it.
+    const unsubscribe = subscribeRootRegistered(read);
+    read();
     return () => {
-      cancelled = true;
+      unsubscribe();
+      cancelRead();
     };
   }, [catalog, distinctRootIds, rootIdsKey]);
 

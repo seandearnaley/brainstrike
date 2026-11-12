@@ -143,8 +143,10 @@ supersede the decisions above where they differ.
       folders by a remote URL or a commit.
   - Built: the Threads panel reads the id. Each root record reaches the
     renderer with its project, and a section is the project's whenever its
-    project is known. How it reads the id was not part of Sean's answer and
-    is recorded here as built:
+    project is known. The panel reads the records again whenever a root
+    registration commits, because a folder picked again can join another
+    project under the same root id. How it reads the id was not part of
+    Sean's answer and is recorded here as built:
     - A thread's project is the project of its checkout: for a thread in its
       repository's own checkout or one of its managed worktrees, the project
       of the repository's own checkout folder; for any other thread, its
