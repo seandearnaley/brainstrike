@@ -218,7 +218,7 @@ function readArchivedWorktrees(event: Readonly<Record<string, unknown>>) {
 /**
  * A committed `worktrees.archived` (ADR-0034 decision 7) as the run timeline's
  * always-visible notice: the idle worktrees the cap archived after a worktree
- * was made for this thread, each with its branch, and how they come back.
+ * was made for this thread, each with its branch, and where its work is kept.
  */
 function worktreesArchivedNotice(
   event: Readonly<Record<string, unknown>>,
@@ -240,8 +240,8 @@ function worktreesArchivedNotice(
     detail: `This repository had more than ${limit} worktrees that no thread is using, so the oldest ${
       only ? 'was' : 'were'
     } archived: ${named}. ${
-      only ? 'It' : 'Each'
-    } can be restored: its uncommitted changes are kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.`,
+      only ? 'Its uncommitted changes are' : 'The uncommitted changes of each are'
+    } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.`,
     id: `run-event-${row.threadId}-${row.seq}`,
     kind: 'worktree.archived',
     label: only

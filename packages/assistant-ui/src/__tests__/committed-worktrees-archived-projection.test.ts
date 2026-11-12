@@ -49,12 +49,12 @@ const BADGER = {
   worktreeId: 'wt-1',
 };
 
-it('names the archived worktree and its branch, and says it can be restored, at every detail level', () => {
+it('names the archived worktree, its branch and where its changes are kept, at every detail level', () => {
   const [notice] = notices([BADGER]);
 
   expect(notice).toMatchObject({
     detail:
-      'This repository had more than 15 worktrees that no thread is using, so the oldest was archived: swift-badger (branch bs/swift-badger). It can be restored: its uncommitted changes are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.',
+      'This repository had more than 15 worktrees that no thread is using, so the oldest was archived: swift-badger (branch bs/swift-badger). Its uncommitted changes are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.',
     label: 'Archived idle worktree swift-badger',
     metadata: { limit: 15, worktrees: [BADGER] },
     runId,
@@ -78,7 +78,7 @@ it('names each worktree when several were archived, a detached one by its name a
 
   expect(notice?.label).toBe('Archived 2 idle worktrees');
   expect(notice?.detail).toBe(
-    'This repository had more than 15 worktrees that no thread is using, so the oldest were archived: swift-badger (branch bs/swift-badger), calm-otter (detached). Each can be restored: its uncommitted changes are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1, refs/brainstrike/worktree-archive/wt-2), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.'
+    'This repository had more than 15 worktrees that no thread is using, so the oldest were archived: swift-badger (branch bs/swift-badger), calm-otter (detached). The uncommitted changes of each are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1, refs/brainstrike/worktree-archive/wt-2), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.'
   );
 });
 

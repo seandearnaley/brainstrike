@@ -510,7 +510,8 @@ revisit:
   path under it still refuses an active run and nested repositories too.
 - **Where the notice goes.** To the thread the creation was for, as a row in
   its transcript at every detail level: each archived worktree with its branch
-  and its snapshot ref, and that each can be restored. The host's worktree and
+  and its snapshot ref, where its uncommitted changes are kept. It does not
+  promise a restore the app cannot offer yet (Not built, below). The host's worktree and
   the model's name their run and thread. The person's New worktree… now names
   the selected thread, which it already required. The row shows with the run
   that made the worktree, or with the thread's latest run when the person made
