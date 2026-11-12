@@ -15,6 +15,7 @@ import { configureAssistantProvider, enableAssistantCatalogModel } from './utils
 import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
+import { openFolderRows } from './utils/where-control';
 
 const API_KEY = 'test-key-host-removed-folder';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -63,11 +64,13 @@ async function removeFromWorkspace(page: Page, name: string): Promise<void> {
 }
 
 function chip(region: Locator): Locator {
-  return region.getByTestId('workspace-bar-folder-chip');
+  return region.getByTestId('workspace-bar-where-chip');
 }
 
 /**
- * Open a thread folder's submenu in the chip. A previous menu selection is
+ * Open a thread folder's submenu in the where-control: in its Folders
+ * submenu while the thread has a live primary folder, in the where-menu
+ * itself while it has none. A previous menu selection is
  * still dismissing (exit animation, then focus returns to its trigger); a
  * reopen inside that window is closed by the returning focus. The focus moves
  * a task after the menu unmounts, later still on a loaded runner, so wait for
@@ -82,10 +85,14 @@ async function openRootMenu(page: Page, region: Locator, rootId: string): Promis
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(chip(region)).toBeFocused();
   await chip(region).click();
+  const folders = page.getByTestId('workspace-bar-folders');
+  if (await folders.isVisible()) {
+    await openSubmenu(page, folders);
+  }
   return await openSubmenu(page, page.getByTestId(`workspace-bar-root-${rootId}`));
 }
 
-/** Open a chip submenu from its trigger with the keyboard. */
+/** Open a where-menu submenu from its trigger with the keyboard. */
 async function openSubmenu(page: Page, trigger: Locator): Promise<Locator> {
   await trigger.focus();
   await page.keyboard.press('ArrowRight');
@@ -150,11 +157,11 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     await expect(region.getByText('REMOVED_FOLDER_REPLY_1')).toBeVisible({ timeout: 90_000 });
     const alphaId = await rootIdOf(page, alphaRoot);
 
-    // Folder B joins the thread from its own chip, then becomes the thread's primary.
+    // Folder B joins the thread from its Folders menu, then becomes the thread's primary.
     await electronApp.app.evaluate((_electron, next) => {
       process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = next;
     }, bravoRoot);
-    await chip(region).click();
+    await openFolderRows(region);
     await page.getByTestId('workspace-bar-add-folder').click();
     await expect(chip(region)).toHaveAttribute('aria-label', /, 1 more$/u, { timeout: 30_000 });
     const bravoId = await rootIdOf(page, bravoRoot);
@@ -162,7 +169,7 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     await chooseMenuItem(page, `workspace-bar-make-primary-${bravoId}`);
     await expect(chip(region)).toHaveAttribute(
       'aria-label',
-      new RegExp(`^Folder: ${bravoName}`, 'u')
+      new RegExp(`^Where this thread works: ${bravoName}`, 'u')
     );
 
     // B leaves the workspace. The send is refused with B's name, not a catalog error.
@@ -178,13 +185,16 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     );
     await refusal.getByRole('button', { name: 'Dismiss' }).click();
 
-    // The chip marks B, and Make primary on A drops B in the same write.
+    // The where-control marks B, and Make primary on A drops B in the same write.
     await chip(region).click();
     await expect(page.getByTestId(`workspace-bar-root-${bravoId}`)).toContainText(REMOVED);
     await page.keyboard.press('Escape');
     await openRootMenu(page, region, alphaId);
     await chooseMenuItem(page, `workspace-bar-make-primary-${alphaId}`);
-    await expect(chip(region)).toHaveAttribute('aria-label', `Folder: ${path.basename(alphaRoot)}`);
+    await expect(chip(region)).toHaveAttribute(
+      'aria-label',
+      `Where this thread works: ${path.basename(alphaRoot)}`
+    );
 
     await send(3);
     await expect(region.getByText('REMOVED_FOLDER_REPLY_3')).toBeVisible({ timeout: 90_000 });
@@ -252,12 +262,15 @@ test('a thread left with no live folder offers another workspace folder', async 
     });
     await refusal.getByRole('button', { name: 'Dismiss' }).click();
 
-    // With no live folder left, the chip offers the workspace's other folders.
+    // With no live folder left, the where-control offers the workspace's other folders.
     await chip(region).click();
     await expect(page.getByTestId(`workspace-bar-root-${alphaId}`)).toContainText(REMOVED);
     await openSubmenu(page, page.getByTestId('workspace-bar-use-another-folder'));
     await chooseMenuItem(page, `workspace-bar-use-folder-${bravoRoot}`);
-    await expect(chip(region)).toHaveAttribute('aria-label', `Folder: ${path.basename(bravoRoot)}`);
+    await expect(chip(region)).toHaveAttribute(
+      'aria-label',
+      `Where this thread works: ${path.basename(bravoRoot)}`
+    );
 
     await send(3);
     await expect(region.getByText('REMOVED_ONLY_REPLY_3')).toBeVisible({ timeout: 90_000 });

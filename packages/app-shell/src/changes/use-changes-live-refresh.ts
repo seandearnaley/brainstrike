@@ -6,7 +6,7 @@
  *
  * REFCOUNTED on purpose: `useChangeset` and `useGitInventory` each call
  * {@link useChangesLiveRefreshSubscription}, and several instances of both can
- * be mounted at once (the Changes surface, the branch chips). The first acquirer
+ * be mounted at once (the Changes surface, the composer Branch rows). The first acquirer
  * subscribes `bridge.onInvalidated`; the last release unsubscribes. State is
  * module-scoped but mutated only from effects — never at import time (the
  * chunk-init hazard class).

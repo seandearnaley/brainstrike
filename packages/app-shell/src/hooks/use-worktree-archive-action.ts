@@ -17,7 +17,6 @@ export function useWorktreeArchiveAction(input: {
   readonly bridge: WorktreesBridge | null;
   readonly onHandOffToLocal: () => Promise<void>;
   readonly refreshList: () => Promise<void>;
-  readonly runId: string | null;
   readonly setPending: (pending: boolean) => void;
   readonly threadId: string | null;
   readonly worktreeId: string | null;
@@ -26,16 +25,8 @@ export function useWorktreeArchiveAction(input: {
   readonly archiveConfirmation: WorktreeArchiveConfirmation | null;
   readonly onArchive: () => void;
 } {
-  const {
-    bridge,
-    onHandOffToLocal,
-    refreshList,
-    runId,
-    setPending,
-    threadId,
-    worktreeId,
-    worktreeName,
-  } = input;
+  const { bridge, onHandOffToLocal, refreshList, setPending, threadId, worktreeId, worktreeName } =
+    input;
   const archiveWorktree = async (confirmIgnoredEntries?: string): Promise<void> => {
     if (!(bridge && threadId && worktreeId)) {
       return;
@@ -53,7 +44,6 @@ export function useWorktreeArchiveAction(input: {
       const result = await bridge.archive({
         ...(confirmIgnoredEntries ? { confirmIgnoredEntries } : {}),
         worktreeId,
-        ...(runId ? { runId } : {}),
       });
       if (!result.ok) {
         toastFailure(

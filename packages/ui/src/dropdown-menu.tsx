@@ -19,31 +19,75 @@ const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
+interface ItemPointerHandlers {
+  readonly onPointerLeave?: React.PointerEventHandler<HTMLDivElement> | undefined;
+  readonly onPointerMove?: React.PointerEventHandler<HTMLDivElement> | undefined;
+}
+
+/**
+ * When the pointer leaves an item, Radix focuses the menu itself, and focus
+ * leaving an open submenu closes it. The browser also sends that leave when
+ * the menu's rows move under a pointer that is resting (a row that arrives
+ * after the menu opened): the row that slid under the pointer and away gets
+ * pointerover and pointerleave, with no pointermove, and a submenu opened
+ * from the keyboard closed by itself. Radix focuses an item only on
+ * pointermove, never on the pointer entering it, for that reason; a leave
+ * counts the same way, only once the pointer moved over the item and then
+ * left it from somewhere else.
+ */
+function useItemPointerHandlers({
+  onPointerLeave,
+  onPointerMove,
+}: ItemPointerHandlers): Required<ItemPointerHandlers> {
+  const lastMoveRef = useRef<{ readonly x: number; readonly y: number } | null>(null);
+  return {
+    onPointerLeave: (event) => {
+      onPointerLeave?.(event);
+      const lastMove = lastMoveRef.current;
+      lastMoveRef.current = null;
+      if (lastMove === null || (lastMove.x === event.clientX && lastMove.y === event.clientY)) {
+        // The menu moved, not the pointer: Radix skips its own leave handling.
+        event.preventDefault();
+      }
+    },
+    onPointerMove: (event) => {
+      lastMoveRef.current = { x: event.clientX, y: event.clientY };
+      onPointerMove?.(event);
+    },
+  };
+}
+
 const DropdownMenuSubTrigger = ({
   className,
   inset,
   children,
+  onPointerLeave,
+  onPointerMove,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & {
   inset?: boolean;
 } & {
   ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger> | null>;
-}) => (
-  <DropdownMenuPrimitive.SubTrigger
-    className={cn(
-      'focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*=text-])]:text-muted-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
-      inset && 'pl-8',
-      className
-    )}
-    data-slot="dropdown-menu-sub-trigger"
-    ref={ref}
-    {...props}
-  >
-    {children}
-    <ChevronRight className="ml-auto size-4" />
-  </DropdownMenuPrimitive.SubTrigger>
-);
+}) => {
+  const pointerHandlers = useItemPointerHandlers({ onPointerLeave, onPointerMove });
+  return (
+    <DropdownMenuPrimitive.SubTrigger
+      className={cn(
+        'focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*=text-])]:text-muted-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+        inset && 'pl-8',
+        className
+      )}
+      data-slot="dropdown-menu-sub-trigger"
+      ref={ref}
+      {...props}
+      {...pointerHandlers}
+    >
+      {children}
+      <ChevronRight className="ml-auto size-4" />
+    </DropdownMenuPrimitive.SubTrigger>
+  );
+};
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName;
 
 const DropdownMenuSubContent = ({
@@ -128,81 +172,99 @@ const DropdownMenuItem = ({
   className,
   inset,
   variant = 'default',
+  onPointerLeave,
+  onPointerMove,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
   inset?: boolean;
   /** `destructive` paints the item (and its icon) in the destructive colour. */
   variant?: 'default' | 'destructive';
-} & { ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.Item> | null> }) => (
-  <DropdownMenuPrimitive.Item
-    className={cn(
-      'focus:bg-accent focus:text-accent-foreground [&_svg:not([class*=text-])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
-      variant === 'destructive' &&
-        'text-destructive focus:bg-destructive/10 focus:text-destructive [&_svg:not([class*=text-])]:text-destructive',
-      inset && 'pl-8',
-      className
-    )}
-    data-slot="dropdown-menu-item"
-    data-variant={variant}
-    ref={ref}
-    {...props}
-  />
-);
+} & { ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.Item> | null> }) => {
+  const pointerHandlers = useItemPointerHandlers({ onPointerLeave, onPointerMove });
+  return (
+    <DropdownMenuPrimitive.Item
+      className={cn(
+        'focus:bg-accent focus:text-accent-foreground [&_svg:not([class*=text-])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+        variant === 'destructive' &&
+          'text-destructive focus:bg-destructive/10 focus:text-destructive [&_svg:not([class*=text-])]:text-destructive',
+        inset && 'pl-8',
+        className
+      )}
+      data-slot="dropdown-menu-item"
+      data-variant={variant}
+      ref={ref}
+      {...props}
+      {...pointerHandlers}
+    />
+  );
+};
 DropdownMenuItem.displayName = DropdownMenuPrimitive.Item.displayName;
 
 const DropdownMenuCheckboxItem = ({
   className,
   children,
+  onPointerLeave,
+  onPointerMove,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.CheckboxItem> & {
   ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.CheckboxItem> | null>;
-}) => (
-  <DropdownMenuPrimitive.CheckboxItem
-    className={cn(
-      'focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
-      className
-    )}
-    data-slot="dropdown-menu-checkbox-item"
-    ref={ref}
-    {...props}
-  >
-    <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-      <DropdownMenuPrimitive.ItemIndicator>
-        <Check className="size-4" />
-      </DropdownMenuPrimitive.ItemIndicator>
-    </span>
-    {children}
-  </DropdownMenuPrimitive.CheckboxItem>
-);
+}) => {
+  const pointerHandlers = useItemPointerHandlers({ onPointerLeave, onPointerMove });
+  return (
+    <DropdownMenuPrimitive.CheckboxItem
+      className={cn(
+        'focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+        className
+      )}
+      data-slot="dropdown-menu-checkbox-item"
+      ref={ref}
+      {...props}
+      {...pointerHandlers}
+    >
+      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+        <DropdownMenuPrimitive.ItemIndicator>
+          <Check className="size-4" />
+        </DropdownMenuPrimitive.ItemIndicator>
+      </span>
+      {children}
+    </DropdownMenuPrimitive.CheckboxItem>
+  );
+};
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
 const DropdownMenuRadioItem = ({
   className,
   children,
+  onPointerLeave,
+  onPointerMove,
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem> & {
   ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.RadioItem> | null>;
-}) => (
-  <DropdownMenuPrimitive.RadioItem
-    className={cn(
-      'focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
-      className
-    )}
-    data-slot="dropdown-menu-radio-item"
-    ref={ref}
-    {...props}
-  >
-    <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
-      <DropdownMenuPrimitive.ItemIndicator>
-        <Circle className="size-2 fill-current" />
-      </DropdownMenuPrimitive.ItemIndicator>
-    </span>
-    {children}
-  </DropdownMenuPrimitive.RadioItem>
-);
+}) => {
+  const pointerHandlers = useItemPointerHandlers({ onPointerLeave, onPointerMove });
+  return (
+    <DropdownMenuPrimitive.RadioItem
+      className={cn(
+        'focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden transition-colors select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
+        className
+      )}
+      data-slot="dropdown-menu-radio-item"
+      ref={ref}
+      {...props}
+      {...pointerHandlers}
+    >
+      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+        <DropdownMenuPrimitive.ItemIndicator>
+          <Circle className="size-2 fill-current" />
+        </DropdownMenuPrimitive.ItemIndicator>
+      </span>
+      {children}
+    </DropdownMenuPrimitive.RadioItem>
+  );
+};
 DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName;
 
 const DropdownMenuLabel = ({

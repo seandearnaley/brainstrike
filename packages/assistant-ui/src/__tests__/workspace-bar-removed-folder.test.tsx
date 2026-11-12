@@ -1,5 +1,5 @@
 /**
- * BST-1990: the folder chip marks a thread folder the workspace no longer
+ * BST-1990: the where-control marks a thread folder the workspace no longer
  * serves and offers its repairs: Reopen folder, Remove from this thread, and
  * "Use another folder…" once no thread folder is live.
  */
@@ -37,7 +37,7 @@ function props(overrides: Partial<WorkspaceBarProps>): WorkspaceBarProps {
 
 async function openRootSubmenu(rootId: string): Promise<HTMLElement> {
   const user = userEvent.setup({ pointerEventsCheck: 0 });
-  await user.click(screen.getByTestId('workspace-bar-folder-chip'));
+  await user.click(screen.getByTestId('workspace-bar-where-chip'));
   const trigger = await screen.findByTestId(`workspace-bar-root-${rootId}`);
   await act(async () => {
     trigger.focus();
@@ -46,11 +46,11 @@ async function openRootSubmenu(rootId: string): Promise<HTMLElement> {
   return trigger;
 }
 
-describe('a removed thread folder in the folder chip', () => {
+describe('a removed thread folder in the where-control', () => {
   it('is named on the chip itself', () => {
     render(<WorkspaceBar {...props({ secondaryRoots: [alpha] })} />);
-    expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(
-      'Folder: bravo (closed), 1 more'
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveAccessibleName(
+      'Where this thread works: bravo (closed), 1 more'
     );
   });
 
@@ -139,15 +139,15 @@ describe('a removed thread folder in the folder chip', () => {
         })}
       />
     );
-    expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(
-      "Folder: bravo (can't be opened: The folder is no longer at /Users/Sean/Beaker.)"
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveAccessibleName(
+      "Where this thread works: bravo (can't be opened: The folder is no longer at /Users/Sean/Beaker.)"
     );
   });
 
   it('shows a reopen in flight as opening', () => {
     render(<WorkspaceBar {...props({ primaryRoot: { ...bravo, reopening: true } })} />);
-    expect(screen.getByTestId('workspace-bar-folder-chip')).toHaveAccessibleName(
-      'Folder: bravo (opening…)'
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveAccessibleName(
+      'Where this thread works: bravo (opening…)'
     );
   });
 });

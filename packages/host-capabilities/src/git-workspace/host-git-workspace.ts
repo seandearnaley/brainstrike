@@ -2,7 +2,7 @@
  * The git cluster an agent host owns (ADR-0029 stage 2): the ONE
  * `GitInventoryService` and `WorktreeService` over the host's own state store
  * (worktree ledger and settings), and on the desktop host the shadow-git
- * `SnapshotService` beside them. Changes, the branch chip and worktrees reach
+ * `SnapshotService` beside them. Changes, the branch switcher and worktrees reach
  * them as host methods; the host's own runs use them for worktree tools, shell
  * correlation, turn snapshots and rewinds.
  *

@@ -1,8 +1,9 @@
 /**
- * BST-1990: the folder chip lists the workspace's mounted folders that are not
+ * BST-1990: the where-control lists the workspace's mounted folders that are not
  * this thread's, each with "Add to this thread" (no OS picker), so a mounted
  * folder can always be attached.
  */
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -27,12 +28,18 @@ function props(overrides: Partial<WorkspaceBarProps>): WorkspaceBarProps {
   };
 }
 
-describe('mounted folders outside the thread in the folder chip', () => {
+describe('mounted folders outside the thread in the where-control', () => {
   it('are listed under "Not in this thread", and one click adds the folder', async () => {
     const onAddWorkspaceFolder = vi.fn();
     render(<WorkspaceBar {...props({ onAddWorkspaceFolder })} />);
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    await user.click(screen.getByTestId('workspace-bar-folder-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
+    // A thread with a live folder lists its folders a level down, in Folders.
+    const folders = await screen.findByTestId('workspace-bar-folders');
+    await act(async () => {
+      folders.focus();
+    });
+    await user.keyboard('{ArrowRight}');
 
     expect(await screen.findByText('Not in this thread')).toBeInTheDocument();
     await user.click(screen.getByTestId('workspace-bar-add-to-thread-/ws/charlie'));
@@ -43,7 +50,7 @@ describe('mounted folders outside the thread in the folder chip', () => {
   it('give way to "Use another folder…" when no thread folder is live', async () => {
     render(<WorkspaceBar {...props({ primaryRoot: { ...alpha, removed: true } })} />);
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    await user.click(screen.getByTestId('workspace-bar-folder-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
 
     expect(await screen.findByTestId('workspace-bar-use-another-folder')).toBeInTheDocument();
     expect(screen.queryByTestId('workspace-bar-add-to-thread-/ws/charlie')).toBeNull();

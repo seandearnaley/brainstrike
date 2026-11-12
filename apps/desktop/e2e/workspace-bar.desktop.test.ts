@@ -31,6 +31,7 @@ import {
 } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { type SeedRootOptions, seedRoot as seedWorkspaceRoot } from './utils/seed-root';
+import { branchRow, openFolderRows, openWhereMenu, whereChip } from './utils/where-control';
 
 const tempDirs = createTempDirTracker();
 
@@ -99,7 +100,7 @@ test.afterAll(() => {
 });
 
 test.describe('Workspace bar (desktop)', () => {
-  test('@smoke shows the folder chip for a SINGLE root and the branch chip for a git repo', async ({
+  test('@smoke shows the where-control for a SINGLE root and its Branch row for a git repo', async ({
     window: page,
   }) => {
     test.setTimeout(90_000);
@@ -109,46 +110,54 @@ test.describe('Workspace bar (desktop)', () => {
 
     // Always visible at ONE root: the bar is orientation, not disambiguation
     // (BST-1396 removed the >=2-roots gate).
-    const folderChip = page.getByTestId('workspace-bar-folder-chip');
+    const folderChip = whereChip(page);
     await expect(folderChip).toBeVisible({ timeout: 30_000 });
     // A new thread has no folder until the person chooses one.
     await expect(folderChip).toHaveAccessibleName('Choose a folder', { timeout: 30_000 });
     await chooseThreadFolder(page, path.basename(repo));
     await expect(folderChip).toContainText(path.basename(repo), { timeout: 30_000 });
 
-    const branchChip = page.getByTestId('workspace-bar-branch-chip');
-    await expect(branchChip).toBeVisible({ timeout: 30_000 });
-    await expect(branchChip).toContainText('main');
-    await expect(branchChip).toHaveAttribute('data-dirty', 'false');
+    await expect(page.getByTestId('workspace-bar')).toHaveAttribute(
+      'data-checkout-state',
+      'resolved',
+      { timeout: 30_000 }
+    );
+    await openWhereMenu(page);
+    const branch = branchRow(page);
+    await expect(branch).toBeVisible({ timeout: 30_000 });
+    await expect(branch).toContainText('main');
+    await expect(branch).toHaveAttribute('data-dirty', 'false');
+    await page.keyboard.press('Escape');
   });
 
-  test('hides the branch chip for a non-git folder', async ({ window: page }) => {
+  test('offers no Branch row for a non-git folder', async ({ window: page }) => {
     const plain = freshNonGitDir('plain');
     await seedRoot(page, plain);
     await openComposer(page);
 
-    const folderChip = page.getByTestId('workspace-bar-folder-chip');
+    const folderChip = whereChip(page);
     await chooseThreadFolder(page, path.basename(plain));
     await expect(folderChip).toContainText(path.basename(plain), { timeout: 30_000 });
 
     // Deterministic wait (BST-1400): `data-checkout-state` flips to
     // "resolved" once `useThreadCheckoutStatus`'s Git bridge `status`
     // round-trip for THIS root has settled — pending vs. "confirmed no
-    // branch chip" are otherwise indistinguishable from a chip that simply
+    // Branch row" are otherwise indistinguishable from a row that simply
     // had not mounted yet.
     await expect(page.getByTestId('workspace-bar')).toHaveAttribute(
       'data-checkout-state',
       'resolved',
       { timeout: 30_000 }
     );
-    await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveCount(0);
-    await expect(page.getByTestId('workspace-bar-mode-chip')).toHaveAttribute(
-      'title',
-      'Not a git repository'
-    );
+    await expect(folderChip).toHaveAttribute('title', 'Not a git repository');
+    await openWhereMenu(page);
+    // Positive control: the open menu lists the folders, so the Branch row is absent, not unrendered.
+    await expect(page.getByTestId('workspace-bar-folders')).toBeVisible();
+    await expect(branchRow(page)).toHaveCount(0);
+    await page.keyboard.press('Escape');
   });
 
-  test('names a failed git status on the mode chip instead of calling the repo a non-repository', async ({
+  test('names a failed git status on the where-control instead of calling the repo a non-repository', async ({
     window: page,
   }) => {
     // BST-2133: a corrupt index makes `git status` fail outright. The chip used
@@ -164,15 +173,18 @@ test.describe('Workspace bar (desktop)', () => {
       'resolved',
       { timeout: 30_000 }
     );
-    await expect(page.getByTestId('workspace-bar-mode-chip')).toHaveAttribute(
+    await expect(whereChip(page)).toHaveAttribute(
       'title',
       /^Git status could not be read: .*index/u,
       { timeout: 30_000 }
     );
-    await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveCount(0);
+    await openWhereMenu(page);
+    await expect(page.getByTestId('workspace-bar-folders')).toBeVisible();
+    await expect(branchRow(page)).toHaveCount(0);
+    await page.keyboard.press('Escape');
   });
 
-  test('re-mounts a recent folder from the chip without the OS picker and records it as +1', async ({
+  test('re-mounts a recent folder from the where-control without the OS picker and records it as +1', async ({
     window: page,
   }) => {
     test.setTimeout(150_000);
@@ -184,14 +196,14 @@ test.describe('Workspace bar (desktop)', () => {
     await seedRoot(page, primary, { recentPaths: [recent] });
     await openComposer(page);
 
-    const folderChip = page.getByTestId('workspace-bar-folder-chip');
+    const folderChip = whereChip(page);
     await chooseThreadFolder(page, path.basename(primary));
     await expect(folderChip).toContainText(path.basename(primary), { timeout: 30_000 });
     // No secondaries yet — so the "+1" below is this click's effect, not a
     // badge that was already on screen.
     await expect(folderChip).not.toContainText('+', { timeout: 5000 });
 
-    await folderChip.click();
+    await openFolderRows(page);
     const recentItem = page.getByTestId(`workspace-bar-recent-${recent}`);
     await expect(recentItem).toBeVisible({ timeout: 15_000 });
     await recentItem.click();
@@ -201,12 +213,12 @@ test.describe('Workspace bar (desktop)', () => {
     await expect(folderChip).toContainText('+1', { timeout: 60_000 });
 
     // …and the re-mounted folder is a real workspace root, not just a label:
-    // it has its own ROOT ROW in the chip menu. Reopened explicitly rather than
+    // it has its own ROOT ROW in the Folders menu. Reopened explicitly rather than
     // assumed-closed after the item select, and scoped to the open menu so a
     // stray occurrence of the folder name elsewhere on the page cannot satisfy
     // it.
-    await folderChip.click();
-    const menu = page.getByRole('menu');
+    await openFolderRows(page);
+    const menu = page.getByRole('menu', { name: /^Folders: /u });
     await expect(menu).toBeVisible({ timeout: 15_000 });
     // Two ROOT rows now (primary + the re-mounted secondary), each keyed by a
     // durable `roots.id`; the name check is scoped to the same open menu.
@@ -223,16 +235,17 @@ test.describe('Workspace bar (desktop)', () => {
     await seedRoot(page, open);
     await openComposer(page);
 
-    const folderChip = page.getByTestId('workspace-bar-folder-chip');
+    const folderChip = whereChip(page);
     await expect(folderChip).toHaveAccessibleName('Choose a folder', { timeout: 30_000 });
 
-    await folderChip.click();
+    await openFolderRows(page);
     await page.getByTestId('workspace-bar-add-folder').click();
 
     // The thread had no folder, so the added one is its folder, not a secondary.
-    await expect(folderChip).toHaveAccessibleName(`Folder: ${path.basename(ADDED_ROOT_DIR)}`, {
-      timeout: 60_000,
-    });
+    await expect(folderChip).toHaveAccessibleName(
+      `Where this thread works: ${path.basename(ADDED_ROOT_DIR)}`,
+      { timeout: 60_000 }
+    );
     await expect(folderChip).not.toContainText('+');
   });
 

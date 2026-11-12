@@ -1,7 +1,7 @@
 /**
  * The managed-worktree capability contract (spec §6.1).
  *
- * Web provides none, so the Mode chip is simply absent there — consumers
+ * Web provides none, so the where-control has no checkout rows there — consumers
  * capability-check `useWorktreesBridge()` (`workspace-git-services.tsx`), never
  * `isElectron()`.
  */

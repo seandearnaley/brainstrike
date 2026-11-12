@@ -1,7 +1,7 @@
 /**
  * Managed-worktree contracts (spec §5.2, §5.3, §6). Shared by desktop main
  * (WorktreeService + the ledger), the worktrees bridge, and the
- * renderer's Mode chip.
+ * renderer's where-control.
  *
  * Lives in `@brainstrike/types` rather than `@brainstrike/assistant-data`
  * because desktop main keeps workspace packages EXTERNAL in its esbuild bundle
@@ -62,7 +62,7 @@ export interface ManagedWorktreePathEntry {
 export type WorktreeExternalTool = 'claude-code' | 'codex' | 'cursor';
 
 /**
- * One row of the Mode chip's existing-worktree picker: the git inventory JOINED
+ * One row of the where-control's Other worktree… picker: the git inventory JOINED
  * with the ledger.
  *
  * NO SILENT HIDING (spec §13): every worktree the inventory reports appears
@@ -88,7 +88,7 @@ export interface WorktreeListEntry {
    * True when this checkout is the repository's MAIN worktree, not a linked
    * one. `git worktree list` enumerates it, so it reaches every consumer of
    * this list; the Worktree Map renders it as the lane's first card, and the
-   * Mode chip's picker refuses it as a checkout target (a thread that wants
+   * where-control's picker refuses it as a checkout target (a thread that wants
    * the primary checkout is in Local mode, by definition).
    */
   readonly primary: boolean;

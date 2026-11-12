@@ -42,7 +42,6 @@ const ARGS = {
   onSelectWorktree: vi.fn(() => Promise.resolve()),
   primaryRootId: 'r-1',
   primaryRootPath: '/work/app',
-  runId: null,
   statusFailure: null,
   threadId: 'thread-1',
   threadState: 'idle' as const,
@@ -59,6 +58,8 @@ describe('useWorktreeMode without a readable repository (BST-2133)', () => {
 
     expect(result.current?.disabledReason).toBe(reason);
     expect(result.current?.createDisabledReason).toBe(reason);
+    // Unknown, not "not a repository": the where-control warns about it.
+    expect(result.current?.notARepository).toBe(false);
     await expect(
       result.current?.onCreate({ baseRef: 'HEAD', branch: { detached: true }, name: 'x' })
     ).rejects.toThrow(reason);
@@ -81,7 +82,17 @@ describe('useWorktreeMode without a readable repository (BST-2133)', () => {
     const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
 
     expect(result.current?.disabledReason).toBe('Not a git repository');
+    expect(result.current?.notARepository).toBe(true);
     expect(unavailableRepositoryReason(null)).toBe('Not a git repository');
+    await act(async () => {});
+  });
+
+  it('says a readable repository is one', async () => {
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, isRepository: true }), {
+      wrapper,
+    });
+
+    expect(result.current?.notARepository).toBe(false);
     await act(async () => {});
   });
 });

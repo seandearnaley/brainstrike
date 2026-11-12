@@ -78,7 +78,7 @@ export function WorkspaceBarDropZone({
   };
 
   return (
-    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: drag-and-drop mount surface; the keyboard-accessible path is the Folder chip's Add folder… action.
+    // biome-ignore lint/a11y/noNoninteractiveElementInteractions: drag-and-drop mount surface; the keyboard-accessible path is the where-control's Add folder… row.
     // biome-ignore lint/a11y/noStaticElementInteractions: deliberately a bare <div>, NOT a labelled <section> — workspace-bar.tsx:251-253 documents that this exact bar rejects an extra grouping level (each chip already carries its own accessible name), and this wrapper exists only to catch a pointer gesture AT users cannot perform anyway. A <section aria-label> here would add the permanent landmark-list noise that comment argues against, for a surface AT users never reach.
     <div
       className={cn('bs-composer-workspace-drop', isDragOver && 'ring-primary ring-2 ring-inset')}

@@ -1,5 +1,5 @@
 /**
- * The git capability the workspace bar's branch chip and the Changes header
+ * The git capability the workspace bar's Branch row and the Changes header
  * reach through `useGitBridge()` (`workspace-git-services.tsx`).
  *
  * Shared Git domain values come from `@brainstrike/types`; this interface only

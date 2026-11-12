@@ -12,7 +12,7 @@ import {
 import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
 import { hostStream } from './host-stream';
 
-/** The host methods behind the desktop's Changes, branch chip and worktrees. */
+/** The host methods behind the desktop's Changes, branch switcher and worktrees. */
 export type DesktopGitWorkspaceMethod = Extract<
   HostMethod,
   `changes/${string}` | `git/${string}` | `worktrees/${string}`
