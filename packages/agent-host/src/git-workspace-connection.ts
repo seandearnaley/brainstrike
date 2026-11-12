@@ -68,7 +68,6 @@ export function bindHostGitWorkspaceMethods(
   serve('git/switch-branch');
   serve('worktrees/adopt');
   serve('worktrees/archive');
-  serve('worktrees/archive-for-reset');
   serve('worktrees/checkout-status');
   serve('worktrees/classify-path');
   serve('worktrees/create');

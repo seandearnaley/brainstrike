@@ -20,7 +20,6 @@ import type {
   WorktreeCreateContext,
   WorktreeCreateResult,
   WorktreeListEntry,
-  WorktreeResetArchive,
   WorktreeSettings,
 } from '@brainstrike/types';
 import { Schema } from 'effect';
@@ -274,10 +273,6 @@ const WorktreeArchiveResultSchema = Schema.Struct({
   snapshotRef: Text,
   worktree: ManagedWorktreeRowSchema,
 }) satisfies Schema.ConstraintDecoder<WorktreeArchiveResult>;
-const WorktreeResetArchiveSchema = Schema.Struct({
-  archived: Schema.Array(Schema.Struct({ path: Text, snapshotRef: Text, worktreeId: Id })),
-  retained: Schema.Array(Schema.Struct({ code: Text, path: Text, reason: Text, worktreeId: Id })),
-}) satisfies Schema.ConstraintDecoder<WorktreeResetArchive>;
 const WorktreeArchivePreviewSchema = Schema.Struct({
   confirmationToken: NullableText,
   ignoredEntryCount: Count,
@@ -406,8 +401,6 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
     runId: Schema.optionalKey(Id),
     worktreeId: Id,
   }),
-  /** Factory Reset, before it deletes the ledger: archives every active managed worktree. */
-  'worktrees/archive-for-reset': None,
   'worktrees/checkout-status': Schema.Struct({ path: Text }),
   'worktrees/classify-path': Schema.Struct({ path: Text }),
   'worktrees/create': Schema.Struct({
@@ -457,7 +450,6 @@ export const GIT_WORKSPACE_RESULT_SCHEMAS = {
   'workspace/git/subscribe': Schema.Struct({ subscribed: Schema.Literal(true) }),
   'worktrees/adopt': gitResult(ManagedWorktreeRowSchema),
   'worktrees/archive': gitResult(WorktreeArchiveResultSchema),
-  'worktrees/archive-for-reset': gitResult(WorktreeResetArchiveSchema),
   'worktrees/checkout-status': gitResult(WorktreeCheckoutStatusSchema),
   'worktrees/classify-path': Schema.Struct({ classification: WorktreePathClassificationSchema }),
   'worktrees/create': gitResult(WorktreeCreateResultSchema),

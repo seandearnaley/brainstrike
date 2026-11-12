@@ -55,8 +55,9 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
   - The fresh profile's host restores its open folders; Main keeps no workspace
     ledger of its own to reset (ADR-0029 stage 4).
   - Managed worktrees live outside userData. Before the host retires, Main asks it to
-    archive each one into its repository (`worktrees/archive-for-reset`, ADR-0034); one left
-    on disk is named in the reset's outcome with why, and never fails the reset.
+    archive each one into its repository (ADR-0034), on Main's private platform connection
+    only (`factory-reset/worktrees/archive`), never as a client method. One left on disk is
+    named in the reset's outcome with why, and never fails the reset.
   - Windows Factory Reset is explicitly unavailable; do not imply otherwise.
 - Both resets use the existing admission/retirement owner: join renderer saves and
   retire persisted chat/tab references before host deletion and replacement.

@@ -21,6 +21,7 @@ import ElectronStore from 'electron-store';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
+import { createMainWorktreeReset } from './agent-host-platform/factory-reset-worktrees';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
@@ -528,10 +529,16 @@ const profileReset = createDesktopProfileResetOwner({
   retireProfile: () => hostProfile.retire(),
 });
 
+// ADR-0015, ADR-0034: asked only on Main's private platform connection to the host it launched.
+const mainWorktreeReset = createMainWorktreeReset();
+
 const handleResetLocal = createDesktopFactoryResetHandler({
-  // ADR-0034: the host archives every managed worktree into its repository, through Main's own
-  // client, before the reset retires it and deletes the ledger with its state DB.
-  archiveManagedWorktrees: () => agentHostMainClient.request('worktrees/archive-for-reset', {}),
+  // ADR-0034: the host archives every managed worktree into its repository before the reset
+  // retires it and deletes the ledger with its state DB. A host that is gone starts first.
+  archiveManagedWorktrees: async () => {
+    await hostProfile.acquire();
+    return await mainWorktreeReset.archive();
+  },
   clearRetainedContent: async () => {
     const result = await hostProfile.clearAndRetireContent();
     for (const filePath of listErrorLogFilePaths(
@@ -1791,6 +1798,7 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
       desktopBootstrap.workspaceOpenQueue.enqueue({ origin: 'agent-worktree', path });
     },
     workspaceRootsChanged: onWorkspaceRootsChanged,
+    worktreeReset: mainWorktreeReset,
   });
 });
 

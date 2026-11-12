@@ -564,11 +564,20 @@ they stayed on disk, unknown to the app, still in each repository's
   archive.
 - **Where it runs.** Main owns the reset (ADR-0015). After the reset's
   background runtimes stop and before it retires the profile, the last moment
-  the host still serves the ledger, Main asks the host through its own client
-  (`worktrees/archive-for-reset`). The archives take one turn of the worktree
+  the host still serves the ledger, Main asks the host it launched, starting
+  it first if it is gone. The archives take one turn of the worktree
   service's queue, and the service makes and restores no worktree after it, so
   a run still in progress cannot make one the reset would leave unnamed; the
   host closes next.
+- **Only Main can ask** (from the commit security review). The request
+  (`factory-reset/worktrees/archive`) travels on Main's private platform
+  connection to the host, where Main's MCP retire for the reset already goes,
+  and Main sends it once the host has confirmed Main ready. It is not a client
+  method: the desktop's client connection, which every window and Main's own
+  client share as `desktop-ui`, has no such method, so a window cannot force
+  every worktree's archive or stop the service making worktrees. The option
+  not taken was a client origin of Main's own, which every desktop-only
+  method would then have had to admit.
 - **What it does not cover.**
   - A run in progress when the reset starts keeps its worktree, named as
     above: the host ends runs only when it closes, after this step.

@@ -119,7 +119,5 @@
 // `workspace.binding.updated` `enteredBy` carries `cause` when the host itself made the worktree
 // it moved the thread into, and `checkout.shared` (a thread that edits a folder another thread's
 // run is editing and was not moved), a new variant; `worktrees.archived` (the idle worktrees the
-// cap archived after a worktree was created for the thread; ADR-0034 decision 7), a new variant;
-// `worktrees/archive-for-reset` (Main's Factory Reset archives every managed worktree before it
-// deletes the ledger; ADR-0015, ADR-0034), a new method.
+// cap archived after a worktree was created for the thread; ADR-0034 decision 7), a new variant.
 export const AGENT_HOST_PROTOCOL_VERSION = 25;

@@ -22,9 +22,10 @@ import type {
   HostTurnSnapshotRoot,
 } from '@brainstrike/agent-host';
 import type { GitWorkspaceEvent } from '@brainstrike/agent-host/protocol';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
-import type { ManagedWorktreeRow } from '@brainstrike/types';
+import type { ManagedWorktreeRow, WorktreeResetArchive } from '@brainstrike/types';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 import { createChangesMethods } from './changes-methods.ts';
 import { createHostThreadTurns } from './changeset-host-turns.ts';
@@ -204,6 +205,11 @@ export interface GitWorkspaceOptions
 }
 
 export interface GitWorkspace {
+  /**
+   * ADR-0015, ADR-0034: Factory Reset archives every active managed worktree before Main deletes
+   * the ledger. Never a client method: only Main asks, on its own platform connection.
+   */
+  archiveForReset(): Promise<BoundaryResult<WorktreeResetArchive>>;
   /** Core's thread reads: which runs are live, and their committed turns. */
   attachThreadReads(reads: HostThreadReads): void;
   /** One turn boundary's snapshot of each root, under the host thread's own ref. */
@@ -373,8 +379,6 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     },
     'worktrees/adopt': (request) => worktrees.adopt(request),
     'worktrees/archive': (request) => worktrees.archive(request),
-    // ADR-0015, ADR-0034: Main's Factory Reset, before it deletes the ledger.
-    'worktrees/archive-for-reset': () => worktreeService.archiveForReset(),
     'worktrees/checkout-status': (request) => worktrees.checkoutStatus(request),
     // Main's root registration: a managed worktree mounts only with its ledger row.
     'worktrees/classify-path': async ({ path: candidate }) => {
@@ -399,6 +403,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     'worktrees/settings/write': (request) => worktrees.setSettings(request),
   };
   return {
+    archiveForReset: () => worktreeService.archiveForReset(),
     attachThreadReads: (reads) => {
       attached = reads;
       workspace.attachThreadReads(reads);

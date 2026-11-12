@@ -76,9 +76,11 @@ Three desktop platform contracts carry rulings that outlive the reset.
     starts from defaults.
 - **Managed worktrees (2026-11-12, build decisions, [ADR-0034](0034-worktrees-are-thread-checkouts.md)).**
   - Managed worktrees live outside userData, and their ledger is in the state DB. Before
-    Factory Reset retires the host and deletes the state DB, Main asks the host
-    (`worktrees/archive-for-reset`) to archive every active one into its repository through the
-    worktree service's own archive.
+    Factory Reset retires the host and deletes the state DB, Main asks the host to archive every
+    active one into its repository through the worktree service's own archive.
+  - Only Main asks: the request (`factory-reset/worktrees/archive`) travels on Main's private
+    platform connection, as the MCP retire for the reset does, and is not a client method, so no
+    window can reach it.
   - A worktree left on disk (locked, holding nested repositories, a run active in it, or a
     failed archive) is named with its path and why in the reset's outcome and Main's log. So is
     an archive that could not run. Neither fails the reset, and no worktree folder is deleted

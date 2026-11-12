@@ -126,7 +126,6 @@
     "workspace/trust/read",
     "worktrees/adopt",
     "worktrees/archive",
-    "worktrees/archive-for-reset",
     "worktrees/checkout-status",
     "worktrees/classify-path",
     "worktrees/create",
