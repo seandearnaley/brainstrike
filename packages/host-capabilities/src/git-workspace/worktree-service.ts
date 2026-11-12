@@ -751,7 +751,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   const idleArchive = { archive: archiveUnserialized, inspectArchiveRow, invokeIn, ledger };
-  // ADR-0015, ADR-0034: Factory Reset's archive, after which no worktree is made.
+  // ADR-0015, ADR-0034: a reset's archive, after which no worktree is made.
   const reset = createWorktreeResetArchive(serialize, lifetime, idleArchive);
   const operations = {
     async adopt(params: WorktreeAdoptParams): Promise<BoundaryResult<ManagedWorktreeRow>> {

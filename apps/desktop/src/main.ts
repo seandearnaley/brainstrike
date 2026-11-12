@@ -166,7 +166,7 @@ import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
-import { trashScratchFolder } from './scratch-folder-trash';
+import { trashEveryScratchFolder, trashScratchFolder } from './scratch-folder-trash';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { markRendererFirstPaint, readStartupTimeline } from './startup-timeline';
@@ -534,8 +534,9 @@ const profileReset = createDesktopProfileResetOwner({
 const mainWorktreeReset = createMainWorktreeReset();
 
 const handleResetLocal = createDesktopFactoryResetHandler({
-  // ADR-0034: the host archives every managed worktree into its repository before the reset
-  // retires it and deletes the ledger with its state DB. A host that is gone starts first.
+  // ADR-0034: the host archives every managed worktree into its repository before either reset
+  // deletes the ledger: Factory Reset with its state DB, Clear Database with its rows. A host
+  // that is gone starts first.
   archiveManagedWorktrees: async () => {
     await hostProfile.acquire();
     return await mainWorktreeReset.archive();
@@ -628,6 +629,9 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     },
   ],
   sessionDataPath: app.getPath('sessionData'),
+  // ADR-0034: Clear Database deleted every scratch thread's row; their folders go to the Trash.
+  trashScratchFolders: () =>
+    trashEveryScratchFolder(app.getPath('userData'), (folder) => shell.trashItem(folder)),
   userDataPath: app.getPath('userData'),
 });
 

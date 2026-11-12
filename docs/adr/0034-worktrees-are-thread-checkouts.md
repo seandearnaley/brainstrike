@@ -16,6 +16,8 @@
     to the host, so a worktree the host makes runs the script too.
   - 2026-11-12 (build decisions, below): Factory Reset archives every managed worktree before
     it deletes their ledger.
+  - 2026-11-12 (build decisions, below): Clear Database archives every managed worktree too,
+    and moves every scratch folder to the system Trash once it has cleared.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -631,6 +633,8 @@ Not built:
   folder's name, as any thread with one folder does.
 - Cleaning up scratch folders on Clear Database. Their rows go with the
   roots; the folders stay in the profile until Factory Reset, as worktrees do.
+  Built since (Clear Database retires the worktrees and scratch folders,
+  below).
 - Moving a scratch thread's work into a project, and starting one from a
   thread that already ran with no folder.
 - Mounting only the scratch folders of open threads. Every one mounts at
@@ -756,7 +760,7 @@ they stayed on disk, unknown to the app, still in each repository's
 - **The window shows it** (from review of the build). The window that asked
   for the reset is replaced before the reset answers it, so no result reached
   the person. Main keeps the outcome, and the replacement window takes it
-  once as it starts (`db:takeResetWorktreeOutcome`) and shows a notice: each
+  once as it starts (`db:takeResetOutcome`, renamed below) and shows a notice: each
   worktree left on disk with its path and why, or why none could be archived,
   with a line that archived work is in each repository's
   `refs/brainstrike/worktree-archive/*` and its branch. A clean archive shows
@@ -770,7 +774,7 @@ they stayed on disk, unknown to the app, still in each repository's
   a run still in progress cannot make one the reset would leave unnamed; the
   host closes next.
 - **Only Main can ask** (from the commit security review). The request
-  (`factory-reset/worktrees/archive`) travels on Main's private platform
+  (`reset/worktrees/archive`, renamed below) travels on Main's private platform
   connection to the host, where Main's MCP retire for the reset already goes,
   and Main sends it once the host has confirmed Main ready. It is not a client
   method: the desktop's client connection, which every window and Main's own
@@ -786,7 +790,57 @@ they stayed on disk, unknown to the app, still in each repository's
   - A reset that fails after this step leaves the worktrees archived: the
     ledger says so, and their snapshot refs and branches hold the work.
   - Clear Database keeps settings and deletes the ledger rows, and still
-    leaves the folders. It is out of scope.
+    leaves the folders. It is out of scope. Built since (below).
+
+## Clear Database retires the worktrees and scratch folders, 2026-11-12
+
+Build decisions, not Sean's, which later work may revisit. Clear Database
+keeps settings and deletes content, and with it the worktree ledger
+(`brainstrike_worktrees`) and every scratch thread's rows (`threads`,
+`roots`, `scratch_folders`). The folders stayed: the managed worktrees
+outside userData, still in each repository's `git worktree list` and
+possibly holding uncommitted work, and the scratch folders in
+`<userData>/scratch`, which Clear Database keeps. Factory Reset covers the
+first (above) and deletes userData, the second with it; Clear Database
+covered neither.
+
+- **The worktrees are archived as Factory Reset archives them.** After the
+  clear's runtimes stop and before Main asks the host to clear content, Main
+  asks the host for the same archive, on the same private platform
+  connection, with the same rules: forced past ignored files with the
+  preview's confirmation, as the idle cap is, and never past an active run, a
+  lock or nested repositories. Both resets delete every thread, so none
+  counts as bound. The host closes after the clear, so the service making no
+  worktree after the archive lasts until then. The request is renamed
+  `reset/worktrees/archive`, since both resets send it; it is still not a
+  client method.
+- **The scratch folders go to the Trash only once the clear succeeded.**
+  Main lists `<userData>/scratch` and moves each folder directly inside it to
+  the system Trash through the guard a deleted thread's folder goes through
+  (`trashEveryScratchFolder` in `scratch-folder-trash.ts`), as Sean ruled
+  for deleting a scratch thread. Never before the clear: a failed clear keeps
+  the threads those folders belong to. A file or a link there is left alone,
+  and a missing `scratch` folder is nothing to move.
+- **What stays is named, and never fails the clear.** Each worktree left on
+  disk is named with its path and why, each scratch folder the Trash refused
+  with why, and so is a step that could not run at all (no host, or a
+  `scratch` folder that cannot be read). The person chose the clear, and it
+  completes.
+- **One outcome path.** The reset's outcome now carries which reset ran,
+  its worktrees and, for Clear Database, its scratch folders. Main keeps it
+  and the replacement window takes it once (`db:takeResetOutcome`, renamed
+  from `db:takeResetWorktreeOutcome`, `takeResetOutcome` on the bridge), and
+  shows a notice for each: what stayed with why, or how many were archived
+  or moved.
+- **The person is told before they confirm.** The Clear content dialog says
+  that managed worktrees are archived into their repositories, uncommitted
+  work kept as a snapshot ref and branches kept, their ignored files deleted,
+  and that scratch folders are moved to the Trash.
+- **What it does not cover.** The same gaps as Factory Reset's archive
+  (above). No host makes a scratch folder while they are moved: the clear
+  closed the host, and the next one starts after the window is replaced.
+  A clear that fails after the archive leaves the worktrees archived and
+  every scratch folder in place.
 
 ## Consequences
 

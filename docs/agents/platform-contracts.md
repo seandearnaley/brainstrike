@@ -45,6 +45,10 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
 
 - Clear Database deletes canonical content, root grants and the derived state index; keeps
   configuration and credentials.
+  - Before the host clears content, Main asks it to archive every managed worktree, as Factory
+    Reset does (below). Once the clear succeeded, never before, Main moves every folder directly
+    inside `<userData>/scratch` to the system Trash (ADR-0034). What stays is named in the
+    outcome and never fails the clear; the dialog says so first.
 - Factory Reset also clears configuration, secrets and persistent UI state.
   - Main owns it: wipes userData (sealed credential store included), blanks every
     window, clears session storage (`clearStorageData`; `clearData` skips the app
@@ -56,9 +60,10 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
     ledger of its own to reset (ADR-0029 stage 4).
   - Managed worktrees live outside userData. Before the host retires, Main asks it to
     archive each one into its repository (ADR-0034), on Main's private platform connection
-    only (`factory-reset/worktrees/archive`), never as a client method. One left on disk is
+    only (`reset/worktrees/archive`), never as a client method. One left on disk is
     named in the reset's outcome with why, and never fails the reset; the replacement window
-    takes that outcome once and shows it. The reset dialog warns that ignored files go.
+    takes that outcome once (`db:takeResetOutcome`) and shows it. The reset dialog warns that
+    ignored files go.
   - Windows Factory Reset is explicitly unavailable; do not imply otherwise.
 - Both resets use the existing admission/retirement owner: join renderer saves and
   retire persisted chat/tab references before host deletion and replacement.

@@ -8,7 +8,7 @@
  * archive (uncommitted changes, unpushed commits, ignored files) is forced:
  * the snapshot keeps the work, the branch stays, and the ignored files'
  * deletion is confirmed with the archive preview's own token. Factory Reset
- * archives every worktree through it too, with none bound
+ * and Clear Database archive every worktree through it too, with none bound
  * (`worktree-reset-archive.ts`).
  */
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';

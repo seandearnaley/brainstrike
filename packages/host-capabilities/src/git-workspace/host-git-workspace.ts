@@ -208,8 +208,9 @@ export interface GitWorkspaceOptions
 
 export interface GitWorkspace {
   /**
-   * ADR-0015, ADR-0034: Factory Reset archives every active managed worktree before Main deletes
-   * the ledger. Never a client method: only Main asks, on its own platform connection.
+   * ADR-0015, ADR-0034: Factory Reset and Clear Database archive every active managed worktree
+   * before Main deletes the ledger. Never a client method: only Main asks, on its own platform
+   * connection.
    */
   archiveForReset(): Promise<BoundaryResult<WorktreeResetArchive>>;
   /** Core's thread reads: which runs are live, and their committed turns. */
