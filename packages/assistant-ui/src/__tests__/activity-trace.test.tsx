@@ -49,9 +49,15 @@ describe('ActivityTrace', () => {
     const open = vi.fn();
     render(
       <ActivityTrace
-        agents={
-          <SubagentChip agent={{ callSign: 'Cedar-1a2b3c', colorId: 'emerald', onOpen: open }} />
-        }
+        agents={{
+          chips: [
+            <SubagentChip
+              agent={{ callSign: 'Cedar-1a2b3c', colorId: 'emerald', onOpen: open }}
+              key="Cedar-1a2b3c"
+            />,
+          ],
+          onShowAll: vi.fn(),
+        }}
         fallbackMs={12_000}
         incompleteReason={undefined}
         isActive={false}

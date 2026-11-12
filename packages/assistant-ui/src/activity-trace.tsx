@@ -16,16 +16,29 @@ import {
 } from './activity-trace-labels';
 import type { ActivitySummary } from './activity-trace-model';
 import { BrainstrikeThinkingMark, ThinkingShimmerBand } from './assistant-thinking-indicator';
+import { SubagentOverflowChip } from './subagent-chip';
 import { formatActivityDuration } from './tool-durations';
 import { useElapsedMs } from './use-activity-trace-clock';
 import { useLabelEnterClass } from './use-label-enter-class';
 
+/**
+ * A header row has room for a few chips, not every delegation of a large
+ * group: past this many, the rest are one count, so no chip is ever clipped
+ * out of reach.
+ */
+const HEADER_AGENT_CHIPS = 3;
+
 export interface ActivityTraceProps {
   /**
    * The subagents this group delegated to, each a chip that opens its
-   * conversation, so a collapsed group still says who did the work.
+   * conversation, so a collapsed group still says who did the work. The header
+   * shows the first three; the rest are a count whose `onShowAll` shows them
+   * all in the group.
    */
-  readonly agents?: ReactNode;
+  readonly agents?: {
+    readonly chips: readonly ReactNode[];
+    readonly onShowAll: () => void;
+  };
   readonly children?: ReactNode;
   /**
    * Controlled disclosure, for a group that opens itself (a jump to a failed
@@ -104,6 +117,7 @@ function RestingSummary({
   id,
   labelClassName,
   meta,
+  metaIsElapsed,
   steps,
   verbMeta,
 }: {
@@ -111,6 +125,8 @@ function RestingSummary({
   readonly id: string;
   readonly labelClassName: string;
   readonly meta: string | null;
+  /** `· Worked for Ns`, which a narrow header drops; `after Ns` belongs to its headline. */
+  readonly metaIsElapsed: boolean;
   readonly steps: string;
   readonly verbMeta: string | null;
 }): ReactNode {
@@ -125,7 +141,17 @@ function RestingSummary({
       >
         {headline}
       </span>
-      {meta ? <span className="bs-activity-summary-meta">{meta}</span> : null}
+      {meta ? (
+        <span
+          className={
+            metaIsElapsed
+              ? 'bs-activity-summary-meta bs-activity-summary-elapsed'
+              : 'bs-activity-summary-meta'
+          }
+        >
+          {meta}
+        </span>
+      ) : null}
       {verbMeta ? <span className="bs-activity-summary-meta">· {verbMeta}</span> : null}
       {steps ? <span className="bs-activity-summary-meta">· {steps}</span> : null}
     </span>
@@ -228,6 +254,7 @@ function TraceSummaryButton({
           id={summaryId}
           labelClassName={labelClassName}
           meta={meta}
+          metaIsElapsed={phase === 'done'}
           steps={steps}
           verbMeta={verbMeta}
         />
@@ -405,7 +432,17 @@ export function ActivityTrace({
         {phase === 'running' ? null : (
           <FailedCount count={summary.counts.failed} onShow={onShowFailed} />
         )}
-        {agents ? <span className="bs-activity-agents">{agents}</span> : null}
+        {agents && agents.chips.length > 0 ? (
+          <span className="bs-activity-agents">
+            {agents.chips.slice(0, HEADER_AGENT_CHIPS)}
+            {agents.chips.length > HEADER_AGENT_CHIPS ? (
+              <SubagentOverflowChip
+                hidden={agents.chips.length - HEADER_AGENT_CHIPS}
+                onShow={agents.onShowAll}
+              />
+            ) : null}
+          </span>
+        ) : null}
         {strip ? (
           <ActivityRunStrip
             failed={summary.counts.failed}
