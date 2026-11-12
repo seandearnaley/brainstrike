@@ -109,6 +109,8 @@ function rejectedCredentialRemedy(authType: ProviderAuthType, subject: string): 
       return `${subject} rejected the API key (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — it is invalid or was revoked. Update the key in Settings → Providers, or verify it in the provider dashboard.`;
     case 'aws':
       return `${subject} rejected the AWS credentials (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — they are invalid or expired. Update the Bedrock credential in Settings → Providers, or refresh the AWS profile session (for example \`aws sso login\`).`;
+    case 'chatgpt_sign_in':
+      return `${subject} rejected the ChatGPT sign-in (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}): it was revoked, or the account may not use its plan here. Sign in again in Settings → Providers, or check the app's access in ChatGPT settings.`;
     default: {
       // Exhaustive: a new registry authType must choose its remedy here.
       const exhaustive: never = authType;

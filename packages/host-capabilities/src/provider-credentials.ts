@@ -2,6 +2,7 @@ import type { SecretsService } from '@brainstrike/agent-host/credential-contract
 import {
   AWS_CHAIN_ACTIVATION_ENV_NAMES,
   findProviderDefinition,
+  isSignedInChatGptCredential,
   isSupportedProvider,
   type ProviderCredential,
   providerEnvKeys,
@@ -102,6 +103,10 @@ export function isBearerCredential(credential: ProviderCredential | undefined): 
 export function normalizeStoredCredential(
   credential: ProviderCredential
 ): ProviderCredential | undefined {
+  if (credential.type === 'chatgpt_sign_in') {
+    // A registration kept through sign-out holds no tokens: "not configured".
+    return isSignedInChatGptCredential(credential) ? credential : undefined;
+  }
   if (credential.type !== 'api_key') {
     return credential;
   }

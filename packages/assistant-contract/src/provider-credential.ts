@@ -28,6 +28,12 @@
  * profile chain is legitimate). Both `api_key` and `aws` carry an optional
  * non-secret string-record `metadata` (BST-1362 uses it for the
  * `{last4, savedAt}` save fingerprint).
+ *
+ * `chatgpt_sign_in` is this installation's Sign in with ChatGPT registration
+ * (ADR-0038). It exists from the first sign-in attempt, because OpenAI needs
+ * the same `hostId` on every attempt, and it outlives sign-out so a later
+ * sign-in reuses the issued `clientId`. Only a record with a `session` is a
+ * configured credential ({@link isSignedInChatGptCredential}).
  */
 
 export type ProviderCredential =
@@ -45,13 +51,47 @@ export type ProviderCredential =
       profile?: string;
       region: string;
       metadata?: Record<string, string>;
-    };
+    }
+  | ChatGptSignInCredential;
+
+/** The tokens of one ChatGPT sign-in. They never leave the host process. */
+export interface ChatGptSession {
+  accessToken: string;
+  /** Epoch milliseconds at which the access token stops working. */
+  expiresAt: number;
+  refreshToken: string;
+  /** The scopes OpenAI granted, as its token response listed them. */
+  scopes: string[];
+}
+
+export interface ChatGptSignInCredential {
+  /** The OAuth client OpenAI registered for this user and workspace. */
+  clientId?: string;
+  /** The signed-in account's email, for display and as the next sign-in's hint. */
+  email?: string;
+  /** OpenAI's `ext_agent_host_id` for this installation: `urn:uuid:` and a UUID. */
+  hostId: string;
+  session?: ChatGptSession;
+  /** The validated ID token's `sub`: the account a later sign-in must match. */
+  subject?: string;
+  type: 'chatgpt_sign_in';
+}
+
+/** The scope that lets requests draw on the signed-in account's ChatGPT plan. */
+export const CHATGPT_PLAN_SCOPE = 'chatgpt.tokens.use.direct';
+
+/**
+ * The API a ChatGPT sign-in's tokens are for: the OAuth `resource`, and the
+ * only base URL those tokens are ever sent to.
+ */
+export const CHATGPT_PLAN_RESOURCE = 'https://api.openai.com/v1';
 
 export type ProviderCredentialType = ProviderCredential['type'];
 
 export const PROVIDER_CREDENTIAL_TYPES = [
   'api_key',
   'aws',
+  'chatgpt_sign_in',
 ] as const satisfies readonly ProviderCredentialType[];
 
 /**
@@ -142,8 +182,65 @@ export function isAwsCredential(
   }
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isChatGptSession(value: unknown): value is ChatGptSession {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  const scopes = candidate['scopes'];
+  return (
+    isNonEmptyString(candidate['accessToken']) &&
+    isNonEmptyString(candidate['refreshToken']) &&
+    typeof candidate['expiresAt'] === 'number' &&
+    Number.isFinite(candidate['expiresAt']) &&
+    Array.isArray(scopes) &&
+    scopes.every((scope) => typeof scope === 'string')
+  );
+}
+
+const CHATGPT_HOST_ID_PATTERN = /^urn:uuid:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u;
+
+export function isChatGptSignInCredential(value: unknown): value is ChatGptSignInCredential {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  const session = candidate['session'];
+  return (
+    candidate['type'] === 'chatgpt_sign_in' &&
+    typeof candidate['hostId'] === 'string' &&
+    CHATGPT_HOST_ID_PATTERN.test(candidate['hostId']) &&
+    (candidate['clientId'] === undefined || isNonEmptyString(candidate['clientId'])) &&
+    isOptionalString(candidate['email']) &&
+    isOptionalString(candidate['subject']) &&
+    (session === undefined ||
+      (isChatGptSession(session) &&
+        // Tokens belong to exactly one registered client and one account.
+        isNonEmptyString(candidate['clientId']) &&
+        isNonEmptyString(candidate['subject'])))
+  );
+}
+
+/** A registration whose tokens may spend the account's ChatGPT plan. */
+export function isSignedInChatGptCredential(
+  credential: ProviderCredential
+): credential is ChatGptSignInCredential & {
+  clientId: string;
+  session: ChatGptSession;
+  subject: string;
+} {
+  return (
+    credential.type === 'chatgpt_sign_in' &&
+    credential.session?.scopes.includes(CHATGPT_PLAN_SCOPE) === true
+  );
+}
+
 export function isProviderCredential(value: unknown): value is ProviderCredential {
-  return isApiKeyCredential(value) || isAwsCredential(value);
+  return isApiKeyCredential(value) || isAwsCredential(value) || isChatGptSignInCredential(value);
 }
 
 function isTaggedObject(value: unknown): value is { type: unknown } {

@@ -92,8 +92,24 @@ describe('model vendors', () => {
         continue;
       }
       for (const model of provider.models) {
-        expect(model.vendor, `${provider.id}/${model.id}`).toBe(provider.id);
+        // ChatGPT is OpenAI's own second route to its models.
+        expect(model.vendor, `${provider.id}/${model.id}`).toBe(
+          provider.id === 'chatgpt' ? 'openai' : provider.id
+        );
       }
+    }
+  });
+
+  it('serves on the ChatGPT route only models the OpenAI route also lists, unpriced', () => {
+    const openai = new Map(listProviderLlmModels('openai').map((model) => [model.id, model]));
+    for (const model of listProviderLlmModels('chatgpt')) {
+      const metered = openai.get(model.id);
+      expect(metered, model.id).toBeDefined();
+      // A plan pays for these requests, and the route refuses OpenAI's native tool search.
+      expect(model.pricing, model.id).toBeUndefined();
+      expect(model.nativeToolSearch, model.id).toBeUndefined();
+      expect(model.reasoning, model.id).toEqual(metered?.reasoning);
+      expect(model.contextWindow, model.id).toBeLessThanOrEqual(metered?.contextWindow ?? 0);
     }
   });
 

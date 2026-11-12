@@ -1,6 +1,7 @@
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
   findProviderDefinition,
+  isSignedInChatGptCredential,
   MalformedCredentialError,
   type ProviderAuthMode,
   type ProviderCredential,
@@ -70,7 +71,7 @@ function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
 async function toStoredKeySource(
   provider: DesktopProviderKeyId,
   readCredential: () => Promise<ProviderCredential | null>
-): Promise<ProviderKeySource<DesktopProviderKeyId>> {
+): Promise<ProviderKeySource<DesktopProviderKeyId> | undefined> {
   let fingerprint: ReturnType<typeof credentialStoredKeyFingerprint>;
   // BST-1353 (PR #2525 finding 4): the WINNING auth mode has to ride this
   // listing, not just inspectProviderKeys — this is the surface the Credential
@@ -80,6 +81,10 @@ async function toStoredKeySource(
   let authMode: { authMode?: ProviderAuthMode } = {};
   try {
     const credential = await readCredential();
+    if (credential?.type === 'chatgpt_sign_in' && !isSignedInChatGptCredential(credential)) {
+      // A ChatGPT registration kept through sign-out is not a stored credential.
+      return;
+    }
     fingerprint = credential ? credentialStoredKeyFingerprint(credential) : undefined;
     authMode = credential ? storedAuthMode(provider, credential) : {};
   } catch (err) {
@@ -128,7 +133,9 @@ async function appendStoredProviders(
     )
   );
   for (const source of sources) {
-    target.set(source.provider, source);
+    if (source) {
+      target.set(source.provider, source);
+    }
   }
 }
 
@@ -284,6 +291,10 @@ export function registerSecretsIpcHandlers(
       // Failures are serialized as data — invoke drops custom error props.
       try {
         const credential = await secrets.getCredential(provider);
+        if (credential?.type === 'chatgpt_sign_in') {
+          // A sign-in's tokens stay with the host; the renderer reads its status instead.
+          return { error: 'credential_type_unsupported', ok: false, provider } as const;
+        }
         return { credential, ok: true } as const;
       } catch (err) {
         if (err instanceof SecretReadError) {

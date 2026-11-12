@@ -50,6 +50,7 @@
 import { createHash } from 'node:crypto';
 import { verifyAwsCredentialChain } from '@brainstrike/agent';
 import {
+  CHATGPT_PLAN_RESOURCE,
   findProviderDefinition,
   type ProviderAuthType,
   type ProviderCredential,
@@ -297,6 +298,19 @@ function resolveProbe(
   credential: ProviderCredential,
   env: Readonly<Record<string, string | undefined>>
 ): ProbeRequest | ChainProbe {
+  if (target.authType === 'chatgpt_sign_in') {
+    // The host reads this credential as a currently valid access token (see
+    // provider-services): the account's own model list answers "does my plan work here?".
+    if (credential.type !== 'api_key') {
+      throw refusalError(
+        'configuration',
+        'provider.credential-unsupported',
+        'ChatGPT can only be checked while signed in.',
+        'Choose Continue with ChatGPT in Providers.'
+      );
+    }
+    return bearerProbe(`${CHATGPT_PLAN_RESOURCE}/models`, credential.key);
+  }
   if (target.authType === 'aws') {
     // An `api_key` credential on an aws provider IS a Bedrock bearer (PR
     // #2529 review, finding 3): environment variables cannot encode the aws
@@ -308,6 +322,14 @@ function resolveProbe(
     // real turns authenticate with successfully.
     if (credential.type === 'api_key') {
       return buildAwsBearerProbe(credential.key, resolveEnvAwsRegion(env));
+    }
+    if (credential.type !== 'aws') {
+      throw refusalError(
+        'configuration',
+        'provider.credential-unsupported',
+        'The stored credential is not an AWS credential, so it cannot be verified.',
+        'Replace it with a Bedrock credential in Providers.'
+      );
     }
     if (credential.mode === 'profile_chain') {
       // BST-1353: the chain IS the credential, so resolving it is the probe —

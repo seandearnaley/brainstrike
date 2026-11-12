@@ -39,6 +39,7 @@ import {
   trustedHookRoots,
 } from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
+import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import {
   evictLspServersForRoot,
   forgetSharedNativeToolThread,
@@ -198,6 +199,10 @@ export async function createDesktopHostConfiguration(
     credentialCipher: lentCredentialCipher(request),
     env: process.env,
     launch: platformOptions,
+    // Sign in with ChatGPT opens its page through Main's one external opener.
+    openExternal: async (url) => {
+      await request(MCP_STORE_METHODS.openExternal, { url });
+    },
     startup,
   });
   // ADR-0017: Main supervises the native processes this host starts, and ends their

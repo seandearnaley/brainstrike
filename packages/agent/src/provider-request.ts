@@ -21,6 +21,7 @@ import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { cleanBedrockPrompt } from './providers/bedrock-message-hygiene.ts';
+import { classifyChatGptPlanError } from './providers/chatgpt-plan-errors.ts';
 import {
   collectProviderCallProvenance,
   type ProviderCallProvenance,
@@ -261,8 +262,9 @@ export class ProviderRequestContextOverflowError extends BoundaryFailureError {
   }
 }
 
+/** The routes that speak the OpenAI Responses API: its own API and Sign in with ChatGPT. */
 function isOpenAI(provider: SupportedProvider): boolean {
-  return provider === 'openai';
+  return provider === 'openai' || provider === 'chatgpt';
 }
 
 /**
@@ -457,8 +459,14 @@ export function createProviderRequestMiddleware(options: {
   readonly onPrepared?: (prepared: PreparedProviderRequest) => void | Promise<void>;
 }): LanguageModelV4Middleware {
   // Below the SDK request retry: a typed non-retryable error is never re-sent.
-  const classify = (error: unknown, context: ProviderRequestContext): unknown =>
-    isOpenAI(context.provider) ? classifyOpenAIStoredItemError(error) : error;
+  const classify = (error: unknown, context: ProviderRequestContext): unknown => {
+    if (!isOpenAI(context.provider)) {
+      return error;
+    }
+    return classifyOpenAIStoredItemError(
+      context.provider === 'chatgpt' ? classifyChatGptPlanError(error) : error
+    );
+  };
   return {
     specificationVersion: 'v4',
     transformParams: async ({ params, model }) => {

@@ -7545,5 +7545,542 @@
       }
     ],
     "runtime": "hosted"
+  },
+  {
+    "_note": "OpenAI models paid for by the signed-in account's ChatGPT plan, through OpenAI's Sign in with ChatGPT for open-source apps (ADR-0038).\nThe model set is the intersection of this catalog's active `openai` rows and opencode's Sign in with ChatGPT list (`fallbackModels` in its chatgpt.ts, read 2026-11-12); OpenAI's own list is per account (`GET /v1/models` with the access token), which Test connection reads.\nNo environment variable authenticates this provider: its tokens come only from the browser sign-in.",
+    "authType": "chatgpt_sign_in",
+    "capabilities": {
+      "streaming": true
+    },
+    "catalog": {
+      "enabled": true,
+      "icon": null,
+      "name": "ChatGPT",
+      "sortOrder": 9
+    },
+    "displayName": "ChatGPT",
+    "docsUrl": "https://help.openai.com/en/articles/20001542-using-your-chatgpt-plan-in-other-apps-and-sites",
+    "envKeys": [],
+    "id": "chatgpt",
+    "keyNotes": "Sign in with your ChatGPT Plus or Pro account. Requests use your ChatGPT plan; you can review and limit that usage in ChatGPT settings.",
+    "models": [
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (500,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Tool use"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-6.1 Terra",
+          "parameters": null,
+          "sortOrder": 1,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 628000,
+        "default": true,
+        "id": "gpt-6.1-terra",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2026-06-01",
+        "label": "GPT-6.1 Terra",
+        "lifecycle": {
+          "releasedAt": "2026-10-26",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-6.1-terra.toml"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/models/openai/gpt-6.1-terra.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tagline": "Uses your ChatGPT plan",
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      },
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (500,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": ["Complex coding", "Agentic workflows"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-6.1 Sol",
+          "parameters": null,
+          "sortOrder": 2,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 628000,
+        "id": "gpt-6.1-sol",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2026-04-30",
+        "label": "GPT-6.1 Sol",
+        "lifecycle": {
+          "releasedAt": "2026-09-29",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-6.1-sol.toml"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/models/openai/gpt-6.1-sol.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      },
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": [
+            "Reasoning",
+            "Coding",
+            "Computer use",
+            "Research",
+            "Document creation"
+          ],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-6 Astra",
+          "parameters": null,
+          "sortOrder": 3,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 400000,
+        "id": "gpt-6-astra",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2026-04-30",
+        "label": "GPT-6 Astra",
+        "lifecycle": {
+          "releasedAt": "2026-09-04",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "mandatory": false,
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-6-astra.toml"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/models/openai/gpt-6-astra.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      },
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": ["Focused tasks", "High-volume tasks"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-6 Luna",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 400000,
+        "id": "gpt-6-luna",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2026-05-18",
+        "label": "GPT-6 Luna",
+        "lifecycle": {
+          "releasedAt": "2026-09-22",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-6-luna.toml"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/models/openai/gpt-6-luna.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      },
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": ["Deep reasoning", "Agentic work"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.6 Sol",
+          "parameters": null,
+          "sortOrder": 5,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 400000,
+        "id": "gpt-5.6-sol",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2026-02-16",
+        "label": "GPT-5.6 Sol",
+        "lifecycle": {
+          "releasedAt": "2026-07-09",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-5.6-sol.toml"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/models/openai/gpt-5.6-sol.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      },
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Tool use"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.6 Terra",
+          "parameters": null,
+          "sortOrder": 6,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 400000,
+        "id": "gpt-5.6-terra",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2026-02-16",
+        "label": "GPT-5.6 Terra",
+        "lifecycle": {
+          "releasedAt": "2026-07-09",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-5.6-terra.toml"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/models/openai/gpt-5.6-terra.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tagline": "Uses your ChatGPT plan",
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      },
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": ["High volume", "Fast iteration"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.6 Luna",
+          "parameters": null,
+          "sortOrder": 7,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 400000,
+        "id": "gpt-5.6-luna",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2026-02-16",
+        "label": "GPT-5.6 Luna",
+        "lifecycle": {
+          "releasedAt": "2026-07-09",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-5.6-luna.toml"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/models/openai/gpt-5.6-luna.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      },
+      {
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Agentic"],
+          "description": null,
+          "enabled": true,
+          "icon": null,
+          "name": "GPT-5.5",
+          "parameters": null,
+          "sortOrder": 8,
+          "tagline": "Uses your ChatGPT plan"
+        },
+        "contextWindow": 400000,
+        "id": "gpt-5.5",
+        "inputModalities": ["text", "image", "pdf"],
+        "knowledgeCutoff": "2025-12-01",
+        "label": "GPT-5.5",
+        "lifecycle": {
+          "releasedAt": "2026-04-23",
+          "status": "active"
+        },
+        "maxOutputTokens": 128000,
+        "outputModalities": ["text"],
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh"]
+        },
+        "sources": [
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/chatgpt.ts"
+          },
+          {
+            "retrievedAt": "2026-11-12",
+            "url": "https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/openai-context-caps.ts"
+          },
+          {
+            "retrievedAt": "2026-11-10",
+            "url": "https://github.com/sst/models.dev/blob/dev/providers/openai/models/gpt-5.5.toml"
+          }
+        ],
+        "structuredOutputs": true,
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "toolCalling": true,
+        "type": "llm",
+        "vendor": "openai"
+      }
+    ],
+    "runtime": "hosted"
   }
 ]

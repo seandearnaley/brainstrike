@@ -45,6 +45,9 @@ function bearerKeyForAuthInput(auth: ProviderAuthInput): {
       return { apiKey: auth.apiKey, requireNonEmpty: true };
     case 'aws':
       return { apiKey: auth.apiKey ?? '', requireNonEmpty: false };
+    case 'access_token':
+      // A sign-in's token is asked for per request; the factory consumes the input itself.
+      return { apiKey: '', requireNonEmpty: false };
     default:
       return assertNeverAuthInput(auth);
   }

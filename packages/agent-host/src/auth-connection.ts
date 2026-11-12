@@ -30,6 +30,14 @@ export function bindHostAuthMethods(
     await service().storeProviderCredential(provider, credential);
     return { stored: true };
   });
+  // A browser sign-in is a person's act: only the desktop's own client starts or ends one.
+  handle('auth/chatgpt/sign-in', ({ newAccount }) => desktop().chatGptSignIn(newAccount === true));
+  handle('auth/chatgpt/cancel', async () => {
+    await desktop().chatGptCancel();
+    return { cancelled: true };
+  });
+  handle('auth/chatgpt/sign-out', () => desktop().chatGptSignOut());
+  handle('auth/chatgpt/status', ({ settled }) => desktop().chatGptStatus(settled === true));
   handle('auth/credential/set', async ({ account, credential }) => {
     await desktop().setCredential(account, credential);
     return { stored: true };
