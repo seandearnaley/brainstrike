@@ -4,6 +4,12 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+// Imported with the file as well as fresh in each beforeEach below: the file's
+// own import transforms the explorer's module graph, which no timeout bounds,
+// so a reset only re-evaluates it. Transformed inside the first reset instead,
+// on a loaded machine it outlasted the 15 s hook timeout (BST-2491).
+import '../shell/use-file-system-context';
+import './test-helpers';
 import { grantedRoots } from './restored-roots';
 
 let factoryReset: typeof import('@brainstrike/app-state/factory-reset');

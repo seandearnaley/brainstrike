@@ -1019,6 +1019,13 @@ export const HOST_RESULT_SCHEMAS = {
   }),
   'thread/delete': Schema.Struct({
     deleted: Schema.Literal(true),
+    /**
+     * ADR-0034: the deleted thread's scratch folder, which was not moved to the
+     * Trash, and why. The thread itself is deleted.
+     */
+    scratchFolderNotRetired: Schema.optional(
+      Schema.Struct({ path: Schema.optional(Id), reason: Id })
+    ),
     threadIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
   }),
   'thread/list': Schema.Struct({

@@ -49,6 +49,20 @@ describe('trashScratchFolder', () => {
     expect(trash).not.toHaveBeenCalled();
   });
 
+  it("names the system's reason when the Trash refuses the folder", async () => {
+    const canonical = realpathSync(path.join(userData, 'scratch', 'quiet-otter'));
+    const trash = vi.fn(async () => {
+      throw new Error('Failed to move item to the trash');
+    });
+
+    await expect(trashScratchFolder(userData, canonical, trash)).rejects.toMatchObject({
+      failure: {
+        code: 'workspace.trash-failed',
+        message: `${canonical} was not moved to the Trash: Failed to move item to the trash`,
+      },
+    });
+  });
+
   it('moves nothing for a relative path', async () => {
     const trash = vi.fn(async () => undefined);
 

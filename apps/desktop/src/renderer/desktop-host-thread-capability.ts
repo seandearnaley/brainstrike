@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/assistant-data';
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
+import { toast } from '@brainstrike/ui';
 import { Schema, SchemaIssue } from 'effect';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { createDesktopHostConnection, type DesktopHostConnection } from './desktop-host-connection';
@@ -57,6 +58,25 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
       : (SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues[0]?.message ??
           'Invalid thread workspace binding')
   );
+}
+/**
+ * ADR-0034: the deleted thread's scratch folder stayed where it was. The thread is gone; the
+ * person reads where the folder is and why, to remove it themselves.
+ */
+function warnScratchFolderNotRetired(
+  threadId: string,
+  { path, reason }: { readonly path?: string | undefined; readonly reason: string }
+): void {
+  logger.warn('A deleted thread’s scratch folder was not moved to the Trash', {
+    path,
+    reason,
+    threadId,
+  });
+  toast({
+    description: `The conversation was deleted, but its scratch folder${path ? ` at ${path}` : ''} could not be moved to the Trash: ${reason}`,
+    title: 'Scratch folder not moved to the Trash',
+    variant: 'destructive',
+  });
 }
 export function createWindowThreadCapability(
   renderThread: (view: {
@@ -231,12 +251,17 @@ export function createWindowThreadCapability(
         return;
       }
       // The host deletes the thread with every child thread under it, children first.
-      const { threadIds } = await host.request('thread/delete', { threadId });
+      const { scratchFolderNotRetired, threadIds } = await host.request('thread/delete', {
+        threadId,
+      });
       for (const deleted of threadIds) {
         threads.delete(deleted);
         childViews.delete(deleted);
         runs.delete(deleted);
         ledger.delete(deleted);
+      }
+      if (scratchFolderNotRetired) {
+        warnScratchFolderNotRetired(threadId, scratchFolderNotRetired);
       }
       return threadIds;
     },

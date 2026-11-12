@@ -50,6 +50,27 @@ export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
     toolCallId: Id,
     type: Schema.Literal('checkout.shared'),
   }),
+  /**
+   * ADR-0034 decision 7: a worktree created for this thread took its repository past `limit`
+   * idle managed worktrees, so the oldest beyond it were archived. Each keeps its archive
+   * snapshot and its branch. `runId` is the run the notice shows with: the run that made the
+   * worktree, or the thread's latest run when the person made it.
+   */
+  Schema.Struct({
+    limit: Schema.Int.check(Schema.isGreaterThan(0)),
+    runId: Id,
+    type: Schema.Literal('worktrees.archived'),
+    worktrees: Schema.mutable(
+      Schema.Array(
+        Schema.Struct({
+          branch: Schema.NullOr(Id),
+          name: Id,
+          snapshotRef: Id,
+          worktreeId: Id,
+        })
+      )
+    ).check(Schema.isMinLength(1)),
+  }),
 ] as const;
 
 /** A thread's workspace: its root binding and the right-panel tabs saved with it. */

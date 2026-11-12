@@ -18,6 +18,11 @@ import {
 } from './assistant-activity-timeline-fixtures';
 import { streamedText } from './streamed-text';
 
+// Typing uses `delay: null` (BST-2491). With user-event's default, every
+// keystroke waits out a timer, and on a loaded machine each wait lasts a
+// scheduler slice. Each keystroke's events still arrive in order and are
+// committed before the next.
+
 /** Hydration-only renders: reaching the model at all is the failure. */
 const neverRunAdapter: ChatModelAdapter = {
   async run() {
@@ -72,7 +77,7 @@ async function renderRunningGroup(parts: readonly ThreadAssistantMessagePart[]):
   // `try/finally` guarantee `deferred()` used to get for free by living
   // inside the test itself.
   try {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness adapter={adapter} />);
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -135,7 +140,7 @@ describe('assistant activity chronology through the real runtime', () => {
           });
         },
       };
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       render(<Harness adapter={adapter} />);
       await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Inspect this issue.');
       await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -169,7 +174,7 @@ describe('assistant activity chronology through the real runtime', () => {
         yield { content: completedParts };
       },
     };
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness adapter={adapter} />);
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Inspect this issue.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -354,7 +359,7 @@ describe('assistant activity chronology through the real runtime', () => {
         yield { content: completedPartsWithEvents };
       },
     };
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness adapter={adapter} />);
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Inspect this issue.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -381,7 +386,7 @@ describe('assistant activity chronology through the real runtime', () => {
         yield { content: completedPartsWithEvents };
       },
     };
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness adapter={adapter} />);
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -420,7 +425,7 @@ describe('assistant activity chronology through the real runtime', () => {
         await finish.promise;
       },
     };
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<Harness adapter={adapter} />);
     try {
       await user.type(screen.getByRole('textbox', { name: 'Message' }), 'go');

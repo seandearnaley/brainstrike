@@ -113,7 +113,9 @@ function rejectWithToast(title: string, description: string): never {
 async function createWorktree(
   bridge: WorktreesBridge,
   primaryRootId: string,
-  request: WorkspaceBarCreateWorktreeRequest
+  request: WorkspaceBarCreateWorktreeRequest,
+  /** The selected thread: the host tells it which idle worktrees the creation's cap archived. */
+  threadId: string | null
 ): Promise<WorktreeCreateResult> {
   let created: Awaited<ReturnType<WorktreesBridge['create']>>;
   try {
@@ -123,6 +125,7 @@ async function createWorktree(
       createdBy: 'user',
       name: request.name,
       rootId: primaryRootId,
+      ...(threadId ? { threadId } : {}),
     });
   } catch (error) {
     const message = errorMessage(error);
@@ -335,7 +338,7 @@ export function unavailableRepositoryReason(statusFailure: string | null): strin
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
   // Plain function locals: the React Compiler memoizes a call through `args.`
   // on the whole `args` object, which is fresh on every render.
-  const { onHandOffToLocal: handOffToLocal, onSelectWorktree, threadState } = args;
+  const { onHandOffToLocal: handOffToLocal, onSelectWorktree, threadId, threadState } = args;
   const bridge = useWorktreesBridge();
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
@@ -551,7 +554,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       const primaryRootId = args.primaryRootId;
       setPending(true);
       const create = async (): Promise<void> => {
-        const { setup, worktree } = await createWorktree(bridge, primaryRootId, request);
+        const { setup, worktree } = await createWorktree(bridge, primaryRootId, request, threadId);
         await mountWorktree(addRootDirectoryByPath, worktree.path);
         await onSelectWorktree({
           branch: worktree.branch,
@@ -577,7 +580,15 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         setPending(false);
       });
     },
-    [addRootDirectoryByPath, onSelectWorktree, args.primaryRootId, bridge, refreshList, threadState]
+    [
+      addRootDirectoryByPath,
+      onSelectWorktree,
+      args.primaryRootId,
+      bridge,
+      refreshList,
+      threadId,
+      threadState,
+    ]
   );
 
   const onSelectExisting = useCallback(

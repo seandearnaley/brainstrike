@@ -77,7 +77,7 @@ The merge queue is the gate (owner decision 2026-10-27). `main` lands only throu
   - Agents using the GitHub connector or API must tick the box (edit `- [ ]` to `- [x]`); their queue comment arrives defanged and Mergify ignores it.
 - Review threads (Claude, Codex or a person):
   - Fix with a push, or reply with why it stands, then resolve the thread; a reply alone doesn't resolve it.
-  - Claude's follow-up review resolves its own thread when it judges the push fixed it.
+  - Claude's follow-up review resolves its own threads, and Codex's, when it judges the push fixed them.
   - A thread posted after queueing holds the merge too, so a fix never needs a draft.
   - A failed Claude Review holds the PR: report it to the owner with its run; don't rerun it.
 - Drafts:

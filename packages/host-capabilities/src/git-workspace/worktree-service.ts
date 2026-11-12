@@ -60,6 +60,7 @@ import {
   inspectWorktreeArchivePreviewForPath,
   worktreePathExists,
 } from './worktree-archive-preview.ts';
+import { archiveIdleWorktree } from './worktree-idle-archive.ts';
 import { createWorktreeLedger } from './worktree-ledger.ts';
 import { WorktreeOperationLifetime } from './worktree-operation-lifetime.ts';
 import {
@@ -333,6 +334,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
         worktreeId: row.id,
       });
     }
+    deps.afterCreate?.(worktree, params);
     return { ok: true, value: { setup, worktree } };
   }
 
@@ -768,6 +770,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return await recordRestoredWorktree(row, snapshotRef);
   }
 
+  const idleArchive = { archive: archiveUnserialized, inspectArchiveRow, invokeIn, ledger };
   const operations = {
     async adopt(params: WorktreeAdoptParams): Promise<BoundaryResult<ManagedWorktreeRow>> {
       return await serialize(async () => {
@@ -790,7 +793,9 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     async archive(params: WorktreeArchiveParams): Promise<BoundaryResult<WorktreeArchiveResult>> {
       return await serialize(async () => {
         try {
-          return await archiveUnserialized(params);
+          return params.idleCap
+            ? await archiveIdleWorktree(idleArchive, params.worktreeId, params.idleCap)
+            : await archiveUnserialized(params);
         } catch (error) {
           logger.error('worktree archive failed', { error, worktreeId: params.worktreeId });
           return lifetime.faultResult(error);

@@ -10,6 +10,7 @@ import type { WorktreeLedgerPort } from '@brainstrike/state-store';
 import type {
   GitInventory,
   ManagedWorktreeRow,
+  WorktreeCreateParams,
   WorktreeSettings,
   WorktreeSetupOutcome,
 } from '@brainstrike/types';
@@ -43,6 +44,11 @@ export interface WorktreeSetupInput {
 }
 
 export interface WorktreeServiceDeps {
+  /**
+   * Told of each worktree a create recorded, before the create returns (ADR-0034 decision 7: the
+   * idle-worktree cap). It starts its work and returns at once; the create never waits on it.
+   */
+  readonly afterCreate?: (worktree: ManagedWorktreeRow, params: WorktreeCreateParams) => void;
   readonly getWorktreeStore: () => Promise<WorktreeLedgerPort>;
   readonly hasRunningThread: (worktreeId: string) => Promise<boolean>;
   /**
@@ -79,6 +85,13 @@ export interface RepositoryContext {
 export interface WorktreeArchiveParams {
   readonly confirmIgnoredEntries?: string;
   readonly force?: boolean;
+  /**
+   * ADR-0034 decision 7: the idle-worktree cap archives, not a person. Never on the wire. The
+   * archive refuses a worktree `isBound` names (asked in the archive's own turn, so a thread
+   * that took it since keeps it), a locked one, one with nested repositories and one a run is
+   * active in; anything else is forced, with the preview's own confirmation of ignored files.
+   */
+  readonly idleCap?: { readonly isBound: () => Promise<boolean> };
   readonly runId?: string;
   readonly worktreeId: string;
 }

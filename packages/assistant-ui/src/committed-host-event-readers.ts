@@ -195,6 +195,65 @@ function checkoutSharedNotice(
   };
 }
 
+/** The worktrees a committed `worktrees.archived` names: at least one. */
+function readArchivedWorktrees(event: Readonly<Record<string, unknown>>) {
+  const worktrees = event['worktrees'];
+  if (!Array.isArray(worktrees) || worktrees.length === 0) {
+    throw new Error('Committed worktree archive names no worktrees.');
+  }
+  return worktrees.map((entry: unknown) => {
+    const worktree = record(entry);
+    if (!worktree) {
+      throw new Error('Committed worktree archive has an unsupported worktree.');
+    }
+    return {
+      branch: worktree['branch'] === null ? null : requiredString(worktree, 'branch'),
+      name: requiredString(worktree, 'name'),
+      snapshotRef: requiredString(worktree, 'snapshotRef'),
+      worktreeId: requiredString(worktree, 'worktreeId'),
+    };
+  });
+}
+
+/**
+ * A committed `worktrees.archived` (ADR-0034 decision 7) as the run timeline's
+ * always-visible notice: the idle worktrees the cap archived after a worktree
+ * was made for this thread, each with its branch, and where its work is kept.
+ */
+function worktreesArchivedNotice(
+  event: Readonly<Record<string, unknown>>,
+  row: CommittedRowAddress,
+  runId: string,
+  timestamp: string
+): AssistantRunEvent {
+  const limit = event['limit'];
+  if (typeof limit !== 'number') {
+    throw new Error('Committed worktree archive has no limit.');
+  }
+  const worktrees = readArchivedWorktrees(event);
+  const [only] = worktrees.length === 1 ? worktrees : [];
+  const named = worktrees
+    .map(({ branch, name }) => `${name} (${branch === null ? 'detached' : `branch ${branch}`})`)
+    .join(', ');
+  const snapshots = worktrees.map(({ snapshotRef }) => snapshotRef).join(', ');
+  return {
+    detail: `This repository had more than ${limit} worktrees that no thread is using, so the oldest ${
+      only ? 'was' : 'were'
+    } archived: ${named}. ${
+      only ? 'Its uncommitted changes are' : 'The uncommitted changes of each are'
+    } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.`,
+    id: `run-event-${row.threadId}-${row.seq}`,
+    kind: 'worktree.archived',
+    label: only
+      ? `Archived idle worktree ${only.name}`
+      : `Archived ${worktrees.length} idle worktrees`,
+    metadata: { limit, worktrees },
+    runId,
+    status: 'info',
+    timestamp,
+  };
+}
+
 /**
  * Memory the run launched (Mastra's buffered observation) failed after its
  * `run.finished`: the answer's outcome stands, so it is a notice of its own.
@@ -218,8 +277,8 @@ function memorySettlementFailedNotice(
 
 /**
  * A committed host event that is its run's timeline notice, else undefined.
- * Each sits at its run's creation, except a settlement failure, which commits
- * after the run's end and keeps its own time.
+ * Each sits at its run's creation, except a settlement failure and a worktree
+ * archive, which can commit after the run's end and keep their own time.
  */
 export function committedRunNotice(
   event: Readonly<Record<string, unknown>>,
@@ -237,6 +296,13 @@ export function committedRunNotice(
       return worktreeCreatedNotice(event, row, runId(), at);
     case 'memory.settlement.failed':
       return memorySettlementFailedNotice(
+        event,
+        row,
+        runId(),
+        new Date(row.ts ?? runCreatedAt.getTime()).toISOString()
+      );
+    case 'worktrees.archived':
+      return worktreesArchivedNotice(
         event,
         row,
         runId(),

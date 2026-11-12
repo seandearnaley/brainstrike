@@ -118,13 +118,15 @@
 // version bump. Additive since (ADR-0034 Automatic isolation, owner decisions 2026-11-11):
 // `workspace.binding.updated` `enteredBy` carries `cause` when the host itself made the worktree
 // it moved the thread into, and `checkout.shared` (a thread that edits a folder another thread's
-// run is editing and was not moved), a new variant.
+// run is editing and was not moved), a new variant; `worktrees.archived` (the idle worktrees the
+// cap archived after a worktree was created for the thread; ADR-0034 decision 7), a new variant.
 // v26 (2026-11-12): scratch threads (ADR-0034, Sean 2026-11-12). A root record Main reads over
 // `host/workspace-roots` may be of kind `scratch`, a folder the host made for a thread sent with
 // no folder while none was open; Main decodes the kind strictly, so an older Main cannot read
 // these records. Each root `workspace/roots/*` answers carries `scratch`, required.
 // `thread/workspace/scratch` gives a thread with no folder its scratch folder and binds it before
-// its first run, a new method.
+// its first run, a new method. A `thread/delete` result carries `scratchFolderNotRetired` when the
+// deleted thread's scratch folder was not moved to the Trash, an optional field.
 // v27 (2026-11-12): the host keeps repository setup script consent (ADR-0034, Sean 2026-11-12), so
 // every worktree it creates, its own included, runs the script of a repository approved at the
 // script's hash. `worktrees/create` no longer takes `repositorySetupDecision`; the host reads its

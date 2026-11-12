@@ -8,6 +8,8 @@
   - 2026-11-11 (owner decisions, below): how Automatic isolation is built, and its first part;
     the composer's folder, branch and checkout chips become one control that says where a thread
     works.
+  - 2026-11-12 (owner decisions, below): decision 7's cap keeps 15 idle managed worktrees per
+    repository; built.
   - 2026-11-12 (owner decisions, below): a thread sent with no folder while none is open works
     in a scratch folder the host makes for it.
   - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
@@ -107,7 +109,8 @@ supersede the decisions above where they differ.
   as written) and always Local. The first part is built (owner decisions,
   2026-11-11); the person asking for work in parallel is not.
   - The rest of decision 7 stands: archive keeps its snapshot ref, and a cap
-    archives the oldest idle worktrees that no open thread uses.
+    archives the oldest idle worktrees that no open thread uses. The cap is
+    built (owner decisions, 2026-11-12).
   - Which thread moves was not part of Sean's answer. It is recorded here as
     the later writer, because the thread already writing has uncommitted work
     in the checkout. The work that builds this may revisit it.
@@ -310,16 +313,17 @@ Not built:
 - The person asking for work in parallel from the control that says where a
   thread works, beyond New worktree… and Other worktree… (the control itself is
   below).
-- The cap that archives idle worktrees.
 - Moving a thread for a worker's edit or for a shell command. A worker's run
   keeps the binding it was admitted with, and its thread cannot move while it
   works (ADR-0028 rule 5); a shell command is not writing (Sean's second
   answer).
-- Cleaning up a worktree that was made and never entered. It stays in the
-  ledger, bound to no thread, when the run is stopped or its thread is deleted
-  while the worktree is being made, whether the host made it or the model's
-  worktree tool did (`manageWorktree` create), and when a worker dispatched in
-  the same step keeps the thread where it is.
+- Cleaning up a worktree that was made and never entered, beyond the cap. It
+  stays in the ledger, bound to no thread, when the run is stopped or its
+  thread is deleted while the worktree is being made, whether the host made it
+  or the model's worktree tool did (`manageWorktree` create), and when a worker
+  dispatched in the same step keeps the thread where it is. It is idle, so the
+  idle-worktree cap (owner decisions, 2026-11-12) archives it once its
+  repository has more than 15 idle worktrees.
 - An action that brings a worktree's changes back.
 
 The repository's setup script for a worktree the host made was on this list
@@ -443,6 +447,94 @@ Decisions the build made for the control, which are not Sean's:
   only the active thread's where-control opens; it opens for a request raised
   while it is shown, never for one from before.
 
+## Owner decisions, 2026-11-12: the idle-worktree cap (decision 7)
+
+Sean's answers:
+
+- **The cap is 15 per repository.** When a repository has more than 15 idle
+  managed worktrees, the oldest beyond 15 are archived. Archive keeps its
+  snapshot ref, so the worktree can be restored.
+- **Idle means no thread is bound to it.** That covers worktrees left by
+  deleted threads and by threads handed back to Local. A worktree an existing
+  thread's binding names is never idle and never archived, however old.
+- **The cap archives idle worktrees even with ignored files** (installed
+  dependencies, build output, a copied `.env`), which archiving deletes.
+  Uncommitted work stays in the archive snapshot, and unpushed commits stay on
+  the worktree's branch, which archiving does not delete.
+- **Always skipped:** a locked worktree, one with nested repositories, and one
+  where a thread's run is active.
+- **Each archive is shown to the person in a notice.**
+
+Built: the cap (`worktree-idle-cap.ts` in the host's git cluster), its checks
+in the worktree service's own archive (`idleCap`, `worktree-idle-archive.ts`),
+and the thread's notice, a committed `worktrees.archived` row that Core writes.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **When it runs.** After each managed worktree is created for a thread, in the
+  repository it was created in. It starts as the creation returns, and the
+  creation never waits on the cap or fails because of it; its archives queue
+  behind the creation's own turn. The trigger is the worktree service's create,
+  which all three creations use (the host's Automatic isolation, the model's
+  `manageWorktree` create and the person's New worktree…). Caps run one at a
+  time, so a second creation's cap sees the first one's archives. An archive
+  holds the worktree service's one queue while it runs, as a person's does, so
+  a worktree operation asked for meanwhile waits for it. A failure is logged
+  with the repository and worktree. At the host's close the cap starts no
+  further archive, and Core waits for the one in flight and commits its
+  notice before it stops admitting, so no worktree is archived untold (from
+  Codex's review). It does not run when a thread is deleted or handed back to
+  Local; those worktrees are counted at the repository's next creation.
+- **The worktree just made is never counted.** Its thread is about to enter
+  it, so the count does not depend on whether that binding has committed yet.
+  A worktree that was made and never entered is counted from the repository's
+  next creation, so the cap is what clears it away.
+- **"Bound" is any of a binding's folders:** the thread's worktree
+  (`checkoutWorktreeId`), its operating folder, the folder it returns to or
+  another of its folders, matched by id, or by a folder's path (as opened and
+  canonical) that is the worktree or lies inside it, against the worktree's
+  ledger path and its realpath. A folder inside a worktree opened on its own is
+  the worktree's files, and archiving the worktree would take it from the
+  thread working there (from the commit security review). A
+  thread that moves from one worktree to another keeps the first as one of its
+  folders, and archiving it would leave that thread naming a folder that is
+  gone. Every existing thread is read from Core's thread list (a worker takes
+  its parent's binding, and a deleted thread is not listed). The bindings are
+  read when the cap chooses and again in the archive's own turn, so a thread
+  that takes the worktree meanwhile keeps it.
+- **Oldest is the ledger's `created_at`**, then its id, as the ledger lists a
+  repository. An idle worktree's last use is not recorded. A restored worktree
+  keeps its first creation time.
+- **A skipped worktree keeps its place.** The cap archives the idle worktrees
+  older than the newest 15 and skips any it may not archive; it does not
+  archive a younger one instead, so the newest 15 idle worktrees are never
+  touched.
+- **How it archives.** Through the worktree service's own serialized
+  `archive`, the one a person's archive uses, with an `idleCap` that no client
+  can send. In that turn it reads the bindings again and checks the lock (from
+  git, not the cached inventory), nested repositories and an active run, and
+  refuses the worktree on any of them; the cap leaves a refused worktree in
+  place and logs why. Otherwise it archives with `force` and the archive
+  preview's own confirmation token for the ignored files. The person's archive
+  path under it still refuses an active run and nested repositories too.
+- **Where the notice goes.** To the thread the creation was for, as a row in
+  its transcript at every detail level: each archived worktree with its branch
+  and its snapshot ref, where its uncommitted changes are kept. It does not
+  promise a restore the app cannot offer yet (Not built, below). The host's worktree and
+  the model's name their run and thread. The person's New worktree… now names
+  the selected thread, which it already required. The row shows with the run
+  that made the worktree, or with the thread's latest run when the person made
+  it between runs. A creation that names no thread (no client of the app
+  sends one), or whose thread is gone before the cap reads its list, has no
+  one to tell, so it runs no cap; the repository's next creation for a thread
+  does. Nor does the person's creation in a thread with no run yet (a new
+  thread before its first send): the row has no run to be shown with, and an
+  archive is never left untold (from Codex's and Claude's review).
+
+Not built: a control that restores an archived worktree (the host's
+`worktrees/restore` has none yet), and a cap after a thread is deleted.
+
 ## Owner decisions, 2026-11-12: scratch threads
 
 Sean's answers, approved as written:
@@ -508,6 +600,13 @@ revisit:
   trusted folder (and its instructions) never reach another thread's run. A
   thread bound to its scratch folder acquires it through its binding, and the
   folder may be that run's selected folder.
+- **A run names the Explorer's focus only when its thread can see that
+  folder:** an open folder, or one of the thread's own (its binding's).
+  While the active thread shows no folder, the Explorer keeps its last focus,
+  which can be another thread's scratch folder or worktree; a send then names
+  no folder, rather than one admission refuses (`threadSelectionFolderId`).
+  The Explorer's focus itself is left as it is, so a restore that has not
+  mounted the folders yet keeps it.
 - **Made at its canonical path.** The host resolves the scratch directory
   before naming a folder in it, so the root, its watch and its trust answer
   spell it one way (a profile reached through a symbolic link, as the OS
@@ -518,9 +617,11 @@ revisit:
   queue: the folder unmounts once its borrows end, its root and record are
   deleted together, its trust answer goes, and Main moves it to the Trash.
   Main moves only a folder directly inside `<userData>/scratch`, by canonical
-  path. A folder already removed outside Brainstrike is logged and skipped. A
-  failure is logged and answers the deletion, which says the thread itself is
-  gone.
+  path. A folder already removed outside Brainstrike is logged and skipped.
+  The thread is gone by then, so a failure (a volume with no Trash, a system
+  with none) does not fail the deletion: it is logged, the deletion's answer
+  names the folder and Main's reason (`scratchFolderNotRetired`), and the
+  window says so in a notice, so the person can remove the folder.
 
 Not built:
 
