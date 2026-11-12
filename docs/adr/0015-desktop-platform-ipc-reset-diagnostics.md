@@ -85,6 +85,11 @@ Three desktop platform contracts carry rulings that outlive the reset.
     failed archive) is named with its path and why in the reset's outcome and Main's log. So is
     an archive that could not run. Neither fails the reset, and no worktree folder is deleted
     outside the archive.
+  - The replaced window never sees the reset's answer, so Main keeps the worktrees' outcome
+    and the replacement window takes it once (`db:takeResetWorktreeOutcome`) and shows it.
+  - The archive deletes each worktree's ignored files. Sean's answer accepted that for the idle
+    cap; the build extends it to the reset, and the Factory Reset dialog says so before the
+    person confirms.
   - Clear Database keeps settings and deletes the ledger rows; it is out of scope.
 
 ## Consequences

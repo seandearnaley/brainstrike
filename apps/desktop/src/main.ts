@@ -678,6 +678,7 @@ async function acquireProfileAfterReset() {
 const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(acquireProfileAfterReset);
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
 const applicationIpcDomain = createApplicationIpcDomain({
+  factoryReset: handleResetLocal,
   getUserDataPath: () => app.getPath('userData'),
   onClearContent: async () => {
     const result = await handleResetLocal.clearContent();
@@ -685,7 +686,6 @@ const applicationIpcDomain = createApplicationIpcDomain({
       throw new Error(result.message ?? 'Content clearing failed.');
     }
   },
-  onResetLocal: () => handleResetLocal.reset(),
 });
 /** The host's open folders changed (ADR-0029 stage 4): File > Open Recent follows. */
 function onWorkspaceRootsChanged(change: {

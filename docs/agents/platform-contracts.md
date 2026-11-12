@@ -57,7 +57,8 @@ Implementation: desktop platform/IPC/reset owners, `packages/app-state`,
   - Managed worktrees live outside userData. Before the host retires, Main asks it to
     archive each one into its repository (ADR-0034), on Main's private platform connection
     only (`factory-reset/worktrees/archive`), never as a client method. One left on disk is
-    named in the reset's outcome with why, and never fails the reset.
+    named in the reset's outcome with why, and never fails the reset; the replacement window
+    takes that outcome once and shows it. The reset dialog warns that ignored files go.
   - Windows Factory Reset is explicitly unavailable; do not imply otherwise.
 - Both resets use the existing admission/retirement owner: join renderer saves and
   retire persisted chat/tab references before host deletion and replacement.

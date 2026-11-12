@@ -4,11 +4,7 @@ import path from 'node:path';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalRoot } from '@brainstrike/state-store';
-import type {
-  WorktreeResetArchive,
-  WorktreeResetArchived,
-  WorktreeResetRetained,
-} from '@brainstrike/types';
+import type { WorktreeResetArchive, WorktreeResetOutcome } from '@brainstrike/types';
 import {
   recordDesktopResetCompleted,
   recordDesktopResetFailed,
@@ -50,21 +46,10 @@ export interface ResetDesktopApplicationDataOptions {
   userDataPath: string;
 }
 
-/** What became of the managed worktrees before the reset deleted their ledger (ADR-0034). */
-export type ManagedWorktreeResetOutcome =
-  /** Each one archived into its repository, or left on disk and named with why. */
-  | {
-      readonly archived: readonly WorktreeResetArchived[];
-      readonly retained: readonly WorktreeResetRetained[];
-      readonly status: 'archived';
-    }
-  /** None could be archived: their folders stay on disk, and this says why. */
-  | { readonly reason: string; readonly status: 'failed' };
-
 export interface ResetDesktopApplicationDataResult {
   deletedPaths: string[];
-  /** Present when the reset was given the managed worktrees' archive. */
-  managedWorktrees?: ManagedWorktreeResetOutcome;
+  /** What became of the managed worktrees; present when the reset was given their archive. */
+  managedWorktrees?: WorktreeResetOutcome;
   pendingDeletionPaths: string[];
   preservedPaths: string[];
 }
@@ -188,7 +173,7 @@ async function purgeErrorLogFiles(
  */
 async function archiveManagedWorktreesBeforeReset(
   archive: () => Promise<BoundaryResult<WorktreeResetArchive>>
-): Promise<ManagedWorktreeResetOutcome> {
+): Promise<WorktreeResetOutcome> {
   let answer: BoundaryResult<WorktreeResetArchive>;
   try {
     answer = await archive();
