@@ -42,6 +42,10 @@ export interface WorktreesBridge {
     worktreeId: string;
   }) => Promise<BoundaryResult<WorktreeArchivePreview>>;
   list: () => Promise<BoundaryResult<readonly WorktreeListEntry[]>>;
+  /** The archived managed worktrees of the root's repository, newest archive first. */
+  listArchived: (params: {
+    rootId: string;
+  }) => Promise<BoundaryResult<readonly ManagedWorktreeRow[]>>;
   listManagedPaths: () => Promise<BoundaryResult<readonly ManagedWorktreePathEntry[]>>;
   restore: (params: { worktreeId: string }) => Promise<BoundaryResult<WorktreeCreateResult>>;
   setSettings: (params: {

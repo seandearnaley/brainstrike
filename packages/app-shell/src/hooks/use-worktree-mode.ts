@@ -41,6 +41,7 @@ import { summarizeGitFailure } from '../git-failure-summary';
 import { subscribeRootRegistered } from '../roots/root-registration-events';
 import { useWorktreesBridge } from '../workspace-git-services';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
+import { useArchivedWorktrees } from './use-archived-worktrees';
 import {
   errorMessage,
   toastFailure,
@@ -507,14 +508,25 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     [bridge]
   );
 
+  const checkoutChangeDisabledReason = threadState === 'running' ? RUN_IN_PROGRESS_REASON : null;
+  const { archived, onPickerOpened } = useArchivedWorktrees({
+    bridge,
+    checkoutChangeDisabledReason,
+    onSelectWorktree,
+    primaryRootId: args.primaryRootId,
+    refreshList,
+    setPending,
+    setPickerOpen,
+  });
   const onPickerOpenChange = useCallback(
     (open: boolean): void => {
       setPickerOpen(open);
       if (open) {
         void refreshList();
+        onPickerOpened();
       }
     },
-    [refreshList]
+    [onPickerOpened, refreshList]
   );
 
   // Eager, once per bridge: without this, `entries` starts empty and stays
@@ -863,7 +875,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     args.uncommittedChanges && args.primaryRootPath
       ? (pathFolderName(args.primaryRootPath) ?? args.primaryRootPath)
       : null;
-  const checkoutChangeDisabledReason = threadState === 'running' ? RUN_IN_PROGRESS_REASON : null;
   const missingWorktreeReason = missingWorktreeDiagnostic({
     currentWorktreeId,
     hasAttemptedForCurrentId,
@@ -931,6 +942,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       onOpenPicker: () => onPickerOpenChange(true),
       pending,
       picker: {
+        archived,
         error: listError,
         loading: listing,
         onGrantAccess,
@@ -958,6 +970,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   }, [
     args.checkout.branch,
     archiveConfirmation,
+    archived,
     args.isRepository,
     args.primaryRootId,
     args.statusFailure,

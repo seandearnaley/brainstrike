@@ -61,6 +61,7 @@ export function stubWorktreesBridge(overrides: Partial<WorktreesBridge> = {}): W
     getSettings: vi.fn(),
     inspectArchive: vi.fn(),
     list: vi.fn(),
+    listArchived: vi.fn(),
     listManagedPaths: vi.fn(),
     restore: vi.fn(),
     setSettings: vi.fn(),

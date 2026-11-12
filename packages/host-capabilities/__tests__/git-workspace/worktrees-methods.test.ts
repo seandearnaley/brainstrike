@@ -16,11 +16,15 @@ const service = {
   isManagedWorktreePath: vi.fn(),
   list: vi.fn(),
   listManagedPaths: vi.fn(),
+  repositoryContextForRoot: vi.fn(),
   restore: vi.fn(),
 };
+/** The ledger's rows of one repository, archived ones too. */
+const listRepositoryWorktrees = vi.fn();
 
 function handlers() {
   return createWorktreesMethods({
+    listRepositoryWorktrees,
     readSettings: () =>
       Promise.resolve({ isDefaultDirectory: true, managedDirectory: '/m', setupCommand: null }),
     resolveService: () => service as never,
@@ -35,6 +39,7 @@ beforeEach(() => {
 describe('worktrees IPC handlers', () => {
   it('reports an absent service as a typed failure, never an empty list', async () => {
     const withoutService = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () =>
         Promise.resolve({ isDefaultDirectory: true, managedDirectory: '/m', setupCommand: null }),
       resolveService: () => null,
@@ -405,6 +410,21 @@ describe('worktrees IPC handlers', () => {
     expect(service.restore).toHaveBeenCalledWith(params);
   });
 
+  it('refuses an archived-worktree listing that names no root, or a root git cannot place', async () => {
+    expect(await handlers().listArchived({})).toEqual({
+      error: expect.objectContaining({ message: 'worktrees:listArchived requires { rootId }.' }),
+      ok: false,
+    });
+    const notARepository = {
+      error: { category: 'input', code: 'git.not-a-repository', kind: 'refusal', message: 'no' },
+      ok: false,
+    };
+    service.repositoryContextForRoot.mockResolvedValue(notARepository);
+
+    expect(await handlers().listArchived({ rootId: 'r-1' })).toEqual(notARepository);
+    expect(listRepositoryWorktrees).not.toHaveBeenCalled();
+  });
+
   it('never lets a thrown service error cross the IPC boundary', async () => {
     service.list.mockRejectedValue(new Error('boom'));
     expect(await handlers().list()).toEqual({
@@ -421,6 +441,7 @@ describe('worktrees IPC handlers', () => {
     };
     const readSettings = vi.fn(() => Promise.resolve(settings));
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings,
       resolveService: () => service as never,
       writeSettings: (next: unknown) => Promise.resolve(next as never),
@@ -431,6 +452,7 @@ describe('worktrees IPC handlers', () => {
 
   it('returns a typed failure when reading settings throws', async () => {
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.reject(new Error('settings read failed')),
       resolveService: () => service as never,
       writeSettings: (next: unknown) => Promise.resolve(next as never),
@@ -445,6 +467,7 @@ describe('worktrees IPC handlers', () => {
   it('rejects a non-object settings payload', async () => {
     const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
       writeSettings,
@@ -462,6 +485,7 @@ describe('worktrees IPC handlers', () => {
   it('rejects a relative managed directory', async () => {
     const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
       writeSettings,
@@ -483,6 +507,7 @@ describe('worktrees IPC handlers', () => {
   it('rejects an empty setup command', async () => {
     const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
       writeSettings,
@@ -502,6 +527,7 @@ describe('worktrees IPC handlers', () => {
   it('rejects a string setup state other than disabled', async () => {
     const writeSettings = vi.fn((next: unknown) => Promise.resolve(next as never));
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
       writeSettings,
@@ -528,6 +554,7 @@ describe('worktrees IPC handlers', () => {
     };
     const writeSettings = vi.fn(() => Promise.resolve(settings));
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.resolve(settings),
       resolveService: () => service as never,
       writeSettings,
@@ -542,6 +569,7 @@ describe('worktrees IPC handlers', () => {
     const settings = { ...next, isDefaultDirectory: false };
     const writeSettings = vi.fn(() => Promise.resolve(settings));
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.resolve(settings),
       resolveService: () => service as never,
       writeSettings,
@@ -561,6 +589,7 @@ describe('worktrees IPC handlers', () => {
       },
     };
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => readWorktreeSettings(store, '/home/me'),
       resolveService: () => service as never,
       writeSettings: (next) =>
@@ -590,6 +619,7 @@ describe('worktrees IPC handlers', () => {
 
   it('returns a typed failure when writing settings throws', async () => {
     const ipcHandlers = createWorktreesMethods({
+      listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
       writeSettings: () => Promise.reject(new Error('managed directory refused')),

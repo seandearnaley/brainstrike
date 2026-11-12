@@ -9,7 +9,7 @@
     the composer's folder, branch and checkout chips become one control that says where a thread
     works.
   - 2026-11-12 (owner decisions, below): decision 7's cap keeps 15 idle managed worktrees per
-    repository; built.
+    repository; built, with a control that restores an archived worktree.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -516,8 +516,8 @@ revisit:
   path under it still refuses an active run and nested repositories too.
 - **Where the notice goes.** To the thread the creation was for, as a row in
   its transcript at every detail level: each archived worktree with its branch
-  and its snapshot ref, where its uncommitted changes are kept. It does not
-  promise a restore the app cannot offer yet (Not built, below). The host's worktree and
+  and its snapshot ref, where its uncommitted changes are kept, and where to
+  restore one (restoring, below). The host's worktree and
   the model's name their run and thread. The person's New worktree… now names
   the selected thread, which it already required. The row shows with the run
   that made the worktree, or with the thread's latest run when the person made
@@ -528,8 +528,35 @@ revisit:
   thread before its first send): the row has no run to be shown with, and an
   archive is never left untold (from Codex's and Claude's review).
 
-Not built: a control that restores an archived worktree (the host's
-`worktrees/restore` has none yet), and a cap after a thread is deleted.
+Built: restoring an archived worktree. These are build decisions, not Sean's,
+and later work may revisit them:
+
+- **Where.** The where-control's Other worktree… picker has an Archived
+  section below the live worktrees: the archived managed worktrees of the
+  repository the thread's folder is in, newest archive first, each with its
+  name, branch, when it was archived and Restore and use. The picker's filter
+  narrows it with the live list. The host lists them from the ledger's archived
+  rows (`worktrees/list-archived`, a method added under protocol v25).
+- **What it does.** Restore and use calls the host's existing
+  `worktrees/restore`, the one writer: it recreates the worktree on its branch
+  and replays its archive snapshot, so its uncommitted changes come back. Then
+  it does what Use does: it opens the worktree's folder and binds the thread
+  through the binding's own command. Like every checkout change it waits for
+  the thread's run to end. A worktree a thread is bound to is not idle, so the
+  cap does not archive it again while the thread works there. Nothing new is
+  stored: no restore time, and a restored worktree keeps its first creation
+  time (above).
+- **Failure is visible.** A refused restore says why in the picker: its folder
+  is taken, its snapshot ref is gone, its branch has moved, or its branch is
+  checked out in another worktree (git's own words). Nothing is retried or done
+  instead. A worktree that was restored but that the thread could not enter (its
+  folder did not open, or the binding refused) says so too; it is no longer
+  archived, so Use can choose it.
+- **The notice** says where to restore: Other worktree… in the composer's
+  Where this thread works menu, then Restore and use under Archived.
+- Files git ignores, which archiving deletes, do not come back.
+
+Not built: a cap after a thread is deleted.
 
 ## Consequences
 

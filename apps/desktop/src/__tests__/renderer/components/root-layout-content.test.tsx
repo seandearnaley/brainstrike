@@ -91,6 +91,7 @@ const WORKTREES_BRIDGE: WorktreesBridge = {
   getSettings: vi.fn(),
   inspectArchive: vi.fn(),
   list: vi.fn(),
+  listArchived: vi.fn(),
   listManagedPaths: vi.fn(),
   restore: vi.fn(),
   setSettings: vi.fn(),

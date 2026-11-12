@@ -75,6 +75,7 @@ export function bindHostGitWorkspaceMethods(
   serve('worktrees/create-context');
   serve('worktrees/inspect-archive');
   serve('worktrees/list');
+  serve('worktrees/list-archived');
   serve('worktrees/managed-paths');
   serve('worktrees/restore');
   serve('worktrees/settings/read');

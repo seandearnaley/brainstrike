@@ -1,7 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { formatAbsoluteTime } from '../relative-time';
 import type {
+  WorkspaceBarArchivedWorktree,
+  WorkspaceBarArchivedWorktrees,
   WorkspaceBarWorktreeOption,
   WorkspaceBarWorktreePicker,
 } from '../workspace-bar/workspace-bar';
@@ -218,6 +221,151 @@ describe('WorktreePickerDialog', () => {
       'Repository inventory could not be read.'
     );
     expect(screen.queryByTestId('worktree-picker-empty')).not.toBeInTheDocument();
+  });
+
+  describe('Archived (ADR-0034 decision 7)', () => {
+    const archivedWorktree = (
+      name: string,
+      archivedAt: string,
+      branch: string | null = `bs/${name}`
+    ): WorkspaceBarArchivedWorktree => ({
+      archivedAt,
+      branch,
+      name,
+      path: `/managed/app/${name}`,
+      worktreeId: `archived-${name}`,
+    });
+    const archived = (
+      overrides: Partial<WorkspaceBarArchivedWorktrees> = {}
+    ): WorkspaceBarArchivedWorktrees => ({
+      disabledReason: null,
+      entries: [],
+      error: null,
+      loading: false,
+      onRestore: vi.fn(),
+      refusal: null,
+      restoringId: null,
+      ...overrides,
+    });
+    const NEWER = archivedWorktree('swift-badger', '2026-11-12T10:30:00.000Z');
+    const OLDER = archivedWorktree('calm-otter', '2026-11-10T08:00:00.000Z', null);
+
+    it("lists the repository's archived worktrees with their branch and when each was archived", () => {
+      render(
+        <WorktreePickerDialog
+          picker={picker({ archived: archived({ entries: [NEWER, OLDER] }), options: [] })}
+        />
+      );
+
+      const section = screen.getByRole('region', { name: 'Archived' });
+      const rows = within(section).getAllByRole('listitem');
+      expect(
+        rows.map((row) => within(row).getByText(/^(swift-badger|calm-otter)$/u).textContent)
+      ).toEqual(['swift-badger', 'calm-otter']);
+      expect(rows[0]).toHaveTextContent(
+        `bs/swift-badger · Archived ${formatAbsoluteTime(Date.parse(NEWER.archivedAt))}`
+      );
+      expect(rows[1]).toHaveTextContent(
+        `Detached HEAD · Archived ${formatAbsoluteTime(Date.parse(OLDER.archivedAt))}`
+      );
+      // A repository whose only worktrees are archived has worktrees to offer.
+      expect(screen.queryByTestId('worktree-picker-empty')).not.toBeInTheDocument();
+    });
+
+    it('Restore and use restores the chosen archived worktree', async () => {
+      const user = setup();
+      const onRestore = vi.fn();
+      render(
+        <WorktreePickerDialog
+          picker={picker({ archived: archived({ entries: [NEWER, OLDER], onRestore }) })}
+        />
+      );
+
+      await user.click(screen.getByTestId('worktree-picker-restore-archived-calm-otter'));
+
+      expect(onRestore).toHaveBeenCalledTimes(1);
+      expect(onRestore).toHaveBeenCalledWith(OLDER);
+    });
+
+    it('shows why a restore was refused', () => {
+      render(
+        <WorktreePickerDialog
+          picker={picker({
+            archived: archived({
+              entries: [NEWER],
+              refusal:
+                'Could not restore swift-badger: "/managed/app/swift-badger" already exists and is not empty — move it aside before restoring.',
+            }),
+          })}
+        />
+      );
+
+      expect(screen.getByTestId('worktree-picker-restore-error')).toHaveTextContent(
+        'Could not restore swift-badger: "/managed/app/swift-badger" already exists and is not empty — move it aside before restoring.'
+      );
+    });
+
+    it('waits for the run to end, saying so, and restores one worktree at a time', () => {
+      const { rerender } = render(
+        <WorktreePickerDialog
+          picker={picker({
+            archived: archived({
+              disabledReason: "Available when this thread's run ends.",
+              entries: [NEWER],
+            }),
+          })}
+        />
+      );
+
+      expect(screen.getByTestId('worktree-picker-restore-archived-swift-badger')).toBeDisabled();
+      expect(screen.getByTestId('worktree-picker-restore-disabled-reason')).toHaveTextContent(
+        "Available when this thread's run ends."
+      );
+
+      rerender(
+        <WorktreePickerDialog
+          picker={picker({
+            archived: archived({ entries: [NEWER, OLDER], restoringId: NEWER.worktreeId }),
+          })}
+        />
+      );
+      expect(screen.getByTestId('worktree-picker-restore-archived-swift-badger')).toHaveTextContent(
+        'Restoring…'
+      );
+      expect(screen.getByTestId('worktree-picker-restore-archived-calm-otter')).toBeDisabled();
+    });
+
+    it('says why the archived worktrees could not be read', () => {
+      render(
+        <WorktreePickerDialog
+          picker={picker({
+            archived: archived({ error: 'The worktree ledger could not be read.' }),
+          })}
+        />
+      );
+
+      expect(screen.getByTestId('worktree-picker-archived-error')).toHaveTextContent(
+        'The worktree ledger could not be read.'
+      );
+    });
+
+    it('narrows archived worktrees with the same filter', async () => {
+      const user = setup();
+      render(
+        <WorktreePickerDialog
+          picker={picker({
+            archived: archived({ entries: [NEWER, OLDER] }),
+            options: [option('alpha')],
+          })}
+        />
+      );
+
+      await user.type(screen.getByRole('searchbox', { name: 'Filter worktrees' }), 'otter');
+
+      expect(screen.queryByTestId('worktree-picker-row-worktree-alpha')).toBeNull();
+      expect(screen.queryByTestId('worktree-picker-archived-row-archived-swift-badger')).toBeNull();
+      expect(screen.getByTestId('worktree-picker-archived-row-archived-calm-otter')).toBeVisible();
+    });
   });
 
   it('distinguishes loading from an empty completed inventory', () => {

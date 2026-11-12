@@ -34,6 +34,7 @@ function createBridge({
     getSettings,
     inspectArchive: unused,
     list: unused,
+    listArchived: unused,
     listManagedPaths: unused,
     restore: unused,
     setSettings,

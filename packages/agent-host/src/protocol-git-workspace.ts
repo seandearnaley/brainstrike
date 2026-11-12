@@ -425,6 +425,8 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
   'worktrees/create-context': RootRequest,
   'worktrees/inspect-archive': Schema.Struct({ worktreeId: Id }),
   'worktrees/list': None,
+  // ADR-0034 decision 7: the archived worktrees of a root's repository, newest archive first.
+  'worktrees/list-archived': RootRequest,
   'worktrees/managed-paths': None,
   'worktrees/restore': Schema.Struct({ worktreeId: Id }),
   'worktrees/settings/read': None,
@@ -457,6 +459,7 @@ export const GIT_WORKSPACE_RESULT_SCHEMAS = {
   'worktrees/create-context': gitResult(WorktreeCreateContextSchema),
   'worktrees/inspect-archive': gitResult(WorktreeArchivePreviewSchema),
   'worktrees/list': gitResult(WorktreeListSchema),
+  'worktrees/list-archived': gitResult(Schema.Array(ManagedWorktreeRowSchema)),
   'worktrees/managed-paths': gitResult(ManagedWorktreePathsSchema),
   'worktrees/restore': gitResult(WorktreeCreateResultSchema),
   'worktrees/settings/read': gitResult(WorktreeSettingsSchema),

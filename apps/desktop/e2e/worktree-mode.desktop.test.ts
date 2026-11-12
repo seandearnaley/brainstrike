@@ -7,7 +7,7 @@
  * cross the production preload, IPC, service, Git, mount, and thread-metadata
  * chain; only assistant model traffic is replaced at its external boundary.
  */
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -297,6 +297,8 @@ test.describe('Worktree mode (desktop)', () => {
         timeout: 90_000,
       })
       .toContain('refs/brainstrike/worktree-archive/');
+    // The control stays busy until the archive has returned, recorded in the ledger.
+    await expect(whereChip(page)).not.toHaveAttribute('aria-busy', 'true', { timeout: 90_000 });
 
     await openWhereMenu(page);
     await page.getByTestId('workspace-bar-mode-pick-worktree').click();
@@ -314,9 +316,12 @@ test.describe('Worktree mode (desktop)', () => {
     // single open can race the git-inventory watcher's own settle latency after
     // `git worktree remove` runs. Close and reopen — forcing a fresh fetch — until
     // the archived worktree's row is gone, bounded so a real regression still fails.
+    // It leaves the live worktrees; the Archived section below them lists it to restore.
+    const liveWorktrees = dialog.getByRole('list', { exact: true, name: 'Worktrees' });
     let archivedRowGone = false;
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      archivedRowGone = (await dialog.getByText(created.name, { exact: true }).count()) === 0;
+      archivedRowGone =
+        (await liveWorktrees.getByText(created.name, { exact: true }).count()) === 0;
       if (archivedRowGone) {
         break;
       }
@@ -328,7 +333,55 @@ test.describe('Worktree mode (desktop)', () => {
       await expect(dialog).toBeVisible({ timeout: 30_000 });
     }
     expect(archivedRowGone).toBe(true);
+    await expect(
+      dialog.getByTestId(/^worktree-picker-archived-row-/u).filter({ hasText: created.name })
+    ).toBeVisible();
     await page.keyboard.press('Escape');
+  });
+
+  // ADR-0034 decision 7: an archived worktree comes back from Other worktree…, on its
+  // branch with its files, and the thread works in it.
+  test('restores an archived worktree from Other worktree… and moves the thread into it', async ({
+    window: page,
+  }) => {
+    test.setTimeout(240_000);
+    const repo = freshRepo('restore');
+    // The worktree's commit is pushed here, so Archive worktree… has nothing unpushed to refuse.
+    const remote = tempDirs.track(mkdtempSync(path.join(tmpdir(), 'bst-w3-restore-remote-')));
+    git(remote, ['init', '--bare']);
+    git(repo, ['remote', 'add', 'origin', remote]);
+    await seedRoot(page, repo);
+    await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
+
+    const created = await createAndUseWorktree(page);
+    writeFileSync(path.join(created.worktreePath, 'restored.md'), 'kept on its branch\n');
+    git(created.worktreePath, ['add', 'restored.md']);
+    git(created.worktreePath, ['commit', '-m', 'work on the worktree branch']);
+    git(created.worktreePath, ['push', 'origin', created.branch]);
+
+    await openWhereMenu(page);
+    await page.getByTestId('workspace-bar-mode-archive').click();
+    await expect(whereChip(page)).toContainText('Local', { timeout: 90_000 });
+    // The control stays busy until the archive has returned, recorded.
+    await expect(whereChip(page)).not.toHaveAttribute('aria-busy', 'true', { timeout: 90_000 });
+    expect(existsSync(created.worktreePath)).toBe(false);
+
+    await openWhereMenu(page);
+    await page.getByTestId('workspace-bar-mode-pick-worktree').click();
+    const dialog = page.getByTestId('worktree-picker-dialog');
+    const archivedRow = dialog
+      .getByTestId(/^worktree-picker-archived-row-/u)
+      .filter({ hasText: created.name });
+    await expect(archivedRow).toBeVisible({ timeout: 30_000 });
+    await archivedRow.getByRole('button', { name: 'Restore and use' }).click();
+
+    await expect(dialog).toBeHidden({ timeout: 90_000 });
+    await expectInWorktree(page, created);
+    expect(readFileSync(path.join(created.worktreePath, 'restored.md'), 'utf8')).toBe(
+      'kept on its branch\n'
+    );
+    expect(listWorktreePaths(repo)).toContain(created.worktreePath);
   });
 
   test('choosing Local hands off and the control stays Local across a reload', async ({
