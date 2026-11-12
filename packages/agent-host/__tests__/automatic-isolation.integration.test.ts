@@ -298,7 +298,7 @@ test('a host restarted after the move was committed continues the turn in the wo
   expect(await hosted.files('worktree-root-1')).toEqual(['b.txt']);
 });
 
-test("a delegated worker's edit never moves its parent", async () => {
+test("a delegated worker's clashing edit never moves its parent, which says it shares the folder", async () => {
   const CHILD_TASK = 'CHILD_TASK: write w.txt.';
   const hosted = await host(
     new MockLanguageModelV4({
@@ -335,11 +335,21 @@ test("a delegated worker's edit never moves its parent", async () => {
   // The worker's edit clashed with the first thread's, and it ran where its parent works.
   expect(outputOf(workerRows, 'w-write')).toEqual({ written: 'w.txt' });
   expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'w.txt']);
-  // The host decided nothing for it: no worktree, no move and no note, on either thread.
+  // No worktree and no move: a worker's run keeps its binding, and its parent stays with it.
   expect(hosted.created).toEqual([]);
   expect(moves([...rows, ...workerRows])).toEqual([]);
-  expect(sharedNotes([...rows, ...workerRows])).toEqual([]);
   expect(startedRuns(rows)).toHaveLength(1);
+  // The person's own thread says it shares the folder, at the run and call that dispatched the
+  // worker; the worker's thread carries no note.
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({
+      reason: 'workers-running',
+      root: expect.objectContaining({ rootId: LOCAL }),
+      runId: run,
+      toolCallId: 'delegate',
+    }),
+  ]);
+  expect(sharedNotes(workerRows)).toEqual([]);
 });
 
 test("a finished worker's edit still counts as its thread writing while the thread's run goes on", async () => {
