@@ -223,6 +223,9 @@ function composeHostRoot(
     get generatesThreadTitles(): boolean | undefined {
       return currentPlatform().generatesThreadTitles;
     },
+    get idleWorktreeArchives(): HostPlatform['idleWorktreeArchives'] {
+      return currentPlatform().idleWorktreeArchives;
+    },
     get maxSteps(): number | undefined {
       return currentPlatform().maxSteps;
     },

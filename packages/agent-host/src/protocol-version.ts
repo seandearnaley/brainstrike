@@ -118,7 +118,8 @@
 // version bump. Additive since (ADR-0034 Automatic isolation, owner decisions 2026-11-11):
 // `workspace.binding.updated` `enteredBy` carries `cause` when the host itself made the worktree
 // it moved the thread into, and `checkout.shared` (a thread that edits a folder another thread's
-// run is editing and was not moved), a new variant.
+// run is editing and was not moved), a new variant; `worktrees.archived` (the idle worktrees the
+// cap archived after a worktree was created for the thread; ADR-0034 decision 7), a new variant.
 // v26 (2026-11-12): scratch threads (ADR-0034, Sean 2026-11-12). A root record Main reads over
 // `host/workspace-roots` may be of kind `scratch`, a folder the host made for a thread sent with
 // no folder while none was open; Main decodes the kind strictly, so an older Main cannot read

@@ -9,9 +9,11 @@
 #   change, which can't be a thread, is listed in the review body instead.
 # - A later push gets a follow-up limited to the lines its commits changed. It
 #   posts a review only when it has something new, and resolves the threads of
-#   earlier findings the push fixed. A push that leaves the PR adding and
-#   removing the same lines (an empty commit, a clean rebase or a base merge)
-#   reviews nothing; one that only deletes lines rechecks the open findings.
+#   earlier findings the push fixed: its own, and those another review bot such
+#   as Codex posted (owner decision 2026-11-12), so a fixed finding never waits
+#   on a person's Resolve click. A push that leaves the PR adding and removing
+#   the same lines (an empty commit, a clean rebase or a base merge) reviews
+#   nothing; one that only deletes lines rechecks the open findings.
 # - The reviewed head is kept in a "Claude review" status comment on the PR.
 #   Delete that comment and re-run the job for a fresh full review.
 # - What to report lives in REVIEW.md, read from the base branch, never from the

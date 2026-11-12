@@ -21,6 +21,7 @@ import { Activity } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApprovalDecisionMessage } from '../approval-decision-message';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
+import { preloadMarkdownText } from '../assistant-message-text';
 import type { DecisionRoute } from '../decision-route-context';
 import { useRewindComposerStore } from '../rewind-composer-store';
 import { RewindProvider } from '../rewind-context';
@@ -30,6 +31,16 @@ import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 import { streamedText } from './streamed-text';
 import { queuedPrompts, queueMessage } from './thread-message-queue-support';
+
+// Two costs that grow with machine load are kept out of the tests (BST-2491):
+// - The assistant text renders through a lazily imported markdown chunk. It is
+//   loaded here, while the file is collected, not inside the first test that
+//   shows a reply.
+// - Typing uses `delay: null`. With user-event's default, every keystroke waits
+//   out a timer, and on a loaded machine each wait lasts a scheduler slice. Each
+//   keystroke's events are still dispatched in order and committed before the
+//   next.
+await preloadMarkdownText();
 
 function Conversation({
   agentColor,
@@ -146,8 +157,9 @@ describe('shared conversation panel', () => {
         />
       </TooltipProvider>
     );
-    await userEvent.type(screen.getByRole('textbox'), 'Continue the child');
-    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const user = userEvent.setup({ delay: null });
+    await user.type(screen.getByRole('textbox'), 'Continue the child');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
     await screen.findByText('Sending to child…');
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith(
@@ -180,7 +192,7 @@ describe('shared conversation panel', () => {
       </TooltipProvider>
     );
     const view = render(panel('visible'));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const input = screen.getByRole('textbox', { name: 'Message input' });
     await user.type(input, 'Check another file');
     await user.click(screen.getByRole('button', { name: 'Send to child' }));
@@ -220,7 +232,7 @@ describe('shared conversation panel', () => {
         />
       </TooltipProvider>
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const input = screen.getByRole('textbox', { name: 'Message input' });
     await user.type(input, 'Inspect again');
     await user.click(screen.getByRole('button', { name: 'Send to child' }));
@@ -251,7 +263,7 @@ describe('shared conversation panel', () => {
         />
       </TooltipProvider>
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const input = screen.getByRole('textbox', { name: 'Message input' });
     await user.type(input, 'Possibly delivered');
     await user.keyboard('{Enter}');
@@ -293,7 +305,7 @@ describe('shared conversation panel', () => {
         </TooltipProvider>
       );
       const { rerender } = render(view(true));
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const input = screen.getByRole('textbox', { name: 'Message input' });
       await user.type(input, 'Possibly delivered');
       await user.click(screen.getByRole('button', { name: 'Send to child' }));
@@ -350,7 +362,7 @@ describe('shared conversation panel', () => {
         </TooltipProvider>
       );
       const { rerender } = render(view(true));
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const input = screen.getByRole('textbox', { name: 'Message input' });
       await user.type(input, 'Possibly delivered');
       await user.click(screen.getByRole('button', { name: 'Send to child' }));
@@ -393,7 +405,7 @@ describe('shared conversation panel', () => {
       </TooltipProvider>
     );
     const { rerender } = render(view('Cedar'));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'Cedar instruction');
     await user.click(screen.getByRole('button', { name: 'Send to child' }));
     await user.click(screen.getByRole('button', { name: 'Stop waiting' }));
@@ -432,7 +444,7 @@ describe('shared conversation panel', () => {
       </TooltipProvider>
     );
     const { rerender } = render(view(true));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const input = screen.getByRole('textbox', { name: 'Message input' });
     await user.type(input, 'Delivered just before completion');
     await user.click(screen.getByRole('button', { name: 'Send to child' }));
@@ -462,7 +474,7 @@ describe('shared conversation panel', () => {
       </TooltipProvider>
     );
     const { rerender } = render(view(true));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const input = screen.getByRole('textbox');
     await user.type(input, 'Original input');
     await user.click(screen.getByRole('button', { name: 'Send to child' }));
@@ -491,7 +503,7 @@ describe('shared conversation panel', () => {
         />
       </TooltipProvider>
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const input = screen.getByRole('textbox', { name: 'Message input' });
     await user.type(input, 'First instruction');
     await user.keyboard('{Enter}');
@@ -521,7 +533,7 @@ describe('shared conversation panel', () => {
         />
       </TooltipProvider>
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const input = screen.getByRole('textbox', { name: 'Message input' });
     await user.type(input, 'First input');
     await user.keyboard('{Enter}');
@@ -696,7 +708,7 @@ describe('shared conversation panel', () => {
   });
 
   it('routes a child approval through only that conversation runtime', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const rootSend = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
     const childSend = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(
       async () => undefined
@@ -868,8 +880,9 @@ describe('shared conversation panel', () => {
       </TooltipProvider>
     );
     const input = screen.getByRole('textbox', { name: 'Your answer' });
-    await userEvent.type(input, 'packages/app-shell');
-    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const user = userEvent.setup({ delay: null });
+    await user.type(input, 'packages/app-shell');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
 
     await waitFor(() => expect(dispatch).toHaveBeenCalledOnce());
     expect(
@@ -881,7 +894,7 @@ describe('shared conversation panel', () => {
   });
 
   it('uses the shared rich activity and reasoning components in chronological order', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
     render(
       <TooltipProvider>
@@ -975,7 +988,7 @@ describe('shared conversation panel', () => {
   });
 
   it('isolates visible child snapshots, running state and drafts without starting a model', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const rootSend = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
     const childSend = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(
       async () => undefined
