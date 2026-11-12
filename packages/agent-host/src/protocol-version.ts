@@ -133,7 +133,9 @@
 // own record. `worktrees/create-context` answers the standing decision with the script
 // (`repositorySetup.decision`), required. `worktrees/setup-consent/decide`,
 // `worktrees/setup-consent/list` and `worktrees/setup-consent/revoke` are new methods. Removing
-// the parameter and the required field are why this is a version bump. Additions since: Sign in
+// the parameter and the required field are why this is a version bump. Additive since:
+// `worktrees/list-archived` (the archived managed worktrees of a root's repository, newest archive
+// first, which the where-control's picker restores; ADR-0034 decision 7), a new method; Sign in
 // with ChatGPT (ADR-0038) for the desktop's private client (`auth/chatgpt/sign-in`,
 // `auth/chatgpt/cancel`, `auth/chatgpt/sign-out`, `auth/chatgpt/status`), new methods; a login
 // credential may not be a ChatGPT sign-in, which only that flow writes.
