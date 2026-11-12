@@ -265,7 +265,8 @@ const focusSearch = (content: HTMLElement): void => {
  * search field also takes focus when the Branch row is clicked, as the
  * switcher's own popover did, and when the pointer moves into the switcher,
  * as a menu row takes focus under the pointer; otherwise letters typed there
- * would go to the where-menu's typeahead.
+ * would go to the where-menu's typeahead. The pointer moving over the Branch
+ * row leaves the switcher's focus where it is.
  */
 export const BranchSubmenu = ({
   branchMenu,
@@ -321,6 +322,13 @@ export const BranchSubmenu = ({
             focusSearchOnMountRef.current = true;
           }
           setOpen(true);
+        }}
+        // While the switcher has the keys, the pointer moving on over this row (as it rests
+        // after a click) leaves them there: Radix would focus the row on any move over it.
+        onPointerMove={(event) => {
+          if (contentRef.current?.contains(event.currentTarget.ownerDocument.activeElement)) {
+            event.preventDefault();
+          }
         }}
         title={summary}
       >
