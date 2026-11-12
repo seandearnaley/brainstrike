@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   getCILaunchArgs,
   getEnvironmentConfig,
@@ -5,7 +6,7 @@ import {
   logEnvironmentConfig,
   validateEnvironmentConfig,
 } from '@brainstrike/config/playwright-environment';
-import type { PlaywrightTestConfig } from '@playwright/test';
+import type { PlaywrightTestConfig, ReporterDescription } from '@playwright/test';
 
 harmonizeColorEnvironment();
 
@@ -17,6 +18,16 @@ logEnvironmentConfig('Desktop', config);
 
 // Validate configuration and show warnings
 validateEnvironmentConfig(config);
+
+/**
+ * Where a nightly job (Flake Hunt) collects this run's JSON report for the
+ * Linear notifier (BST-2486, scripts/lib/nightly-test-results.mjs), so each
+ * failing test files its own issue. Unset or empty, none is written.
+ */
+const nightlyResultsDir = process.env['NIGHTLY_TEST_RESULTS_DIR'];
+const nightlyReporters: ReporterDescription[] = nightlyResultsDir
+  ? [['json', { outputFile: path.join(nightlyResultsDir, 'desktop-e2e.json') }]]
+  : [];
 
 const playwrightConfig: PlaywrightTestConfig = {
   // Expect timeout for assertions
@@ -57,8 +68,13 @@ const playwrightConfig: PlaywrightTestConfig = {
 
   // Reporter configuration. file-shards assigns whole files to --shard runs.
   reporter: config.isCI
-    ? [['blob', { outputDir: 'blob-report' }], ['list'], ['./e2e/file-shards.ts']]
-    : [['html', { open: 'never' }], ['list'], ['./e2e/file-shards.ts']],
+    ? [
+        ['blob', { outputDir: 'blob-report' }],
+        ['list'],
+        ['./e2e/file-shards.ts'],
+        ...nightlyReporters,
+      ]
+    : [['html', { open: 'never' }], ['list'], ['./e2e/file-shards.ts'], ...nightlyReporters],
 
   // Retry strategy based on environment
   retries: config.retries,
