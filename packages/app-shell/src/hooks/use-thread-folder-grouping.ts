@@ -39,6 +39,12 @@ export interface ThreadFolderGrouping {
    * thread under "No folder", so both replace the tree. So does the first read
    * of the repositories: sections drawn before it would show a worktree as a
    * folder of its own, then move its threads.
+   *
+   * A later read for a changed id set keeps the tree while the previous read's
+   * rows remain: replacing it unmounts every row, closing a menu open on one
+   * and dropping a rename or delete in progress (BST-2493). A thread whose
+   * folder is not read yet lists under "No folder" until it is, as it did
+   * before the folder was bound.
    */
   readonly state: ThreadPanelFolderGroupingState | null;
 }
@@ -78,7 +84,11 @@ export function useThreadFolderGrouping({
     repositoriesError: repositoryListing.error,
     repositoryEntries: repositoryListing.entries,
     state: enabled
-      ? { error: folderRows.error, loading: folderRows.loading || repositoryListing.loading }
+      ? {
+          error: folderRows.error,
+          loading:
+            (folderRows.loading && folderRowsByRootId.size === 0) || repositoryListing.loading,
+        }
       : null,
   };
 }
