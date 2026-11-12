@@ -24,6 +24,7 @@
     "node": ">=22"
   },
   "exports": {
+    "./thread-checkout-name": "./src/thread-checkout-name.ts",
     "./thread-workspace-binding": "./src/thread-workspace-binding.ts",
     "./thread-workspace-snapshot": "./src/thread-workspace-snapshot.ts",
     ".": "./src/index.ts",

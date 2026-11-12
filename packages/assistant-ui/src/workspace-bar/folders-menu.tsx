@@ -27,7 +27,7 @@ import type { WorkspaceBarProps, WorkspaceBarRecentRoot, WorkspaceBarRoot } from
 /** The folder half of the bar's props: everything the Folders menu reads. */
 export type FolderMenuProps = Omit<
   WorkspaceBarProps,
-  'branchMenu' | 'checkout' | 'checkoutState' | 'mode' | 'onDropItems' | 'trust'
+  'branchMenu' | 'checkout' | 'checkoutState' | 'mode' | 'onDropItems' | 'threadCheckout' | 'trust'
 >;
 
 interface RootAction {

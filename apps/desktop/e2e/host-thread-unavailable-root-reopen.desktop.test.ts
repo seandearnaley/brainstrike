@@ -116,7 +116,7 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     await reopened.getByText('Try again', { exact: true }).click();
     await expect(reopened.getByText('root-restore.txt').first()).toBeVisible();
     await expect(folder).toHaveAccessibleName(
-      `Where this thread works: ${before.binding?.operatingRootDisplayName}`
+      `Where this thread works: ${before.binding?.operatingRootDisplayName} · Local`
     );
     await send(reopened, 'BOUND_AFTER_RECONNECT', 'RECONNECTED_SEND_SUCCEEDED');
     const reconnected = await withAppHost(userDataDir, async (client) => ({

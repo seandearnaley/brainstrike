@@ -1,3 +1,4 @@
+import { pathFolderName } from '@brainstrike/assistant-contract/thread-checkout-name';
 import type { AssistantThreadMetadata } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
@@ -27,8 +28,9 @@ export interface UseThreadCheckoutArgs {
   readonly threadMetadata: AssistantThreadMetadata | undefined;
 }
 
+/** A worktree folder's display name: its checkout's name (`swift-badger`), which every surface shows. */
 export function displayNameForPath(path: string): string {
-  const displayName = path.split(/[\\/]/u).filter(Boolean).at(-1);
+  const displayName = pathFolderName(path);
   if (!displayName) {
     throw new Error(`Cannot check out a worktree whose path has no display name: ${path}`);
   }

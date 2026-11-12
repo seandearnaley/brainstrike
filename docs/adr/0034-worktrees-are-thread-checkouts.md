@@ -340,8 +340,13 @@ Decisions the build made, which are not Sean's:
 - The folder rows are the Folders submenu while the thread has a live primary
   folder, and the menu itself while it has none (no folder, or a closed one).
 - The closed label counts the folders beyond the project and its worktree
-  (`brainstrike +1 · Local`). A folder outside git shows its name with no
-  checkout and no warning; any other unavailable checkout shows a warning.
+  (`brainstrike +1 · Local`). A folder outside git reads `Local` with no
+  warning (the Explorer's header, below); any other unavailable checkout shows
+  a warning and no checkout.
+- The closed label names the checkout from the thread's binding, not from its
+  folder's git status, so it keeps saying Local or the worktree while that
+  status is read again after a checkout change or a thread switch. Where the
+  platform has no worktrees (the web build) it names no checkout.
 - The menu lists the thread's own worktree, not every worktree of the
   repository; the others are a click away in Other worktree….
 - The Local row's branch in a worktree is read from the worktree list's
@@ -354,6 +359,47 @@ Decisions the build made, which are not Sean's:
   busy state, keep the last rows' state through that read instead of closing
   and coming back.
 
+### The Explorer's header (decision 3)
+
+Built:
+
+- The Explorer follows the active thread: the thread's worktree stands in the
+  place of the folder it was made from, and no other worktree is shown.
+- The header of the folder the thread works in reads `<project> · <checkout>`,
+  as the where-control does closed: `brainstrike · swift-badger`, with the
+  project named by the thread's Local folder, or `brainstrike · Local`. It is
+  the one-folder row, or that folder's section when several are open. Other
+  folders, and the Explorer with no thread selected, keep their names, and the
+  full path stays on hover. It is display only: app-shell words it from the
+  thread's binding and the open folders' names, and passes it to the Explorer
+  through the thread-checkout context, the one thing the Explorer knows of
+  threads.
+- One function names a checkout for every surface that shows one
+  (`checkoutName`, `@brainstrike/assistant-contract/thread-checkout-name`): the
+  Threads panel's chip, the where-control and the Explorer's header.
+- The composer's list of other open folders leaves out every managed worktree,
+  so another thread's worktree, still mounted for that thread, is not offered
+  (decision 2).
+
+Decisions the build made, which are not Sean's:
+
+- A folder outside git reads `<name> · Local`, the Threads panel's words, which
+  already said Local for any thread with a folder. Sean's answer was that the
+  control reads `<project> · <checkout>` in the Threads panel's words; a folder
+  outside git is a project with one checkout (decision 1).
+- When the thread's Local folder is not open in the window, the worktree's
+  header keeps its folder's own name: the Explorer has no name for the project
+  then.
+- While no thread is selected, the new-thread composer is the active thread,
+  so the Explorer follows the folder and checkout chosen for it before its
+  first send: its worktree stands in for its folder and the header names it.
+  Before, the Explorer followed only a thread that had been sent.
+
+Not built: the header's rows (Local, the repository's worktrees, New worktree
+and Archive). When they are, they should act through the composer's
+where-control and the thread binding, its only writer, not through a second
+`useWorkspaceBar`.
+
 ## Consequences
 
 - The duplicate folder goes away without new storage. The project record
@@ -365,5 +411,7 @@ Decisions the build made, which are not Sean's:
   in the worktree is dropped, never shown with the local checkout's text.
 - Files only the worktree has (new, unindexed) are found by grep, glob and read,
   not by semantic search, until they reach the local checkout's index.
-- Display and Open Folder wait for the host-owned open-folder list (ADR-0029
-  stage 4 slice C); the index change does not.
+- Display and Open Folder came with the host-owned open-folder list (ADR-0029
+  stage 4 slice C, #5017): Open Folder replaces the open folders, Recents
+  switch, and a managed worktree is refused as a project. The Explorer's header
+  is above.

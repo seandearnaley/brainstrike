@@ -11,6 +11,7 @@ import type {
   WorkspaceBarRecentRoot,
   WorkspaceBarReveal,
   WorkspaceBarRoot,
+  WorkspaceBarThreadCheckout,
 } from '@brainstrike/assistant-ui';
 import { revealLabel } from '@brainstrike/file-explorer-ui/context-actions';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
@@ -22,11 +23,12 @@ import { resolvePlatformBridge } from '../platform-bridge';
 import { getThreadGroupsCapability } from '../thread-groups-capability';
 import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-bridge';
+import { useWorktreesBridge } from '../workspace-git-services';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useFollowPrimaryRecord } from './use-follow-primary-record';
 import { useLeaveWorktreeBetweenRuns } from './use-leave-worktree-between-runs';
 import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
-import { useThreadCheckout } from './use-thread-checkout';
+import { type ThreadCheckoutState, useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import { useThreadFolderScope } from './use-thread-folder-scope';
 import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
@@ -192,6 +194,24 @@ function branchMenuEntry(
 
 function modeEntry(mode: WorkspaceBarMode | undefined): { readonly mode?: WorkspaceBarMode } {
   return mode ? { mode } : {};
+}
+
+/**
+ * The thread's checkout as its binding records it, where the platform has
+ * worktrees (as `mode` does). The closed where-control names the checkout from
+ * it, so it keeps saying Local or the worktree while `mode` is withheld for a
+ * git status read (ADR-0034).
+ */
+function threadCheckoutEntry(
+  hasWorktrees: boolean,
+  checkout: ThreadCheckoutState
+): { readonly threadCheckout?: WorkspaceBarThreadCheckout } {
+  if (!hasWorktrees) {
+    return {};
+  }
+  return {
+    threadCheckout: { worktreePath: checkout.mode === 'worktree' ? checkout.worktreePath : null },
+  };
 }
 
 /**
@@ -931,13 +951,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     },
     [recordAddedAsSecondary]
   );
-  // The workspace's mounted folders that are not this thread's.
+  // The workspace's mounted folders that are not this thread's. A managed
+  // worktree is a checkout of its project, never another folder (ADR-0034
+  // decision 2): another thread's stays mounted for it, and is left out.
   const primaryRootPathForFolders = primaryRoot?.path;
   const threadPaths = new Set([primaryRootPathForFolders, ...secondaryRoots.map((r) => r.path)]);
   const workspaceFolders: readonly WorkspaceBarRecentRoot[] = Object.values(
     rootDescriptors ?? {}
   ).flatMap((descriptor) =>
-    threadPaths.has(descriptor.path)
+    descriptor.worktree || threadPaths.has(descriptor.path)
       ? []
       : [{ displayName: descriptor.displayName, path: descriptor.path }]
   );
@@ -965,6 +987,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     copyWorkspaceBarPath(path);
   }, []);
   const workspaceBarTerminal = useWorkspaceBarTerminal();
+  const hasWorktrees = useWorktreesBridge() !== null;
 
   const primaryRootPath = primaryRoot?.path;
   const primaryAdapterRootId = usePrimaryAdapterRootId(rootDescriptors, primaryRootPath);
@@ -1040,6 +1063,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     recentRoots,
     ...(reveal ? { reveal } : {}),
     secondaryRoots: shownSecondaryRoots,
+    ...threadCheckoutEntry(hasWorktrees, worktreeCheckout),
     workspaceFolders,
   };
 }

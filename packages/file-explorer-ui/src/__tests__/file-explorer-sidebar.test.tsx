@@ -322,7 +322,9 @@ describe('FileExplorerSidebar', () => {
 
     const renderWithPopulatedAdapter = makeRenderWithProviders(makeWrapper(adapter));
 
-    act(() => {
+    // An async act settles both sections' loads before it returns (BST-2485). A waitFor here
+    // polled renders the Scheduler ran outside act, which a loaded machine stretched past 1 s.
+    await act(async () => {
       renderWithPopulatedAdapter(
         <FileExplorerSidebar
           {...defaultProps}
@@ -344,13 +346,10 @@ describe('FileExplorerSidebar', () => {
       expect(header).toHaveAttribute('aria-expanded', 'true');
     }
 
-    // Wait for both per-root FileTreeProviders to load and render treegrids
-    await waitFor(() => {
-      // Forest sections name their own root (BST-1208 a11y), so match the
-      // shared prefix rather than the single-root exact name.
-      const trees = screen.getAllByRole('treegrid', { name: /^File tree/u });
-      expect(trees).toHaveLength(2);
-    });
+    // Both per-root FileTreeProviders have loaded and render treegrids. Forest sections name
+    // their own root (BST-1208 a11y), so match the shared prefix rather than the single-root
+    // exact name.
+    expect(screen.getAllByRole('treegrid', { name: /^File tree/u })).toHaveLength(2);
   });
 
   it('surfaces a per-section load error instead of claiming an empty folder', async () => {

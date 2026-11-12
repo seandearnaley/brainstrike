@@ -28,7 +28,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { useOptionalForestTreeActions } from './forest-tree-actions-context';
-import { useOpenFolderFor } from './thread-checkout-context';
+import { useOpenFolderFor, useRootHeaderLabel } from './thread-checkout-context';
 import {
   useRootSectionContextMenu,
   useSingleRootHeaderMenu,
@@ -683,6 +683,8 @@ const RootSectionInner = ({
   // The open folder this section acts for: the thread's worktree acts for the folder it
   // stands in for, so Disconnect closes that folder and never unmounts the checkout (ADR-0034).
   const openFolderId = useOpenFolderFor(rootIdentity);
+  // `<project> · <checkout>` on the active thread's folder; every other folder keeps its name.
+  const headerLabel = useRootHeaderLabel(rootIdentity, rootDirectoryHandle.name);
   const canDisconnect = onRemoveRoot !== undefined && openFolderId !== null;
   const isMain = rest.mainRootId !== undefined && rest.mainRootId === openFolderId;
 
@@ -744,7 +746,7 @@ const RootSectionInner = ({
       >
         <div className="contents" onContextMenuCapture={resetRootTarget}>
           <RootSectionHeader
-            displayName={rootDirectoryHandle.name}
+            displayName={headerLabel}
             isCollapsed={isCollapsed}
             // Main = client-declared assistant operating root (activeRootIds[0]);
             // Focused = selection state (currentFolderId). Both compare against the
@@ -908,6 +910,11 @@ const FileExplorerSidebar = memo(
     // against this column (shared-scroller mode). Unconditional hook — forest
     // mode is a render-time branch below.
     const forestScrollRef = useRef<HTMLDivElement | null>(null);
+    // The single-root row's `<project> · <checkout>` (ADR-0034); unconditional, like the ref above.
+    const singleRootHeaderLabel = useRootHeaderLabel(
+      getRootFolderId(rootDirectoryHandle, rootIdByPath),
+      rootDirectoryHandle?.name
+    );
     const { columnWidths, visibleMetadataColumnIds } = useExplorerColumns();
     // Capability, not layout: where the Explorer's sort state is mounted the
     // header is the only place the Name sort can be reached, so it renders at
@@ -1039,7 +1046,7 @@ const FileExplorerSidebar = memo(
                 className="text-muted-foreground truncate text-xs"
                 title={rootDirectoryHandle.path}
               >
-                {rootDirectoryHandle.name}
+                {singleRootHeaderLabel}
               </span>
               {singleRootFolderId ? <ThreadScopeMarker rootId={singleRootFolderId} /> : null}
               <WatcherHealthChip rootPath={rootDirectoryHandle.path} />

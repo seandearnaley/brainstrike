@@ -150,6 +150,10 @@ test.describe('Workspace bar (desktop)', () => {
       { timeout: 30_000 }
     );
     await expect(folderChip).toHaveAttribute('title', 'Not a git repository');
+    // A folder outside git is a project with one checkout, Local (ADR-0034).
+    await expect(folderChip).toHaveAccessibleName(
+      `Where this thread works: ${path.basename(plain)} · Local`
+    );
     await openWhereMenu(page);
     // Positive control: the open menu lists the folders, so the Branch row is absent, not unrendered.
     await expect(page.getByTestId('workspace-bar-folders')).toBeVisible();
@@ -243,7 +247,7 @@ test.describe('Workspace bar (desktop)', () => {
 
     // The thread had no folder, so the added one is its folder, not a secondary.
     await expect(folderChip).toHaveAccessibleName(
-      `Where this thread works: ${path.basename(ADDED_ROOT_DIR)}`,
+      `Where this thread works: ${path.basename(ADDED_ROOT_DIR)} · Local`,
       { timeout: 60_000 }
     );
     await expect(folderChip).not.toContainText('+');
