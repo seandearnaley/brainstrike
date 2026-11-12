@@ -130,6 +130,8 @@ describe('useWorktreeMode repository setup consent', () => {
       },
     });
     addRootByPathSpy.mockResolvedValue({ rootId: 'w-1' });
+    // The sheet reads its context again after every answer, refused or not.
+    createContextSpy.mockResolvedValue(createContext(null));
   });
 
   it('shows the host’s standing answer for the script when the sheet opens', async () => {
@@ -201,6 +203,57 @@ describe('useWorktreeMode repository setup consent', () => {
     });
 
     expect(result.current?.repositorySetupConsent).toMatchObject({ decision: null });
+  });
+
+  // The script changed while the sheet was open: after the refusal the sheet holds the script now
+  // on disk, so the person's next answer is checked against those bytes and can be recorded.
+  it('reads the script again after a refusal, so the next answer is for the bytes on disk', async () => {
+    const changed = 'b'.repeat(64);
+    createContextSpy.mockResolvedValueOnce(createContext(null)).mockResolvedValueOnce({
+      ok: true,
+      value: {
+        managedParentPath: '/managed/app-slug',
+        repositorySetup: { ...REPOSITORY_SETUP, scriptSha256: changed },
+        suggestedName: 'bright-fox',
+      },
+    });
+    decideSetupConsentSpy.mockResolvedValueOnce({
+      error: refusal({
+        category: 'conflict',
+        code: 'worktree.setup-consent-refused',
+        message:
+          '/work/app/.brainstrike/worktree-setup.sh changed since it was shown; review it again.',
+      }),
+      ok: false,
+    });
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+    });
+
+    await act(async () => {
+      await expect(result.current?.repositorySetupConsent?.onDecision('approved')).rejects.toThrow(
+        'changed since it was shown'
+      );
+    });
+    decideSetupConsentSpy.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        decidedAt: '2026-11-12T00:00:00.000Z',
+        decision: 'approved',
+        repositoryId: '/work/app/.git',
+        scriptSha256: changed,
+      },
+    });
+    await act(async () => {
+      await result.current?.repositorySetupConsent?.onDecision('approved');
+    });
+
+    expect(decideSetupConsentSpy).toHaveBeenLastCalledWith({
+      decision: 'approved',
+      rootId: 'r-1',
+      scriptSha256: changed,
+    });
   });
 
   it('creates from the branch menu with no answer of its own: the host reads its record', async () => {

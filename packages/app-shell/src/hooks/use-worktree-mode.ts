@@ -751,7 +751,8 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   // The person's Allow or Skip goes to the host, which records it for the
   // script's bytes they were shown, then the sheet reads the host's answer
   // back. A refusal (the script changed since the sheet opened) rejects with
-  // the host's reason, which the sheet shows.
+  // the host's reason, which the sheet shows, after the sheet reads the script
+  // again: the next answer is then for the bytes now on disk.
   const onRepositorySetupDecision = useCallback(
     async (decision: WorktreeRepositorySetupDecision): Promise<void> => {
       const rootId = args.primaryRootId;
@@ -763,14 +764,16 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         rootId,
         scriptSha256: repositorySetup.scriptSha256,
       });
+      const refreshed = await bridge.createContext({ rootId });
+      if (refreshed.ok) {
+        setCreateSheetContext(refreshed.value);
+      }
       if (!decided.ok) {
         throw new BoundaryFailureError(decided.error);
       }
-      const refreshed = await bridge.createContext({ rootId });
       if (!refreshed.ok) {
         throw new BoundaryFailureError(refreshed.error);
       }
-      setCreateSheetContext(refreshed.value);
     },
     [args.primaryRootId, bridge, repositorySetup]
   );
