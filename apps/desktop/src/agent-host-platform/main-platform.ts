@@ -28,6 +28,7 @@ import {
   PlatformObserverCandidatesSchema,
   PlatformRootsChangedSchema,
   PlatformShowFolderSchema,
+  PlatformTrashScratchFolderSchema,
 } from './platform-wire';
 
 const logger = createLogger('DesktopMainPlatform');
@@ -63,6 +64,11 @@ export interface DesktopPlatformCapabilities {
    * folder; the focused window shows it, as for any folder Main opens.
    */
   showWorkspaceFolder?(path: string): void;
+  /**
+   * ADR-0034 scratch threads: moves a deleted thread's scratch folder to the system
+   * Trash. Refuses any path that is not a folder directly inside `<userData>/scratch`.
+   */
+  trashScratchFolder?(path: string): Promise<void>;
   /**
    * The host's open folders changed: the OS recent documents and File > Open Recent follow
    * the recent-folders ledger.
@@ -294,6 +300,21 @@ export function serveDesktopPlatform(
           throw new Error('Desktop cannot show a folder in a window');
         }
         capabilities.showWorkspaceFolder(path);
+        return null;
+      })
+  );
+  connection.onRequest(
+    'platform/workspace/trash-scratch-folder',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { path } = wireDecoder(PlatformTrashScratchFolderSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
+        if (!capabilities.trashScratchFolder) {
+          throw new Error('Desktop cannot move a scratch folder to the Trash');
+        }
+        await capabilities.trashScratchFolder(path);
         return null;
       })
   );

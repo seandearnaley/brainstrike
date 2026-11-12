@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
 import type { StoredWorkspaceRoot } from './workspace-root-types.ts';
 
 /** What a workspace tool says when no folder is open. */
@@ -388,19 +388,28 @@ export async function loadWorkspaceRootsFromDatabase(
 
 /** A current typed catalog read is also the only way to lift a root revocation. */
 export async function loadWorkspaceRootsFromCatalog(
-  catalog: WorkspaceRootPort
+  catalog: WorkspaceRootPort,
+  /**
+   * Leaves roots of this kind out of the answer, from the same read: a scratch folder is its own
+   * thread's (ADR-0034). Every live root read still lifts its revocation.
+   */
+  { omitKind }: { readonly omitKind?: WorkspaceRootRecord['kind'] } = {}
 ): Promise<RuntimeWorkspaceRoot[]> {
   const { roots } = await catalog.workspaceRoots({ operation: 'list' });
   const live = roots
     .filter((root) => root.status === 'live')
-    .map((root) =>
-      normalizeRoot({ displayName: root.displayName, path: root.path, rootId: root.id })
-    )
-    .filter((root): root is RuntimeWorkspaceRoot => root !== null);
-  for (const root of live) {
+    .flatMap((root) => {
+      const normalized = normalizeRoot({
+        displayName: root.displayName,
+        path: root.path,
+        rootId: root.id,
+      });
+      return normalized ? [{ kind: root.kind, root: normalized }] : [];
+    });
+  for (const { root } of live) {
     disconnectedRootIds.delete(root.rootId);
   }
-  return live;
+  return live.flatMap(({ kind, root }) => (kind === omitKind ? [] : [root]));
 }
 
 export function recordWorkspaceRootDisconnections(rootIds: readonly string[]): void {

@@ -42,12 +42,14 @@ it.each([
     const registry = new WorkspaceRootRegistry({
       disposeCommandSessionsForRoot: vi.fn(async () => 0),
       evictLspServersForRoot: vi.fn(async () => undefined),
-      // The open folders and worktrees read; the convergence after the restore is refused.
+      // The open folders, worktrees and scratch folders read; the convergence after the restore
+      // is refused.
       getRootsCatalog: async () => ({
         workspaceRoots: async (request) => {
           if (
             request.operation === 'list-open' ||
             request.operation === 'list-worktrees' ||
+            request.operation === 'list-scratch' ||
             request.operation === 'list'
           ) {
             return { roots: [] };

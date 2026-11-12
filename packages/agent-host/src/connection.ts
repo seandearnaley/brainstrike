@@ -375,6 +375,7 @@ export function bindHostConnection(
     core.readWorkspaceBinding(params.threadId)
   );
   handleCore('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
+  handleCore('thread/workspace/scratch', (params) => core.scratchWorkspace(params));
   handleCore('run/start', (params) => core.startRun(params, origin));
   handleCore('run/regenerate', (params) => core.regenerateRun(params, origin));
   handleCore('run/input', (params) => core.input(params));

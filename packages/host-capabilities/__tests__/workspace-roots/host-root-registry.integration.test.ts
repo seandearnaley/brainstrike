@@ -138,7 +138,7 @@ describe('host root registry', () => {
       (await store.workspaceRoots({ operation: 'list-open' })).roots.map((root) => root.id);
 
     await expect(owner.service['workspace/roots/open']({ path: alpha ?? '' })).resolves.toEqual({
-      root: { available: true, path: alpha, rootId: alphaId, worktree: false },
+      root: { available: true, path: alpha, rootId: alphaId, scratch: false, worktree: false },
     });
     expect(await openIds()).toEqual([alphaId]);
     // Beta left the open folders but its run still reads it; gamma is gone.
@@ -146,7 +146,7 @@ describe('host root registry', () => {
     expect(live.sort()).toEqual([alphaId, betaId].sort());
     // A window reload restores the open folders and keeps the run's folder mounted.
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
-      roots: [{ available: true, path: alpha, rootId: alphaId, worktree: false }],
+      roots: [{ available: true, path: alpha, rootId: alphaId, scratch: false, worktree: false }],
     });
     expect((await owner.roots.listRoots()).map((root) => root.rootId).sort()).toEqual(
       [alphaId, betaId].sort()
@@ -155,13 +155,13 @@ describe('host root registry', () => {
 
     // A new folder through the picker replaces alpha; a cancelled pick changes nothing.
     const { root: opened } = await owner.service['workspace/roots/open']({});
-    expect(opened).toMatchObject({ path: delta, worktree: false });
+    expect(opened).toMatchObject({ path: delta, scratch: false, worktree: false });
     expect(await openIds()).toEqual([opened?.rootId]);
     await expect(owner.service['workspace/roots/open']({})).resolves.toEqual({ root: null });
     expect(await openIds()).toEqual([opened?.rootId]);
     // Recents still hold every folder, gamma included, so it opens again with its identity.
     await expect(owner.service['workspace/roots/open']({ path: gamma ?? '' })).resolves.toEqual({
-      root: { available: true, path: gamma, rootId: gammaId, worktree: false },
+      root: { available: true, path: gamma, rootId: gammaId, scratch: false, worktree: false },
     });
   });
 
@@ -195,7 +195,15 @@ describe('host root registry', () => {
     await owner.start();
 
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
-      roots: [{ available: false, path: workspace, rootId: root?.rootId, worktree: false }],
+      roots: [
+        {
+          available: false,
+          path: workspace,
+          rootId: root?.rootId,
+          scratch: false,
+          worktree: false,
+        },
+      ],
     });
     expect(owner.registry.mountedRoots()).toEqual([]);
   });
@@ -217,6 +225,7 @@ describe('host root registry', () => {
       available: true,
       path: target,
       rootId: granted?.rootId,
+      scratch: false,
       worktree: false,
     });
     const pins = createWorkspaceRootPins({ mounts: owner.registry });
@@ -228,7 +237,9 @@ describe('host root registry', () => {
     expect(read).toMatchObject({ status: 'ok' });
     expect(read.status === 'ok' && read.content.toString()).toBe('kept');
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
-      roots: [{ available: true, path: target, rootId: granted?.rootId, worktree: false }],
+      roots: [
+        { available: true, path: target, rootId: granted?.rootId, scratch: false, worktree: false },
+      ],
     });
   });
 
@@ -252,7 +263,7 @@ describe('host root registry', () => {
       setSetting: async (key) => refuse(`set ${key}`),
       stateDamage: 'fixture damage',
       workspaceRoots: async (request: WorkspaceRootRequest) =>
-        ['list', 'list-open', 'list-worktrees'].includes(request.operation)
+        ['list', 'list-open', 'list-scratch', 'list-worktrees'].includes(request.operation)
           ? await store.workspaceRoots(request)
           : refuse(request.operation),
     };
@@ -271,7 +282,7 @@ describe('host root registry', () => {
 
     await owner.start();
     await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
-      roots: [{ available: true, path: workspace, rootId, worktree: false }],
+      roots: [{ available: true, path: workspace, rootId, scratch: false, worktree: false }],
     });
     await expect(owner.service['workspace/roots/recent']({})).resolves.toMatchObject({
       roots: [{ path: workspace }],
@@ -292,6 +303,65 @@ describe('host root registry', () => {
     expect(owner.registry.mountedRoots()).toEqual([
       { canonicalPath: workspace, path: workspace, rootId },
     ]);
+  });
+
+  it("mounts a thread's scratch folder, never as an open or recent folder, again after a restart, and makes none while a folder is open", async () => {
+    mkdirSync(path.join(base, 'scratch'));
+    const made = path.join(base, 'scratch', 'quiet-otter');
+    const make = vi.fn(async () => {
+      mkdirSync(made);
+      return made;
+    });
+    const signal = new AbortController().signal;
+    const { owner } = registry();
+
+    const root = await owner.scratch.add({ make, signal, threadId: 'thread-1' });
+    expect(root).toEqual({ displayName: 'quiet-otter', path: made, rootId: expect.any(String) });
+    const rootId = root?.rootId ?? '';
+    // Asked again, the thread's own folder is answered and no other is made.
+    await expect(owner.scratch.add({ make, signal, threadId: 'thread-1' })).resolves.toEqual(root);
+    expect(make).toHaveBeenCalledTimes(1);
+    const scratchRoot = { available: true, path: made, rootId, scratch: true, worktree: false };
+    await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
+      roots: [scratchRoot],
+    });
+    expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([]);
+    await expect(owner.service['workspace/roots/recent']({})).resolves.toEqual({ roots: [] });
+
+    // A restart mounts it again for its thread, still neither open nor recent.
+    await owner.close();
+    const workspace = folder('workspace');
+    const restarted = registry({ picked: workspace }).owner;
+    await restarted.start();
+    expect(restarted.registry.mountedRoots()).toEqual([
+      { canonicalPath: made, path: made, rootId },
+    ]);
+    await expect(restarted.service['workspace/roots/restore']({})).resolves.toEqual({
+      roots: [scratchRoot],
+    });
+    // A window shows it by its record, without the picker.
+    await expect(restarted.service['workspace/roots/add']({ path: made })).resolves.toEqual(
+      scratchRoot
+    );
+    // It is the thread's own: it never opens as the window's project.
+    await expect(restarted.service['workspace/roots/open']({ path: made })).rejects.toThrow();
+    await expect(restarted.service['workspace/roots/recent']({})).resolves.toEqual({ roots: [] });
+
+    // With a folder open, a thread with none gets none made.
+    await restarted.service['workspace/roots/pick']({});
+    const other = vi.fn(async () => made);
+    await expect(
+      restarted.scratch.add({ make: other, signal, threadId: 'thread-2' })
+    ).resolves.toBeNull();
+    expect(other).not.toHaveBeenCalled();
+
+    // Its thread deleted, it unmounts and its root and record go.
+    await expect(restarted.scratch.forget('thread-1')).resolves.toEqual(root);
+    expect(restarted.registry.mountedRoots().map((mounted) => mounted.path)).toEqual([workspace]);
+    expect((await store.workspaceRoots({ operation: 'list' })).roots.map((r) => r.path)).toEqual([
+      workspace,
+    ]);
+    await expect(restarted.scratch.read('thread-1')).resolves.toBeNull();
   });
 
   it('seeds folders only in a desktop E2E session', async () => {
