@@ -13,6 +13,7 @@
  * creation that names no thread, or whose thread is gone, has no one to tell,
  * so it runs no cap; the repository's next creation for a thread does.
  */
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { HostIdleWorktreeArchive } from '@brainstrike/agent-host';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
@@ -24,6 +25,7 @@ import type {
   WorktreeCreateParams,
 } from '@brainstrike/types';
 import { IDLE_ARCHIVE_LEFT_IN_PLACE } from './worktree-idle-archive.ts';
+import { isPathWithin } from './worktree-paths.ts';
 import { createMutex, type WorktreeArchiveParams } from './worktree-service-inputs.ts';
 
 const logger = createLogger('IdleWorktreeCap');
@@ -97,8 +99,24 @@ function bindingClaims(
   return { ids, paths };
 }
 
-const claimed = (claims: BindingClaims, row: ManagedWorktreeRow): boolean =>
-  claims.ids.has(row.id) || claims.paths.has(row.path);
+/**
+ * Whether a binding claims the worktree: as a thread's worktree, or by a folder that is the
+ * worktree or lies inside it (a folder within a worktree, opened on its own, is the worktree's
+ * files). Compared by the ledger's path and by its realpath, since a binding's folders carry
+ * both the path they were opened by and its canonical form.
+ */
+async function claimed(claims: BindingClaims, row: ManagedWorktreeRow): Promise<boolean> {
+  if (claims.ids.has(row.id)) {
+    return true;
+  }
+  const worktreePaths = [row.path, await realpath(row.path).catch(() => row.path)];
+  for (const folder of claims.paths) {
+    if (worktreePaths.some((worktreePath) => isPathWithin(folder, worktreePath))) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Newest first: `created_at`, then id, as the ledger lists a repository. */
 function newestFirst(left: ManagedWorktreeRow, right: ManagedWorktreeRow): number {
@@ -162,9 +180,9 @@ export function createIdleWorktreeCap(deps: IdleWorktreeCapDeps): IdleWorktreeCa
     }
     const rows = await deps.listRepository(created.repoCommonDir);
     const claims = bindingClaims(threads, await deps.readRoots());
-    const idle = rows
-      .filter((row) => row.archivedAt === null && row.id !== created.id && !claimed(claims, row))
-      .sort(newestFirst);
+    const active = rows.filter((row) => row.archivedAt === null && row.id !== created.id);
+    const bound = await Promise.all(active.map((row) => claimed(claims, row)));
+    const idle = active.filter((_row, index) => !bound[index]).sort(newestFirst);
     // A worktree left in place keeps its place: no younger one is archived in its stead.
     const beyond = idle.slice(IDLE_WORKTREE_CAP).reverse();
     const archived: HostIdleWorktreeArchive['worktrees'] = [];

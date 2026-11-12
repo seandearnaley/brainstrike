@@ -275,6 +275,32 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
     expect(told.flatMap(({ worktrees }) => worktrees.map(({ name }) => name))).toEqual(['idle-03']);
   });
 
+  // A folder inside a managed worktree, opened as a folder of its own, is that worktree's files:
+  // archiving the worktree would take the folder from the thread working in it.
+  it('never archives a worktree that holds a folder a thread is bound to', async () => {
+    const [holder] = await seedMany(16);
+    if (!holder) {
+      throw new Error('Seeded nothing');
+    }
+    const inside = path.join(holder.path, 'packages', 'app');
+    mkdirSync(inside, { recursive: true });
+    roots = [{ canonicalPath: inside, id: 'inside-root', path: inside }];
+    threads = [
+      { binding: null, threadId: 'thread-1' },
+      {
+        binding: { operatingRootDisplayName: 'app', operatingRootId: 'inside-root' },
+        threadId: 'thread-2',
+      },
+    ];
+
+    await createForThread();
+
+    expect((await ledgerRow(holder.id)).archivedAt).toBeNull();
+    expect(existsSync(inside)).toBe(true);
+    // The other fifteen are within the cap.
+    expect(told).toEqual([]);
+  });
+
   it('leaves a worktree a thread took while the cap waited to archive it', async () => {
     const [oldest] = await seedMany(16);
     if (!oldest) {

@@ -486,7 +486,11 @@ revisit:
   next creation, so the cap is what clears it away.
 - **"Bound" is any of a binding's folders:** the thread's worktree
   (`checkoutWorktreeId`), its operating folder, the folder it returns to or
-  another of its folders, matched by id or by the root's recorded path. A
+  another of its folders, matched by id, or by a folder's path (as opened and
+  canonical) that is the worktree or lies inside it, against the worktree's
+  ledger path and its realpath. A folder inside a worktree opened on its own is
+  the worktree's files, and archiving the worktree would take it from the
+  thread working there (from the commit security review). A
   thread that moves from one worktree to another keeps the first as one of its
   folders, and archiving it would leave that thread naming a folder that is
   gone. Every existing thread is read from Core's thread list (a worker takes
