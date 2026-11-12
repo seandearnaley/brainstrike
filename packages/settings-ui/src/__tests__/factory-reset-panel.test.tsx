@@ -83,6 +83,20 @@ describe('FactoryResetPanel', () => {
     expect(resetLocal).not.toHaveBeenCalled();
   });
 
+  // ADR-0034: the reset archives the managed worktrees, forcing past their ignored files.
+  it('says before the person confirms that worktrees are archived and their ignored files deleted', () => {
+    installDesktopReset(vi.fn(async () => ({ success: true })));
+    render(<FactoryResetPanel />);
+
+    fireEvent.click(screen.getByTestId('factory-reset-button'));
+
+    expect(
+      screen.getByText(
+        'Managed worktrees are archived into their repositories first: uncommitted work is kept as a snapshot ref and their branches stay, but their ignored files, such as .env files and installed dependencies, are deleted.'
+      )
+    ).toBeVisible();
+  });
+
   it('joins renderer preparation before calling desktop reset', async () => {
     const preparation = Promise.withResolvers<void>();
     mockPrepareFactoryReset.mockReturnValueOnce(preparation.promise);

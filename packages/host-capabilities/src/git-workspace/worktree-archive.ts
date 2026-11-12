@@ -98,6 +98,29 @@ export function nestedRepositoriesArchiveBlocker(paths: readonly string[]): stri
   )}. Their commits and files would be deleted with the worktree. Move them out of the worktree before archiving.`;
 }
 
+/** What stops an archive, given its `force`; null when nothing does. */
+export function resolveArchiveBlocker(safety: WorktreeSafetyReport, force: boolean): string | null {
+  if (safety.threadIsRunning) {
+    // The ONE blocker `force` never overrides.
+    const runningBlocker = safety.blockers.find((blocker) => blocker.length > 0);
+    if (!runningBlocker) {
+      throw new Error(
+        'Internal error: threadIsRunning but no blocker was reported — archive refused (fail-closed).'
+      );
+    }
+    return runningBlocker;
+  }
+  // Nested repositories are not in the snapshot, so `force` cannot make
+  // archiving them safe either (BST-1625).
+  if (safety.nestedRepositories.length > 0) {
+    return nestedRepositoriesArchiveBlocker(safety.nestedRepositories);
+  }
+  if (!(force || safety.blockers.length === 0)) {
+    return safety.blockers.find((blocker) => blocker.length > 0) ?? null;
+  }
+  return null;
+}
+
 /**
  * Every gitlink in the index, plus every directory that holds an indexed path.
  * A repository initialized inside a tracked directory gets no `?? dir/` status
