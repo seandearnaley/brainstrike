@@ -100,10 +100,36 @@ describe('model vendors', () => {
     }
   });
 
+  it('gives every model one id across all providers', () => {
+    // The model catalog, a thread's selected model and Settings' toggles name a
+    // model by its id alone, so two providers' rows may never share one.
+    const owners = new Map<string, string[]>();
+    for (const provider of listProviders()) {
+      for (const model of provider.models) {
+        owners.set(model.id, [...(owners.get(model.id) ?? []), provider.id]);
+      }
+    }
+    expect([...owners].filter(([, providers]) => providers.length > 1)).toEqual([]);
+  });
+
+  it('gives every model a name no other row shows', () => {
+    // The composer names its selected model by this alone: two rows called
+    // "GPT-6.1 Terra" leave a person unable to tell which provider will answer.
+    const owners = new Map<string, string[]>();
+    for (const provider of listProviders()) {
+      for (const model of provider.models) {
+        const name = model.catalog?.name ?? model.label ?? model.id;
+        owners.set(name, [...(owners.get(name) ?? []), `${provider.id}/${model.id}`]);
+      }
+    }
+    expect([...owners].filter(([, rows]) => rows.length > 1)).toEqual([]);
+  });
+
   it('serves on the ChatGPT route only models the OpenAI route also lists, unpriced', () => {
     const openai = new Map(listProviderLlmModels('openai').map((model) => [model.id, model]));
     for (const model of listProviderLlmModels('chatgpt')) {
-      const metered = openai.get(model.id);
+      expect(model.id).toMatch(/^chatgpt\//u);
+      const metered = openai.get(model.id.slice('chatgpt/'.length));
       expect(metered, model.id).toBeDefined();
       // A plan pays for these requests, and the route refuses OpenAI's native tool search.
       expect(model.pricing, model.id).toBeUndefined();

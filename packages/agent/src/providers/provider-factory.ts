@@ -18,7 +18,7 @@ import {
 } from '@mastra/core/llm';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
 import { resolveBedrockModelId } from './bedrock-model-id.ts';
-import { chatGptPlanModel } from './chatgpt-plan-model.ts';
+import { chatGptPlanModel, chatGptWireModelId } from './chatgpt-plan-model.ts';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content.ts';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching.ts';
 import {
@@ -145,7 +145,10 @@ export function createProvider(
       // The base URL is pinned: left to the SDK, `OPENAI_BASE_URL` would send
       // the person's ChatGPT token wherever the environment points.
       return chatGptPlanModel(
-        createOpenAI({ apiKey: accessToken, baseURL: CHATGPT_PLAN_RESOURCE })(modelName)
+        createOpenAI({ apiKey: accessToken, baseURL: CHATGPT_PLAN_RESOURCE })(
+          chatGptWireModelId(modelName)
+        ),
+        modelName
       );
     }
 

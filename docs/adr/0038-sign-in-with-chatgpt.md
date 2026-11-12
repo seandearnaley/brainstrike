@@ -23,6 +23,10 @@ published to npm, so none of its code is used.
    models answer, and what a request may carry, and a person may hold both an API key and a
    sign-in. A catalog provider row states those differences once; the model a thread selects
    is also the choice of who pays. Its rows carry no `pricing` and no `nativeToolSearch`.
+   Their ids are `chatgpt/`-prefixed, because a model id names one catalog row across every
+   provider and the `openai` rows hold the bare ids; the prefix is dropped where the request
+   is built. Their names end in "(ChatGPT)", as OpenRouter's and Bedrock's rows name their
+   route: the composer shows a selected model by its name alone.
 2. **The host owns the sign-in.** The flow, the tokens, their renewal and their revocation
    live in [`chatgpt-sign-in.ts`](../../packages/host-capabilities/src/provider-auth/chatgpt-sign-in.ts),
    in the agent host. Main forwards Settings' calls and opens the browser; the renderer

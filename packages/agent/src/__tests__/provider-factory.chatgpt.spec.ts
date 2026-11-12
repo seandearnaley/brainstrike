@@ -77,7 +77,7 @@ function signedInModel(): StreamingModel {
       },
       kind: 'access_token',
     },
-    'gpt-6.1-sol'
+    'chatgpt/gpt-6.1-sol'
   ) as unknown as StreamingModel;
 }
 
@@ -128,6 +128,17 @@ describe('createProvider chatgpt case (ADR-0038)', () => {
     ]);
   });
 
+  it("asks OpenAI for the model by its own id and keeps the catalog row's id for the host", async () => {
+    const sent = stubOpenAi(() => serverSentEvents(COMPLETED));
+    const model = signedInModel();
+
+    await send(model);
+
+    // The catalog id is prefixed so it never names the `openai` row of the same model.
+    expect(sent[0]?.body['model']).toBe('gpt-6.1-sol');
+    expect((model as unknown as { modelId: string }).modelId).toBe('chatgpt/gpt-6.1-sol');
+  });
+
   it('shapes the request as a ChatGPT plan accepts it', async () => {
     const sent = stubOpenAi(() => serverSentEvents(COMPLETED));
 
@@ -168,7 +179,9 @@ describe('createProvider chatgpt case (ADR-0038)', () => {
 
   it('refuses every credential but a sign-in, so a metered key never pays for plan requests', () => {
     for (const auth of [undefined, { apiKey: 'sk-fixture', kind: 'api_key' } as const]) {
-      expect(() => createProvider('chatgpt', auth, 'gpt-6.1-sol')).toThrow(MastraAgentError);
+      expect(() => createProvider('chatgpt', auth, 'chatgpt/gpt-6.1-sol')).toThrow(
+        MastraAgentError
+      );
     }
     expect(() =>
       createProvider(

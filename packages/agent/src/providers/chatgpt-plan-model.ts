@@ -150,7 +150,27 @@ const chatGptPlanMiddleware: LanguageModelV4Middleware = {
   wrapGenerate: async ({ doStream }) => await wholeAnswer(await doStream()),
 };
 
-/** A Responses model whose every call is one a ChatGPT plan accepts. */
-export function chatGptPlanModel(model: LanguageModelV4): LanguageModelV4 {
-  return wrapLanguageModel({ middleware: chatGptPlanMiddleware, model });
+const CATALOG_ID_PREFIX = 'chatgpt/';
+
+/**
+ * The model id OpenAI knows. The catalog prefixes this provider's ids, because
+ * a model id names one catalog row across every provider and the `openai` rows
+ * already hold the bare ids.
+ */
+export function chatGptWireModelId(catalogModelId: string): string {
+  return catalogModelId.startsWith(CATALOG_ID_PREFIX)
+    ? catalogModelId.slice(CATALOG_ID_PREFIX.length)
+    : catalogModelId;
+}
+
+/**
+ * A Responses model whose every call is one a ChatGPT plan accepts. It keeps
+ * its catalog id, so the host reads this row's limits and tokenizer for it.
+ */
+export function chatGptPlanModel(model: LanguageModelV4, catalogModelId: string): LanguageModelV4 {
+  return wrapLanguageModel({
+    middleware: chatGptPlanMiddleware,
+    model,
+    modelId: catalogModelId,
+  });
 }

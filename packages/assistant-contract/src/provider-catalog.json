@@ -7547,7 +7547,7 @@
     "runtime": "hosted"
   },
   {
-    "_note": "OpenAI models paid for by the signed-in account's ChatGPT plan, through OpenAI's Sign in with ChatGPT for open-source apps (ADR-0038).\nThe model set is the intersection of this catalog's active `openai` rows and opencode's Sign in with ChatGPT list (`fallbackModels` in its chatgpt.ts, read 2026-11-12); OpenAI's own list is per account (`GET /v1/models` with the access token), which Test connection reads.\nNo environment variable authenticates this provider: its tokens come only from the browser sign-in.",
+    "_note": "OpenAI models paid for by the signed-in account's ChatGPT plan, through OpenAI's Sign in with ChatGPT for open-source apps (ADR-0038).\nThe model set is the intersection of this catalog's active `openai` rows and opencode's Sign in with ChatGPT list (`fallbackModels` in its chatgpt.ts, read 2026-11-12); OpenAI's own list is per account (`GET /v1/models` with the access token), which Test connection reads.\nNo environment variable authenticates this provider: its tokens come only from the browser sign-in.\nModel ids are `chatgpt/`-prefixed: a model id names one catalog row across every provider (as `openai/…` does on OpenRouter and `anthropic.…` on Bedrock), so a bare `gpt-6.1-terra` here would be the `openai` row's. The prefix is dropped where the request is built.",
     "authType": "chatgpt_sign_in",
     "capabilities": {
       "streaming": true
@@ -7565,23 +7565,23 @@
     "keyNotes": "Sign in with your ChatGPT Plus or Pro account. Requests use your ChatGPT plan; you can review and limit that usage in ChatGPT settings.",
     "models": [
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (500,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (500,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Tool use"],
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-6.1 Terra",
+          "name": "GPT-6.1 Terra (ChatGPT)",
           "parameters": null,
           "sortOrder": 1,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 628000,
         "default": true,
-        "id": "gpt-6.1-terra",
+        "id": "chatgpt/gpt-6.1-terra",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2026-06-01",
-        "label": "GPT-6.1 Terra",
+        "label": "GPT-6.1 Terra (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-10-26",
           "status": "active"
@@ -7631,22 +7631,22 @@
         "vendor": "openai"
       },
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (500,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (500,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": ["Complex coding", "Agentic workflows"],
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-6.1 Sol",
+          "name": "GPT-6.1 Sol (ChatGPT)",
           "parameters": null,
           "sortOrder": 2,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 628000,
-        "id": "gpt-6.1-sol",
+        "id": "chatgpt/gpt-6.1-sol",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2026-04-30",
-        "label": "GPT-6.1 Sol",
+        "label": "GPT-6.1 Sol (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-09-29",
           "status": "active"
@@ -7695,7 +7695,7 @@
         "vendor": "openai"
       },
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": [
             "Reasoning",
@@ -7707,16 +7707,16 @@
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-6 Astra",
+          "name": "GPT-6 Astra (ChatGPT)",
           "parameters": null,
           "sortOrder": 3,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 400000,
-        "id": "gpt-6-astra",
+        "id": "chatgpt/gpt-6-astra",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2026-04-30",
-        "label": "GPT-6 Astra",
+        "label": "GPT-6 Astra (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-09-04",
           "status": "active"
@@ -7764,22 +7764,22 @@
         "vendor": "openai"
       },
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": ["Focused tasks", "High-volume tasks"],
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-6 Luna",
+          "name": "GPT-6 Luna (ChatGPT)",
           "parameters": null,
           "sortOrder": 4,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 400000,
-        "id": "gpt-6-luna",
+        "id": "chatgpt/gpt-6-luna",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2026-05-18",
-        "label": "GPT-6 Luna",
+        "label": "GPT-6 Luna (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-09-22",
           "status": "active"
@@ -7828,22 +7828,22 @@
         "vendor": "openai"
       },
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": ["Deep reasoning", "Agentic work"],
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-5.6 Sol",
+          "name": "GPT-5.6 Sol (ChatGPT)",
           "parameters": null,
           "sortOrder": 5,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 400000,
-        "id": "gpt-5.6-sol",
+        "id": "chatgpt/gpt-5.6-sol",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2026-02-16",
-        "label": "GPT-5.6 Sol",
+        "label": "GPT-5.6 Sol (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-07-09",
           "status": "active"
@@ -7892,22 +7892,22 @@
         "vendor": "openai"
       },
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Tool use"],
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-5.6 Terra",
+          "name": "GPT-5.6 Terra (ChatGPT)",
           "parameters": null,
           "sortOrder": 6,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 400000,
-        "id": "gpt-5.6-terra",
+        "id": "chatgpt/gpt-5.6-terra",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2026-02-16",
-        "label": "GPT-5.6 Terra",
+        "label": "GPT-5.6 Terra (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-07-09",
           "status": "active"
@@ -7957,22 +7957,22 @@
         "vendor": "openai"
       },
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": ["High volume", "Fast iteration"],
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-5.6 Luna",
+          "name": "GPT-5.6 Luna (ChatGPT)",
           "parameters": null,
           "sortOrder": 7,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 400000,
-        "id": "gpt-5.6-luna",
+        "id": "chatgpt/gpt-5.6-luna",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2026-02-16",
-        "label": "GPT-5.6 Luna",
+        "label": "GPT-5.6 Luna (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-07-09",
           "status": "active"
@@ -8021,22 +8021,22 @@
         "vendor": "openai"
       },
       {
-        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row of the same id.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
+        "_note": "Served through Sign in with ChatGPT (ADR-0038); model facts copied from the `openai` row this id names after its `chatgpt/` prefix.\nNo `pricing`: requests draw on the signed-in account's ChatGPT plan, so there is no per-token rate to state.\nNo `nativeToolSearch`: OpenAI's preview limitations list Responses `tool_search` as unsupported on this route.\n`contextWindow` is the plan's default input window (272,000 tokens, from opencode's context caps) plus the output window; the route accepts more, at a higher plan cost.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Agentic"],
           "description": null,
           "enabled": true,
           "icon": null,
-          "name": "GPT-5.5",
+          "name": "GPT-5.5 (ChatGPT)",
           "parameters": null,
           "sortOrder": 8,
           "tagline": "Uses your ChatGPT plan"
         },
         "contextWindow": 400000,
-        "id": "gpt-5.5",
+        "id": "chatgpt/gpt-5.5",
         "inputModalities": ["text", "image", "pdf"],
         "knowledgeCutoff": "2025-12-01",
-        "label": "GPT-5.5",
+        "label": "GPT-5.5 (ChatGPT)",
         "lifecycle": {
           "releasedAt": "2026-04-23",
           "status": "active"
