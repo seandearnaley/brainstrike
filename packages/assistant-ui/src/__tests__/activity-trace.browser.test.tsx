@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState, useSyncExternalStore } from 'react';
 import { expect, test } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
+import { SubagentChip } from '../subagent-chip';
 import { mustFind, px } from './browser-dom';
 
 const live = {
@@ -170,6 +171,89 @@ test('a long resting headline truncates instead of pushing the step count out of
   // …and the headline ellipsises on ONE line rather than wrapping the row
   // taller (the fixed-height scroll-anchoring rule, spec §4.7).
   expect(button.getBoundingClientRect().height).toBe(shortHeight);
+});
+
+test('subagent chips keep the header on one line, folding to their colour dots where their names do not fit', () => {
+  const callSigns = ['Cedar-a9b0a8', 'Nimbus-54e4c0', 'Iris-35a412'];
+  const resting = 'Updated memory, loaded tool, delegated to Worker';
+  const summary = {
+    counts: { failed: 1, steps: 28 },
+    live: 'Working',
+    resting,
+    verbs: resting,
+    waiting: false,
+  };
+  const marks = Array.from({ length: 28 }, (_, index) => ({
+    kind: 'read' as const,
+    label: `Step ${index}`,
+    stepId: `step-${index}`,
+  }));
+  const header = (width: number, agents: readonly string[]) => (
+    <div className="assistant-ui-panel" style={{ width }}>
+      <ActivityTrace
+        {...(agents.length > 0
+          ? {
+              agents: agents.map((callSign) => (
+                <SubagentChip
+                  agent={{ callSign, colorId: 'family:180:500', onOpen: () => undefined }}
+                  key={callSign}
+                />
+              )),
+            }
+          : {})}
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={false}
+        onShowFailed={() => undefined}
+        restingOverride={null}
+        strip={{ marks, onPick: () => undefined }}
+        summary={summary}
+        tail={[]}
+      />
+    </div>
+  );
+  const headerBox = () => mustFind(document.body, '.bs-activity-header').getBoundingClientRect();
+  const chipHeights = new Set<number>();
+
+  for (const width of [400, 900]) {
+    const { rerender, unmount } = render(header(width, []));
+    const oneLine = headerBox().height;
+    rerender(header(width, callSigns));
+    const row = headerBox();
+    expect(row.height).toBe(oneLine);
+    // The controls after the headline sit inside the row, in order, apart.
+    const controls = [
+      screen.getByTestId('assistant-activity-failed-count'),
+      ...screen.getAllByTestId('subagent-chip'),
+      screen.getByTestId('assistant-activity-run-strip'),
+    ]
+      .map((control) => control.getBoundingClientRect())
+      .filter((box) => box.width > 0);
+    for (const [index, box] of controls.entries()) {
+      expect(box.left).toBeGreaterThanOrEqual(row.left);
+      expect(box.right).toBeLessThanOrEqual(row.right);
+      const next = controls[index + 1];
+      if (next) {
+        expect(next.left).toBeGreaterThan(box.right);
+      }
+    }
+    for (const callSign of callSigns) {
+      // Folded or not, each chip is still named and still opens its subagent.
+      const chip = screen.getByRole('button', { name: `Go to ${callSign}` });
+      const label = screen.getByText(callSign).getBoundingClientRect();
+      const box = chip.getBoundingClientRect();
+      chipHeights.add(box.height);
+      if (width === 400) {
+        expect(box.width).toBe(box.height);
+        expect(label.width).toBeLessThanOrEqual(1);
+      } else {
+        expect(label.width).toBeGreaterThan(40);
+      }
+    }
+    unmount();
+  }
+  // A folded dot is exactly as tall as a named chip.
+  expect(chipHeights.size).toBe(1);
 });
 
 /*

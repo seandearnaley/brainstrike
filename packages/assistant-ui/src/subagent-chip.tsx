@@ -38,6 +38,9 @@ export function SubagentChip({ agent }: { readonly agent: SubagentChipAgent }): 
       {content}
     </button>
   ) : (
-    <span {...shared}>{content}</span>
+    // The title names a chip folded to its dot (`.bs-activity-agents`).
+    <span {...shared} title={agent.callSign}>
+      {content}
+    </span>
   );
 }
