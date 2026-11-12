@@ -17,7 +17,7 @@ describe('runtime host boundary', () => {
     const failure = new Error('Factory reset IPC retirement failed');
     ipcOwners.reset.mockRejectedValueOnce(failure);
     const domain = createApplicationIpcDomain({
-      factoryReset: { reset: async () => ({ success: true }), takeWorktreeOutcome: () => null },
+      factoryReset: { reset: async () => ({ success: true }), takeResetOutcome: () => null },
       getUserDataPath: () => '/disposable/profile',
       onClearContent: async () => {
         throw new Error('Unexpected content clear');

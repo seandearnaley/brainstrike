@@ -1,4 +1,4 @@
-import type { WorktreeResetOutcome } from '@brainstrike/types';
+import type { ResetOutcome, WorktreeResetOutcome } from '@brainstrike/types';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { type Contract, rawChannel } from '../platform/ipc-contract';
 
@@ -15,10 +15,11 @@ export const factoryResetContract = {
     channel: DESKTOP_IPC_CHANNELS.db.resetLocal,
   }),
   /**
-   * ADR-0034: the last Factory Reset's managed worktrees, once. The window that asked for the
-   * reset is replaced before the reset answers, so its replacement takes this as it starts.
+   * ADR-0034: what the last reset (Factory Reset or Clear Database) did with the managed
+   * worktrees and scratch folders, once. The window that asked for the reset is replaced before
+   * the reset answers, so its replacement takes this as it starts.
    */
-  takeWorktreeOutcome: rawChannel<[], WorktreeResetOutcome | null>({
-    channel: DESKTOP_IPC_CHANNELS.db.takeResetWorktreeOutcome,
+  takeResetOutcome: rawChannel<[], ResetOutcome | null>({
+    channel: DESKTOP_IPC_CHANNELS.db.takeResetOutcome,
   }),
 } as const satisfies Contract;

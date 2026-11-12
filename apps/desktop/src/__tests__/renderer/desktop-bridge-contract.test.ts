@@ -18,7 +18,7 @@ describe('validateDesktopBridgeContract', () => {
       throw new Error('Expected contract validation to fail.');
     }
     expect(result.missing).toContain('window.electronAPI.factoryReset.resetLocal');
-    expect(result.missing).toContain('window.electronAPI.factoryReset.takeWorktreeOutcome');
+    expect(result.missing).toContain('window.electronAPI.factoryReset.takeResetOutcome');
     expect(result.missing).toContain('window.modelCatalog.read');
     expect(result.missing).toContain('window.agentHost.onPrepareClose');
     expect(result.missing).toContain('window.logging.getPreferences');
@@ -56,7 +56,7 @@ describe('validateDesktopBridgeContract', () => {
         content: { clear: async () => ({}) },
         factoryReset: {
           resetLocal: async () => ({ success: true }),
-          takeWorktreeOutcome: async () => null,
+          takeResetOutcome: async () => null,
         },
       },
       logging: {

@@ -1,11 +1,11 @@
 /**
- * ADR-0015, ADR-0034: Factory Reset archives every active managed worktree before Main deletes
- * the state DB that holds their ledger. Without it the folders would stay on disk, unknown to the
+ * ADR-0015, ADR-0034: a reset archives every active managed worktree before Main deletes their
+ * ledger: Factory Reset with the state DB, Clear Database with its rows. Without it the folders would stay on disk, unknown to the
  * app and still registered with their repositories, holding the person's uncommitted work.
  *
  * Each worktree goes through the idle cap's archive (`worktree-idle-archive.ts`), the person's
  * archive under it: the snapshot ref keeps its uncommitted changes in its repository, the branch
- * stays, and the folder and git's registration go. Every thread goes with the reset, so no
+ * stays, and the folder and git's registration go. Both resets delete every thread, so no
  * worktree counts as bound. A locked worktree, one with nested repositories and one a run is
  * active in are left in place, never forced; so is one whose archive fails. Each is named with
  * its path and why, and nothing removes a worktree folder outside the archive.
@@ -63,8 +63,8 @@ async function archiveEveryWorktree(service: ResetArchiveService): Promise<Workt
 
 /**
  * The reset's archive takes one turn of the service's queue, and after it the service makes and
- * restores no worktree. The host closes next, so nothing reopens it: a run still in progress
- * makes no worktree the reset would leave on disk unnamed.
+ * restores no worktree. The host closes next (both resets retire it), so nothing reopens it: a
+ * run still in progress makes no worktree the reset would leave on disk unnamed.
  */
 export function createWorktreeResetArchive(
   serialize: ReturnType<typeof createMutex>,

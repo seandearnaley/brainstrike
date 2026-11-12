@@ -1,4 +1,4 @@
-import type { WorktreeResetOutcome } from '@brainstrike/types';
+import type { ResetOutcome } from '@brainstrike/types';
 import { Schema } from 'effect';
 import { ipcMain } from 'electron';
 import type { DesktopFactoryResetResult } from './desktop-reset-platform';
@@ -12,8 +12,8 @@ import { NoArgs } from './platform/ipc-args';
 /** Main's Factory Reset owner, as the renderer reaches it. */
 export interface FactoryResetIpcOwner {
   reset(): Promise<DesktopFactoryResetResult>;
-  /** ADR-0034: the last reset's managed worktrees, once, for the replacement window. */
-  takeWorktreeOutcome(): WorktreeResetOutcome | null;
+  /** ADR-0034: the last reset's worktrees and scratch folders, once, for the replacement window. */
+  takeResetOutcome(): ResetOutcome | null;
 }
 
 export function registerFactoryResetIpcHandlers(owner: FactoryResetIpcOwner): () => void {
@@ -22,13 +22,13 @@ export function registerFactoryResetIpcHandlers(owner: FactoryResetIpcOwner): ()
     registry,
     'runtime',
     factoryResetContract,
-    { resetLocal: NoArgs, takeWorktreeOutcome: NoArgs },
+    { resetLocal: NoArgs, takeResetOutcome: NoArgs },
     {
       resetLocal: () => {
         const unavailableReason = getFactoryResetUnavailableReason(process.platform);
         return unavailableReason ? { message: unavailableReason, success: false } : owner.reset();
       },
-      takeWorktreeOutcome: () => owner.takeWorktreeOutcome(),
+      takeResetOutcome: () => owner.takeResetOutcome(),
     }
   );
   return () => registry.unregisterAll();

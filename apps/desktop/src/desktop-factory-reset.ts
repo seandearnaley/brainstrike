@@ -11,6 +11,7 @@ import {
   recordDesktopResetStarted,
 } from './desktop-reset-diagnostics';
 import { purgeCrashReports } from './diagnostics/crash-dumps';
+import { archiveManagedWorktreesForReset } from './reset-managed-folders';
 
 const logger = createLogger('DesktopFactoryReset');
 
@@ -22,7 +23,7 @@ export interface ResetDesktopApplicationDataOptions {
    * ADR-0034: the host's archive of every managed worktree into its repository. The worktrees
    * live outside userData and their ledger is in the state DB, so this runs while the host
    * still serves, before `resetDatabaseProfile`. Optional so callers/tests that don't exercise
-   * it can omit it; Clear Database never passes it.
+   * it can omit it; Clear Database runs the same archive itself (`desktop-reset-platform.ts`).
    */
   archiveManagedWorktrees?: () => Promise<BoundaryResult<WorktreeResetArchive>>;
   /** Crashpad's live database (`app.getPath('crashDumps')`, BST-2351). It stays
@@ -166,34 +167,6 @@ async function purgeErrorLogFiles(
   return { purgedPaths, purgeFailures };
 }
 
-/**
- * ADR-0034: archives the managed worktrees before their ledger is deleted. A worktree the
- * archive left, or an archive that could not run, is reported, never fatal: the person chose
- * the reset, and its folders are never deleted outside the archive.
- */
-async function archiveManagedWorktreesBeforeReset(
-  archive: () => Promise<BoundaryResult<WorktreeResetArchive>>
-): Promise<WorktreeResetOutcome> {
-  let answer: BoundaryResult<WorktreeResetArchive>;
-  try {
-    answer = await archive();
-  } catch (error) {
-    logger.error('Desktop factory reset could not archive the managed worktrees', { error });
-    return { reason: error instanceof Error ? error.message : String(error), status: 'failed' };
-  }
-  if (!answer.ok) {
-    logger.error('Desktop factory reset could not archive the managed worktrees', {
-      error: answer.error,
-    });
-    return { reason: answer.error.message, status: 'failed' };
-  }
-  const { archived, retained } = answer.value;
-  if (retained.length > 0) {
-    logger.warn('Desktop factory reset left managed worktrees on disk', { retained });
-  }
-  return { archived, retained, status: 'archived' };
-}
-
 export async function resetDesktopApplicationData({
   archiveManagedWorktrees,
   crashDumpsPath,
@@ -218,7 +191,7 @@ export async function resetDesktopApplicationData({
     const managedWorktrees =
       archiveManagedWorktrees === undefined
         ? undefined
-        : await archiveManagedWorktreesBeforeReset(archiveManagedWorktrees);
+        : await archiveManagedWorktreesForReset(archiveManagedWorktrees);
     await resetDatabaseProfile();
 
     const deletedPaths: string[] = [];
