@@ -527,7 +527,7 @@ describe('useWorkspaceBar', () => {
     await waitFor(() => expect(result.current.checkoutState).toBe('resolved'));
   });
 
-  it('withholds the branch chip until its switcher settles, so it never turns interactive under a click', async () => {
+  it('withholds the Branch row until its switcher settles, so it never turns interactive under a click', async () => {
     // A freshly mounted bar (a new thread's first send mounts the thread's own
     // panel) reads its branches once. The chip used to render the read-only
     // image for that read and then become the switcher: a click in between

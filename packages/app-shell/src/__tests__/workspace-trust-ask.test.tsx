@@ -19,7 +19,7 @@ import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-c
 import { WorkspaceBarHost } from '../workspace-bar/workspace-bar-host';
 import { notifyWorkspaceTrustChanged } from '../workspace-trust/workspace-trust-revision';
 
-// The bar's own folder, branch and checkout chips are covered where they live.
+// The bar's where-control is covered where it lives.
 const BAR: WorkspaceBarProps = {
   onAddFolder: () => undefined,
   onAddWorkspaceFolder: () => undefined,

@@ -64,7 +64,6 @@ const ARGS: UseWorktreeModeArgs = {
   onSelectWorktree,
   primaryRootId: 'r-1',
   primaryRootPath: '/managed/app/bright-fox',
-  runId: null,
   statusFailure: null,
   threadId: 'thread-1',
   threadState: 'idle',
@@ -185,6 +184,43 @@ describe('useWorktreeMode between turns (ADR-0034)', () => {
     act(() => result.current?.onArchive?.());
     await waitFor(() => expect(archiveSpy).toHaveBeenCalledWith({ worktreeId: 'w-1' }));
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the checkout of a run that starts while Archive inspects the worktree', async () => {
+    let finishInspection: (value: unknown) => void = () => undefined;
+    inspectArchiveSpy.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishInspection = resolve;
+      })
+    );
+    const { rerender, result } = renderMode('idle');
+    await waitFor(() => expect(result.current?.picker.options).toHaveLength(2));
+
+    act(() => result.current?.onArchive?.());
+    await waitFor(() => expect(inspectArchiveSpy).toHaveBeenCalledTimes(1));
+    rerender({ threadState: 'running' });
+    await act(async () => {
+      finishInspection({
+        ok: true,
+        value: {
+          confirmationToken: null,
+          ignoredEntryCount: 0,
+          ignoredTopLevelEntries: [],
+          ignoredTopLevelEntriesTruncated: false,
+          ignoredTopLevelEntryCount: 0,
+        },
+      });
+    });
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: RUN_IN_PROGRESS,
+        title: 'Could not hand off to Local — worktree not archived',
+        variant: 'destructive',
+      })
+    );
+    expect(onHandOffToLocal).not.toHaveBeenCalled();
+    expect(archiveSpy).not.toHaveBeenCalled();
   });
 
   it("names the thread's folder while it has uncommitted changes, which stay there", async () => {

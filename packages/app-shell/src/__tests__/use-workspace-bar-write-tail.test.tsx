@@ -480,7 +480,8 @@ describe('useWorkspaceBar — write tail chaining', () => {
     expect(stored?.metadata).toEqual(priorMetadata);
   });
 
-  it('protects only the tracked Local secondary from removal in worktree mode', async () => {
+  // The where-control names the project by the Local folder (ADR-0034, 2026-11-11).
+  it('marks and protects only the tracked Local secondary in worktree mode', async () => {
     const { result } = await setup({
       checkoutLocalRootId: 'r-main-db',
       checkoutMode: 'worktree',
@@ -496,6 +497,7 @@ describe('useWorkspaceBar — write tail chaining', () => {
     expect(result.current.secondaryRoots).toEqual([
       {
         displayName: 'brainstrike',
+        local: true,
         path: '/ws/brainstrike',
         removeDisabledReason: 'This folder is where Hand off returns to.',
         rootId: 'r-main-db',

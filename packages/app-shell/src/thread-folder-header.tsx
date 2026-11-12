@@ -11,7 +11,7 @@
  * delete and no drop target, only the section's identity, the branch a
  * repository's own checkout is on, its live count, and the one action that
  * belongs to a folder: start a thread in it. Re-binding an EXISTING thread
- * stays where the binding is made, the composer's folder chip, and the header
+ * stays where the binding is made, the composer's Folders menu, and the header
  * says so in its tooltip.
  */
 import type { ThreadFolderRow, ThreadListFolderSection } from '@brainstrike/assistant-data';
@@ -28,7 +28,7 @@ import { ThreadSectionHeader } from './thread-section-header';
  * a gap.
  */
 const THREAD_FOLDER_GROUPING_HINT =
-  "Grouped by the project each thread works in — change it from the composer's folder chip.";
+  "Grouped by the project each thread works in — change it from the composer's Folders menu.";
 
 /** What a header shows, whichever kind of section it leads. */
 interface ThreadFolderHeaderFacts {

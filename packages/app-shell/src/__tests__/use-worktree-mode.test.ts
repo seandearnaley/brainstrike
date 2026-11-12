@@ -81,7 +81,6 @@ const ARGS = {
   onSelectWorktree,
   primaryRootId: 'r-1',
   primaryRootPath: '/work/app',
-  runId: null,
   statusFailure: null,
   threadId: 'thread-1',
   threadState: 'idle' as const,
@@ -199,7 +198,6 @@ describe('useWorktreeMode', () => {
           id: 'w-1',
           path: '/managed/app/bright-fox',
           repoCommonDir: '/work/app/.git',
-          runId: null,
           setupOutput: null,
           setupReason: null,
           setupStatus: 'none',
@@ -460,19 +458,6 @@ describe('useWorktreeMode', () => {
       variant: 'destructive',
     });
     expect(onSelectWorktree).not.toHaveBeenCalled();
-  });
-
-  it('forwards the active runId so the operation lands in the timeline', async () => {
-    const { result } = renderWorktreeMode({ ...ARGS, runId: 'run-9' });
-    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
-    await act(async () => {
-      await result.current?.onCreate({
-        baseRef: 'main',
-        branch: { detached: true },
-        name: 'x',
-      });
-    });
-    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ runId: 'run-9' }));
   });
 
   it('refreshes server-resolved create context on every sheet open', async () => {

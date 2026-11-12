@@ -178,7 +178,7 @@ export function resolveThreadsPanelDrop({
   if (view.kind === 'folders' || view.kind === 'dates') {
     // Folder and date sections have no manual order and no membership to
     // rewrite: a thread's folder is its `metadata.operatingRootId`, re-bound
-    // from the composer's folder chip, and its date is its activity. The panel
+    // from the composer's Folders menu, and its date is its activity. The panel
     // therefore renders no drag sources in these modes, but the drop monitor is
     // global — so a drop that arrives from somewhere else resolves to no intent
     // rather than throwing at the user.

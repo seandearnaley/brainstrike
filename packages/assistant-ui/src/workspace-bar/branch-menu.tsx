@@ -1,23 +1,23 @@
 import {
   cn,
+  DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   ModelPickerSearch,
   PICKER_GROUP_HEADING_CLASS,
   PICKER_ROW_CLASS,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
 } from '@brainstrike/ui';
 import { Command } from 'cmdk';
 import {
   Check,
-  ChevronDown,
   FolderGit2,
   GitBranch,
   GitBranchPlus,
   RefreshCw,
   SplitSquareHorizontal,
 } from 'lucide-react';
-import { type ReactElement, useState } from 'react';
+import type { ReactElement } from 'react';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarBranchRow,
@@ -27,25 +27,17 @@ import type {
 const countBadge = (count: number | null, glyph: string): string | null =>
   count !== null && count > 0 ? `${glyph}${count}` : null;
 
-const BranchGlyphs = ({
-  ahead,
-  behind,
-  checkout,
-  label,
-}: {
-  readonly ahead: string | null;
-  readonly behind: string | null;
-  readonly checkout: WorkspaceBarCheckout;
-  readonly label: string;
-}): ReactElement => (
-  <>
-    <GitBranch aria-hidden="true" />
-    <span className="bs-composer-chip-label">{label}</span>
-    {ahead ? <span className="bs-composer-chip-badge">{ahead}</span> : null}
-    {behind ? <span className="bs-composer-chip-badge">{behind}</span> : null}
-    {checkout.dirty ? <span aria-hidden="true" className="bs-composer-dirty-dot" /> : null}
-  </>
-);
+/** "On branch main · 2 ahead · uncommitted changes": the branch row's spoken summary. */
+function branchSummary(checkout: WorkspaceBarCheckout): string {
+  return [
+    checkout.branch ? `On branch ${checkout.branch}` : 'Detached HEAD',
+    countBadge(checkout.ahead, '↑') ? `${checkout.ahead} ahead` : null,
+    countBadge(checkout.behind, '↓') ? `${checkout.behind} behind` : null,
+    checkout.dirty ? 'uncommitted changes' : 'clean',
+  ]
+    .filter((part) => part !== null)
+    .join(' · ');
+}
 
 const BRANCH_ROW_CLASS = cn(
   PICKER_ROW_CLASS,
@@ -126,33 +118,6 @@ const BranchMenuRow = ({
   );
 };
 
-interface BranchChipGlyphProps {
-  readonly ahead: string | null;
-  readonly behind: string | null;
-  readonly checkout: WorkspaceBarCheckout;
-  readonly label: string;
-}
-
-/** W1's read-only labelled image — no menu, no branchMenu. */
-const ReadOnlyBranchChip = ({
-  ahead,
-  behind,
-  checkout,
-  label,
-  summary,
-}: BranchChipGlyphProps & { readonly summary: string }): ReactElement => (
-  <span
-    aria-label={summary}
-    className="bs-composer-chip bs-composer-chip-long"
-    data-dirty={checkout.dirty ? 'true' : 'false'}
-    data-testid="workspace-bar-branch-chip"
-    role="img"
-    title={summary}
-  >
-    <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
-  </span>
-);
-
 /**
  * The branch switcher: search first, then local branches, with branches held
  * by another worktree in their own group so a repository with many worktrees
@@ -174,7 +139,16 @@ const BranchSwitcher = ({
     newBranchName.length > 0 && !branchMenu.rows.some((row) => row.name === newBranchName);
 
   return (
-    <Command className="flex flex-col" label="Branches" loop shouldFilter={false}>
+    <Command
+      className="flex flex-col"
+      label="Branches"
+      loop
+      // cmdk handles its keys first; none then reach the enclosing menu, whose
+      // typeahead, arrow handling and ArrowLeft-to-close would take them from
+      // the search field.
+      onKeyDown={(event) => event.stopPropagation()}
+      shouldFilter={false}
+    >
       <ModelPickerSearch
         aria-label="Filter branches"
         data-testid="workspace-bar-branch-search"
@@ -255,106 +229,88 @@ const BranchSwitcher = ({
   );
 };
 
-/** The interactive chip: the branch switcher. */
-const BranchMenuChip = ({
-  ahead,
-  behind,
-  branchMenu,
+/** The branch, its ahead/behind counts and the uncommitted-changes dot, as the row shows them. */
+const BranchRowContent = ({
   checkout,
-  label,
-  summary,
-}: BranchChipGlyphProps & {
-  readonly branchMenu: WorkspaceBarBranchMenu;
-  readonly summary: string;
+}: {
+  readonly checkout: WorkspaceBarCheckout;
 }): ReactElement => {
-  const [open, setOpen] = useState(false);
-
+  const ahead = countBadge(checkout.ahead, '↑');
+  const behind = countBadge(checkout.behind, '↓');
   return (
-    <Popover
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next && branchMenu.query) {
-          branchMenu.onQueryChange('');
-        }
-      }}
-      open={open}
-    >
-      <PopoverTrigger asChild>
-        <button
-          aria-label={`Branch: ${summary}`}
-          className="bs-composer-chip bs-composer-chip-long"
-          data-dirty={checkout.dirty ? 'true' : 'false'}
-          data-testid="workspace-bar-branch-chip"
-          title={summary}
-          type="button"
-        >
-          <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
-          <ChevronDown aria-hidden="true" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        aria-label="Switch branch"
-        className="w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl p-0"
-        data-testid="workspace-bar-branch-menu"
-        // Selecting another thread closes the menu and hides this thread's
-        // panel in the same click, so the chip is gone while the menu plays
-        // its exit animation. Without its anchor the menu would paint at the
-        // window's corner for those frames; it hides instead.
-        hideWhenDetached={!open}
-      >
-        <BranchSwitcher branchMenu={branchMenu} onDone={() => setOpen(false)} />
-      </PopoverContent>
-    </Popover>
+    <>
+      <GitBranch aria-hidden="true" className="size-3.5" />
+      <span className="min-w-0 flex-1 truncate">
+        Branch: <span className="font-mono">{checkout.branch ?? 'detached'}</span>
+      </span>
+      {ahead ? <span className="bs-composer-chip-badge text-xs">{ahead}</span> : null}
+      {behind ? <span className="bs-composer-chip-badge text-xs">{behind}</span> : null}
+      {checkout.dirty ? <span aria-hidden="true" className="bs-composer-dirty-dot" /> : null}
+    </>
   );
 };
 
 /**
- * Git state for the primary root. Without an interactive menu this preserves
- * W1's read-only labelled image; desktop callers can opt into the switcher by
- * supplying an already-gated branch menu model.
+ * The where-menu's Branch row: the branch switcher as a submenu, or, without
+ * an interactive menu (web, no git bridge), a read-only row with the same
+ * summary. The switcher is a cmdk list whose search field owns its keys, so
+ * none reach the menu's own typeahead, arrow handling or ArrowLeft-to-close.
  */
-export const BranchChip = ({
+export const BranchSubmenu = ({
   branchMenu,
   checkout,
+  onDone,
 }: {
-  readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
+  readonly branchMenu: WorkspaceBarBranchMenu | undefined;
   readonly checkout: WorkspaceBarCheckout;
+  /** Closes the where-menu after a branch action, as the switcher's own popover did. */
+  readonly onDone: () => void;
 }): ReactElement => {
-  const label = checkout.branch ?? 'detached';
-  const ahead = countBadge(checkout.ahead, '↑');
-  const behind = countBadge(checkout.behind, '↓');
-  const summary = [
-    checkout.branch ? `On branch ${checkout.branch}` : 'Detached HEAD',
-    ahead ? `${checkout.ahead} ahead` : null,
-    behind ? `${checkout.behind} behind` : null,
-    checkout.dirty ? 'uncommitted changes' : 'clean',
-  ]
-    .filter((part) => part !== null)
-    .join(' · ');
-
-  if (branchMenu) {
+  const summary = branchSummary(checkout);
+  if (!branchMenu) {
     return (
-      <BranchMenuChip
-        ahead={ahead}
-        behind={behind}
-        branchMenu={branchMenu}
-        checkout={checkout}
-        label={label}
-        summary={summary}
-      />
+      <DropdownMenuLabel
+        aria-label={`Branch: ${summary}`}
+        className="flex items-center gap-2 font-normal"
+        data-dirty={checkout.dirty ? 'true' : 'false'}
+        data-testid="workspace-bar-branch"
+        role="img"
+        title={summary}
+      >
+        <BranchRowContent checkout={checkout} />
+      </DropdownMenuLabel>
     );
   }
-
   return (
-    <ReadOnlyBranchChip
-      ahead={ahead}
-      behind={behind}
-      checkout={checkout}
-      label={label}
-      summary={summary}
-    />
+    <DropdownMenuSub
+      onOpenChange={(open) => {
+        if (!open && branchMenu.query) {
+          branchMenu.onQueryChange('');
+        }
+      }}
+    >
+      <DropdownMenuSubTrigger
+        aria-label={`Branch: ${summary}`}
+        data-dirty={checkout.dirty ? 'true' : 'false'}
+        data-testid="workspace-bar-branch"
+        title={summary}
+      >
+        <BranchRowContent checkout={checkout} />
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent
+        className="w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl p-0"
+        data-testid="workspace-bar-branch-menu"
+        // Opened from the keyboard, the menu focuses the submenu itself; the
+        // search field takes that focus, as it did when the switcher was its
+        // own popover.
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) {
+            event.currentTarget.querySelector('input')?.focus();
+          }
+        }}
+      >
+        <BranchSwitcher branchMenu={branchMenu} onDone={onDone} />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 };
-
-BranchChip.displayName = 'BranchChip';

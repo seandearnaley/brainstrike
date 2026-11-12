@@ -17,9 +17,11 @@ const baseBarProps = {
 };
 
 describe('WorkspaceBar', () => {
-  it('hides the mode chip when the platform omits the capability', () => {
+  it('names only the folder, with no checkout or worktree picker, when the platform omits the capability', () => {
     render(createElement(WorkspaceBar, baseBarProps));
-    expect(screen.queryByTestId('workspace-bar-mode-chip')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveAccessibleName(
+      'Where this thread works: app'
+    );
     expect(screen.queryByTestId('worktree-picker-dialog')).not.toBeInTheDocument();
   });
 });

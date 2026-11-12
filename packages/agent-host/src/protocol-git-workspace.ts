@@ -363,7 +363,7 @@ export const WorktreePathClassificationSchema = Schema.Literals([
 
 /**
  * ADR-0029 stage 2: the desktop's git cluster, served by the host that owns
- * the workspace catalog. Changes, the branch chip and worktrees reach it over
+ * the workspace catalog. Changes, the branch switcher and worktrees reach it over
  * the window's host connection.
  */
 export const GIT_WORKSPACE_METHOD_SCHEMAS = {

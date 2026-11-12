@@ -1,5 +1,5 @@
 /**
- * The composer Branch chip's interactive half (spec §4.2).
+ * The composer Branch row's switcher submenu (spec §4.2).
  *
  * Reads the Git bridge's `repository(rootId)` for the recency-sorted local
  * branches (`for-each-ref --sort=-committerdate`) and `status(rootId)`, and
@@ -53,7 +53,7 @@ export interface BranchSwitcher {
   /**
    * True once this root's reads have answered, with a menu or without one, or
    * when there is nothing to read (no bridge, no root). A later refresh of the
-   * same root keeps it true. The workspace bar withholds the Branch chip until
+   * same root keeps it true. The workspace bar withholds the Branch row until
    * then, so the chip never shows the read-only image and then turns into the
    * switcher under a click.
    */

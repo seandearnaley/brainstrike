@@ -16,6 +16,7 @@ import { createTempDirTracker, freshRepo, git } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { homeEnvironment } from './utils/node-command';
 import { seedRoot } from './utils/seed-root';
+import { openWhereMenu, whereChip } from './utils/where-control';
 
 const tempDirs = createTempDirTracker();
 const ROOT_ID = 'trust-worktree-root-00000000-0000-4000-8000-000000002340';
@@ -54,12 +55,12 @@ test('a thread in a worktree is asked to trust its repository once, and Settings
   await expect(chip).toHaveAccessibleName('Workspace trust: 1 held');
 
   // The thread moves into a new worktree of the repository, which stays open beside it.
-  await window.getByTestId('workspace-bar-mode-chip').click();
+  await openWhereMenu(window);
   await window.getByTestId('workspace-bar-mode-new-worktree').click();
   const create = window.getByTestId('worktree-create-dialog');
   const worktreeName = (await create.getByTestId('worktree-create-name').inputValue()).trim();
   await create.getByTestId('worktree-create-submit').click();
-  await expect(window.getByTestId('workspace-bar-mode-chip')).toContainText(worktreeName, {
+  await expect(whereChip(window)).toContainText(worktreeName, {
     timeout: 90_000,
   });
 

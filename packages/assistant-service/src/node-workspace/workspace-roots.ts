@@ -25,7 +25,7 @@ export class BoundWorkspaceRootUnavailableError extends ToolInputError {
 /**
  * A `root` that names none of a bound thread's folders (BST-1990). The run's
  * roots are the thread's folders, so the named folder may still be open in the
- * workspace; the user adds it to the thread from the composer's folder chip.
+ * workspace; the user adds it to the thread from the Folders menu in the composer.
  */
 export class RootNotInThreadError extends ToolInputError {
   constructor(message: string) {
@@ -136,7 +136,7 @@ function unknownRootRefusal(
 ): ToolInputError {
   return bound
     ? new RootNotInThreadError(
-        `"${qualifier}" is not one of this thread's folders: ${describeRoots(roots)}. If it is open in the workspace, the user can add it to this thread from the composer's folder chip.`
+        `"${qualifier}" is not one of this thread's folders: ${describeRoots(roots)}. If it is open in the workspace, the user can add it to this thread from the Folders menu in the composer.`
       )
     : new ToolInputError(
         `No folder "${qualifier}" in the workspace. Open folders: ${describeRoots(roots)}.`
