@@ -409,13 +409,16 @@ function ActivityGroup({ cardedCalls, children, indices, status }: ActivityGroup
               <ActivityTrace
                 {...(delegations.length > 0
                   ? {
-                      agents: delegations.map((part) => (
-                        <SubagentDelegationChip
-                          key={part.toolCallId}
-                          result={part.result}
-                          toolCallId={part.toolCallId}
-                        />
-                      )),
+                      agents: {
+                        chips: delegations.map((part) => (
+                          <SubagentDelegationChip
+                            key={part.toolCallId}
+                            result={part.result}
+                            toolCallId={part.toolCallId}
+                          />
+                        )),
+                        onShowAll: layout.showDelegations,
+                      },
                     }
                   : {})}
                 expanded={layout.expanded}
