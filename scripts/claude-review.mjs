@@ -3,8 +3,9 @@
 //
 //   prepare  decide full, follow-up or skip; write the prompt and the run state
 //   run      stream the prompt to the Claude CLI on stdin and keep its result
-//   publish  post one PR review with inline comments, resolve fixed threads,
-//            and record the reviewed head in the status comment
+//   publish  post one PR review with inline comments, resolve fixed threads
+//            (its own and other review bots'), and record the reviewed head
+//            in the status comment
 //
 // The model never touches GitHub. It gets read-only file tools on the checkout
 // and returns structured findings; publish validates every line against the
@@ -27,11 +28,10 @@ import {
   buildPrompt,
   changeFingerprint,
   deserializeFiles,
-  findingTitle,
-  isOwnFinding,
   newWork,
   parseDiff,
   placeFinding,
+  priorFromThreads,
   renderPrDiff,
   resultSchema,
   reviewBody,
@@ -95,13 +95,13 @@ const THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $en
     pullRequest(number: $number) {
       reviewThreads(first: 100, after: $endCursor) {
         pageInfo { hasNextPage endCursor }
-        nodes { id isResolved path line subjectType comments(first: 20) { nodes { author { login } body } } }
+        nodes { id isResolved path line subjectType comments(first: 20) { nodes { author { __typename login } body } } }
       }
     }
   }
 }`;
 
-/** This workflow's earlier findings, numbered F1.. for the model to refer to. */
+/** Earlier findings, this workflow's and other review bots', numbered F1.. for the model. */
 function priorFindings(repository, number) {
   const [owner, name] = repository.split('/');
   const pages = ghJson([
@@ -118,25 +118,10 @@ function priorFindings(repository, number) {
     '-F',
     `number=${number}`,
   ]);
-  return pages
-    .flatMap((page) => page.data.repository.pullRequest.reviewThreads.nodes)
-    .filter((thread) => isOwnFinding(thread.comments.nodes[0], GRAPHQL_BOT))
-    .map((thread, index) => ({
-      file: thread.subjectType === 'FILE',
-      id: `F${index + 1}`,
-      line: thread.line,
-      path: thread.path,
-      replies: thread.comments.nodes
-        .slice(1)
-        .filter((comment) => comment.author?.login !== GRAPHQL_BOT)
-        .map(
-          (comment) =>
-            `${comment.author?.login ?? 'ghost'}: ${comment.body.slice(0, 600).replaceAll('\n', ' ')}`
-        ),
-      resolved: thread.isResolved,
-      threadId: thread.id,
-      title: findingTitle(thread.comments.nodes[0].body),
-    }));
+  return priorFromThreads(
+    pages.flatMap((page) => page.data.repository.pullRequest.reviewThreads.nodes),
+    GRAPHQL_BOT
+  );
 }
 
 // The rules come from the base branch, never the PR, as Anthropic's managed
