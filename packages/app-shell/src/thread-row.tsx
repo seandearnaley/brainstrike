@@ -5,6 +5,7 @@ import {
   AssistantThreadAppearanceSaveError,
   type AssistantThreadColorId,
   type AssistantThreadIconId,
+  type ThreadFolderRow,
 } from '@brainstrike/assistant-data';
 import {
   type AnyContextAction,
@@ -93,6 +94,8 @@ export interface ThreadRowProps {
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly pinned: boolean;
+  /** The scratch folder the thread works in, which its checkout chip names; see `ThreadMetadataBadges`. */
+  readonly scratchFolder: ThreadFolderRow | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -111,6 +114,7 @@ export function ThreadRow({
   onSetThreadPinned,
   onUpdateThreadAppearance,
   pinned,
+  scratchFolder,
   selected,
   status,
   thread,
@@ -200,6 +204,7 @@ export function ThreadRow({
         renameError={renameError}
         renameSaving={savingRename}
         rowGroupId={groupId}
+        scratchFolder={scratchFolder}
         selected={selected}
         status={status}
         thread={thread}
@@ -277,6 +282,7 @@ function ThreadRowItem({
   renameError,
   renameSaving,
   rowGroupId,
+  scratchFolder,
   selected,
   status,
   thread,
@@ -314,6 +320,7 @@ function ThreadRowItem({
   readonly renameError: string | null;
   readonly renameSaving: boolean;
   readonly rowGroupId: string | null;
+  readonly scratchFolder: ThreadFolderRow | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -546,6 +553,7 @@ function ThreadRowItem({
               onUpdateThreadAppearance={onUpdateThreadAppearance}
               pendingDelete={confirmingDelete}
               pinned={pinned}
+              scratchFolder={scratchFolder}
               selected={selected}
               status={status}
               thread={thread}
@@ -659,6 +667,7 @@ function ThreadRowDisplay({
   onUpdateThreadAppearance,
   pendingDelete,
   pinned,
+  scratchFolder,
   selected,
   status,
   thread,
@@ -683,6 +692,7 @@ function ThreadRowDisplay({
   ) => Promise<void>;
   readonly pendingDelete: boolean;
   readonly pinned: boolean;
+  readonly scratchFolder: ThreadFolderRow | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -718,7 +728,7 @@ function ThreadRowDisplay({
               <div className={THREAD_CONTROL_TITLE_CLASS_NAME} title={thread.title}>
                 {thread.title}
               </div>
-              <ThreadMetadataBadges thread={thread} />
+              <ThreadMetadataBadges scratchFolder={scratchFolder} thread={thread} />
             </div>
           </div>
         </button>

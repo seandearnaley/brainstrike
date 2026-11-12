@@ -218,7 +218,8 @@ function readArchivedWorktrees(event: Readonly<Record<string, unknown>>) {
 /**
  * A committed `worktrees.archived` (ADR-0034 decision 7) as the run timeline's
  * always-visible notice: the idle worktrees the cap archived after a worktree
- * was made for this thread, each with its branch, and where its work is kept.
+ * was made for this thread, each with its branch, where its work is kept, and
+ * where the person restores one (the where-control's Other worktree… picker).
  */
 function worktreesArchivedNotice(
   event: Readonly<Record<string, unknown>>,
@@ -241,7 +242,9 @@ function worktreesArchivedNotice(
       only ? 'was' : 'were'
     } archived: ${named}. ${
       only ? 'Its uncommitted changes are' : 'The uncommitted changes of each are'
-    } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted.`,
+    } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore ${
+      only ? 'it' : 'one'
+    }, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.`,
     id: `run-event-${row.threadId}-${row.seq}`,
     kind: 'worktree.archived',
     label: only

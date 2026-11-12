@@ -134,6 +134,7 @@
     "worktrees/create-context",
     "worktrees/inspect-archive",
     "worktrees/list",
+    "worktrees/list-archived",
     "worktrees/managed-paths",
     "worktrees/restore",
     "worktrees/settings/read",

@@ -9,7 +9,7 @@
     the composer's folder, branch and checkout chips become one control that says where a thread
     works.
   - 2026-11-12 (owner decisions, below): decision 7's cap keeps 15 idle managed worktrees per
-    repository; built.
+    repository; built, with a control that restores an archived worktree.
   - 2026-11-12 (owner decisions, below): a thread sent with no folder while none is open works
     in a scratch folder the host makes for it.
   - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
@@ -524,8 +524,8 @@ revisit:
   path under it still refuses an active run and nested repositories too.
 - **Where the notice goes.** To the thread the creation was for, as a row in
   its transcript at every detail level: each archived worktree with its branch
-  and its snapshot ref, where its uncommitted changes are kept. It does not
-  promise a restore the app cannot offer yet (Not built, below). The host's worktree and
+  and its snapshot ref, where its uncommitted changes are kept, and where to
+  restore one (restoring, below). The host's worktree and
   the model's name their run and thread. The person's New worktree… now names
   the selected thread, which it already required. The row shows with the run
   that made the worktree, or with the thread's latest run when the person made
@@ -536,8 +536,41 @@ revisit:
   thread before its first send): the row has no run to be shown with, and an
   archive is never left untold (from Codex's and Claude's review).
 
-Not built: a control that restores an archived worktree (the host's
-`worktrees/restore` has none yet), and a cap after a thread is deleted.
+Built: restoring an archived worktree. These are build decisions, not Sean's,
+and later work may revisit them:
+
+- **Where.** The where-control's Other worktree… picker has an Archived
+  section below the live worktrees: the archived managed worktrees of the
+  repository the thread's folder is in, newest archive first, each with its
+  name, branch, when it was archived and Restore and use. The picker's filter
+  narrows it with the live list. The host lists them from the ledger's archived
+  rows (`worktrees/list-archived`, a method added under protocol v27). The list
+  belongs to the folder it was read for: when the thread's folder moves to
+  another repository, the first repository's rows are neither shown nor
+  restorable there, and a restore that finishes after the folder moved does not
+  move the thread into it.
+- **What it does.** Restore and use calls the host's existing
+  `worktrees/restore`, the one writer: it recreates the worktree on its branch
+  and replays its archive snapshot, so its uncommitted changes come back. Then
+  it does what Use does: it opens the worktree's folder and binds the thread
+  through the binding's own command. Like every checkout change it waits for
+  the thread's run to end. A worktree a thread is bound to is not idle, so the
+  cap does not archive it again while the thread works there. Nothing new is
+  stored: no restore time, and a restored worktree keeps its first creation
+  time (above).
+- **Failure is visible.** A refused restore says why in a toast, as Use's,
+  Create's and Archive's failures do, so it is seen after the picker closes, and
+  in the picker while it is open: its folder is taken, its snapshot ref is gone,
+  its branch has moved, or its branch is checked out in another worktree (git's
+  own words). Nothing is retried or done instead. A worktree that was restored
+  but that the thread could not enter (its folder did not open, the binding
+  refused, or the thread's folder moved meanwhile) says so too; it is no longer
+  archived, so Use can choose it.
+- **The notice** says where to restore: Other worktree… in the composer's
+  Where this thread works menu, then Restore and use under Archived.
+- Files git ignores, which archiving deletes, do not come back.
+
+Not built: a cap after a thread is deleted.
 
 ## Owner decisions, 2026-11-12: scratch threads
 
@@ -626,17 +659,40 @@ revisit:
   with none) does not fail the deletion: it is logged, the deletion's answer
   names the folder and Main's reason (`scratchFolderNotRetired`), and the
   window says so in a notice, so the person can remove the folder.
+- **The Threads panel lists every scratch thread in one Scratch section.** In
+  Project grouping a thread whose folder is a scratch folder lists in one
+  section labelled Scratch, after every project and folder section and before
+  No project. Before, each listed in a section of its own named by its folder
+  (`quiet-otter`), as if each were a project.
+  - Its id is the sentinel `folder-scratch`, built like `folder-unassigned`,
+    so no `project:`, `repository:` or `folder:` id can produce it. Its
+    collapse state is kept like the other keys: the prune reads only
+    `folder:` keys.
+  - Which folders are scratch folders comes from their `roots` records: Main's
+    `readRoots` answer marks a root of kind `scratch`
+    (`ThreadCatalogRoot.scratch`), never a path or a name. The kind already
+    reached Main on the catalog wire, so the host protocol is unchanged. The mounted roots'
+    `scratch` flag was not used: it is missing until the folders are restored
+    at each launch and for a folder that cannot be mounted, and either would
+    list the thread under its folder's name again.
+  - A scratch folder that has become a repository's own checkout still lists
+    in Scratch.
+  - Each row's checkout chip names its folder instead of Local, because the
+    section does not, so two scratch threads are told apart. Under 420px it is
+    its folder icon alone, as a worktree's chip is its branch icon. Other
+    groupings read no `roots` rows, so their chips still read Local.
+  - The section offers no New thread here: a new scratch thread starts from
+    the ordinary New thread with no folder open.
 
 Not built:
 
-- A "Scratch" section in the Threads panel. A scratch thread lists under its
-  folder's name, as any thread with one folder does.
 - Cleaning up scratch folders on Clear Database. Their rows go with the
   roots; the folders stay in the profile until Factory Reset, as worktrees do.
   Built since (Clear Database retires the worktrees and scratch folders,
   below).
-- Moving a scratch thread's work into a project, and starting one from a
-  thread that already ran with no folder.
+- Turning a scratch thread into a project ("Turn into a project"): moving its
+  work into a project, and starting one from a thread that already ran with
+  no folder.
 - Mounting only the scratch folders of open threads. Every one mounts at
   launch, as every managed worktree does, each with its own handle.
 

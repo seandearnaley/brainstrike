@@ -39,6 +39,9 @@ describe('worktree setup consent the host keeps (real git + real state store)', 
       }
     );
     const methods = createWorktreesMethods({
+      listRepositoryWorktrees: async () => {
+        throw new Error('Archived worktrees are not listed here.');
+      },
       readSettings: async () => ({
         isDefaultDirectory: true,
         managedDirectory,

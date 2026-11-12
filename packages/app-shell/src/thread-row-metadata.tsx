@@ -4,10 +4,10 @@ import {
   checkoutName,
   LOCAL_CHECKOUT_NAME,
 } from '@brainstrike/assistant-contract/thread-checkout-name';
-import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
+import type { AssistantMemoryThread, ThreadFolderRow } from '@brainstrike/assistant-data';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, GitBranch } from 'lucide-react';
+import { AlertTriangle, FolderPen, GitBranch } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -148,30 +148,47 @@ function ThreadDetail({
  * thread moves into a worktree, so the row needs no git call and the chip
  * shows in every grouping. A thread with no folder works nowhere yet and gets
  * no chip.
+ *
+ * A thread in a scratch folder (ADR-0034) works in that folder itself, but in
+ * Project grouping its section, Scratch, names no folder, so its chip names the
+ * folder instead of Local: two scratch threads are told apart there.
  */
 type ThreadRowCheckout =
   | { readonly kind: 'local' }
+  | { readonly kind: 'scratch'; readonly name: string; readonly path: string | null }
   | { readonly kind: 'worktree'; readonly name: string; readonly path: string };
 
-function resolveThreadRowCheckout(thread: AssistantMemoryThread): ThreadRowCheckout | null {
+function resolveThreadRowCheckout(
+  thread: AssistantMemoryThread,
+  scratchFolder: ThreadFolderRow | null
+): ThreadRowCheckout | null {
   const metadata = thread.metadata;
   if (!metadata?.operatingRootId) {
     return null;
   }
   const path = metadata.checkoutMode === 'worktree' ? metadata.checkoutWorktreePath : undefined;
-  if (!path) {
-    return { kind: 'local' };
+  if (path) {
+    // Named as the where-control and the Explorer's header name it.
+    return { kind: 'worktree', name: checkoutName(path), path };
   }
-  // Named as the where-control and the Explorer's header name it.
-  return { kind: 'worktree', name: checkoutName(path), path };
+  if (scratchFolder?.rootId === metadata.operatingRootId) {
+    return { kind: 'scratch', name: scratchFolder.displayName, path: scratchFolder.path };
+  }
+  return { kind: 'local' };
 }
 
 export function ThreadMetadataBadges({
+  scratchFolder,
   thread,
 }: {
+  /**
+   * The scratch folder the thread works in, from its `roots` row; null for any other thread and
+   * wherever the panel reads no `roots` rows (every grouping but Project).
+   */
+  readonly scratchFolder: ThreadFolderRow | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement | null {
-  const checkout = resolveThreadRowCheckout(thread);
+  const checkout = resolveThreadRowCheckout(thread, scratchFolder);
   const providerLabel = getProviderLabel(thread.latestRun?.provider);
   const modelLabel = getThreadModelLabel(thread);
   const reasoningLabel = getReasoningLabel(thread);
@@ -208,10 +225,11 @@ export function ThreadMetadataBadges({
  * title to a few letters. So under 420px:
  *
  * - a worktree chip is its branch icon alone, which still tells a worktree
- *   thread from a Local one, and its name is on hover;
+ *   thread from a Local one, and its name is on hover; a scratch folder's chip
+ *   is its folder icon alone, the same way;
  * - "Local", the unmarked case, gives way to the title.
  *
- * From 420px both read in full, where the run badges open too.
+ * From 420px each reads in full, where the run badges open too.
  */
 function ThreadCheckoutBadge({
   checkout,
@@ -228,12 +246,14 @@ function ThreadCheckoutBadge({
       </ThreadBadge>
     );
   }
+  const scratch = checkout.kind === 'scratch';
+  const label = `${scratch ? 'Scratch folder' : 'Worktree'} ${checkout.name}`;
   return (
     <ThreadBadge
       band="always"
-      icon={GitBranch}
+      icon={scratch ? FolderPen : GitBranch}
       testId="thread-checkout-chip"
-      title={`Worktree ${checkout.name} at ${checkout.path}`}
+      title={checkout.path === null ? label : `${label} at ${checkout.path}`}
     >
       <span className="hidden max-w-24 truncate @[420px]/threads:inline">{checkout.name}</span>
     </ThreadBadge>

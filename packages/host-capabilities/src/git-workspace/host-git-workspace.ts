@@ -346,6 +346,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     run: workspace.run,
   });
   const worktrees = createWorktreesMethods({
+    listRepositoryWorktrees: (repoCommonDir) => workspace.listRepositoryWorktrees(repoCommonDir),
     readSettings,
     resolveService: () => worktreeService,
     setupConsentStore: store,
@@ -401,6 +402,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     'worktrees/create-context': (request) => worktrees.createContext(request),
     'worktrees/inspect-archive': (request) => worktrees.inspectArchive(request),
     'worktrees/list': () => worktrees.list(),
+    'worktrees/list-archived': (request) => worktrees.listArchived(request),
     'worktrees/managed-paths': () => worktrees.listManagedPaths(),
     'worktrees/restore': (request) => worktrees.restore(request),
     'worktrees/settings/read': () => worktrees.getSettings(),
