@@ -1,7 +1,13 @@
-import type { ContentClearCapability } from '@brainstrike/types';
+import type { ContentClearCapability, WorktreeResetOutcome } from '@brainstrike/types';
 
 interface DesktopFactoryResetBridge {
-  resetLocal: () => Promise<{ message?: string; success: boolean }>;
+  resetLocal: () => Promise<{
+    managedWorktrees?: WorktreeResetOutcome;
+    message?: string;
+    success: boolean;
+  }>;
+  /** ADR-0034: the last Factory Reset's managed worktrees, once, for the replacement window. */
+  takeWorktreeOutcome: () => Promise<WorktreeResetOutcome | null>;
   readonly unavailableReason: string | undefined;
 }
 
@@ -25,6 +31,7 @@ const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
 ]);
 const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
   'resetLocal',
+  'takeWorktreeOutcome',
   'unavailableReason',
 ]);
 function assertExactKeys(label: string, value: object, expectedKeys: readonly PropertyKey[]): void {
