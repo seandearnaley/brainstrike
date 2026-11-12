@@ -5,6 +5,11 @@
  * steers (into the running run, which reads it at its next step), and each
  * waiting row can be steered, sent, pulled back to edit, or removed.
  * Driven through the shipped conversation over a published committed view.
+ *
+ * Typing uses `delay: null` (BST-2491). With user-event's default, every
+ * keystroke waits out a timer, and on a loaded machine each wait lasts a
+ * scheduler slice. Each keystroke's events still arrive in order and are
+ * committed before the next.
  */
 import '@testing-library/jest-dom/vitest';
 import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
@@ -77,7 +82,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('queues the draft on Enter and sends it once at the committed run end', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'then add tests{Enter}');
@@ -92,7 +97,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('sends queued messages one per run end, in order', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'first{Enter}');
@@ -106,7 +111,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('advances on a run that starts and ends between two renders (BST-2207)', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'first{Enter}');
@@ -123,7 +128,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('steers on Shift+Ctrl+Enter into the running run, leaving the queue as it was', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     const steered: string[] = [];
     const onSteer = vi.fn(async (message: AppendMessage) => {
@@ -143,7 +148,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('keeps a steered message first in line when the running run refuses it', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     const onSteer = vi.fn(async () => {
       throw new Error('host refused the input');
@@ -159,7 +164,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('steers an already-queued row into the running run', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     const steered: string[] = [];
     const onSteer = vi.fn(async (message: AppendMessage) => {
@@ -175,7 +180,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('pulls a queued row back into an empty composer to edit, never over a draft', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'fix the typo{Enter}');
@@ -193,7 +198,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('never sends a removed row', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'drop me{Enter}');
@@ -204,7 +209,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('waits out a disconnect: an idle-looking view is not a committed run end', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'after the reconnect{Enter}');
@@ -223,7 +228,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('sends a message whose run ended while its thread was off screen', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     const view = render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'sent on return{Enter}');
@@ -236,7 +241,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('keeps the queue after Stop until the user sends a row', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'held after stop{Enter}');
@@ -249,7 +254,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('keeps a refused queued message in line and sendable', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     host.onNew.mockRejectedValueOnce(new MessageNotSentError('host busy'));
     render(<Conversation onNew={host.onNew} store={host.store} />);
@@ -263,7 +268,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('still sends a held row after the conversation gets new commands', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     const view = render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'held after stop{Enter}');
@@ -325,7 +330,7 @@ describe('composer run controls over the committed queue', () => {
   });
 
   it('offers no Steer control without a steering transport', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const host = runningHost();
     render(<Conversation onNew={host.onNew} store={host.store} />);
     await user.type(input(), 'queued{Enter}');
