@@ -59,7 +59,7 @@ const BASE_REFS: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOpti
  * reaches only the next run. So every checkout change waits for the run to end
  * (ADR-0034), and the host accepts one at any time between runs.
  */
-const RUN_IN_PROGRESS_REASON = "Available when this thread's run ends.";
+export const RUN_IN_PROGRESS_REASON = "Available when this thread's run ends.";
 
 type SettingsState =
   | { readonly kind: 'error'; readonly message: string }
@@ -88,14 +88,12 @@ export interface UseWorktreeModeArgs {
   }) => Promise<void>;
   readonly primaryRootId: string | null;
   readonly primaryRootPath: string | null;
-  /** The thread's active run, when it has one, so the operation reaches its timeline. */
-  readonly runId: string | null;
-  /** Selected thread identity; archive confirmation must never transfer across threads. */
   /**
    * Why the root's git status read failed, or null. With `isRepository` false
    * it means "unknown", not "not a repository" (BST-2133).
    */
   readonly statusFailure: string | null;
+  /** Selected thread identity; archive confirmation must never transfer across threads. */
   readonly threadId: string | null;
   /**
    * The selected thread as a checkout change sees it: none, still loading,
@@ -121,7 +119,6 @@ async function createWorktree(
   bridge: WorktreesBridge,
   primaryRootId: string,
   request: WorkspaceBarCreateWorktreeRequest,
-  runId: string | null,
   repositorySetupDecision: RepositorySetupDecisionAttestation | undefined
 ): Promise<WorktreeCreateResult> {
   let created: Awaited<ReturnType<WorktreesBridge['create']>>;
@@ -133,7 +130,6 @@ async function createWorktree(
       name: request.name,
       rootId: primaryRootId,
       ...(repositorySetupDecision ? { repositorySetupDecision } : {}),
-      ...(runId ? { runId } : {}),
     });
   } catch (error) {
     const message = errorMessage(error);
@@ -647,7 +643,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           bridge,
           primaryRootId,
           request,
-          args.runId,
           repositorySetupDecisionForCreate
         );
         await mountWorktree(addRootDirectoryByPath, worktree.path);
@@ -679,7 +674,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       addRootDirectoryByPath,
       onSelectWorktree,
       args.primaryRootId,
-      args.runId,
       bridge,
       createSheetContext,
       refreshList,
@@ -728,20 +722,26 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     [addRootDirectoryByPath, onSelectWorktree, refreshList, threadState]
   );
 
-  // Archive hands off first, so a run that starts while its confirmation is
-  // open still keeps its checkout.
+  // The run state as of the last commit, for a hand-off that an earlier click
+  // started: Archive inspects the worktree first, and a run can start while
+  // that inspection (or its confirmation) is open.
+  const latestThreadStateRef = useRef(threadState);
+  useEffect(() => {
+    latestThreadStateRef.current = threadState;
+  }, [threadState]);
+  // Archive hands off first, so a run that starts while its inspection or
+  // confirmation is open still keeps its checkout.
   const handOffBetweenRuns = useCallback(async (): Promise<void> => {
-    if (threadState === 'running') {
+    if (latestThreadStateRef.current === 'running') {
       throw new Error(RUN_IN_PROGRESS_REASON);
     }
     await handOffToLocal();
-  }, [handOffToLocal, threadState]);
+  }, [handOffToLocal]);
 
   const { archiveConfirmation, onArchive: archive } = useWorktreeArchiveAction({
     bridge,
     onHandOffToLocal: handOffBetweenRuns,
     refreshList,
-    runId: args.runId,
     setPending,
     threadId: args.threadId,
     worktreeId: currentWorktreeId,

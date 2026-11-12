@@ -24,7 +24,10 @@ const { branchSwitcherSpy, loggerErrorSpy, toastSpy, worktreeModeSpy } = vi.hois
 }));
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
-vi.mock('../hooks/use-worktree-mode', () => ({ useWorktreeMode: worktreeModeSpy }));
+vi.mock('../hooks/use-worktree-mode', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../hooks/use-worktree-mode')>()),
+  useWorktreeMode: worktreeModeSpy,
+}));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({
@@ -84,6 +87,48 @@ const thread = {
   title: 'Thread',
   updatedAt: new Date('2026-08-25T00:00:00.000Z'),
 } satisfies AssistantMemoryThread;
+
+const RUN_IN_PROGRESS = "Available when this thread's run ends.";
+const hostRun = (status: AssistantThreadHostRun['status']): AssistantThreadHostRun => ({
+  completedAt: null,
+  needsInput: false,
+  startedAt: null,
+  status,
+});
+const catalogRun = (status: AssistantThreadRunStatus): AssistantThreadRunRecord => ({
+  completedAt: null,
+  createdAt: thread.createdAt,
+  error: null,
+  id: 'run-1',
+  model: 'gpt-5.4',
+  provider: 'openai',
+  resourceId: thread.resourceId,
+  runtimeKind: 'hosted',
+  startedAt: thread.createdAt,
+  status,
+  threadId: thread.id,
+  turnMessageId: null,
+  updatedAt: thread.createdAt,
+});
+/** A host that reports `runs` as its committed run state, as the desktop app's does. */
+const hostReporting = (
+  runs: ReadonlyMap<string, AssistantThreadHostRun>
+): AssistantThreadHostCapability => ({
+  createThread: vi.fn(),
+  deleteThread: vi.fn(),
+  listThreads: vi.fn(),
+  ownsThread: vi.fn(),
+  renameThread: vi.fn(),
+  renderNewThread: vi.fn(),
+  renderThread: vi.fn(),
+  runs: { getSnapshot: () => runs, subscribe: () => () => undefined },
+  updateThreadBinding: vi.fn(),
+  workspaceRepository: vi.fn(),
+});
+const hostWrapper =
+  (host: AssistantThreadHostCapability) =>
+  ({ children }: { readonly children: ReactNode }) =>
+    createElement(AssistantThreadHostContext.Provider, { value: host }, children);
 
 function renderComposition() {
   return renderHook(() =>
@@ -205,43 +250,6 @@ describe('useWorkspaceBarMode branch escape', () => {
 });
 
 describe('useWorkspaceBarMode thread run state (ADR-0034)', () => {
-  const hostRun = (status: AssistantThreadHostRun['status']): AssistantThreadHostRun => ({
-    completedAt: null,
-    needsInput: false,
-    startedAt: null,
-    status,
-  });
-  const catalogRun = (status: AssistantThreadRunStatus): AssistantThreadRunRecord => ({
-    completedAt: null,
-    createdAt: thread.createdAt,
-    error: null,
-    id: 'run-1',
-    model: 'gpt-5.4',
-    provider: 'openai',
-    resourceId: thread.resourceId,
-    runtimeKind: 'hosted',
-    startedAt: thread.createdAt,
-    status,
-    threadId: thread.id,
-    turnMessageId: null,
-    updatedAt: thread.createdAt,
-  });
-  /** A host that reports `runs` as its committed run state, as the desktop app's does. */
-  const hostReporting = (
-    runs: ReadonlyMap<string, AssistantThreadHostRun>
-  ): AssistantThreadHostCapability => ({
-    createThread: vi.fn(),
-    deleteThread: vi.fn(),
-    listThreads: vi.fn(),
-    ownsThread: vi.fn(),
-    renameThread: vi.fn(),
-    renderNewThread: vi.fn(),
-    renderThread: vi.fn(),
-    runs: { getSnapshot: () => runs, subscribe: () => () => undefined },
-    updateThreadBinding: vi.fn(),
-    workspaceRepository: vi.fn(),
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: true });
@@ -270,13 +278,36 @@ describe('useWorkspaceBarMode thread run state (ADR-0034)', () => {
           selectedThread: latestRun ? { ...thread, latestRun } : thread,
           worktreeCheckout: { branch: null, mode: 'local', worktreeId: null, worktreePath: null },
         }),
-      {
-        wrapper: ({ children }: { readonly children: ReactNode }) =>
-          createElement(AssistantThreadHostContext.Provider, { value: host }, children),
-      }
+      { wrapper: hostWrapper(host) }
     );
 
     expect(worktreeModeSpy).toHaveBeenLastCalledWith(expect.objectContaining({ threadState }));
+  });
+
+  it("names no run for a create or archive, even when the catalog's run outlived the host's", () => {
+    // Both are refused while a run is in progress, so a run id here could
+    // only name a run the host has already ended.
+    const host = hostReporting(new Map([[thread.id, hostRun('completed')]]));
+    renderHook(
+      () =>
+        useWorkspaceBarMode({
+          checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+          checkoutFailure: null,
+          checkoutSettled: true,
+          foldersPending: false,
+          onHandOffToLocal: vi.fn(),
+          onSelectWorktree: vi.fn(),
+          primaryRootId: 'r-1',
+          primaryRootPath: '/work/app',
+          selectedMemoryThreadId: thread.id,
+          selectedThread: { ...thread, latestRun: catalogRun('running') },
+          worktreeCheckout: { branch: null, mode: 'local', worktreeId: null, worktreePath: null },
+        }),
+      { wrapper: hostWrapper(host) }
+    );
+
+    expect(worktreeModeSpy.mock.calls.at(-1)?.[0]).toMatchObject({ threadState: 'idle' });
+    expect(worktreeModeSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty('runId');
   });
 
   it('tells the mode when the thread folder has uncommitted changes', () => {
@@ -484,6 +515,43 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
     );
     expect(onSelectWorktree).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      'move into a worktree',
+      { branch: 'bs/bright-fox', path: '/wt', threadId: 'thread-1', worktreeId: 'wt-1' },
+      'Could not use that worktree',
+    ],
+    [
+      'hand off to Local',
+      { branch: null, path: '/repo', threadId: 'thread-1', worktreeId: null },
+      'Could not hand off to Local',
+    ],
+  ] as const)(
+    'refuses to %s while the thread runs, once, with the reason',
+    async (_case, intent, title) => {
+      useWorktreeCheckoutIntentStore.getState().publish(intent);
+      const host = hostReporting(new Map([[thread.id, hostRun('running')]]));
+
+      const { rerender } = renderHook(() => useWorkspaceBarMode(args), {
+        wrapper: hostWrapper(host),
+      });
+
+      await waitFor(() =>
+        expect(toastSpy).toHaveBeenCalledExactlyOnceWith({
+          description: RUN_IN_PROGRESS,
+          title,
+          variant: 'destructive',
+        })
+      );
+      expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+      rerender();
+      await Promise.resolve();
+      expect(onSelectWorktree).not.toHaveBeenCalled();
+      expect(onHandOffToLocal).not.toHaveBeenCalled();
+      expect(toastSpy).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('ignores an intent published for a different thread', async () => {
     useWorktreeCheckoutIntentStore

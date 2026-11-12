@@ -12,7 +12,8 @@ import { useAssistantThreadHostRuns } from '../assistant-thread-host-context';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { useBranchSwitcher } from './use-branch-switcher';
 import type { ThreadCheckoutState } from './use-thread-checkout';
-import { useWorktreeMode } from './use-worktree-mode';
+import { toastFailure } from './use-worktree-archive-action';
+import { RUN_IN_PROGRESS_REASON, useWorktreeMode } from './use-worktree-mode';
 
 const logger = createLogger('WorkspaceBarMode');
 
@@ -79,9 +80,27 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     selectedThread,
     worktreeCheckout,
   } = args;
+  // The host's committed run state, as the Threads panel reads it: current
+  // while the thread is open. A thread the host does not report keeps its
+  // catalog row's latest run. A known id with no row is still hydrating.
+  const hostRuns = useAssistantThreadHostRuns();
+  const latestRun = selectedThread
+    ? (hostRuns.get(selectedThread.id) ?? selectedThread.latestRun)
+    : undefined;
+  const threadState =
+    selectedMemoryThreadId === undefined
+      ? 'no-thread'
+      : selectedThread === undefined
+        ? 'loading'
+        : latestRun?.status === 'running' || latestRun?.status === 'cancelling'
+          ? 'running'
+          : 'idle';
   // Apply a Worktree Map intent to the SELECTED thread, once. `consume` clears
   // the entry, so a re-render cannot re-apply it; a failure surfaces through
-  // the same toast path the chip uses and the intent is not retried.
+  // the same toast path the chip uses and the intent is not retried. A thread
+  // whose run is in progress keeps its checkout (ADR-0034): the intent is
+  // refused as the chip refuses it. "New thread here" targets the thread it
+  // just created, which has no run, so this never refuses it.
   const pendingIntent = useWorktreeCheckoutIntentStore((state) => state.pending);
   const consumeIntent = useWorktreeCheckoutIntentStore((state) => state.consume);
   const applyingRef = useRef(false);
@@ -97,6 +116,13 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     }
     const intent = consumeIntent(threadId);
     if (!intent) {
+      return;
+    }
+    if (threadState === 'running') {
+      toastFailure(
+        intent.worktreeId ? 'Could not use that worktree' : 'Could not hand off to Local',
+        RUN_IN_PROGRESS_REASON
+      );
       return;
     }
     applyingRef.current = true;
@@ -130,24 +156,8 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     onSelectWorktree,
     pendingIntent,
     selectedThread?.id,
+    threadState,
   ]);
-  // The host's committed run state, as the Threads panel reads it: current
-  // while the thread is open. A thread the host does not report keeps its
-  // catalog row's latest run. A known id with no row is still hydrating.
-  const hostRuns = useAssistantThreadHostRuns();
-  const latestRun = selectedThread
-    ? (hostRuns.get(selectedThread.id) ?? selectedThread.latestRun)
-    : undefined;
-  const threadState =
-    selectedMemoryThreadId === undefined
-      ? 'no-thread'
-      : selectedThread === undefined
-        ? 'loading'
-        : latestRun?.status === 'running' || latestRun?.status === 'cancelling'
-          ? 'running'
-          : 'idle';
-  const activeRunId =
-    selectedThread?.latestRun?.status === 'running' ? selectedThread.latestRun.id : null;
 
   const resolvedMode = useWorktreeMode({
     checkout: worktreeCheckout,
@@ -156,7 +166,6 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     onSelectWorktree,
     primaryRootId: primaryRootId ?? null,
     primaryRootPath: primaryRootPath ?? null,
-    runId: activeRunId,
     statusFailure: checkoutFailure,
     threadId: selectedMemoryThreadId ?? null,
     threadState,
