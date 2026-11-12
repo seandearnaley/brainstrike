@@ -17,14 +17,14 @@
  * a changed id set drops it to "No folder" with the warning below; until then
  * the section keeps the name it resolved. Nothing is invented either way.
  */
-import type { ThreadFolderRow } from '@brainstrike/assistant-data';
+import type { ThreadFolderGroupingRow } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getThreadGroupsCapability } from '../thread-groups-capability';
 
 const logger = createLogger('ThreadFolderRows');
 
-const NO_FOLDER_ROWS: ReadonlyMap<string, ThreadFolderRow> = new Map();
+const NO_FOLDER_ROWS: ReadonlyMap<string, ThreadFolderGroupingRow> = new Map();
 
 export interface ThreadFolderRowsState {
   /**
@@ -52,7 +52,7 @@ export interface ThreadFolderRowsState {
    * the path the folder was mounted through, which git may report under
    * another spelling. Join on the id, never on this path.
    */
-  readonly rowsByRootId: ReadonlyMap<string, ThreadFolderRow>;
+  readonly rowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
 }
 
 /**
@@ -72,7 +72,7 @@ export interface ThreadFolderRowsState {
  */
 function warnUnresolvedRootIds(
   rootIds: readonly string[],
-  rowsByRootId: ReadonlyMap<string, ThreadFolderRow>,
+  rowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>,
   warnedRootIds: Set<string>
 ): void {
   for (const rootId of rootIds) {
@@ -106,7 +106,7 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
   const [resolved, setResolved] = useState<{
     readonly error: Error | null;
     readonly key: string;
-    readonly rowsByRootId: ReadonlyMap<string, ThreadFolderRow>;
+    readonly rowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
   } | null>(null);
   // Survives re-queries so one unresolved id is reported once per hook
   // instance, not once per id-set change.
@@ -128,7 +128,12 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
         const rowsByRootId = new Map(
           result.rows.map((row) => [
             row.id,
-            { displayName: row.displayName, path: row.path, rootId: row.id },
+            {
+              displayName: row.displayName,
+              path: row.path,
+              projectId: row.projectId,
+              rootId: row.id,
+            },
           ])
         );
         warnUnresolvedRootIds(distinctRootIds, rowsByRootId, warnedRootIds);

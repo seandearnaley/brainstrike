@@ -21,7 +21,13 @@ export function registerThreadGroupsIpc(store: ThreadGroupsPort & WorkspaceRootP
       readRoots: () =>
         settleIpcResult({ category: 'threadGroups', code: 'roots_read_failed' }, async () =>
           (await store.workspaceRoots({ operation: 'list' })).roots.map(
-            ({ id, displayName, path, status }) => ({ displayName, id, path, status })
+            ({ id, displayName, path, projectId, status }) => ({
+              displayName,
+              id,
+              path,
+              projectId,
+              status,
+            })
           )
         ),
       request: (request) =>

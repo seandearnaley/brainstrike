@@ -22,6 +22,7 @@ it('decodes committed group and root envelopes into one stable repository capabi
     displayName: 'Current',
     id: 'root-current',
     path: '/fixture',
+    projectId: 'project-current',
     status: 'live' as const,
   };
   const transport: BoundaryTransport<ThreadGroupsCapability> = {

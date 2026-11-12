@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { AssistantMemoryThread, ThreadFolderRow } from '@brainstrike/assistant-data';
+import type { AssistantMemoryThread, ThreadFolderGroupingRow } from '@brainstrike/assistant-data';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { projectThreadRepositories, resolveThreadRepository } from '../thread-repositories';
@@ -52,12 +52,15 @@ const managedWorktree = entry({
   rootIdIsExactMount: true,
 });
 
-const repoFolder: ThreadFolderRow = {
+const repoFolder: ThreadFolderGroupingRow = {
   displayName: 'brainstrike',
   path: '/code/brainstrike',
+  projectId: 'project-brainstrike',
   rootId: 'root-repo',
 };
-const folderRows: ReadonlyMap<string, ThreadFolderRow> = new Map([['root-repo', repoFolder]]);
+const folderRows: ReadonlyMap<string, ThreadFolderGroupingRow> = new Map([
+  ['root-repo', repoFolder],
+]);
 
 function thread(id: string, metadata?: AssistantMemoryThread['metadata']): AssistantMemoryThread {
   return {
@@ -86,7 +89,7 @@ const inOwnCheckout = thread('in-own-checkout', {
 });
 
 describe('projectThreadRepositories', () => {
-  it("names one repository for its own checkout's threads and its managed worktree's", () => {
+  it("names one repository, in its own checkout's project, for that checkout's threads and its managed worktree's", () => {
     const lookup = projectThreadRepositories([ownCheckout, managedWorktree], folderRows);
 
     const repository = resolveThreadRepository(inOwnCheckout, lookup);
@@ -97,6 +100,7 @@ describe('projectThreadRepositories', () => {
       folder: repoFolder,
       key: COMMON_DIR,
       path: '/code/brainstrike',
+      projectId: 'project-brainstrike',
     });
     // The same repository, so the two threads share one section.
     expect(resolveThreadRepository(inWorktree, lookup)).toBe(repository);
@@ -143,7 +147,7 @@ describe('projectThreadRepositories', () => {
     expect(resolveThreadRepository(inParent, lookup)).toBeUndefined();
   });
 
-  it("names a repository by its checkout's folder name and offers no folder while that checkout is not open", () => {
+  it("names a repository by its checkout's folder name, with no folder or project while that checkout is not open", () => {
     const lookup = projectThreadRepositories(
       [
         { ...ownCheckout, branch: null, detached: true, rootId: null, rootIdIsExactMount: false },
@@ -159,6 +163,7 @@ describe('projectThreadRepositories', () => {
       folder: null,
       key: COMMON_DIR,
       path: '/code/brainstrike',
+      projectId: null,
     });
   });
 

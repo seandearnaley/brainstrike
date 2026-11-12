@@ -25,6 +25,7 @@ type ThreadPanelSectionNodeId =
   | `date:${string}`
   | `folder:${string}`
   | `group:${string}`
+  | `project:${string}`
   | `repository:${string}`;
 
 type ThreadPanelSectionKey = 'flat' | 'ungrouped' | ThreadPanelSectionNodeId;
@@ -245,7 +246,7 @@ function appendGroupedSection({
  * Re-derives the section id as a node id WITHOUT a cast, so a section id this
  * module cannot address fails loudly here instead of silently becoming an
  * unreachable treegrid node. The shapes are the ones `thread-list-sections.ts`
- * mints: `repository:${key}`, `folder:${rootId}`, the deliberately
+ * mints: `project:${projectId}`, `repository:${key}`, `folder:${rootId}`, the deliberately
  * unemittable `folder-unassigned` sentinel, `date:${bucket}` and the Pinned
  * section's id.
  */
@@ -258,7 +259,7 @@ function requireViewSectionNodeId(
   if (sectionId === PINNED_SECTION_ID) {
     return PINNED_SECTION_ID;
   }
-  for (const prefix of ['repository:', 'folder:', 'date:'] as const) {
+  for (const prefix of ['project:', 'repository:', 'folder:', 'date:'] as const) {
     if (sectionId.startsWith(prefix)) {
       return `${prefix}${sectionId.slice(prefix.length)}`;
     }

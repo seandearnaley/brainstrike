@@ -21,11 +21,13 @@ interface RootsRow {
   readonly displayName: string;
   readonly id: string;
   readonly path: string | null;
+  readonly projectId: string | null;
 }
 
 const ROOT_ROWS: readonly RootsRow[] = [
-  { displayName: 'Project A', id: 'root-a', path: '/work/a' },
-  { displayName: 'Project B', id: 'root-b', path: null },
+  { displayName: 'Project A', id: 'root-a', path: '/work/a', projectId: 'project-a' },
+  // A managed worktree's root, or a folder recorded before projects: no project of its own.
+  { displayName: 'Project B', id: 'root-b', path: null, projectId: null },
 ];
 
 const readRoots = vi.fn();
@@ -50,7 +52,7 @@ beforeEach(() => {
 afterEach(() => Reflect.deleteProperty(window, 'threadGroups'));
 
 describe('useThreadFolderRows', () => {
-  it('resolves display rows for the requested root ids in ONE catalog read', async () => {
+  it('resolves display rows and their projects for the requested root ids in ONE catalog read', async () => {
     const { result } = renderHook(() => useThreadFolderRows(['root-b', 'root-a']));
 
     await waitFor(() => {
@@ -59,11 +61,13 @@ describe('useThreadFolderRows', () => {
     expect(result.current.rowsByRootId.get('root-a')).toEqual({
       displayName: 'Project A',
       path: '/work/a',
+      projectId: 'project-a',
       rootId: 'root-a',
     });
     expect(result.current.rowsByRootId.get('root-b')).toEqual({
       displayName: 'Project B',
       path: null,
+      projectId: null,
       rootId: 'root-b',
     });
     expect(readRoots).toHaveBeenCalledTimes(1);

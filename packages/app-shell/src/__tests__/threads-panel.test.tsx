@@ -1884,14 +1884,23 @@ describe('ThreadsPanel dates and pins', () => {
   });
 });
 
+/** A folder a thread is bound to, as its `roots` record reaches the panel. */
+interface BoundRoot {
+  readonly displayName: string;
+  readonly id: string;
+  readonly path: string;
+  readonly projectId: string | null;
+}
+
 describe('ThreadsPanel folders', () => {
-  const WORKSPACE_ROOT = {
+  const WORKSPACE_ROOT: BoundRoot = {
     displayName: 'workspace-a',
     id: 'root-1',
     path: '/tmp/workspace-a',
+    projectId: 'project-workspace-a',
   };
 
-  function bindThreadToRoot(threadId: string, root = WORKSPACE_ROOT): void {
+  function bindThreadToRoot(threadId: string, root: BoundRoot = WORKSPACE_ROOT): void {
     const row = threadRows.find((candidate) => candidate['id'] === threadId);
     if (!row) {
       throw new Error(`Cannot bind unknown thread ${threadId}.`);
@@ -1903,14 +1912,21 @@ describe('ThreadsPanel folders', () => {
       operatingRootPath: root.path,
     });
     if (!rootRows.some((candidate) => candidate['id'] === root.id)) {
-      rootRows.push({ displayName: root.displayName, id: root.id, path: root.path });
+      rootRows.push({
+        displayName: root.displayName,
+        id: root.id,
+        path: root.path,
+        projectId: root.projectId,
+      });
     }
   }
 
-  const WORKTREE_ROOT = {
+  // A managed worktree's root has no project of its own: it is a checkout of its repository.
+  const WORKTREE_ROOT: BoundRoot = {
     displayName: 'swift-badger',
     id: 'root-worktree',
     path: '/tmp/worktrees/swift-badger',
+    projectId: null,
   };
   const WORKTREE_ID = 'worktree-1';
 
@@ -2696,7 +2712,13 @@ it('loads host conversations, retained folders and custom groups', async () => {
     ],
   }));
   const readRoots = vi.fn(async () => [
-    { displayName: 'Retained', id: 'retained-root', path: '/tmp/retained', status: 'disconnected' },
+    {
+      displayName: 'Retained',
+      id: 'retained-root',
+      path: '/tmp/retained',
+      projectId: 'project-retained',
+      status: 'disconnected',
+    },
   ]);
   Object.defineProperty(window, 'threadGroups', {
     configurable: true,
