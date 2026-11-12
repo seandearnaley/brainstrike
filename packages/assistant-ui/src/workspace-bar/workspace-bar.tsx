@@ -301,12 +301,25 @@ export interface WorkspaceBarProps {
   readonly reveal?: WorkspaceBarReveal | undefined;
   readonly secondaryRoots: readonly WorkspaceBarRoot[];
   /**
+   * Where the thread works, from its binding (ADR-0034). Desktop only, like
+   * `mode`. The closed where-control names the checkout from this, so it keeps
+   * saying `Local` or the worktree's name while `mode` is withheld for a git
+   * status read. Absent ⇒ the checkout is named only once `mode` is known.
+   */
+  readonly threadCheckout?: WorkspaceBarThreadCheckout | undefined;
+  /**
    * The thread's folders whose agent configuration is held until the person
    * answers (ADR-0032). Absent ⇒ no chip: nothing is held, or no host owns trust.
    */
   readonly trust?: WorkspaceBarTrust | undefined;
   /** The workspace's mounted folders that are not this thread's. */
   readonly workspaceFolders: readonly WorkspaceBarRecentRoot[];
+}
+
+/** The thread's checkout as its binding records it. */
+export interface WorkspaceBarThreadCheckout {
+  /** The worktree the thread works in; null while it works in its folder itself (Local). */
+  readonly worktreePath: string | null;
 }
 
 /**

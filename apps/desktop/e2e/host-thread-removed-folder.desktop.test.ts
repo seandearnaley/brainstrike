@@ -163,7 +163,9 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     }, bravoRoot);
     await openFolderRows(region);
     await page.getByTestId('workspace-bar-add-folder').click();
-    await expect(chip(region)).toHaveAttribute('aria-label', /, 1 more$/u, { timeout: 30_000 });
+    await expect(chip(region)).toHaveAttribute('aria-label', /, 1 more · Local$/u, {
+      timeout: 30_000,
+    });
     const bravoId = await rootIdOf(page, bravoRoot);
     await openRootMenu(page, region, bravoId);
     await chooseMenuItem(page, `workspace-bar-make-primary-${bravoId}`);
@@ -193,7 +195,7 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     await chooseMenuItem(page, `workspace-bar-make-primary-${alphaId}`);
     await expect(chip(region)).toHaveAttribute(
       'aria-label',
-      `Where this thread works: ${path.basename(alphaRoot)}`
+      `Where this thread works: ${path.basename(alphaRoot)} · Local`
     );
 
     await send(3);
@@ -269,7 +271,7 @@ test('a thread left with no live folder offers another workspace folder', async 
     await chooseMenuItem(page, `workspace-bar-use-folder-${bravoRoot}`);
     await expect(chip(region)).toHaveAttribute(
       'aria-label',
-      `Where this thread works: ${path.basename(bravoRoot)}`
+      `Where this thread works: ${path.basename(bravoRoot)} · Local`
     );
 
     await send(3);

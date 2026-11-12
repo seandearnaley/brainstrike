@@ -17,6 +17,7 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import { checkoutName, pathFolderName } from '@brainstrike/assistant-contract/thread-checkout-name';
 import type {
   WorkspaceBarBaseRefOption,
   WorkspaceBarCreateWorktreeRequest,
@@ -283,11 +284,6 @@ function createDisabledReason(
     return `Worktree settings are unavailable: ${settings.message}`;
   }
   return null;
-}
-
-/** `/managed/app/bright-fox` → `bright-fox`, on either path separator. */
-function folderName(path: string): string {
-  return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
 }
 
 function computeWorktreeSummary(params: {
@@ -857,9 +853,11 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       : undefined;
   const missingWorktreePath =
     currentWorktreeId && currentEntry === null ? args.checkout.worktreePath : null;
-  const missingWorktreeName = missingWorktreePath ? folderName(missingWorktreePath) : null;
+  const missingWorktreeName = missingWorktreePath ? checkoutName(missingWorktreePath) : null;
   const uncommittedFolderName =
-    args.uncommittedChanges && args.primaryRootPath ? folderName(args.primaryRootPath) : null;
+    args.uncommittedChanges && args.primaryRootPath
+      ? (pathFolderName(args.primaryRootPath) ?? args.primaryRootPath)
+      : null;
   const checkoutChangeDisabledReason = threadState === 'running' ? RUN_IN_PROGRESS_REASON : null;
   const missingWorktreeReason = missingWorktreeDiagnostic({
     currentWorktreeId,

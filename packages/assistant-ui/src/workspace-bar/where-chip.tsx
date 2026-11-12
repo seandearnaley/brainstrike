@@ -1,4 +1,8 @@
 import {
+  checkoutName,
+  LOCAL_CHECKOUT_NAME,
+} from '@brainstrike/assistant-contract/thread-checkout-name';
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -37,6 +41,7 @@ import type {
   WorkspaceBarCheckout,
   WorkspaceBarMode,
   WorkspaceBarRoot,
+  WorkspaceBarThreadCheckout,
   WorkspaceBarWorktreeSummary,
 } from './workspace-bar';
 import { WorktreeArchiveConfirmationDialog } from './worktree-archive-confirmation-dialog';
@@ -47,6 +52,7 @@ export type WhereChipProps = FolderMenuProps & {
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   readonly checkout?: WorkspaceBarCheckout | undefined;
   readonly mode?: WorkspaceBarMode | undefined;
+  readonly threadCheckout?: WorkspaceBarThreadCheckout | undefined;
 };
 
 const SECTION_LABEL_CLASS = 'text-muted-foreground text-[10px] tracking-wide uppercase';
@@ -54,9 +60,34 @@ const SECTION_LABEL_CLASS = 'text-muted-foreground text-[10px] tracking-wide upp
 const WHERE_MENU_EXIT = { '--tw-exit-scale': '1' } as CSSProperties;
 const NO_IDS: ReadonlySet<string> = new Set();
 
-/** `/managed/app/bright-fox` → `bright-fox`: a worktree is named by its folder, as the Threads panel names it. */
-function folderName(path: string): string {
-  return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
+type WhereFacts = Pick<WhereChipProps, 'mode' | 'secondaryRoots' | 'threadCheckout'> & {
+  readonly primaryRoot: WorkspaceBarRoot;
+};
+
+/**
+ * The worktree the thread works in, by name: from its binding when app-shell
+ * gives it, else from `mode` or from its Local folder, which only a thread in
+ * a worktree has. Null while it works in its folder itself.
+ */
+function worktreeNameOf({ mode, primaryRoot, secondaryRoots, threadCheckout }: WhereFacts) {
+  if (threadCheckout) {
+    return threadCheckout.worktreePath === null ? null : checkoutName(threadCheckout.worktreePath);
+  }
+  if (mode?.worktree) {
+    return checkoutName(mode.worktree.path);
+  }
+  return secondaryRoots.some((root) => root.local) ? primaryRoot.displayName : null;
+}
+
+/**
+ * Whether the closed control says Local for a thread in its folder itself: the
+ * checkout is known (the binding, or `mode`), the folder is open, and nothing
+ * about it warns. A folder outside git is Local too (ADR-0034 decision 1).
+ */
+function localNamed({ mode, primaryRoot, threadCheckout }: WhereFacts): boolean {
+  const known = threadCheckout !== undefined || mode !== undefined;
+  const warns = Boolean(mode?.disabledReason) && mode?.notARepository !== true;
+  return known && !primaryRoot.removed && !warns;
 }
 
 /**
@@ -101,13 +132,16 @@ function summaryIcon(
   if (worktreeName) {
     return { icon: FolderGit2, iconClassName: undefined };
   }
-  return { icon: checkout === 'Local' ? Home : Folder, iconClassName: undefined };
+  return { icon: checkout === LOCAL_CHECKOUT_NAME ? Home : Folder, iconClassName: undefined };
 }
 
 function describeWhere(
-  props: Pick<WhereChipProps, 'checkout' | 'mode' | 'primaryRoot' | 'secondaryRoots'>
+  props: Pick<
+    WhereChipProps,
+    'checkout' | 'mode' | 'primaryRoot' | 'secondaryRoots' | 'threadCheckout'
+  >
 ): WhereSummary {
-  const { checkout, mode, primaryRoot, secondaryRoots } = props;
+  const { checkout, mode, primaryRoot, secondaryRoots, threadCheckout } = props;
   if (!primaryRoot) {
     return {
       accessibleName: 'Choose a folder',
@@ -120,21 +154,16 @@ function describeWhere(
       warning: false,
     };
   }
+  const facts = { mode, primaryRoot, secondaryRoots, threadCheckout };
   const localRoot = secondaryRoots.find((root) => root.local);
-  let worktreeName: string | null = null;
-  if (mode?.worktree) {
-    worktreeName = folderName(mode.worktree.path);
-  } else if (localRoot) {
-    worktreeName = primaryRoot.displayName;
-  }
+  const worktreeName = worktreeNameOf(facts);
   const projectRoot = worktreeName === null ? primaryRoot : localRoot;
-  const local = mode && !mode.disabledReason && !primaryRoot.removed ? 'Local' : null;
-  const checkoutName = worktreeName ?? local;
+  const checkoutLabel = worktreeName ?? (localNamed(facts) ? checkoutName(null) : null);
   const extra = secondaryRoots.filter((root) => !root.local).length;
   const warning = checkoutWarning(mode);
   const spokenProject = projectRoot ? withState(projectRoot.displayName, projectRoot) : null;
   const spokenCheckout =
-    worktreeName === null ? checkoutName : withState(worktreeName, primaryRoot);
+    worktreeName === null ? checkoutLabel : withState(worktreeName, primaryRoot);
   const spoken = [
     [spokenProject, extra > 0 ? `${extra} more` : null].filter(Boolean).join(', '),
     spokenCheckout,
@@ -148,11 +177,11 @@ function describeWhere(
   return {
     accessibleName: [`Where this thread works: ${spoken}`, ...details].join(', '),
     checkout:
-      checkoutName === null
+      checkoutLabel === null
         ? null
-        : `${checkoutName}${worktreeName ? visibleState(primaryRoot) : ''}`,
+        : `${checkoutLabel}${worktreeName ? visibleState(primaryRoot) : ''}`,
     extra,
-    ...summaryIcon(primaryRoot, worktreeName, checkoutName),
+    ...summaryIcon(primaryRoot, worktreeName, checkoutLabel),
     project: projectRoot ? `${projectRoot.displayName}${visibleState(projectRoot)}` : null,
     title: mode?.disabledReason ?? primaryRoot.path,
     warning: warning !== null,
@@ -248,7 +277,7 @@ const LocalRow = ({
     return (
       <>
         <DropdownMenuCheckboxItem checked data-testid="workspace-bar-where-local">
-          <RowLabel aside={branch} label="Local" reason={null} />
+          <RowLabel aside={branch} label={LOCAL_CHECKOUT_NAME} reason={null} />
         </DropdownMenuCheckboxItem>
         {/* ADR-0034 Automatic isolation (PR #5357). */}
         <RowNote testId="workspace-bar-where-local-isolation">
@@ -260,7 +289,7 @@ const LocalRow = ({
   if (!mode.onHandOffToLocal) {
     return (
       <DropdownMenuLabel className="pl-8 font-normal" data-testid="workspace-bar-where-local">
-        <RowLabel aside={branch} label="Local" reason={null} />
+        <RowLabel aside={branch} label={LOCAL_CHECKOUT_NAME} reason={null} />
       </DropdownMenuLabel>
     );
   }
@@ -274,7 +303,7 @@ const LocalRow = ({
     >
       <RowLabel
         aside={branch}
-        label="Local"
+        label={LOCAL_CHECKOUT_NAME}
         reason={mode.checkoutChangeDisabledReason}
         reasonTestId="workspace-bar-mode-handoff-disabled-reason"
       />
@@ -298,7 +327,7 @@ const WorktreeRow = ({
       >
         <RowLabel
           aside={worktree.detached ? 'Detached HEAD' : (worktree.branch ?? 'Detached HEAD')}
-          label={folderName(worktree.path)}
+          label={checkoutName(worktree.path)}
           reason={null}
         />
       </DropdownMenuCheckboxItem>

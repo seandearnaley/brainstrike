@@ -18,6 +18,8 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   ),
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
   ThreadCheckoutProvider: ({ children }: { children: React.ReactNode }) => children,
+  useFileExplorerStoreSelector: <T,>(selector: (state: { rootDescriptors: object }) => T): T =>
+    selector({ rootDescriptors: {} }),
 }));
 
 // Mock the file-explorer-hooks package

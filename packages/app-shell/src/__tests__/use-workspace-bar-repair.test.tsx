@@ -10,10 +10,12 @@ import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';
 import { resetRootRegistrationEventsForTests } from '../roots/root-registration-events';
+import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const fs = {
   addRootDirectory: vi.fn(),
@@ -67,13 +69,20 @@ const readRoots = vi.fn(async () => Object.entries(ROWS).map(([id, row]) => ({ .
 const updateThreadMetadata = vi.fn(async () => {});
 const assistantThreadRepository = { updateThreadMetadata } as unknown as AssistantThreadRepository;
 
-type Descriptors = Record<string, { displayName: string; path: string; rootId: string }>;
+type Descriptors = Record<
+  string,
+  { displayName: string; path: string; rootId: string; worktree?: true }
+>;
 const ALPHA_AND_CHARLIE: Descriptors = {
   'adapter-alpha': { displayName: 'alpha', path: '/ws/alpha', rootId: 'adapter-alpha' },
   'adapter-charlie': { displayName: 'charlie', path: '/ws/charlie', rootId: 'adapter-charlie' },
 };
 
-async function setup(metadata: Record<string, unknown>, rootDescriptors: Descriptors) {
+async function setup(
+  metadata: Record<string, unknown>,
+  rootDescriptors: Descriptors,
+  wrapper?: (props: { readonly children?: ReactNode }) => ReactElement
+) {
   useAssistantThreadStore.setState({
     ...useAssistantThreadStore.getState(),
     selectedThreadByResourceId: { [RESOURCE_ID]: THREAD_ID },
@@ -98,7 +107,7 @@ async function setup(metadata: Record<string, unknown>, rootDescriptors: Descrip
         rootDescriptors: props.rootDescriptors,
         selectedMemoryThreadId: THREAD_ID,
       }),
-    { initialProps: { rootDescriptors } }
+    { initialProps: { rootDescriptors }, ...(wrapper ? { wrapper } : {}) }
   );
   await act(async () => {});
   return rendered;
@@ -122,6 +131,7 @@ beforeEach(() => {
     value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
   });
   checkoutStatusSpy.mockClear();
+  checkoutStatusSpy.mockImplementation(() => ({ checkout: undefined, settled: true }));
   toastSpy.mockClear();
   updateThreadMetadata.mockClear();
 });
@@ -231,5 +241,87 @@ describe('a mounted folder outside the thread', () => {
     expect(fs.addRootDirectory).not.toHaveBeenCalled();
     expect(fs.addRootDirectoryByPath).not.toHaveBeenCalled();
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  // ADR-0034 decision 2: a worktree is a checkout of its project, never one of the other folders.
+  it("is never another thread's worktree", async () => {
+    const { result } = await setup(
+      {
+        operatingRootDisplayName: 'alpha',
+        operatingRootId: 'r-alpha',
+        operatingRootPath: '/ws/alpha',
+      },
+      {
+        ...ALPHA_AND_CHARLIE,
+        'adapter-wt': {
+          displayName: 'swift-badger',
+          path: '/managed/alpha/swift-badger',
+          rootId: 'adapter-wt',
+          worktree: true,
+        },
+      }
+    );
+    await waitFor(() =>
+      expect(result.current.workspaceFolders).toEqual([
+        { displayName: 'charlie', path: '/ws/charlie' },
+      ])
+    );
+  });
+});
+
+describe("the thread's checkout", () => {
+  it('is named from its binding while the folder’s git status is still being read', async () => {
+    checkoutStatusSpy.mockImplementation(() => ({
+      checkout: undefined,
+      failure: null,
+      settled: false,
+    }));
+    const wrapper = workspaceGitWrapper({
+      worktrees: stubWorktreesBridge({
+        getSettings: vi.fn(() => new Promise<never>(() => undefined)),
+        list: vi.fn(() => new Promise<never>(() => undefined)),
+      }),
+    });
+    const local = await setup(
+      {
+        operatingRootDisplayName: 'alpha',
+        operatingRootId: 'r-alpha',
+        operatingRootPath: '/ws/alpha',
+      },
+      ALPHA_AND_CHARLIE,
+      wrapper
+    );
+    expect(local.result.current.mode).toBeUndefined();
+    expect(local.result.current.threadCheckout).toEqual({ worktreePath: null });
+    local.unmount();
+
+    const inWorktree = await setup(
+      {
+        checkoutLocalRootId: 'r-alpha',
+        checkoutMode: 'worktree',
+        checkoutWorktreeId: 'w-1',
+        checkoutWorktreePath: '/managed/alpha/swift-badger',
+        operatingRootDisplayName: 'swift-badger',
+        operatingRootId: 'r-wt',
+        operatingRootPath: '/managed/alpha/swift-badger',
+      },
+      ALPHA_AND_CHARLIE,
+      wrapper
+    );
+    expect(inWorktree.result.current.threadCheckout).toEqual({
+      worktreePath: '/managed/alpha/swift-badger',
+    });
+  });
+
+  it('is not named where the platform has no worktrees (web)', async () => {
+    const { result } = await setup(
+      {
+        operatingRootDisplayName: 'alpha',
+        operatingRootId: 'r-alpha',
+        operatingRootPath: '/ws/alpha',
+      },
+      ALPHA_AND_CHARLIE
+    );
+    expect(result.current.threadCheckout).toBeUndefined();
   });
 });

@@ -12,25 +12,59 @@ export interface ThreadCheckout {
 }
 
 /**
- * file-explorer-ui does not know threads, so the layer that does (app-shell) names the active
- * thread's checkout. No provider, or a thread working in its local folder, is `null`.
+ * ADR-0034 decision 3: what the Explorer's header calls the folder the active thread works in,
+ * `<project> · <checkout>` (`brainstrike · swift-badger`, `brainstrike · Local`). App-shell words
+ * it; the Explorer only shows it on that folder's header.
  */
-const ThreadCheckoutContext = createContext<ThreadCheckout | null>(null);
+export interface ThreadCheckoutHeader {
+  readonly label: string;
+  readonly rootId: string;
+}
+
+interface ThreadCheckoutValue {
+  readonly checkout: ThreadCheckout | null;
+  readonly header: ThreadCheckoutHeader | null;
+}
+
+const NO_THREAD_CHECKOUT: ThreadCheckoutValue = { checkout: null, header: null };
+
+/**
+ * file-explorer-ui does not know threads, so the layer that does (app-shell) names the active
+ * thread's checkout. No provider, or a thread working in its local folder, has no `checkout`; no
+ * provider, or no thread, has no `header`.
+ */
+const ThreadCheckoutContext = createContext<ThreadCheckoutValue>(NO_THREAD_CHECKOUT);
 
 export function ThreadCheckoutProvider({
   checkout,
   children,
+  header = null,
 }: {
   checkout: ThreadCheckout | null;
   children: ReactNode;
+  header?: ThreadCheckoutHeader | null | undefined;
 }) {
   return (
-    <ThreadCheckoutContext.Provider value={checkout}>{children}</ThreadCheckoutContext.Provider>
+    <ThreadCheckoutContext.Provider value={{ checkout, header }}>
+      {children}
+    </ThreadCheckoutContext.Provider>
   );
 }
 
 export function useThreadCheckout(): ThreadCheckout | null {
-  return useContext(ThreadCheckoutContext);
+  return useContext(ThreadCheckoutContext).checkout;
+}
+
+/**
+ * What a folder's Explorer header says: `<project> · <checkout>` while the active thread works
+ * there, else the folder's own name.
+ */
+export function useRootHeaderLabel<Name extends string | undefined>(
+  rootId: string | null,
+  folderName: Name
+): string | Name {
+  const { header } = useContext(ThreadCheckoutContext);
+  return header !== null && header.rootId === rootId ? header.label : folderName;
 }
 
 /**

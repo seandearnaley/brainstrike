@@ -214,8 +214,8 @@ test.describe('Worktree mode (desktop)', () => {
     await approve.click();
 
     // Its edit was not made there: the host made a worktree of its own and moved it there.
-    // Awaited by the worktree itself, then its name on the control: a label that has stopped
-    // saying Local is no sign of the move, since the label drops it while its git status loads.
+    // Awaited by the worktree itself, which names it, then by that name on the control, which
+    // follows the thread's binding.
     const agentWorktrees = (): string[] =>
       listWorktreePaths(repo).filter((worktree) => worktree.startsWith(managedDirectory));
     await expect.poll(agentWorktrees, { timeout: 90_000 }).toHaveLength(1);
@@ -339,13 +339,22 @@ test.describe('Worktree mode (desktop)', () => {
     await seedRoot(page, repo);
     await openComposer(page);
     await chooseThreadFolder(page, path.basename(repo));
-    await createAndUseWorktree(page);
+    const created = await createAndUseWorktree(page);
+    // ADR-0034 decision 3: the Explorer shows the worktree in the folder's place and its
+    // header names the checkout, as the control does.
+    const explorerHeader = page.getByTestId('single-root-header-row');
+    await expect(explorerHeader).toContainText(`${path.basename(repo)} · ${created.name}`, {
+      timeout: 30_000,
+    });
 
     await openWhereMenu(page);
     // The Local row: in a worktree, choosing it is Hand off to Local.
     await page.getByTestId('workspace-bar-mode-handoff').click();
     await expect(whereChip(page)).toContainText('Local', {
       timeout: 90_000,
+    });
+    await expect(explorerHeader).toContainText(`${path.basename(repo)} · Local`, {
+      timeout: 30_000,
     });
 
     await reloadRenderer(page, 'worktree-mode: reload 1');
