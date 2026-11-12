@@ -2,8 +2,8 @@
 // creates is owned by the user even when an elevated token defaults to
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
-import { ForeignLockError, RootLockedError } from '@brainstrike/state-store';
 import { decodeStartOptions, type HostRuntime, startHost } from './runtime.ts';
+import { failedStartupReport } from './startup-failure.ts';
 import type { StartupMessage } from './startup-message.ts';
 
 async function report(message: StartupMessage): Promise<void> {
@@ -68,16 +68,7 @@ main().catch(async (cause: unknown) => {
   const message = cause instanceof Error ? cause.message : String(cause);
   if (process.connected) {
     try {
-      await report({
-        event: 'failed',
-        kind:
-          cause instanceof RootLockedError
-            ? 'root-locked'
-            : cause instanceof ForeignLockError
-              ? 'foreign-lock'
-              : 'error',
-        message,
-      });
+      await report(failedStartupReport(cause));
     } catch (reportCause) {
       process.stderr.write(`Host failure report failed: ${String(reportCause)}\n`);
     }

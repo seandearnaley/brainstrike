@@ -65,6 +65,7 @@ Decision: [ADR-0017](../adr/0017-cli-first-agent-host.md). Implementation: `pack
 - Closing inherited descriptors loses flock protection; a daemon that also leaves its process group escapes group retirement.
 - Windows uses kill-on-close Job ownership. See [ADR-0017's native-process limits](../adr/0017-cli-first-agent-host.md#native-processes-hold-the-root).
 - A closed transport, deleted record or parent exit doesn't prove physical retirement. Failed cleanup keeps ownership and stays an error on repeat close.
+- The next owner's own `RootLock.acquire` is the one place that reports a surviving native process (`native-tail`). Main's close of a lost host takes no hold of the Root; a host refused that way names the owner in its `failed` report, and its launch ends with that refusal at once, never starting another host (ADR-0017, BST-2477). The refusal stands only once the named owner's process has exited; while it still runs it is releasing the Root, and the launch acquires again.
 
 ## Destructive reset
 

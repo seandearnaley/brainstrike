@@ -516,31 +516,6 @@ export class RootLock {
     return this.released ? undefined : this.#flock;
   }
 
-  /**
-   * POSIX: whether any process still holds this Root's flock. Main asks after its host has exited and the native
-   * process groups it registered were signalled; a held flock means a native process survives and the Root stays
-   * refused. Windows has no flock (its host's Job Object ends the native processes), so asking there throws.
-   */
-  static isFlockHeld(root: string): boolean {
-    if (process.platform === 'win32') {
-      throw new Error('lock: the Root flock is POSIX-only');
-    }
-    let fd: number;
-    try {
-      fd = openSync(join(RootLock.dirOf(root), FLOCK_FILE), constants.O_RDWR);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-        return false;
-      }
-      throw e;
-    }
-    try {
-      return !tryExclusiveFlock(fd);
-    } finally {
-      closeSync(fd);
-    }
-  }
-
   static dirOf(root: string): string {
     return join(root, 'lock');
   }

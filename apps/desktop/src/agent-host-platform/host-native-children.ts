@@ -3,16 +3,16 @@
  * The host reports each one (pid, start time, whether it leads its own process
  * group) over the platform connection. If the utility dies, Main ends them with
  * the executor's own tail: SIGTERM now, SIGKILL after its grace. The lost host's
- * lease close waits out that grace, then joins whatever it signalled and requires
- * the Root's flock to be free, so a surviving process keeps the close failed and
- * the Root refused.
+ * lease close waits out that grace, then joins whatever it signalled. It takes no
+ * hold of the Root (BST-2477): a process that survives keeps the Root's flock, and
+ * the next owner's own acquisition refuses the Root as `native-tail`.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { CHILD_SIGNAL_GRACE_MS, processStartTime, RootLock } from '@brainstrike/state-store';
+import { CHILD_SIGNAL_GRACE_MS, processStartTime } from '@brainstrike/state-store';
 import type { NativeChild } from '@brainstrike/state-store/native-children';
 
 export interface HostNativeChildren {
-  /** Lease close: SIGKILL what remains, join it, then require the Root's flock free (POSIX). */
+  /** Lease close: SIGKILL what remains and join it. */
   close(): Promise<void>;
   exited(child: NativeChild): void;
   /**
@@ -62,7 +62,7 @@ function remains(child: NativeChild): boolean {
   }
 }
 
-export function createHostNativeChildren(root: string): HostNativeChildren {
+export function createHostNativeChildren(): HostNativeChildren {
   const children = new Map<string, NativeChild>();
   const key = (child: NativeChild): string => `${child.pid}:${child.start}`;
   // Signal failures outside the close (the utility's exit event, the grace timer) surface there.
@@ -93,11 +93,6 @@ export function createHostNativeChildren(root: string): HostNativeChildren {
         await delay(JOIN_POLL_MS, undefined, { ref: false });
       }
       children.clear();
-      if (process.platform !== 'win32' && RootLock.isFlockHeld(root)) {
-        failures.push(
-          new Error(`The Root ${root} is still held by a native process its host started`)
-        );
-      }
       const failed = failures.splice(0);
       if (failed.length === 1) {
         throw failed[0];

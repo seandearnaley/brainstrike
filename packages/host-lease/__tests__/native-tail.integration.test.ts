@@ -3,7 +3,8 @@
  * Root. A POSIX command inherits the Root's flock, so it keeps the Root refused
  * until it exits; a Windows host's kill-on-close Job ends the command with the
  * host. Either way, after the host dies a new owner takes the Root only once
- * every native process that host started is gone.
+ * every native process that host started is gone, and a launch refused that way
+ * ends with the refusal (BST-2477).
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -16,6 +17,8 @@ import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { processStartTime, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
+import { launchHost } from '../src/launcher.js';
+import { createNodeHostSpawner } from '../src/node-spawner.js';
 
 const Identity = Schema.Struct({ pid: Schema.Int, start: Schema.String });
 type Identity = typeof Identity.Type;
@@ -44,6 +47,11 @@ const end = (identity: Identity): void => {
   }
 };
 
+const spawnHost = createNodeHostSpawner({
+  entrypoint: fileURLToPath(new URL('../src/process-entry.ts', import.meta.url)),
+  execArgv: ['--import', 'tsx'],
+  output: 'ignore',
+});
 const roots: string[] = [];
 const hosts: ChildProcess[] = [];
 
@@ -117,6 +125,27 @@ test('after its host dies, a Root is refused until every native process the host
     expect(refusal).toBeInstanceOf(RootLockedError);
     expect(refusal).toMatchObject({ holder: 'native-tail', owner: { pid: owner.pid } });
     expect(running(command)).toBe(true);
+    // BST-2477: a launch's host is refused the same way, and the launch ends with that
+    // refusal at once. Nothing is leaving the Root, so it never starts another host.
+    const launch = new AbortController();
+    let starts = 0;
+    const launched = await launchHost(root, {
+      lifetime: 'cli',
+      signal: launch.signal,
+      spawn: (options, signal) => {
+        starts += 1;
+        if (starts > 1) {
+          launch.abort(new Error('The launch started another host'));
+        }
+        return spawnHost(options, signal);
+      },
+    }).then(
+      (attachment) => attachment.close(),
+      (cause: unknown) => cause
+    );
+    expect(launched).toBeInstanceOf(RootLockedError);
+    expect(launched).toMatchObject({ holder: 'native-tail', owner: { pid: owner.pid } });
+    expect(starts).toBe(1);
   }
 
   end(command);
