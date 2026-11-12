@@ -11,6 +11,32 @@ export interface SubagentChipAgent {
 }
 
 /**
+ * The delegations an activity header has no room to show as chips, as a
+ * count that shows them all in the group.
+ */
+export function SubagentOverflowChip({
+  hidden,
+  onShow,
+}: {
+  readonly hidden: number;
+  readonly onShow: () => void;
+}): ReactElement {
+  const label = `Show ${hidden} more ${hidden === 1 ? 'subagent' : 'subagents'}`;
+  return (
+    <button
+      aria-label={label}
+      className="bs-subagent-more"
+      data-testid="subagent-overflow-chip"
+      onClick={onShow}
+      title={label}
+      type="button"
+    >
+      +{hidden}
+    </button>
+  );
+}
+
+/**
  * A subagent's call sign on a dot of its family colour. With `onOpen` it is a
  * button that opens the subagent's conversation.
  */

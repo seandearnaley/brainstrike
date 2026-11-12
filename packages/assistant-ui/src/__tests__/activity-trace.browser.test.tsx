@@ -3,7 +3,7 @@ import '../overrides.css';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState, useSyncExternalStore } from 'react';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 import { SubagentChip } from '../subagent-chip';
 import { mustFind, px } from './browser-dom';
@@ -188,17 +188,20 @@ test('subagent chips keep the header on one line, folding to their colour dots w
     label: `Step ${index}`,
     stepId: `step-${index}`,
   }));
-  const header = (width: number, agents: readonly string[]) => (
+  const header = (width: number, agents: readonly string[], onShowAll = () => undefined) => (
     <div className="assistant-ui-panel" style={{ width }}>
       <ActivityTrace
         {...(agents.length > 0
           ? {
-              agents: agents.map((callSign) => (
-                <SubagentChip
-                  agent={{ callSign, colorId: 'family:180:500', onOpen: () => undefined }}
-                  key={callSign}
-                />
-              )),
+              agents: {
+                chips: agents.map((callSign) => (
+                  <SubagentChip
+                    agent={{ callSign, colorId: 'family:180:500', onOpen: () => undefined }}
+                    key={callSign}
+                  />
+                )),
+                onShowAll,
+              },
             }
           : {})}
         fallbackMs={1000}
@@ -254,6 +257,28 @@ test('subagent chips keep the header on one line, folding to their colour dots w
   }
   // A folded dot is exactly as tall as a named chip.
   expect(chipHeights.size).toBe(1);
+
+  // A large delegation group shows three dots and a count, all inside the row,
+  // and the count shows the rest.
+  const many = Array.from({ length: 12 }, (_, index) => `Agent-${index}`);
+  const showAll = vi.fn();
+  const { rerender } = render(header(320, []));
+  const oneLine = headerBox().height;
+  rerender(header(320, many, showAll));
+  const row = headerBox();
+  expect(row.height).toBe(oneLine);
+  // The headline's meta stays clear of the controls beside it.
+  expect(screen.getByText('· 28 steps').getBoundingClientRect().right).toBeLessThanOrEqual(
+    screen.getByTestId('assistant-activity-failed-count').getBoundingClientRect().left
+  );
+  expect(screen.getAllByTestId('subagent-chip')).toHaveLength(3);
+  const more = screen.getByRole('button', { name: 'Show 9 more subagents' });
+  expect(more).toHaveTextContent('+9');
+  const moreBox = more.getBoundingClientRect();
+  expect(moreBox.right).toBeLessThanOrEqual(row.right);
+  expect(moreBox.height).toBe([...chipHeights][0]);
+  fireEvent.click(more);
+  expect(showAll).toHaveBeenCalledTimes(1);
 });
 
 /*
