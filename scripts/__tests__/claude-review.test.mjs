@@ -8,10 +8,13 @@ import {
   deserializeFiles,
   findingBody,
   findingTitle,
+  isOtherBotFinding,
   isOwnFinding,
   newWork,
+  otherBotTitle,
   parseDiff,
   placeFinding,
+  priorFromThreads,
   renderPrDiff,
   reviewBody,
   reviewState,
@@ -291,6 +294,67 @@ describe('markers', () => {
   });
 });
 
+describe('priorFromThreads', () => {
+  const codexBody =
+    '**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Keep the guard on retire**\n\nThe close path drops the guard.\n\n<!-- codex-code-review-finding:v1 -->';
+  const thread = (id, comments, extra = {}) => ({
+    comments: { nodes: comments },
+    id,
+    isResolved: false,
+    line: 12,
+    path: 'src/one.ts',
+    subjectType: 'LINE',
+    ...extra,
+  });
+  const codex = { __typename: 'Bot', login: 'chatgpt-codex-connector' };
+
+  it('rechecks another review bot’s finding beside its own, and nobody else’s thread', () => {
+    const prior = priorFromThreads(
+      [
+        thread('T1', [
+          { author: { __typename: 'Bot', login: 'github-actions' }, body: findingBody(finding) },
+        ]),
+        thread('T2', [
+          { author: codex, body: codexBody },
+          { author: { __typename: 'User', login: 'owner' }, body: 'Still needed?' },
+        ]),
+        thread('T3', [{ author: { __typename: 'User', login: 'owner' }, body: 'Rename this.' }]),
+        thread('T4', [
+          { author: { __typename: 'Bot', login: 'github-actions' }, body: 'Not a finding.' },
+        ]),
+      ],
+      'github-actions'
+    );
+    assert.deepEqual(
+      prior.map(({ id, source, threadId, title }) => ({ id, source, threadId, title })),
+      [
+        { id: 'F1', source: null, threadId: 'T1', title: 'Off by one' },
+        {
+          id: 'F2',
+          source: 'chatgpt-codex-connector',
+          threadId: 'T2',
+          title: 'Keep the guard on retire',
+        },
+      ]
+    );
+    assert.equal(prior[1].detail, 'Keep the guard on retire The close path drops the guard.');
+    assert.deepEqual(prior[1].replies, ['owner: Still needed?']);
+  });
+
+  it('reads another bot’s headline without its badge or markup', () => {
+    assert.equal(otherBotTitle(codexBody), 'Keep the guard on retire');
+    assert.equal(otherBotTitle('Plain first line\nmore'), 'Plain first line');
+    assert.equal(isOtherBotFinding({ author: codex, body: codexBody }, 'github-actions'), true);
+    assert.equal(
+      isOtherBotFinding(
+        { author: { __typename: 'Bot', login: 'github-actions' } },
+        'github-actions'
+      ),
+      false
+    );
+  });
+});
+
 describe('buildPrompt', () => {
   const base = {
     diff: gitDiff,
@@ -345,6 +409,31 @@ describe('buildPrompt', () => {
     assert.match(
       prompt,
       /- F1 \[open\] src\/one\.ts:12 — Off by one\n {4}reply from owner: intended/u
+    );
+  });
+
+  it('lists another review bot’s finding with its text, to recheck like its own', () => {
+    const prompt = buildPrompt({
+      ...base,
+      lastHead,
+      mode: 'followup',
+      prior: [
+        {
+          detail: 'The close path drops the guard.',
+          id: 'F1',
+          line: 12,
+          path: 'src/one.ts',
+          replies: [],
+          resolved: false,
+          source: 'chatgpt-codex-connector',
+          title: 'Keep the guard',
+        },
+      ],
+      touched: new Map([['src/one.ts', { added: new Set([41]) }]]),
+    });
+    assert.match(
+      prompt,
+      /- F1 \[open\] src\/one\.ts:12 — Keep the guard \(posted by chatgpt-codex-connector\)\n {4}finding text: The close path drops the guard\./u
     );
   });
 });
