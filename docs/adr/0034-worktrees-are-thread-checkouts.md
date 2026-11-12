@@ -506,6 +506,13 @@ revisit:
   trusted folder (and its instructions) never reach another thread's run. A
   thread bound to its scratch folder acquires it through its binding, and the
   folder may be that run's selected folder.
+- **A run names the Explorer's focus only when its thread can see that
+  folder:** an open folder, or one of the thread's own (its binding's).
+  While the active thread shows no folder, the Explorer keeps its last focus,
+  which can be another thread's scratch folder or worktree; a send then names
+  no folder, rather than one admission refuses (`threadSelectionFolderId`).
+  The Explorer's focus itself is left as it is, so a restore that has not
+  mounted the folders yet keeps it.
 - **Made at its canonical path.** The host resolves the scratch directory
   before naming a folder in it, so the root, its watch and its trust answer
   spell it one way (a profile reached through a symbolic link, as the OS
@@ -516,9 +523,11 @@ revisit:
   queue: the folder unmounts once its borrows end, its root and record are
   deleted together, its trust answer goes, and Main moves it to the Trash.
   Main moves only a folder directly inside `<userData>/scratch`, by canonical
-  path. A folder already removed outside Brainstrike is logged and skipped. A
-  failure is logged and answers the deletion, which says the thread itself is
-  gone.
+  path. A folder already removed outside Brainstrike is logged and skipped.
+  The thread is gone by then, so a failure (a volume with no Trash, a system
+  with none) does not fail the deletion: it is logged, the deletion's answer
+  names the folder and Main's reason (`scratchFolderNotRetired`), and the
+  window says so in a notice, so the person can remove the folder.
 
 Not built:
 
