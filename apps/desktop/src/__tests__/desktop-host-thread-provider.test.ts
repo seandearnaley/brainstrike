@@ -20,6 +20,11 @@ import richRecording from './fixtures/committed-app-owned-host-thread.json';
 
 const connect = vi.hoisted(() => vi.fn<() => Promise<HostClient>>());
 vi.mock('../renderer/agent-host-client', () => ({ connectDesktopAgentHost: connect }));
+const toast = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/ui')>()),
+  toast,
+}));
 const richRows = richRecording.map((row) =>
   Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
 );
@@ -122,6 +127,28 @@ test('a failed Core-owned deletion retains the visible owner and rejects', async
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   await expect(capability.deleteThread(firstThread)).rejects.toBe(failure);
   expect(capability.renderThread(firstThread, true)).toBeDefined();
+});
+test('a deleted thread whose scratch folder stayed out of the Trash is gone, and the person is told where it is and why', async () => {
+  const { capability, request } = fixture();
+  const path = '/disposable/profile/scratch/quiet-otter';
+  request
+    .mockResolvedValueOnce({ threads: [catalogEntry(firstThread, richRows)] })
+    .mockResolvedValueOnce({ threads: [] })
+    .mockResolvedValueOnce({ threads: [catalogEntry(firstThread, richRows)] })
+    .mockResolvedValueOnce({
+      deleted: true,
+      scratchFolderNotRetired: { path, reason: 'The Trash is not available on this volume' },
+      threadIds: [firstThread],
+    });
+  await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+
+  expect(await capability.deleteThread(firstThread)).toEqual([firstThread]);
+  expect(capability.renderThread(firstThread, true)).toBeUndefined();
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({
+      description: `The conversation was deleted, but its scratch folder at ${path} could not be moved to the Trash: The Trash is not available on this volume`,
+    })
+  );
 });
 test('deleting a thread drops every thread Core deleted with it from the runs and the ledger', async () => {
   const { capability, request } = fixture();

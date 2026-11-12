@@ -8,5 +8,6 @@ export {
   type WorktreeWorkspace,
   type WorktreeWorkspaceOptions,
 } from './host-git-workspace.ts';
+export { generateWorktreeName } from './worktree-paths.ts';
 export { defaultManagedWorktreeDirectory } from './worktree-settings.ts';
 export type { HostWorktreeServices } from './worktree-tool-dependencies.ts';

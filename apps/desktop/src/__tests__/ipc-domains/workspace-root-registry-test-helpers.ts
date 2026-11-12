@@ -46,6 +46,13 @@ export function createRegistryCatalogRequest(
       }
       case 'list-worktrees':
         return { roots: [...roots.values()].filter((root) => root.kind === 'worktree') };
+      // A restore mounts the scratch folders (ADR-0034); these tests make none.
+      case 'list-scratch':
+        return { roots: [...roots.values()].filter((root) => root.kind === 'scratch') };
+      case 'scratch-of-thread':
+      case 'register-scratch':
+      case 'forget-scratch':
+        throw new Error(`This catalog makes no scratch folders (${request.operation})`);
       case 'register': {
         const previous = roots.get(request.root.path);
         if (previous && previous.canonicalPath !== request.root.canonicalPath && !request.repin) {
