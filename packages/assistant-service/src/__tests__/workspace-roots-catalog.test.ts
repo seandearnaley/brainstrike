@@ -15,6 +15,7 @@ const record = (
   lastVerifiedAt: 1,
   path: `/disposable/${id}`,
   projectId: null,
+  projectName: null,
   status,
 });
 

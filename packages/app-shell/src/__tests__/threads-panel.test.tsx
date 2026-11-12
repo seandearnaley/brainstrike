@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import {
   type AssistantMemoryThread,
@@ -17,6 +18,7 @@ import { type ReactElement, type ReactNode, useState } from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
+  type AssistantHostProjects,
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
 } from '../assistant-thread-host-context';
@@ -82,6 +84,8 @@ const {
   threadRows,
 } = vi.hoisted(() => ({
   fileExplorerMocks: {
+    // The Explorer's reopen of a recorded folder by its path, which shows a located folder.
+    addRootDirectoryByPath: vi.fn<(path: string) => Promise<unknown>>(),
     rootDirectoryHandle: {
       name: 'workspace-a',
       path: '/tmp/workspace-a',
@@ -342,7 +346,10 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FILE_EXPLORER_REFRESH_EVENT: 'brainstrike:file-explorer-refreshed',
   useFileExplorerStoreSelector: <T,>(selector: (state: typeof fileExplorerMocks) => T): T =>
     selector(fileExplorerMocks),
-  useFileSystem: () => ({ rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle }),
+  useFileSystem: () => ({
+    addRootDirectoryByPath: fileExplorerMocks.addRootDirectoryByPath,
+    rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+  }),
 }));
 
 /** The attached agent host: every operation runs over the fixture's in-memory rows. */
@@ -426,7 +433,7 @@ beforeEach(() => {
     value: {
       readRoots: async () => ({
         ok: true,
-        value: rootRows.map((row) => ({ ...row, status: 'live' })),
+        value: rootRows.map((row) => ({ projectName: null, status: 'live', ...row })),
       }),
       request: async (input: Parameters<typeof handleThreadGroupsRequest>[0]) => ({
         ok: true,
@@ -442,6 +449,7 @@ beforeEach(() => {
     name: 'workspace-a',
     path: '/tmp/workspace-a',
   };
+  fileExplorerMocks.addRootDirectoryByPath.mockReset().mockResolvedValue(null);
   fixture.deleteFailureThreadId = null;
   fixture.metadataFailureMessage = 'Metadata update failed.';
   fixture.metadataFailureThreadId = null;
@@ -1890,8 +1898,12 @@ interface BoundRoot {
   readonly id: string;
   readonly path: string;
   readonly projectId: string | null;
+  /** The name the person gave its project; none unless a test names one. */
+  readonly projectName?: string;
   /** A folder the host made for a thread sent with no folder open, as its record marks it. */
   readonly scratch?: true;
+  /** Mounted unless a test disconnects it. */
+  readonly status?: 'live' | 'disconnected';
 }
 
 describe('ThreadsPanel folders', () => {
@@ -1919,6 +1931,8 @@ describe('ThreadsPanel folders', () => {
         id: root.id,
         path: root.path,
         projectId: root.projectId,
+        ...(root.projectName === undefined ? {} : { projectName: root.projectName }),
+        ...(root.status === undefined ? {} : { status: root.status }),
         ...(root.scratch ? { scratch: true } : {}),
       });
     }
@@ -2484,6 +2498,269 @@ describe('ThreadsPanel folders', () => {
 
     expect(screen.getAllByTestId('thread-folder-header')).toHaveLength(2);
     expect(screen.queryByTestId('thread-repositories-error')).toBeNull();
+  });
+
+  // ADR-0034 build decisions: a project is named, a folder joins another project as the person
+  // chooses, and a folder that moved is located.
+  describe('projects', () => {
+    const OTHER_ROOT: BoundRoot = {
+      displayName: 'workspace-b',
+      id: 'root-2',
+      path: '/tmp/workspace-b',
+      projectId: 'project-workspace-b',
+    };
+
+    /** A host whose project changes rewrite the fixture's root records, as the store does. */
+    function hostWithProjects(overrides: Partial<AssistantHostProjects> = {}) {
+      const projects = {
+        join: vi.fn(async (rootId: string, projectId: string) => {
+          const named = rootRows.find((row) => row['projectId'] === projectId)?.['projectName'];
+          for (const row of rootRows.filter((candidate) => candidate['id'] === rootId)) {
+            row['projectId'] = projectId;
+            row['projectName'] = named ?? null;
+          }
+        }),
+        locate: vi.fn<AssistantHostProjects['locate']>(async () => null),
+        rename: vi.fn(async (projectId: string, name: string) => {
+          for (const row of rootRows.filter((candidate) => candidate['projectId'] === projectId)) {
+            row['projectName'] = name.trim() === '' ? null : name.trim();
+          }
+        }),
+        ...overrides,
+      };
+      return { host: { ...createDefaultHost(), projects }, projects };
+    }
+
+    function headers(): HTMLElement[] {
+      return screen.getAllByTestId('thread-folder-header');
+    }
+
+    async function showProjects(host: AssistantThreadHostCapability): Promise<void> {
+      renderThreadsPanel(host);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+      });
+      await enterFolderGrouping();
+    }
+
+    async function openProjectActions(label: string): Promise<void> {
+      fireEvent.click(await screen.findByRole('button', { name: `Project actions ${label}` }));
+    }
+
+    it("names a section by its project's name, once the person gave one", async () => {
+      bindThreadToRoot('thread-a', { ...WORKSPACE_ROOT, projectName: 'Brainstrike app' });
+      bindThreadToRoot('thread-b', OTHER_ROOT);
+
+      await showProjects(hostWithProjects().host);
+
+      // Named sections sort by their names: Brainstrike app before workspace-b.
+      expect(headers().map((header) => header.textContent)).toEqual([
+        expect.stringContaining('Brainstrike app'),
+        expect.stringContaining('workspace-b'),
+      ]);
+      expect(within(headers()[0] as HTMLElement).queryByText('workspace-a')).toBeNull();
+    });
+
+    it("renames a project from its section's menu, and the section reads the new name", async () => {
+      bindThreadToRoot('thread-a');
+      const { host, projects } = hostWithProjects();
+      await showProjects(host);
+
+      await openProjectActions('workspace-a');
+      fireEvent.click(await screen.findByRole('button', { name: 'Rename project…' }));
+      const input = screen.getByRole('textbox', { name: 'Project name' });
+      // Unnamed, so the field is empty; the folder's name says what an empty name means.
+      expect(input).toHaveValue('');
+      expect(input).toHaveAttribute('placeholder', 'workspace-a');
+      fireEvent.change(input, { target: { value: 'Brainstrike app' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save project name' }));
+
+      await waitFor(() => {
+        expect(projects.rename).toHaveBeenCalledWith('project-workspace-a', 'Brainstrike app');
+      });
+      expect(await within(headers()[0] as HTMLElement).findByText('Brainstrike app')).toBeVisible();
+      expect(screen.queryByRole('textbox', { name: 'Project name' })).toBeNull();
+    });
+
+    it("shows the host's refusal and keeps the name as typed", async () => {
+      bindThreadToRoot('thread-a');
+      const refused = new BoundaryFailureError(
+        refusal({
+          category: 'input',
+          code: 'project.name-too-long',
+          message: 'A project name is at most 80 characters, so the name was not changed.',
+        })
+      );
+      const { host } = hostWithProjects({ rename: vi.fn(async () => Promise.reject(refused)) });
+      await showProjects(host);
+
+      await openProjectActions('workspace-a');
+      fireEvent.click(await screen.findByRole('button', { name: 'Rename project…' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Project name' }), {
+        target: { value: 'x'.repeat(81) },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save project name' }));
+
+      expect(await screen.findByTestId('thread-project-action-error')).toHaveTextContent(
+        'at most 80 characters'
+      );
+      expect(screen.getByRole('textbox', { name: 'Project name' })).toHaveValue('x'.repeat(81));
+      expect(within(headers()[0] as HTMLElement).queryByText('workspace-a')).toBeNull();
+    });
+
+    it('moves a folder into another project the person chooses, and the two list in one section', async () => {
+      bindThreadToRoot('thread-a');
+      bindThreadToRoot('thread-b', OTHER_ROOT);
+      const { host, projects } = hostWithProjects();
+      await showProjects(host);
+      expect(headers()).toHaveLength(2);
+
+      await openProjectActions('workspace-b');
+      fireEvent.click(await screen.findByRole('button', { name: 'Move to project…' }));
+      const choices = within(screen.getByTestId('thread-project-move-list'));
+      // The other listed projects only; nothing is joined by a guess.
+      expect(choices.queryByRole('button', { name: 'workspace-b' })).toBeNull();
+      fireEvent.click(choices.getByRole('button', { name: 'workspace-a' }));
+
+      await waitFor(() => {
+        expect(projects.join).toHaveBeenCalledWith('root-2', 'project-workspace-a');
+      });
+      await waitFor(() => {
+        expect(headers()).toHaveLength(1);
+      });
+      expect(
+        within(headers()[0] as HTMLElement).getByTestId('thread-folder-count')
+      ).toHaveTextContent('2');
+    });
+
+    // Scratch is where folderless threads work, not a project: nothing names it or moves into it.
+    it('gives the Scratch section no project actions and never offers it as a project to move into', async () => {
+      bindThreadToRoot('thread-a');
+      bindThreadToRoot('thread-b', {
+        displayName: 'quiet-otter',
+        id: 'root-quiet-otter',
+        path: '/profile/scratch/quiet-otter',
+        projectId: null,
+        scratch: true,
+      });
+      await showProjects(hostWithProjects().host);
+      const [project, scratch] = headers() as [HTMLElement, HTMLElement];
+      expect(within(scratch).getByText('Scratch')).toBeVisible();
+
+      expect(within(scratch).queryByTestId('thread-project-actions')).toBeNull();
+      await openProjectActions('workspace-a');
+      fireEvent.click(await screen.findByRole('button', { name: 'Move to project…' }));
+      const choices = within(screen.getByTestId('thread-project-move-list'));
+      expect(choices.queryByRole('button', { name: 'Scratch' })).toBeNull();
+      expect(within(project).getByTestId('thread-project-actions')).toBeVisible();
+    });
+
+    it('offers Locate folder… for a folder that is not mounted, and shows the folder it finds', async () => {
+      bindThreadToRoot('thread-a', { ...WORKSPACE_ROOT, status: 'disconnected' });
+      bindThreadToRoot('thread-b', OTHER_ROOT);
+      const { host, projects } = hostWithProjects({
+        locate: vi.fn<AssistantHostProjects['locate']>(async (rootId) => ({
+          path: '/tmp/moved/workspace-a',
+          rootId,
+        })),
+      });
+      await showProjects(host);
+
+      // A mounted folder is where its record says: there is nothing to locate.
+      await openProjectActions('workspace-b');
+      expect(await screen.findByRole('button', { name: 'Rename project…' })).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Locate folder…' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Project actions workspace-b' }));
+
+      await openProjectActions('workspace-a');
+      fireEvent.click(await screen.findByRole('button', { name: 'Locate folder…' }));
+
+      await waitFor(() => {
+        expect(projects.locate).toHaveBeenCalledWith('root-1');
+      });
+      await waitFor(() => {
+        expect(fileExplorerMocks.addRootDirectoryByPath).toHaveBeenCalledWith(
+          '/tmp/moved/workspace-a'
+        );
+      });
+    });
+
+    // The relink commits before the Explorer is asked to show the folder, so the section reads its
+    // record again whatever the Explorer does: it stops offering Locate for a folder now found.
+    it('reads a located folder again when the Explorer cannot show it, and says why', async () => {
+      bindThreadToRoot('thread-a', { ...WORKSPACE_ROOT, status: 'disconnected' });
+      bindThreadToRoot('thread-b', OTHER_ROOT);
+      const { host } = hostWithProjects({
+        locate: vi.fn<AssistantHostProjects['locate']>(async (rootId) => {
+          for (const row of rootRows.filter((candidate) => candidate['id'] === rootId)) {
+            row['path'] = '/tmp/moved/workspace-a';
+            row['status'] = 'live';
+          }
+          return { path: '/tmp/moved/workspace-a', rootId };
+        }),
+      });
+      fileExplorerMocks.addRootDirectoryByPath.mockRejectedValue(new Error('mount failed'));
+      await showProjects(host);
+
+      await openProjectActions('workspace-a');
+      fireEvent.click(await screen.findByRole('button', { name: 'Locate folder…' }));
+
+      expect(await screen.findByTestId('thread-project-action-error')).toHaveTextContent(
+        'mount failed'
+      );
+      await openProjectActions('workspace-a');
+      expect(await screen.findByRole('button', { name: 'Rename project…' })).toBeVisible();
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Locate folder…' })).toBeNull();
+      });
+    });
+
+    // A refusal is about a project action: it goes with the rename form, and with Project grouping.
+    it('clears a refusal when the rename is cancelled or the panel leaves Project grouping', async () => {
+      bindThreadToRoot('thread-a');
+      const refused = new BoundaryFailureError(
+        refusal({
+          category: 'input',
+          code: 'project.name-too-long',
+          message: 'A project name is at most 80 characters, so the name was not changed.',
+        })
+      );
+      const { host } = hostWithProjects({ rename: vi.fn(async () => Promise.reject(refused)) });
+      await showProjects(host);
+      const refuse = async (): Promise<void> => {
+        await openProjectActions('workspace-a');
+        fireEvent.click(await screen.findByRole('button', { name: 'Rename project…' }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Project name' }), {
+          target: { value: 'x'.repeat(81) },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Save project name' }));
+        expect(await screen.findByTestId('thread-project-action-error')).toBeVisible();
+      };
+
+      await refuse();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel project rename' }));
+      expect(screen.queryByTestId('thread-project-action-error')).toBeNull();
+
+      await refuse();
+      fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+      fireEvent.click(await screen.findByRole('radio', { name: 'No grouping' }));
+      await waitFor(() => {
+        expect(screen.queryByTestId('thread-project-action-error')).toBeNull();
+      });
+      // Back in Project grouping, the old refusal does not come back.
+      fireEvent.click(await screen.findByRole('radio', { name: 'Project' }));
+      await screen.findAllByTestId('thread-folder-count');
+      expect(screen.queryByTestId('thread-project-action-error')).toBeNull();
+    });
+
+    it('offers no project actions where the host has none', async () => {
+      bindThreadToRoot('thread-a');
+      bindThreadToRoot('thread-b', OTHER_ROOT);
+
+      await showProjects(createDefaultHost());
+
+      expect(screen.queryByTestId('thread-project-actions')).toBeNull();
+    });
   });
 
   it('lists what waits on the person above the sections, and lets a row go once it is seen', async () => {

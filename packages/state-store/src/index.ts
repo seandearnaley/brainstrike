@@ -2,6 +2,7 @@ export type { ThreadGroupsPort, ThreadGroupsReply, ThreadGroupsRequest } from '@
 export {
   IndexerRequiredError,
   StateStoreReadOnlyError,
+  StateStoreRefusalError,
   ThreadDamagedError,
   ThreadReadOnlyError,
 } from './errors.ts';
