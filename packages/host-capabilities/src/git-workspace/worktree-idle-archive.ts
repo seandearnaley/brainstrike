@@ -7,7 +7,9 @@
  * cap reads as "left in place". Anything else that would block a person's
  * archive (uncommitted changes, unpushed commits, ignored files) is forced:
  * the snapshot keeps the work, the branch stays, and the ignored files'
- * deletion is confirmed with the archive preview's own token.
+ * deletion is confirmed with the archive preview's own token. Factory Reset
+ * archives every worktree through it too, with none bound
+ * (`worktree-reset-archive.ts`).
  */
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ManagedWorktreeRow, WorktreeArchiveResult } from '@brainstrike/types';

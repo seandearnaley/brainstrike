@@ -224,9 +224,11 @@ interface SharedNoteRow {
 /**
  * Where a worker's clashing edit is noted: in the person's own thread, at the
  * run and the call that dispatched the worker (through any workers between).
- * Where that run is no longer known, in the worker's own thread.
+ * Every worker under that call notes there, so a folder is noted once at it:
+ * none for a later worker's edit in the same folder. Where that run is no
+ * longer known, in the worker's own thread.
  */
-function workerSharedNote(facts: HostCheckoutFacts, call: EditCall): SharedNoteRow {
+function workerSharedNote(facts: HostCheckoutFacts, call: EditCall): SharedNoteRow | undefined {
   let worker = call.run;
   for (;;) {
     const origin = worker.origin;
@@ -235,6 +237,12 @@ function workerSharedNote(facts: HostCheckoutFacts, call: EditCall): SharedNoteR
       return { event: sharedNote(call, 'workers-running'), threadId: call.run.threadId };
     }
     if (dispatcher.origin === undefined) {
+      const noted = `${origin.toolCallId}\0${call.root.rootId}`;
+      dispatcher.sharedByWorkers ??= new Set();
+      if (dispatcher.sharedByWorkers.has(noted)) {
+        return undefined;
+      }
+      dispatcher.sharedByWorkers.add(noted);
       return {
         event: {
           ...sharedNote(call, 'workers-running'),
@@ -364,11 +372,8 @@ async function decideFirstEdit(
   // A worker writes where its parent works; it never moves its parent, which stays with it
   // (ADR-0028 rule 5) and shares the folder, visibly.
   if (facts.children.isChild(run.threadId)) {
-    return {
-      kind: 'started',
-      note: workerSharedNote(facts, call),
-      started: await startInPlace(call),
-    };
+    const note = workerSharedNote(facts, call);
+    return { kind: 'started', ...(note ? { note } : {}), started: await startInPlace(call) };
   }
   const enter = ports.enterWorktree(run, action);
   if (!enter) {

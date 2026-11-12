@@ -36,6 +36,7 @@ import { windowHostConnection } from './desktop-host-connection';
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
 import './log-buffer';
 import { useAppUpdateReadyToast } from './use-app-update-ready-toast';
+import { useFactoryResetOutcomeNotice } from './use-factory-reset-outcome-notice';
 import './styles.css';
 
 // Import layout component
@@ -145,6 +146,7 @@ function requestDocumentReload(): void {
 
 function App() {
   useAppUpdateReadyToast();
+  useFactoryResetOutcomeNotice();
 
   // biome-ignore lint/plugin: Fires a one-time DOM event on mount to signal the desktop app is ready.
   useEffect(() => {

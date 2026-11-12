@@ -1,9 +1,13 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
+import type { WorktreeResetOutcome } from '@brainstrike/types';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
-import { resetDesktopApplicationData } from './desktop-factory-reset';
+import {
+  type ResetDesktopApplicationDataOptions,
+  resetDesktopApplicationData,
+} from './desktop-factory-reset';
 import { isQuitTerminalRefusal, RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
 
 interface DesktopResetRuntime {
@@ -23,6 +27,11 @@ interface DesktopResetLogger {
 export type DesktopResetMode = 'factory' | 'content';
 
 export interface CreateDesktopFactoryResetHandlerOptions {
+  /**
+   * ADR-0034: Factory Reset archives every managed worktree through the host before it deletes
+   * the state DB that holds their ledger. Clear Database keeps them and does not call it.
+   */
+  readonly archiveManagedWorktrees?: ResetDesktopApplicationDataOptions['archiveManagedWorktrees'];
   /** Terminal clear through the current host writer; retains configuration in place. */
   readonly clearRetainedContent?: () => Promise<void>;
   /** Replaces the stale visible renderer and resolves only after its explicit
@@ -51,7 +60,9 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly userDataPath: string;
 }
 
-interface DesktopFactoryResetResult {
+export interface DesktopFactoryResetResult {
+  /** ADR-0034: what a Factory Reset did with the managed worktrees, when it got that far. */
+  managedWorktrees?: WorktreeResetOutcome;
   message?: string;
   success: boolean;
 }
@@ -69,6 +80,11 @@ export interface DesktopFactoryReset {
   /** The accepted reset, including its reopen or original failed outcome. */
   inFlight(): Promise<DesktopFactoryResetResult> | null;
   reset(): Promise<DesktopFactoryResetResult>;
+  /**
+   * The last Factory Reset's managed worktrees, once. The window that asked for the reset is
+   * replaced before the reset answers it, so the replacement window takes this as it starts.
+   */
+  takeWorktreeOutcome(): WorktreeResetOutcome | null;
 }
 
 type ResetFailure =
@@ -152,6 +168,7 @@ async function stopDesktopResetRuntimes(
 }
 
 export function createDesktopFactoryResetHandler({
+  archiveManagedWorktrees,
   clearRetainedContent,
   completeSuccessfulReset,
   crashDumpsPath,
@@ -166,46 +183,56 @@ export function createDesktopFactoryResetHandler({
 }: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
   const shutdown = new AbortController();
   let profileResetLease: ProfileResetLease | null = null;
+  // ADR-0034: kept for the replacement window, which takes it once.
+  let untakenWorktreeOutcome: WorktreeResetOutcome | null = null;
+  /** Deletes what `mode` deletes; a Factory Reset answers with its managed worktrees. */
+  const resetData = async (mode: DesktopResetMode): Promise<WorktreeResetOutcome | undefined> => {
+    if (mode === 'content') {
+      if (!clearRetainedContent) {
+        throw new Error('Content clearing is unavailable.');
+      }
+      await stopDesktopResetRuntimes(runtimes, 'content');
+      await clearRetainedContent();
+      return;
+    }
+    const { managedWorktrees } = await resetDesktopApplicationData({
+      ...(archiveManagedWorktrees === undefined ? {} : { archiveManagedWorktrees }),
+      ...(crashDumpsPath === undefined ? {} : { crashDumpsPath }),
+      ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
+      getProtectedPaths: () => {
+        if (!profileResetLease || profileResetLease.isReleased) {
+          throw new Error('Desktop factory reset requires an owned profile reset lease');
+        }
+        return [RootLock.dirOf(profileResetLease.root), sessionDataPath];
+      },
+      resetDatabaseProfile: async () => {
+        profileResetLease ??= await prepareDatabaseProfileReset();
+        await resetLocalDatabase(profileResetLease);
+      },
+      stopBackgroundRuntimes: async () => {
+        await stopDesktopResetRuntimes(runtimes);
+        // Browser pane (BST-1174). Order matters: CLOSE the live
+        // `WebContentsView`s first, THEN clear the partition. A still-running
+        // view can rewrite cookies/localStorage into `persist:browser-pane`
+        // between the clear and the reset's reload, leaving site state behind
+        // (codex P1) — disposing the views makes the storage quiescent before
+        // we wipe it. Electron owns the live session container; its API
+        // clears both sessions without renaming Chromium's locked files.
+        disposeActiveBrowserPaneViews();
+        await clearDesktopBrowserSessions();
+      },
+      userDataPath,
+    });
+    untakenWorktreeOutcome = managedWorktrees ?? null;
+    return managedWorktrees;
+  };
   const runReset = async (mode: DesktopResetMode): Promise<DesktopFactoryResetResult> => {
     let failure: ResetFailure = NO_RESET_FAILURE;
     let resetDataSucceeded = false;
     let rendererReplacementSucceeded = false;
+    let managedWorktrees: WorktreeResetOutcome | undefined;
     try {
-      if (mode === 'content') {
-        if (!clearRetainedContent) {
-          throw new Error('Content clearing is unavailable.');
-        }
-        await stopDesktopResetRuntimes(runtimes, 'content');
-        await clearRetainedContent();
-      } else {
-        await resetDesktopApplicationData({
-          ...(crashDumpsPath === undefined ? {} : { crashDumpsPath }),
-          ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
-          getProtectedPaths: () => {
-            if (!profileResetLease || profileResetLease.isReleased) {
-              throw new Error('Desktop factory reset requires an owned profile reset lease');
-            }
-            return [RootLock.dirOf(profileResetLease.root), sessionDataPath];
-          },
-          resetDatabaseProfile: async () => {
-            profileResetLease ??= await prepareDatabaseProfileReset();
-            await resetLocalDatabase(profileResetLease);
-          },
-          stopBackgroundRuntimes: async () => {
-            await stopDesktopResetRuntimes(runtimes);
-            // Browser pane (BST-1174). Order matters: CLOSE the live
-            // `WebContentsView`s first, THEN clear the partition. A still-running
-            // view can rewrite cookies/localStorage into `persist:browser-pane`
-            // between the clear and the reset's reload, leaving site state behind
-            // (codex P1) — disposing the views makes the storage quiescent before
-            // we wipe it. Electron owns the live session container; its API
-            // clears both sessions without renaming Chromium's locked files.
-            disposeActiveBrowserPaneViews();
-            await clearDesktopBrowserSessions();
-          },
-          userDataPath,
-        });
-      }
+      managedWorktrees = await resetData(mode);
       resetDataSucceeded = true;
       profileResetLease?.release();
       profileResetLease = null;
@@ -236,7 +263,7 @@ export function createDesktopFactoryResetHandler({
     logger.info(
       mode === 'factory' ? 'Desktop factory reset completed' : 'Desktop content clear completed'
     );
-    return { success: true };
+    return { ...(managedWorktrees === undefined ? {} : { managedWorktrees }), success: true };
   };
   let resetInFlight: {
     readonly mode: DesktopResetMode;
@@ -286,5 +313,10 @@ export function createDesktopFactoryResetHandler({
     },
     inFlight: () => resetInFlight?.result ?? null,
     reset: () => startReset('factory'),
+    takeWorktreeOutcome: () => {
+      const outcome = untakenWorktreeOutcome;
+      untakenWorktreeOutcome = null;
+      return outcome;
+    },
   };
 }
