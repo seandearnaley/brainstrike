@@ -211,6 +211,12 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // orphan event is invented for it: the create sheet reports the outcome and
   // `brainstrike_worktrees` is the durable record. See
   // docs/agents/assistant-persistence.md.
+  //
+  // `worktree.archived` is the idle-worktree cap's notice (ADR-0034 decision
+  // 7), from the host's committed `worktrees.archived`: the idle worktrees it
+  // archived after a worktree was made for this thread, shown with the run
+  // that made it or, when the person made it, the thread's latest run. It is
+  // in `isAlwaysVisibleRunEvent`: nothing else says a worktree went away.
   'worktree.archived',
   'worktree.created',
   'worktree.setup',

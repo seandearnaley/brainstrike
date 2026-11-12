@@ -14,6 +14,7 @@
  */
 import type {
   HostGitWorkspace,
+  HostIdleWorktreeArchive,
   HostPlatform,
   HostRewindFiles,
   HostThreadReads,
@@ -23,6 +24,7 @@ import type {
 import type { GitWorkspaceEvent } from '@brainstrike/agent-host/protocol';
 import type { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
+import type { ManagedWorktreeRow } from '@brainstrike/types';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 import { createChangesMethods } from './changes-methods.ts';
 import { createHostThreadTurns } from './changeset-host-turns.ts';
@@ -39,8 +41,14 @@ import { FAILED_SNAPSHOT_CAPTURE_OID } from './snapshot-repository.ts';
 import { createSnapshotService } from './snapshot-service.ts';
 import { captureRootSnapshot } from './snapshot-turn-boundaries.ts';
 import { hasHostRunInWorktree } from './worktree-host-activity.ts';
+import { createIdleWorktreeCap } from './worktree-idle-cap.ts';
+import { createWorktreeLedger } from './worktree-ledger.ts';
 import { isPathWithin } from './worktree-paths.ts';
-import { createWorktreeService, type WorktreeService } from './worktree-service.ts';
+import {
+  createWorktreeService,
+  type WorktreeService,
+  type WorktreeServiceDeps,
+} from './worktree-service.ts';
 import { readWorktreeSettings, writeWorktreeSettings } from './worktree-settings.ts';
 import { runWorktreeSetup } from './worktree-setup.ts';
 import type { HostWorktreeServices } from './worktree-tool-dependencies.ts';
@@ -52,6 +60,8 @@ type GitWorkspaceLogger = Pick<
 >;
 
 export interface WorktreeWorkspaceOptions {
+  /** Told of each worktree the service creates (ADR-0034 decision 7: the idle-worktree cap). */
+  readonly afterCreate?: WorktreeServiceDeps['afterCreate'];
   readonly logger: GitWorkspaceLogger;
   /** The managed worktree directory when the user saved none (`~/.brainstrike/worktrees`). */
   readonly managedWorktreeDirectory: string;
@@ -75,6 +85,8 @@ export interface WorktreeWorkspace {
   close(): Promise<void>;
   /** The inventory, started on first use: its watchers arm with it. */
   inventory(): GitInventoryService;
+  /** A repository's managed worktrees as the ledger records them, archived ones too. */
+  listRepositoryWorktrees(repoCommonDir: string): Promise<readonly ManagedWorktreeRow[]>;
   readonly loadRoots: () => Promise<{ id: string; path: string }[]>;
   readonly readSettings: () => ReturnType<typeof readWorktreeSettings>;
   /**
@@ -127,16 +139,20 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
     return gitInventoryService;
   };
   const readSettings = () => readWorktreeSettings(store, options.managedWorktreeDirectory);
+  const hasRunningThread = (worktreeId: string): Promise<boolean> =>
+    hasHostRunInWorktree(
+      {
+        readLedger: () => threadReads().readLedger(),
+        readThread: (threadId) => threadReads().read(threadId, 0),
+      },
+      worktreeId
+    );
+  // The service writes the ledger; this reads it through the same decoder.
+  const ledger = createWorktreeLedger(async () => store, hasRunningThread);
   const worktrees = createWorktreeService({
+    ...(options.afterCreate ? { afterCreate: options.afterCreate } : {}),
     getWorktreeStore: async () => store,
-    hasRunningThread: (worktreeId) =>
-      hasHostRunInWorktree(
-        {
-          readLedger: () => threadReads().readLedger(),
-          readThread: (threadId) => threadReads().read(threadId, 0),
-        },
-        worktreeId
-      ),
+    hasRunningThread,
     readSettings,
     resolveInventory: async (request) => {
       // `maxAgeMs: 0` guarantees a build that started after this call, which
@@ -167,6 +183,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
         }
       })()),
     inventory,
+    listRepositoryWorktrees: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
     loadRoots,
     readSettings,
     run,
@@ -200,6 +217,8 @@ export interface GitWorkspace {
   readonly checkoutIsolation: HostPlatform['checkoutIsolation'];
   /** Retires every service while the state store and git remain available. */
   close(): Promise<void>;
+  /** ADR-0034 decision 7: the idle worktrees the cap archives, for Core to tell their thread. */
+  readonly idleWorktreeArchives: NonNullable<HostPlatform['idleWorktreeArchives']>;
   readonly rewindFiles: HostRewindFiles;
   readonly service: HostGitWorkspace;
   /** The worktree services the host's own tools borrow per run. */
@@ -222,7 +241,35 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
   // and the snapshot startup GC start on the first window subscription or the
   // first inventory read, both of which reach a host that is already serving.
   let started = false;
+  // ADR-0034 decision 7: after a creation for a thread, its repository's oldest idle worktrees
+  // beyond the cap are archived and Core tells that thread.
+  const archiveListeners = new Set<(archive: HostIdleWorktreeArchive) => void>();
+  const idleCap = createIdleWorktreeCap({
+    archive: (params) => workspace.worktrees.archive(params),
+    listRepository: (repoCommonDir) => workspace.listRepositoryWorktrees(repoCommonDir),
+    publish: (archive) => {
+      if (archiveListeners.size === 0) {
+        logger.error('Idle worktrees were archived with no thread listening to be told', {
+          threadId: archive.threadId,
+          worktreeIds: archive.worktrees.map(({ worktreeId }) => worktreeId),
+        });
+      }
+      for (const listener of [...archiveListeners]) {
+        listener(archive);
+      }
+    },
+    readRoots: async () => (await store.workspaceRoots({ operation: 'list' })).roots,
+    readThreads: async () =>
+      (await workspace.threadReads().listThreads()).map(({ binding, latestRun, threadId }) => ({
+        binding,
+        hasRun: latestRun !== undefined,
+        threadId,
+      })),
+  });
   const workspace = createWorktreeWorkspace({
+    afterCreate: (worktree, params) => {
+      void idleCap.afterCreate(worktree, params);
+    },
     logger,
     managedWorktreeDirectory: options.managedWorktreeDirectory,
     // The refs watcher moving `refs/remotes/<remote>/<branch>` is the "a push
@@ -379,6 +426,8 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     close: () =>
       (closing ??= (async () => {
         listeners.clear();
+        // The cap's archive in flight finishes on the worktree service before that retires.
+        await idleCap.close();
         // Each owner retires in its own slot, so one failure never leaves another running.
         const failures = (
           await Promise.allSettled([snapshotMaintenance?.stop(), workspace.close()])
@@ -387,6 +436,15 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
           throw new AggregateError(failures, 'The workspace git services failed to close');
         }
       })()),
+    idleWorktreeArchives: {
+      settle: () => idleCap.close(),
+      subscribe: (listener) => {
+        archiveListeners.add(listener);
+        return () => {
+          archiveListeners.delete(listener);
+        };
+      },
+    },
     rewindFiles: createHostRewindFiles({
       resolveWorkspaceRoot: async (rootId) => {
         const root = (await loadRoots()).find((candidate) => candidate.id === rootId);

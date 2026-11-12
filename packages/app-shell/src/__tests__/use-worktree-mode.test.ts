@@ -283,8 +283,15 @@ describe('useWorktreeMode', () => {
     await act(async () => {
       await result.current?.onCreate(CREATE_REQUEST);
     });
+    // It names the selected thread, which the host tells if the idle-worktree cap
+    // archives anything after it (ADR-0034 decision 7).
     expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ createdBy: 'user', name: 'bright-fox', rootId: 'r-1' })
+      expect.objectContaining({
+        createdBy: 'user',
+        name: 'bright-fox',
+        rootId: 'r-1',
+        threadId: 'thread-1',
+      })
     );
     expect(addRootByPathSpy).toHaveBeenCalledWith('/managed/app/bright-fox');
     expect(onSelectWorktree).toHaveBeenCalledWith({
