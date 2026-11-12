@@ -25,6 +25,7 @@ const WorkspaceRootReplySchema = Schema.Struct({
         lastVerifiedAt: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
         path: Id,
         projectId: Schema.NullOr(Id),
+        projectName: Schema.NullOr(Id),
         status: Schema.Literals(['live', 'disconnected']),
       })
     )

@@ -237,7 +237,7 @@ describe('state DB migrations', () => {
       db.pragma('query_only = ON');
       for (const operation of ['list', 'list-open'] as const) {
         expect(executeWorkspaceRootRequest(db, { operation }, paths).roots, operation).toEqual([
-          expect.objectContaining({ id: 'r1', projectId: null }),
+          expect.objectContaining({ id: 'r1', projectId: null, projectName: null }),
         ]);
       }
     } finally {
@@ -300,6 +300,58 @@ describe('state DB migrations', () => {
       expect(executeWorkspaceRootRequest(db, { operation: 'list-scratch' }, paths).roots).toEqual(
         []
       );
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before project names keeps its projects and folders, and its projects can be named', () => {
+    const db = new Database(':memory:');
+    const paths = { isGranted: () => true };
+    try {
+      db.pragma('foreign_keys = ON');
+      db.exec(`${UPGRADES.slice(0, 16).join(';')};${V16_ROOTS}${UPGRADES[16]}`);
+      db.exec(`INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      INSERT INTO roots VALUES ('r2', '/two', '/two', 'two', 'path', 'disconnected', NULL, 2, 2);
+      INSERT INTO projects VALUES ('p1', 1);
+      INSERT INTO project_folders VALUES ('/cur', 'p1');
+      INSERT INTO project_folders VALUES ('/two', 'p1');
+      PRAGMA user_version = 17;`);
+      migrate(db);
+      expect(executeWorkspaceRootRequest(db, { operation: 'list' }, paths).roots).toEqual([
+        expect.objectContaining({ id: 'r1', projectId: 'p1', projectName: null }),
+        expect.objectContaining({ id: 'r2', projectId: 'p1', projectName: null }),
+      ]);
+      expect(
+        executeWorkspaceRootRequest(
+          db,
+          { name: 'Named', operation: 'rename-project', projectId: 'p1' },
+          paths
+        ).roots
+      ).toEqual([
+        expect.objectContaining({ id: 'r1', projectName: 'Named' }),
+        expect.objectContaining({ id: 'r2', projectName: 'Named' }),
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before project names that opens damaged, so is not upgraded, reads its folders unnamed', () => {
+    const db = new Database(':memory:');
+    const paths = { isGranted: () => true };
+    try {
+      db.exec(`${UPGRADES.slice(0, 16).join(';')};${V16_ROOTS}${UPGRADES[16]}`);
+      db.exec(`INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      INSERT INTO projects VALUES ('p1', 1);
+      INSERT INTO project_folders VALUES ('/cur', 'p1');
+      PRAGMA user_version = 17;`);
+      db.pragma('query_only = ON');
+      for (const operation of ['list', 'list-open'] as const) {
+        expect(executeWorkspaceRootRequest(db, { operation }, paths).roots, operation).toEqual([
+          expect.objectContaining({ id: 'r1', projectId: 'p1', projectName: null }),
+        ]);
+      }
     } finally {
       db.close();
     }

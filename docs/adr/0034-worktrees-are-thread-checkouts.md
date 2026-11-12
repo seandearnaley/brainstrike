@@ -14,6 +14,8 @@
     in a scratch folder the host makes for it.
   - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
     to the host, so a worktree the host makes runs the script too.
+  - 2026-11-12 (build decisions, under the project record below): a project can be named, a
+    folder joined to another project, and a moved folder located; built.
   - 2026-11-12 (build decisions, below): Factory Reset archives every managed worktree before
     it deletes their ledger.
   - 2026-11-12 (build decisions, below): Clear Database archives every managed worktree too,
@@ -164,9 +166,10 @@ supersede the decisions above where they differ.
       folder's. The worktree listing decides which repository a checkout
       belongs to, as before, so a folder adopted as a worktree goes under its
       repository's project, not the project it kept.
-    - Every folder of one project lists in one section: today a folder
-      picked again at a new place while a record still leads to the old one,
-      and a second clone once joining is built. The section is named by a
+    - Every folder of one project lists in one section: a folder picked again
+      at a new place while a record still leads to the old one, and a folder
+      the person moved into the project (Move to project…, below). The section
+      is named by its project's name once the person gave one; otherwise by a
       repository before a folder, then by name, whichever thread comes first.
     - A repository whose own checkout is not an open folder has no project to
       read and keeps its common-dir section, and a folder recorded before
@@ -175,8 +178,62 @@ supersede the decisions above where they differ.
     - Collapse state under a project is kept, not pruned, as for a
       repository. Saved collapse state of sections from before (keyed on the
       common dir or the root id) does not carry over.
-  - Not built: relinking a moved folder, joining a second clone and naming a
-    project.
+  - Built: naming a project, joining a folder to another project and relinking
+    a moved folder. How each is built was not part of Sean's answers; these are
+    build decisions, and later work may revisit them:
+    - **A project has a name the person gives it.** State DB version 18 adds
+      `projects.name`, NULL while it has none; every project keeps its row and
+      starts unnamed. The roots domain is its one writer (`rename-project`):
+      it trims the name, an empty one clears it, and one longer than 80
+      characters is refused and changes nothing. A root record carries
+      `projectName` beside `projectId`, which Main decodes strictly (host
+      protocol version 28, `projects/rename`). A project section in the
+      Threads panel reads and sorts by the name when there is one, and is
+      named as before when there is none. Its header's menu has Rename
+      project…, an inline form like a group's rename; an empty name names the
+      project by its folder again. Clear Database deletes the name with its
+      project.
+    - **Joining is something the person does.** Move to project… in a project
+      section's menu lists the other projects the panel shows, and moves the
+      folder that names the section into the one chosen (`join-project`,
+      `projects/join`). Its folder row then names that project, and the
+      project it left is deleted in the same commit once no folder is in it.
+      A managed worktree and a scratch folder are refused, having no project
+      of their own, and so is a folder or project the store does not have.
+      Nothing joins folders by a remote URL or a commit.
+    - **Joining writes nothing to trust or hook approvals.** Both stay keyed
+      by each folder's own canonical path (ADR-0032), so a joined folder keeps
+      its own answers and takes none of its new project's folders'. Being in
+      one project is not proof that two folders are the same folder.
+    - **Relinking was not reachable, so it is built as Locate folder….** A
+      folder moved outside the app and picked again at its new place got a
+      new root id and a new project: the registry matches a picked folder to
+      a record by its canonical path, which the move changed, and the store's
+      re-pin (`repin`) reached only a record whose own path now led
+      elsewhere. A project section whose folder is not mounted now offers
+      Locate folder… (`workspace/roots/locate`): the person picks where the
+      folder is now, and the registry re-pins that record to it through the
+      store's `repin`, so it keeps its root id, and with it its threads and
+      its project. It is refused for a managed worktree or a scratch folder,
+      for a folder still at its recorded place (it opens from Recents), and
+      for a folder another record has. The Explorer then shows the folder by
+      its path, as it shows a reopened one.
+    - **A managed worktree's record never moves to another folder.** A folder
+      opened before it was adopted as a managed worktree keeps kind `path`,
+      so the store's re-pin itself refuses, in its own commit, to point a
+      record the worktree ledger names (or a thread's own folder) at another
+      folder; moved, it would part from the checkout the ledger records.
+    - **A relink that committed is read again even when the Explorer cannot
+      show the folder.** The panel re-reads the folder rows after every
+      project action, whatever its outcome, and a refusal it shows goes with
+      the rename form and with Project grouping.
+    - **Trust does not follow a relink.** The person's pick is not proof that
+      it is the same folder, so it is asked again at its new place, as any
+      folder is. Its old place's answer stays with that path.
+    - **A store refusal is typed.** The roots domain declines these requests
+      with a `project.*` code and a message the person can act on
+      (`StateStoreRefusalError`), the host passes them on as typed refusals,
+      and the panel shows them.
 - **The interface word is "Project".** Labels that say workspace or folder for
   this are renamed as each screen is touched.
 - **Built so far: the Threads panel lists threads by project** (#5329, #5337).

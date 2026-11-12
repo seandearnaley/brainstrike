@@ -250,6 +250,41 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await expect(page.getByTestId('thread-folder-header')).toHaveCount(3);
   });
 
+  // ADR-0034 build decisions: the person names a project, and moves another folder into it.
+  test("renames a project from its section's menu, and a folder the person moves into it lists there", async ({
+    electron,
+    window: page,
+  }) => {
+    test.setTimeout(120_000);
+    const { other, repo } = await seedFoldersFixture(page, electron.getUserDataDir());
+    const repoSection = folderHeader(page, path.basename(repo));
+    await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('2', {
+      timeout: 30_000,
+    });
+
+    await repoSection.getByTestId('thread-project-actions').click();
+    await page.getByRole('button', { name: 'Rename project…' }).click();
+    const name = page.getByRole('textbox', { name: 'Project name' });
+    await name.fill('  Renamed project ');
+    await name.press('Enter');
+
+    // The section reads the name the host stored, trimmed, and keeps its threads.
+    const renamed = folderHeader(page, 'Renamed project');
+    await expect(renamed.getByTestId('thread-folder-count')).toHaveText('2', { timeout: 30_000 });
+    await expect(folderHeader(page, path.basename(repo))).toHaveCount(0);
+
+    // Joining is the person's: the other repository's folder moves in from its own section.
+    await folderHeader(page, path.basename(other)).getByTestId('thread-project-actions').click();
+    await page.getByRole('button', { name: 'Move to project…' }).click();
+    await page
+      .getByTestId('thread-project-move-list')
+      .getByRole('button', { name: 'Renamed project' })
+      .click();
+    await expect(renamed.getByTestId('thread-folder-count')).toHaveText('3', { timeout: 30_000 });
+    await expect(folderHeader(page, path.basename(other))).toHaveCount(0);
+    await expect(page.getByTestId('thread-folder-header')).toHaveCount(2);
+  });
+
   test('lists a thread working in a managed worktree under its repository, chipped with the worktree', async ({
     electron,
     window: page,

@@ -6,7 +6,7 @@ import {
   serveWorkspaceRootStore,
 } from '@brainstrike/agent-host/catalog';
 import type { HostAttachment } from '@brainstrike/host-lease';
-import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import type { WorkspaceRootPort, WorkspaceRootReply } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
   createMessageConnection,
@@ -69,7 +69,7 @@ test('the private platform transports typed root operations and rejects extra au
   }
 });
 
-test('Main reads a recorded folder with its project, and a managed worktree with none', async () => {
+test("Main reads a recorded folder with its project and the project's name, and a managed worktree with none", async () => {
   const recorded = {
     canonicalPath: '/disposable/Alpha',
     createdAt: 1,
@@ -79,7 +79,16 @@ test('Main reads a recorded folder with its project, and a managed worktree with
     lastVerifiedAt: 2,
     path: '/disposable/Alpha',
     projectId: 'project-alpha',
+    projectName: 'Alpha project',
     status: 'live',
+  } as const;
+  const unnamed = {
+    ...recorded,
+    canonicalPath: '/disposable/Bravo',
+    id: 'root-bravo',
+    path: '/disposable/Bravo',
+    projectId: 'project-bravo',
+    projectName: null,
   } as const;
   const worktree = {
     ...recorded,
@@ -88,12 +97,38 @@ test('Main reads a recorded folder with its project, and a managed worktree with
     kind: 'worktree',
     path: '/disposable/linked',
     projectId: null,
+    projectName: null,
   } as const;
-  const fixture = transport({ workspaceRoots: async () => ({ roots: [recorded, worktree] }) });
+  const fixture = transport({
+    workspaceRoots: async () => ({ roots: [recorded, unnamed, worktree] }),
+  });
   try {
     await expect(fixture.client.workspaceRoots({ operation: 'list' })).resolves.toEqual({
-      roots: [recorded, worktree],
+      roots: [recorded, unnamed, worktree],
     });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Main refuses a host's root record without its project's name, as the version it speaks", async () => {
+  const { projectName: _, ...older } = {
+    canonicalPath: '/disposable/Alpha',
+    createdAt: 1,
+    displayName: 'Alpha',
+    id: 'root-alpha',
+    kind: 'path',
+    lastVerifiedAt: 2,
+    path: '/disposable/Alpha',
+    projectId: 'project-alpha',
+    projectName: null,
+    status: 'live',
+  } as const;
+  const fixture = transport({
+    workspaceRoots: async () => ({ roots: [older] }) as unknown as WorkspaceRootReply,
+  });
+  try {
+    await expect(fixture.client.workspaceRoots({ operation: 'list' })).rejects.toThrow();
   } finally {
     await fixture.close();
   }

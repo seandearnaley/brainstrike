@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   mkdirSync,
   mkdtempSync,
@@ -10,11 +11,19 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { HostThreadReads } from '@brainstrike/agent-host';
+import {
+  type HostThreadReads,
+  hostProjectHooksPath,
+  readHostHookApproval,
+  readHostWorkspaceTrust,
+  trustHostHooks,
+  writeHostWorkspaceTrust,
+} from '@brainstrike/agent-host';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import {
   StateStore,
   StateStoreReadOnlyError,
+  StateStoreRefusalError,
   type WorkspaceRootRequest,
 } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -287,6 +296,7 @@ describe('host root registry', () => {
     await expect(owner.service['workspace/roots/recent']({})).resolves.toMatchObject({
       roots: [{ path: workspace }],
     });
+    const projectId = (await store.workspaceRoots({ operation: 'list' })).roots[0]?.projectId ?? '';
     for (const change of [
       service.service['workspace/roots/pick']({}),
       owner.service['workspace/roots/add']({ path: other }),
@@ -295,6 +305,9 @@ describe('host root registry', () => {
         recentPaths: [],
         roots: [{ path: other, rootId: crypto.randomUUID() }],
       }),
+      owner.service['projects/rename']({ name: 'Renamed', projectId }),
+      owner.service['projects/join']({ projectId, rootId }),
+      service.service['workspace/roots/locate']({ rootId }),
     ]) {
       await expect(change).rejects.toBeInstanceOf(StateStoreReadOnlyError);
     }
@@ -362,6 +375,228 @@ describe('host root registry', () => {
       workspace,
     ]);
     await expect(restarted.scratch.read('thread-1')).resolves.toBeNull();
+  });
+
+  it('names a project and joins a folder to another, refusing what the store refuses', async () => {
+    const [alpha, beta] = ['alpha', 'beta'].map(folder);
+    const { owner } = registry({ picks: [alpha ?? '', beta ?? ''] });
+    const { root: alphaRoot } = await owner.service['workspace/roots/pick']({});
+    const { root: betaRoot } = await owner.service['workspace/roots/pick']({});
+    const records = async () => (await store.workspaceRoots({ operation: 'list' })).roots;
+    const [alphaRecord, betaRecord] = await records();
+    const alphaProject = alphaRecord?.projectId ?? '';
+
+    await expect(
+      owner.service['projects/rename']({ name: ' Shared ', projectId: alphaProject })
+    ).resolves.toBeNull();
+    await expect(
+      owner.service['projects/join']({ projectId: alphaProject, rootId: betaRoot?.rootId ?? '' })
+    ).resolves.toBeNull();
+    expect(await records()).toEqual([
+      expect.objectContaining({
+        id: alphaRoot?.rootId,
+        projectId: alphaProject,
+        projectName: 'Shared',
+      }),
+      expect.objectContaining({
+        id: betaRoot?.rootId,
+        projectId: alphaProject,
+        projectName: 'Shared',
+      }),
+    ]);
+
+    // Each refusal is the store's, with the code the host passes on; nothing changed.
+    await expect(
+      owner.service['projects/rename']({ name: 'x'.repeat(81), projectId: alphaProject })
+    ).rejects.toMatchObject({ code: 'project.name-too-long' });
+    await expect(
+      owner.service['projects/rename']({ name: 'Gone', projectId: betaRecord?.projectId ?? '' })
+    ).rejects.toMatchObject({ code: 'project.unknown' });
+    await expect(
+      owner.service['projects/join']({ projectId: alphaProject, rootId: 'no-such-root' })
+    ).rejects.toBeInstanceOf(StateStoreRefusalError);
+    expect((await records()).map((record) => record.projectName)).toEqual(['Shared', 'Shared']);
+  });
+
+  it("a folder joined to a project keeps its own trust and approved hooks, and takes none of the project's", async () => {
+    const [alpha, beta] = ['alpha', 'beta'].map(folder);
+    const hooks = '{"hooks":{}}';
+    for (const each of [alpha, beta]) {
+      mkdirSync(path.dirname(hostProjectHooksPath(each ?? '')), { recursive: true });
+      writeFileSync(hostProjectHooksPath(each ?? ''), hooks);
+    }
+    const { owner } = registry({ picks: [alpha ?? '', beta ?? ''] });
+    await owner.service['workspace/roots/pick']({});
+    const { root: betaRoot } = await owner.service['workspace/roots/pick']({});
+    const alphaProject = (await store.workspaceRoots({ operation: 'list' })).roots[0]?.projectId;
+    const sha256 = createHash('sha256').update(hooks).digest('hex');
+    await writeHostWorkspaceTrust(store, alpha ?? '', 'trusted');
+    await trustHostHooks(store, { path: alpha ?? '', sha256 });
+    await writeHostWorkspaceTrust(store, beta ?? '', 'restricted');
+
+    await owner.service['projects/join']({
+      projectId: alphaProject ?? '',
+      rootId: betaRoot?.rootId ?? '',
+    });
+
+    // Joining is not proof that two folders are one: each answers for itself, as before.
+    expect(await readHostWorkspaceTrust(store, beta ?? '')).toBe('restricted');
+    expect(await readHostHookApproval(store, beta ?? '')).toBeUndefined();
+    expect(await readHostWorkspaceTrust(store, alpha ?? '')).toBe('trusted');
+    expect(await readHostHookApproval(store, alpha ?? '')).toBe(sha256);
+  });
+
+  it('a folder moved outside the app and picked at its new place is another folder, with a project of its own', async () => {
+    const alpha = folder('alpha');
+    const moved = path.join(base, 'moved-alpha');
+    const first = registry({ picked: alpha });
+    const { root } = await first.owner.service['workspace/roots/pick']({});
+    await first.owner.close();
+    owners.splice(owners.indexOf(first.owner), 1);
+    renameSync(alpha, moved);
+
+    const { owner } = registry({ picked: moved });
+    await owner.start();
+    const { root: picked } = await owner.service['workspace/roots/pick']({});
+
+    expect(picked?.rootId).not.toBe(root?.rootId);
+    const records = (await store.workspaceRoots({ operation: 'list' })).roots;
+    expect(new Set(records.map((record) => record.projectId)).size).toBe(2);
+  });
+
+  it("Locate points a moved folder's record at its new place: its id and project follow, and its trust is asked again", async () => {
+    const alpha = folder('alpha');
+    const moved = path.join(base, 'moved-alpha');
+    const first = registry({ picked: alpha });
+    const { root } = await first.owner.service['workspace/roots/pick']({});
+    const rootId = root?.rootId ?? '';
+    const [recorded] = (await store.workspaceRoots({ operation: 'list' })).roots;
+    await first.owner.service['projects/rename']({
+      name: 'Alpha project',
+      projectId: recorded?.projectId ?? '',
+    });
+    await writeHostWorkspaceTrust(store, alpha, 'trusted');
+    await first.owner.close();
+    owners.splice(owners.indexOf(first.owner), 1);
+    renameSync(alpha, moved);
+
+    const picks: string[] = [];
+    const { owner, publishRootsChanged } = registry({ picks });
+    await owner.start();
+    await expect(owner.service['workspace/roots/locate']({ rootId })).resolves.toEqual({
+      root: null,
+    });
+    picks.push(moved);
+    await expect(owner.service['workspace/roots/locate']({ rootId })).resolves.toEqual({
+      root: { available: true, path: moved, rootId, scratch: false, worktree: false },
+    });
+
+    expect((await store.workspaceRoots({ operation: 'list' })).roots).toEqual([
+      expect.objectContaining({
+        canonicalPath: moved,
+        id: rootId,
+        path: moved,
+        projectId: recorded?.projectId,
+        projectName: 'Alpha project',
+        status: 'live',
+      }),
+    ]);
+    expect(publishRootsChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ grantedPath: moved })
+    );
+    // The person's pick is not proof that it is the same folder, so trust is asked again there.
+    expect(await readHostWorkspaceTrust(store, moved)).toBe('undecided');
+    await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
+      roots: [{ available: true, path: moved, rootId, scratch: false, worktree: false }],
+    });
+  });
+
+  it('Locate refuses a folder still where it was, one recorded under another id, and a thread folder', async () => {
+    const [alpha, beta] = ['alpha', 'beta'].map(folder);
+    const gone = folder('gone');
+    const picks = [alpha ?? '', beta ?? '', gone];
+    const { owner } = registry({ picks });
+    const { root: alphaRoot } = await owner.service['workspace/roots/pick']({});
+    await owner.service['workspace/roots/pick']({});
+    const { root: goneRoot } = await owner.service['workspace/roots/pick']({});
+    await owner.service['workspace/roots/remove']({ rootId: alphaRoot?.rootId ?? '' });
+    await owner.service['workspace/roots/remove']({ rootId: goneRoot?.rootId ?? '' });
+    rmSync(gone, { recursive: true });
+
+    // Alpha is closed but still at its place: it opens from Recents, so there is nothing to locate.
+    await expect(
+      owner.service['workspace/roots/locate']({ rootId: alphaRoot?.rootId ?? '' })
+    ).rejects.toMatchObject({ failure: { code: 'workspace.locate-present' } });
+    // Beta is recorded as a folder of its own: it cannot become Gone's record too.
+    picks.push(beta ?? '');
+    await expect(
+      owner.service['workspace/roots/locate']({ rootId: goneRoot?.rootId ?? '' })
+    ).rejects.toMatchObject({ failure: { code: 'workspace.locate-recorded' } });
+    await expect(
+      owner.service['workspace/roots/locate']({ rootId: 'no-such-root' })
+    ).rejects.toMatchObject({ failure: { code: 'workspace.locate-unknown' } });
+    mkdirSync(path.join(base, 'scratch'));
+    const made = path.join(base, 'scratch', 'quiet-otter');
+    const scratch = await owner.scratch.add({
+      make: async () => {
+        mkdirSync(made);
+        return made;
+      },
+      signal: new AbortController().signal,
+      threadId: 'thread-1',
+    });
+    await expect(
+      owner.service['workspace/roots/locate']({ rootId: scratch?.rootId ?? '' })
+    ).rejects.toMatchObject({ failure: { code: 'workspace.locate-unknown' } });
+    expect(
+      (await store.workspaceRoots({ operation: 'list' })).roots.find(
+        (record) => record.id === goneRoot?.rootId
+      )
+    ).toMatchObject({ path: gone, status: 'disconnected' });
+  });
+
+  // A folder opened first and adopted as a managed worktree keeps kind `path`; the worktree ledger
+  // still names it, so Locate must not point its record at another folder.
+  it("Locate refuses a managed worktree's folder that was opened before it was adopted", async () => {
+    const alpha = folder('alpha');
+    const moved = path.join(base, 'moved-alpha');
+    const first = registry({ picked: alpha });
+    const { root } = await first.owner.service['workspace/roots/pick']({});
+    const rootId = root?.rootId ?? '';
+    await store.worktreeLedger({
+      operation: 'insert',
+      row: {
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: 'a'.repeat(40),
+        branch: 'adopted',
+        createdAt: '2026-11-12T00:00:00.000Z',
+        createdBy: 'user',
+        id: 'worktree-adopted',
+        path: alpha,
+        repoCommonDir: path.join(base, 'repo', '.git'),
+        runId: null,
+        setupOutput: null,
+        setupReason: null,
+        setupStatus: 'none',
+        threadId: null,
+      },
+    });
+    await first.owner.close();
+    owners.splice(owners.indexOf(first.owner), 1);
+    renameSync(alpha, moved);
+
+    const { owner } = registry({ picks: [moved] });
+    await owner.start();
+    // The store refuses in the re-pin's own commit; the host's connection types it (`storeRefusal`).
+    await expect(owner.service['workspace/roots/locate']({ rootId })).rejects.toMatchObject({
+      code: 'workspace.locate-unknown',
+    });
+    expect(
+      (await store.workspaceRoots({ operation: 'list' })).roots.find(
+        (record) => record.id === rootId
+      )
+    ).toMatchObject({ path: alpha });
   });
 
   it('seeds folders only in a desktop E2E session', async () => {
