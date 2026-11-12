@@ -121,6 +121,7 @@ function local(overrides: Partial<WorkspaceBarProps> = {}): WorkspaceBarProps {
     branchMenu: branchMenu(),
     checkout: { ahead: null, behind: null, branch: 'main', dirty: true },
     mode: mode(),
+    threadCheckout: { worktreePath: null },
     ...overrides,
   });
 }
@@ -153,6 +154,7 @@ function inWorktree(modeOverrides: Partial<WorkspaceBarMode> = {}) {
       mode: value,
       primaryRoot: swiftBadger,
       secondaryRoots: [{ ...brainstrike, local: true }],
+      threadCheckout: { worktreePath: worktree.path },
     }),
   };
 }
@@ -217,7 +219,7 @@ describe('the where-control, closed', () => {
     expect(chip()).toHaveAccessibleName('Where this thread works: brainstrike, 1 more · Local');
   });
 
-  it('names only the folder outside git, with no warning', () => {
+  it('reads "<folder> · Local" for a folder outside git, with no warning', () => {
     const { container } = render(
       <WorkspaceBar
         {...props({
@@ -226,9 +228,8 @@ describe('the where-control, closed', () => {
         })}
       />
     );
-    expect(chip()).toHaveTextContent('notes');
-    expect(chip()).not.toHaveTextContent('·');
-    expect(chip()).toHaveAccessibleName('Where this thread works: notes');
+    expect(chip()).toHaveTextContent('notes· Local');
+    expect(chip()).toHaveAccessibleName('Where this thread works: notes · Local');
     expect(container.querySelector('.lucide-triangle-alert')).toBeNull();
   });
 
@@ -246,9 +247,36 @@ describe('the where-control, closed', () => {
   });
 
   it('marks a closed folder', () => {
-    render(<WorkspaceBar {...props({ primaryRoot: { ...brainstrike, removed: true } })} />);
+    render(
+      <WorkspaceBar
+        {...props({
+          primaryRoot: { ...brainstrike, removed: true },
+          threadCheckout: { worktreePath: null },
+        })}
+      />
+    );
     expect(chip()).toHaveTextContent('brainstrike (closed)');
     expect(chip()).toHaveAccessibleName('Where this thread works: brainstrike (closed)');
+  });
+
+  // The folder's git status is read again after every checkout change and on
+  // a thread switch; app-shell withholds `mode` meanwhile (BST-2129).
+  it('keeps saying Local while the folder’s git status is read again', () => {
+    const { rerender } = render(<WorkspaceBar {...local()} />);
+    expect(chip()).toHaveTextContent('brainstrike· Local');
+    rerender(<WorkspaceBar {...local({ checkout: undefined, mode: undefined })} />);
+    expect(chip()).toHaveTextContent('brainstrike· Local');
+    expect(chip()).toHaveAccessibleName('Where this thread works: brainstrike · Local');
+  });
+
+  it('keeps naming the worktree while its git status is read again', () => {
+    const { rerender } = render(<WorkspaceBar {...inWorktree().props} />);
+    rerender(<WorkspaceBar {...inWorktree().props} mode={undefined} />);
+    expect(chip()).toHaveTextContent('brainstrike· swift-badger');
+    expect(chip()).toHaveAccessibleName('Where this thread works: brainstrike · swift-badger');
+    // Before its Local folder's row has loaded, the worktree is still not Local.
+    rerender(<WorkspaceBar {...inWorktree().props} mode={undefined} secondaryRoots={[]} />);
+    expect(chip()).toHaveAccessibleName('Where this thread works: swift-badger');
   });
 
   it('warns about a failed worktree setup', () => {

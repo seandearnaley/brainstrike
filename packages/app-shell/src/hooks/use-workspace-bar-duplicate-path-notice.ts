@@ -14,6 +14,8 @@ const logger = createLogger('WorkspaceBar');
 export interface WorkspaceBarRootDescriptor {
   readonly displayName: string;
   readonly path: string;
+  /** A managed worktree, mounted for the thread that works in it (ADR-0034). */
+  readonly worktree?: true | undefined;
 }
 
 /**

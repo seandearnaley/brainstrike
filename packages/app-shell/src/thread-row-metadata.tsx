@@ -1,5 +1,9 @@
 import { isRetiredModelId } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import {
+  checkoutName,
+  LOCAL_CHECKOUT_NAME,
+} from '@brainstrike/assistant-contract/thread-checkout-name';
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
@@ -158,9 +162,8 @@ function resolveThreadRowCheckout(thread: AssistantMemoryThread): ThreadRowCheck
   if (!path) {
     return { kind: 'local' };
   }
-  // A worktree is named by its folder, as the Explorer's header names it.
-  const name = path.split(/[\\/]/u).filter(Boolean).at(-1) ?? path;
-  return { kind: 'worktree', name, path };
+  // Named as the where-control and the Explorer's header name it.
+  return { kind: 'worktree', name: checkoutName(path), path };
 }
 
 export function ThreadMetadataBadges({
@@ -221,7 +224,7 @@ function ThreadCheckoutBadge({
   if (checkout.kind === 'local') {
     return (
       <ThreadBadge band="narrow" testId="thread-checkout-chip" title="Works in the folder itself">
-        Local
+        {LOCAL_CHECKOUT_NAME}
       </ThreadBadge>
     );
   }
