@@ -240,6 +240,11 @@ export function WorktreeCreateDialog({
                 </p>
                 <p>Runs local shell code with BRAINSTRIKE_WORKSPACE_* environment variables.</p>
                 <p>
+                  Allowing it also runs it for worktrees Brainstrike makes in this repository on its
+                  own, when another conversation is editing the same folder or the assistant makes a
+                  worktree, until the script changes.
+                </p>
+                <p>
                   Separately, .worktreeinclude copies — which may include gitignored files — run for
                   every new worktree regardless of this choice.
                 </p>

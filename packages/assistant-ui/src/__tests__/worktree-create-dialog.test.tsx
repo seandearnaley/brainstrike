@@ -88,6 +88,13 @@ describe('WorktreeCreateDialog repository setup consent', () => {
     // before the setup command regardless of Allow/Skip) — the copy must not
     // read as a consequence of allowing the script.
     expect(screen.getByText(/regardless of this choice/iu)).toBeVisible();
+    // ADR-0034, owner decision 2026-11-12: one host record answers for every creation, so the
+    // person is told an approval also runs it for the worktrees the assistant makes.
+    expect(
+      screen.getByText(
+        /also runs it for worktrees Brainstrike makes in this repository on its own.*until the script changes/iu
+      )
+    ).toBeVisible();
     expect(screen.getByTestId('worktree-create-submit')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Allow script' })).toHaveAttribute(
       'data-variant',
