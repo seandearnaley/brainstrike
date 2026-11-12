@@ -390,6 +390,10 @@ Decisions the build made, which are not Sean's:
 - When the thread's Local folder is not open in the window, the worktree's
   header keeps its folder's own name: the Explorer has no name for the project
   then.
+- While no thread is selected, the new-thread composer is the active thread,
+  so the Explorer follows the folder and checkout chosen for it before its
+  first send: its worktree stands in for its folder and the header names it.
+  Before, the Explorer followed only a thread that had been sent.
 
 Not built: the header's rows (Local, the repository's worktrees, New worktree
 and Archive). When they are, they should act through the composer's

@@ -46,9 +46,16 @@ const IN_WORKTREE = {
   operatingRootPath: '/managed/brainstrike/swift-badger',
 };
 
-function selectThread(metadata: Record<string, unknown> | null): void {
+function selectThread(
+  metadata: Record<string, unknown> | null,
+  newThreadDraft?: Record<string, unknown>
+): void {
   useAssistantThreadStore.setState({
     ...useAssistantThreadStore.getState(),
+    // The new-thread composer shows while no thread is selected; its folders are its draft's.
+    newThreadMetadataByResourceId: newThreadDraft
+      ? { [WORKSPACE_MEMORY_RESOURCE_ID]: newThreadDraft }
+      : {},
     selectedThreadByResourceId: metadata ? { [WORKSPACE_MEMORY_RESOURCE_ID]: THREAD_ID } : {},
     threadsByResourceId: {
       [WORKSPACE_MEMORY_RESOURCE_ID]: metadata
@@ -113,6 +120,14 @@ describe("the Explorer header's words for the active thread", () => {
     for (const rootId of ['r-main', 'r-wt', 'r-docs']) {
       expect(screen.getByTestId(`header-${rootId}`)).toBeEmptyDOMElement();
     }
+  });
+
+  // The new-thread composer is the active thread while no thread is selected, so the
+  // Explorer follows the folder and checkout chosen for it before its first send.
+  it("follows the new thread's folder and checkout before its first send", () => {
+    selectThread(null, IN_WORKTREE);
+    renderHeaders();
+    expect(screen.getByTestId('header-r-wt')).toHaveTextContent('brainstrike · swift-badger');
   });
 
   it('names nothing for a thread with no folder', () => {

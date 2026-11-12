@@ -1,10 +1,12 @@
 /**
  * ADR-0034: the Explorer follows the active thread. When the selected workspace thread works in
  * a worktree, the Explorer shows that worktree in place of the folder it was made from, and the
- * header of the folder the thread works in names its checkout (decision 3).
+ * header of the folder the thread works in names its checkout (decision 3). While no thread is
+ * selected the new-thread composer is the active thread, so its draft's folders are followed.
  */
 import { checkoutName } from '@brainstrike/assistant-contract/thread-checkout-name';
 import {
+  newThreadId,
   useAssistantThreadStore,
   useResourceThread,
   WORKSPACE_MEMORY_RESOURCE_ID,
@@ -18,7 +20,9 @@ import { type ReactNode, useMemo } from 'react';
 
 export function ThreadCheckoutBridge({ children }: { readonly children: ReactNode }) {
   const threadId = useAssistantThreadStore(
-    (state) => state.selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    (state) =>
+      state.selectedThreadByResourceId[WORKSPACE_MEMORY_RESOURCE_ID] ??
+      newThreadId(WORKSPACE_MEMORY_RESOURCE_ID)
   );
   const metadata = useResourceThread(WORKSPACE_MEMORY_RESOURCE_ID, threadId)?.metadata;
   const operatingRootId = metadata?.operatingRootId;
