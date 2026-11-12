@@ -73,6 +73,8 @@ export interface ThreadCatalogRoot {
    * null for a managed worktree's root and a folder recorded before projects.
    */
   readonly projectId: string | null;
+  /** The name the person gave that project (ADR-0034); null while it has none. */
+  readonly projectName: string | null;
   readonly status: 'live' | 'disconnected';
 }
 export interface ThreadGroupsCapability {

@@ -23,14 +23,16 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 // Version 17 adds scratch folders (ADR-0034): a root's kind may be `scratch`, and `scratch_folders` records each
 // one with the thread the host made it for (workspace-root-schema.mjs). `roots` is rebuilt with every row it holds,
 // since SQLite cannot widen its CHECK in place.
+// Version 18 adds `projects.name` (project-schema.mjs), the name the person gives a project. Every project keeps its
+// row and starts unnamed.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
-import { PROJECT_SCHEMA } from './project-schema.mjs';
+import { PROJECT_NAME_UPGRADE, PROJECT_SCHEMA } from './project-schema.mjs';
 import { SCRATCH_FOLDER_UPGRADE, WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -82,6 +84,7 @@ export const UPGRADES = [
   '',
   PROJECT_SCHEMA,
   SCRATCH_FOLDER_UPGRADE,
+  PROJECT_NAME_UPGRADE,
 ];
 
 /**

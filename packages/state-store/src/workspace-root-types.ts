@@ -20,6 +20,8 @@ export interface WorkspaceRootRecord {
    * not been opened since.
    */
   readonly projectId: string | null;
+  /** The name the person gave the project (ADR-0034); null while it has none, or no project. */
+  readonly projectName: string | null;
   readonly status: 'live' | 'disconnected';
 }
 
@@ -64,6 +66,18 @@ export type WorkspaceRootRequest =
   | { readonly operation: 'scratch-of-thread'; readonly threadId: string }
   /** Deletes the thread's scratch folder's root and record together; answers what it deleted. */
   | { readonly operation: 'forget-scratch'; readonly threadId: string }
+  /**
+   * ADR-0034: names the project, trimmed; an empty name clears it. Refused for a name longer
+   * than `PROJECT_NAME_MAX_LENGTH` characters and for a project the store does not have. Answers
+   * the roots of the project's folders.
+   */
+  | { readonly operation: 'rename-project'; readonly name: string; readonly projectId: string }
+  /**
+   * ADR-0034: joins the folder of the root to the project, as the person asked, and deletes the
+   * project it leaves once no folder is in it. Writes no trust or hook approval. Refused for an
+   * unknown root or project, and for a managed worktree or a scratch folder. Answers the root.
+   */
+  | { readonly operation: 'join-project'; readonly projectId: string; readonly rootId: string }
   | {
       readonly operation: 'disconnect-except';
       readonly mountedPaths: readonly string[];

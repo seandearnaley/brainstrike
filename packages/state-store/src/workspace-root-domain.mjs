@@ -1,25 +1,64 @@
 // @ts-check
+import { PROJECT_NAME_MAX_LENGTH } from './project-schema.mjs';
 
 // The root domain runs in the desktop writer worker.
 const columns = `id, path, canonical_path AS canonicalPath, display_name AS displayName, kind,
   status, created_at AS createdAt, last_verified_at AS lastVerifiedAt`;
 
 /**
- * The columns of a root record. A folder's project is the one recorded for its canonical path; a
- * root recorded as a managed worktree has none, being a checkout of its repository.
+ * A project request the domain declines for a reason the person can act on (ADR-0034): a name
+ * too long, or a folder or project it does not have. Nothing was written. The store hands its
+ * code and message on as `StateStoreRefusalError`, and the host as a typed refusal.
+ */
+export class WorkspaceRootRefusal extends Error {
+  /**
+   * @param {string} code A boundary failure code, `project.<reason>`.
+   * @param {string} message
+   */
+  constructor(code, message) {
+    super(message);
+    this.name = 'WorkspaceRootRefusal';
+    /** @readonly */
+    this.code = code;
+  }
+}
+
+/**
+ * The columns of a root record. A folder's project, and that project's name, are the ones recorded
+ * for its canonical path; a root recorded as a managed worktree has none, being a checkout of its
+ * repository.
  *
  * A state DB that opened damaged is served read-only as it stands and never upgraded, so one from
- * before version 16 has no project tables. The table is probed, and such a DB's folders read with
- * no project.
+ * before version 16 has no project tables, and one from before version 18 no project names. The
+ * table and the column are probed, and such a DB's folders read with no project or no name.
  * @param {import('better-sqlite3').Database} db
  * @returns {string}
  */
 function rootProjection(db) {
-  return hasTable(db, 'project_folders')
-    ? `${columns}, CASE WHEN kind = 'path' THEN (SELECT folder.project_id
+  if (!hasTable(db, 'project_folders')) {
+    return `${columns}, NULL AS projectId, NULL AS projectName`;
+  }
+  const name = hasColumn(db, 'projects', 'name')
+    ? `CASE WHEN kind = 'path' THEN (SELECT project.name FROM project_folders AS folder
+        JOIN projects AS project ON project.id = folder.project_id
+        WHERE folder.canonical_path = roots.canonical_path) END`
+    : 'NULL';
+  return `${columns}, CASE WHEN kind = 'path' THEN (SELECT folder.project_id
         FROM project_folders AS folder WHERE folder.canonical_path = roots.canonical_path)
-        END AS projectId`
-    : `${columns}, NULL AS projectId`;
+        END AS projectId, ${name} AS projectName`;
+}
+
+/**
+ * Whether `table` has `column`, probed as a table is, for a damaged DB from before the column.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} table
+ * @param {string} column
+ * @returns {boolean}
+ */
+function hasColumn(db, table, column) {
+  return Boolean(
+    db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(table, column)
+  );
 }
 
 /**
@@ -98,6 +137,24 @@ function recordedFolderProject(db, recorded, canonicalPath, now) {
   return folderProject(db, canonicalPath, now);
 }
 
+/**
+ * `record` in the project `projectId`, with that project's name. Only a write calls it, so the
+ * state DB is current and has the column.
+ * @param {import('better-sqlite3').Database} db
+ * @param {Omit<import('./workspace-root-types.ts').WorkspaceRootRecord, 'projectId' | 'projectName'>} record
+ * @param {string | null} projectId
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootRecord}
+ */
+function inProject(db, record, projectId) {
+  const name =
+    projectId === null
+      ? null
+      : /** @type {string | null | undefined} */ (
+          db.prepare('SELECT name FROM projects WHERE id = ?').pluck().get(projectId)
+        );
+  return { ...record, projectId, projectName: name ?? null };
+}
+
 /** @param {import('better-sqlite3').Database} db
  * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'register'}} request
  * @param {RootPaths} paths
@@ -138,13 +195,16 @@ function register(db, request, paths) {
           open_position = ${openPosition} WHERE id = ?`).run(now, root.canonicalPath, existing.id);
         return {
           roots: [
-            {
-              ...existing,
-              canonicalPath: root.canonicalPath,
-              lastVerifiedAt: now,
-              projectId: recordedFolderProject(db, existing, root.canonicalPath, now),
-              status: /** @type {const} */ ('live'),
-            },
+            inProject(
+              db,
+              {
+                ...existing,
+                canonicalPath: root.canonicalPath,
+                lastVerifiedAt: now,
+                status: /** @type {const} */ ('live'),
+              },
+              recordedFolderProject(db, existing, root.canonicalPath, now)
+            ),
           ],
         };
       }
@@ -161,15 +221,18 @@ function register(db, request, paths) {
             WHERE id = ?`).run(root.path, root.displayName, root.canonicalPath, now, pinned.id);
           return {
             roots: [
-              {
-                ...pinned,
-                canonicalPath: root.canonicalPath,
-                displayName: root.displayName,
-                lastVerifiedAt: now,
-                path: root.path,
-                projectId: recordedFolderProject(db, pinned, root.canonicalPath, now),
-                status: /** @type {const} */ ('live'),
-              },
+              inProject(
+                db,
+                {
+                  ...pinned,
+                  canonicalPath: root.canonicalPath,
+                  displayName: root.displayName,
+                  lastVerifiedAt: now,
+                  path: root.path,
+                  status: /** @type {const} */ ('live'),
+                },
+                recordedFolderProject(db, pinned, root.canonicalPath, now)
+              ),
             ],
           };
         }
@@ -192,17 +255,20 @@ function register(db, request, paths) {
       );
       return {
         roots: [
-          {
-            canonicalPath: root.canonicalPath,
-            createdAt: now,
-            displayName: root.displayName,
-            id: root.preferredId,
-            kind,
-            lastVerifiedAt: now,
-            path: root.path,
-            projectId: managed ? null : folderProject(db, root.canonicalPath, now),
-            status: /** @type {const} */ ('live'),
-          },
+          inProject(
+            db,
+            {
+              canonicalPath: root.canonicalPath,
+              createdAt: now,
+              displayName: root.displayName,
+              id: root.preferredId,
+              kind,
+              lastVerifiedAt: now,
+              path: root.path,
+              status: /** @type {const} */ ('live'),
+            },
+            managed ? null : folderProject(db, root.canonicalPath, now)
+          ),
         ],
       };
     }
@@ -274,6 +340,7 @@ function registerScratch(db, request, paths) {
             lastVerifiedAt: now,
             path: root.path,
             projectId: null,
+            projectName: null,
             status: /** @type {const} */ ('live'),
           },
         ],
@@ -302,6 +369,119 @@ function scratchOfThread(db, projection, threadId) {
       )
       .all(threadId)
   );
+}
+
+/**
+ * The roots of every folder in `projectId`, oldest first.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} projection
+ * @param {string} projectId
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootRecord[]}
+ */
+function projectRoots(db, projection, projectId) {
+  return /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
+    db
+      .prepare(
+        `SELECT ${projection} FROM roots WHERE kind = 'path' AND canonical_path IN
+          (SELECT canonical_path FROM project_folders WHERE project_id = ?)
+        ORDER BY created_at, rowid`
+      )
+      .all(projectId)
+  );
+}
+
+/**
+ * Names the project `projectId` (ADR-0034 build decisions). The name is trimmed and an empty one
+ * clears it; one longer than `PROJECT_NAME_MAX_LENGTH` characters is refused, and so is a project
+ * the store does not have. Answers the roots of the project's folders, with the name.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} projection
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'rename-project'}} request
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function renameProject(db, projection, { name, projectId }) {
+  const trimmed = name.trim();
+  if ([...trimmed].length > PROJECT_NAME_MAX_LENGTH) {
+    throw new WorkspaceRootRefusal(
+      'project.name-too-long',
+      `A project name is at most ${PROJECT_NAME_MAX_LENGTH} characters, so the name was not changed.`
+    );
+  }
+  return db.transaction(() => {
+    const renamed = db
+      .prepare('UPDATE projects SET name = ? WHERE id = ?')
+      .run(trimmed === '' ? null : trimmed, projectId);
+    if (renamed.changes === 0) {
+      throw unknownProject();
+    }
+    return { roots: projectRoots(db, projection, projectId) };
+  })();
+}
+
+/** @returns {WorkspaceRootRefusal} */
+function unknownProject() {
+  return new WorkspaceRootRefusal(
+    'project.unknown',
+    'There is no project with this id, so nothing changed.'
+  );
+}
+
+/**
+ * Joins the folder of the root `rootId` to the project `projectId`, as the person asked
+ * (ADR-0034 build decisions): its folder row names that project, and the project it leaves is
+ * deleted in the same commit once no folder is in it. Nothing else is written: a folder's trust
+ * and its approved hooks stay keyed by its own path, so it keeps its own answers and takes none
+ * of the project's. Refused for a root the store does not have, for a managed worktree or a
+ * scratch folder, neither of which has a project of its own, and for a project the store does
+ * not have. Answers the folder's root.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} projection
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'join-project'}} request
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function joinProject(db, projection, { projectId, rootId }) {
+  return db.transaction(() => {
+    const select = db.prepare(`SELECT ${projection} FROM roots WHERE id = ?`);
+    const root =
+      /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord | undefined} */ (
+        select.get(rootId)
+      );
+    if (!root) {
+      throw new WorkspaceRootRefusal(
+        'project.folder-unknown',
+        'There is no folder with this id, so nothing changed.'
+      );
+    }
+    const managed = db
+      .prepare('SELECT 1 FROM brainstrike_worktrees WHERE path = ? AND archived_at IS NULL')
+      .get(root.path);
+    if (root.kind !== 'path' || managed) {
+      throw new WorkspaceRootRefusal(
+        'project.thread-folder',
+        'A managed worktree or a scratch folder has no project of its own to move: it lists with the thread that works in it.'
+      );
+    }
+    if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+      throw unknownProject();
+    }
+    db.prepare(`INSERT INTO project_folders (canonical_path, project_id) VALUES (?, ?)
+      ON CONFLICT (canonical_path) DO UPDATE SET project_id = excluded.project_id`).run(
+      root.canonicalPath,
+      projectId
+    );
+    if (root.projectId !== null && root.projectId !== projectId) {
+      db.prepare(`DELETE FROM projects WHERE id = ?
+        AND NOT EXISTS (SELECT 1 FROM project_folders WHERE project_id = ?)`).run(
+        root.projectId,
+        root.projectId
+      );
+    }
+    return {
+      roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
+        select.all(rootId)
+      ),
+    };
+  })();
 }
 
 /** @param {import('better-sqlite3').Database} db
@@ -358,6 +538,10 @@ export function executeWorkspaceRootRequest(db, request, paths) {
       };
     case 'scratch-of-thread':
       return { roots: scratchOfThread(db, projection, request.threadId) };
+    case 'rename-project':
+      return renameProject(db, projection, request);
+    case 'join-project':
+      return joinProject(db, projection, request);
     case 'forget-scratch':
       // The thread's root and its scratch record go together, in one commit.
       return db.transaction(() => {

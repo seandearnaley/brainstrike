@@ -134,4 +134,10 @@
 // (`repositorySetup.decision`), required. `worktrees/setup-consent/decide`,
 // `worktrees/setup-consent/list` and `worktrees/setup-consent/revoke` are new methods. Removing
 // the parameter and the required field are why this is a version bump.
-export const AGENT_HOST_PROTOCOL_VERSION = 27;
+// v28 (2026-11-12): projects can be named, joined and relinked (ADR-0034 build decisions). A root
+// record Main reads over `host/workspace-roots` carries `projectName`, the name the person gave
+// its project, or null; Main decodes the record strictly, so it cannot read an older host's
+// records and an older Main cannot read these. The required field is why this is a version bump.
+// `projects/rename`, `projects/join` and `workspace/roots/locate` are new methods, and a project
+// request the state store declines crosses as a typed `project.*` refusal.
+export const AGENT_HOST_PROTOCOL_VERSION = 28;
