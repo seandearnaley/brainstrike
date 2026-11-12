@@ -10,6 +10,7 @@ import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import { glob } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -306,6 +307,12 @@ async function copyIncludedFiles(
 interface ResolvedCommand {
   readonly argv: readonly string[];
   readonly reason: string | null;
+  /**
+   * The repository script's bytes that were checked against the recorded
+   * answer. They run from a private copy appended to `argv`; the script is
+   * never opened by its path again (`runWithPrivateScript`).
+   */
+  readonly script?: Buffer;
 }
 
 async function resolveSetupCommand(input: WorktreeSetupInput): Promise<ResolvedCommand | null> {
@@ -365,7 +372,38 @@ async function resolveSetupCommand(input: WorktreeSetupInput): Promise<ResolvedC
         'This repository ships .brainstrike/worktree-setup.sh, which needs a POSIX shell. Set an explicit setup command in Settings → Workspace to run setup on Windows.',
     };
   }
-  return { argv: ['/bin/sh', script], reason: null };
+  return { argv: ['/bin/sh'], reason: null, script: scriptBytes };
+}
+
+/**
+ * Runs the checked script bytes from a private copy: a directory only this
+ * user can enter (`mkdtemp` under the OS temp dir, mode 0700) holding a file
+ * only they can read (0600). Opening the repository's script by path again
+ * would run whatever is there by then, and a run that can write the source
+ * checkout could swap it between the check and the run (a review finding,
+ * ADR-0034). The copy is removed however setup ends.
+ */
+async function runWithPrivateScript(
+  command: ResolvedCommand,
+  run: (command: ResolvedCommand) => Promise<WorktreeSetupOutcome>
+): Promise<WorktreeSetupOutcome> {
+  if (command.script === undefined) {
+    return await run(command);
+  }
+  const directory = await fsPromises.mkdtemp(path.join(tmpdir(), 'brainstrike-worktree-setup-'));
+  try {
+    await fsPromises.chmod(directory, 0o700);
+    const file = path.join(directory, path.basename(REPOSITORY_SETUP_SCRIPT));
+    await fsPromises.writeFile(file, command.script, { flag: 'wx', mode: 0o600 });
+    return await run({ argv: [...command.argv, file], reason: command.reason });
+  } finally {
+    await fsPromises.rm(directory, { force: true, recursive: true }).catch((error: unknown) => {
+      logger.warn('Could not remove the private copy of a worktree setup script', {
+        directory,
+        error,
+      });
+    });
+  }
 }
 
 function formatSkippedCopies(skippedCopies: readonly WorktreeSetupSkippedCopy[]): string {
@@ -671,7 +709,10 @@ export async function runWorktreeSetup(input: WorktreeSetupInput): Promise<Workt
         truncated,
       };
     }
-    return await executeSetupCommand(command, input, copyResult);
+    await input.onScriptChecked?.();
+    return await runWithPrivateScript(command, (resolved) =>
+      executeSetupCommand(resolved, input, copyResult)
+    );
   } catch (error) {
     logger.warn('worktree setup failed', { error, worktree: input.worktree.path });
     return {

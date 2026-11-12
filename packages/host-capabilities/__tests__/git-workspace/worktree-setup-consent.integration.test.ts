@@ -82,24 +82,28 @@ describe('worktree setup consent the host keeps (real git + real state store)', 
     workspace.cleanup();
   });
 
-  it('runs the setup script for a worktree the host makes once the repository is approved at the script’s hash', async () => {
-    const { methods, service } = host();
-    const decided = await methods.decideSetupConsent({
-      decision: 'approved',
-      rootId: 'r-1',
-      scriptSha256: sha256(SCRIPT),
-    });
-    expect(decided).toMatchObject({ ok: true, value: { decision: 'approved' } });
+  // The repository's script needs a POSIX shell; on Windows setup says so instead.
+  it.skipIf(process.platform === 'win32')(
+    'runs the setup script for a worktree the host makes once the repository is approved at the script’s hash',
+    async () => {
+      const { methods, service } = host();
+      const decided = await methods.decideSetupConsent({
+        decision: 'approved',
+        rootId: 'r-1',
+        scriptSha256: sha256(SCRIPT),
+      });
+      expect(decided).toMatchObject({ ok: true, value: { decision: 'approved' } });
 
-    const { setup, worktree } = await createAsTheHost(service, 'approved');
+      const { setup, worktree } = await createAsTheHost(service, 'approved');
 
-    expect(setup).toMatchObject({ reason: null, status: 'succeeded' });
-    expect(existsSync(path.join(worktree.path, 'setup-ran.txt'))).toBe(true);
-    await expect(methods.createContext({ rootId: 'r-1' })).resolves.toMatchObject({
-      ok: true,
-      value: { repositorySetup: { decision: 'approved', scriptSha256: sha256(SCRIPT) } },
-    });
-  });
+      expect(setup).toMatchObject({ reason: null, status: 'succeeded' });
+      expect(existsSync(path.join(worktree.path, 'setup-ran.txt'))).toBe(true);
+      await expect(methods.createContext({ rootId: 'r-1' })).resolves.toMatchObject({
+        ok: true,
+        value: { repositorySetup: { decision: 'approved', scriptSha256: sha256(SCRIPT) } },
+      });
+    }
+  );
 
   it('skips the script, saying consent is required, while the repository has no answer', async () => {
     const { methods, service } = host();

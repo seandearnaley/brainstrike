@@ -683,6 +683,18 @@ revisit:
   decision. `resolveSetupCommand` still re-hashes the script before it runs and
   fails closed to a visible skip. A record that cannot be read fails the
   worktree's setup, visibly, not its creation.
+- **The script runs from a private copy of the approved bytes.** Setup reads
+  the script once, checks that buffer's hash against the answer, writes that
+  same buffer to a file in a private directory (`mkdtemp` under the OS temp
+  directory, mode 0700, the file 0600) and runs `/bin/sh` on it, with the
+  worktree as its working directory as before. The copy is removed however
+  setup ends, timeout and failure included. So the script's `$0` is that copy,
+  not `.brainstrike/worktree-setup.sh`, and it reaches the repository through
+  its working directory and `BRAINSTRIKE_ROOT_PATH`. A review of the first
+  build found the hole this closes: setup checked the file's hash and then
+  opened it by path again, so a run that could write the source checkout
+  could swap the script in between and have a worktree the host made run
+  bytes the person never approved.
 - **The sheet asks the host, then reads the host's answer back.** Allow and
   Skip call `decide` and then `create-context` again; a refusal (the script
   changed since the sheet opened) is shown in the sheet, which keeps asking.

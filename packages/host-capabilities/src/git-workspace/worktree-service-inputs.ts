@@ -34,6 +34,12 @@ export interface RepositorySetupDecisionInput {
 export interface WorktreeSetupInput {
   /** Test seam; production uses `WORKTREE_INCLUDE_MAX_TOTAL_BYTES`. */
   readonly copyMaxBytes?: number;
+  /**
+   * Test seam, absent in production: runs after the repository script's bytes
+   * were read and checked against the recorded answer and before setup runs,
+   * so a test can change the file on disk in between.
+   */
+  readonly onScriptChecked?: () => Promise<void>;
   /** The repository's recorded answer; read only for the repository-committed fallback script. */
   readonly repositorySetupDecision?: RepositorySetupDecisionInput;
   readonly settings: WorktreeSettings;
