@@ -15,6 +15,8 @@ import type { HostGitWorkspace } from '../src/ports.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from '../src/protocol-version.js';
 import { nodePortConnection } from '../src/transports.js';
 
+/** Main's request on its own platform connection (`factory-reset-worktrees.ts` in the desktop). */
+const RESET_ARCHIVE_METHOD = 'factory-reset/worktrees/archive';
 const closers: Array<() => void> = [];
 afterEach(() => {
   for (const close of closers.splice(0)) {
@@ -36,8 +38,8 @@ test("a desktop client connection does not answer Factory Reset's worktree archi
     trees: { changedBy: () => undefined },
   } as unknown as HostCore;
   const gitWorkspace = {
+    [RESET_ARCHIVE_METHOD]: archiveForReset,
     subscribe: () => () => undefined,
-    'worktrees/archive-for-reset': archiveForReset,
   } as unknown as HostGitWorkspace;
   const record = {
     hostVersion: HOST_VERSION,
@@ -66,7 +68,7 @@ test("a desktop client connection does not answer Factory Reset's worktree archi
   );
   closers.push(() => void client.close());
 
-  const asked = raw.sendRequest('worktrees/archive-for-reset', {});
+  const asked = raw.sendRequest(RESET_ARCHIVE_METHOD, {});
 
   await expect(asked).rejects.toBeInstanceOf(ResponseError);
   await expect(asked).rejects.toMatchObject({ code: ErrorCodes.MethodNotFound });
