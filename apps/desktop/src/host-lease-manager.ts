@@ -370,9 +370,8 @@ async function ownPlatform(
   if (!options.platform) {
     return {};
   }
-  const nativeChildren = createHostNativeChildren(options.root);
-  // Runs last, after the platform closed: join the host's native processes, then
-  // require the Root's flock free.
+  const nativeChildren = createHostNativeChildren();
+  // Runs last, after the platform closed: join the host's native processes.
   await addFinalizer(scope, () => nativeChildren.close());
   const platform = options.platform(nativeChildren);
   // Runs after closeChild has joined the host's exit, never during its cleanup.

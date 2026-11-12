@@ -4,16 +4,12 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   decodeStartOptions,
+  failedStartupReport,
   type HostStartOptions,
   type StartupMessage,
 } from '@brainstrike/host-lease';
 import { configureLogger } from '@brainstrike/logging';
-import {
-  ForeignLockError,
-  processStartTime,
-  RootLock,
-  RootLockedError,
-} from '@brainstrike/state-store';
+import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import {
   type HostPlatformLaunchOptions,
@@ -104,14 +100,7 @@ async function reportProcessFailures(
     processStartTime(process.pid) === owner.start;
   try {
     await publish({
-      event: 'failed',
-      kind:
-        cause instanceof RootLockedError
-          ? 'root-locked'
-          : cause instanceof ForeignLockError
-            ? 'foreign-lock'
-            : 'error',
-      message: cause instanceof Error ? cause.message : String(cause),
+      ...failedStartupReport(cause),
       ownership: retained ? 'retained' : 'released',
     });
   } catch (reportCause) {
