@@ -5,6 +5,7 @@
     reads its repository's index) is void. A worktree's search is live grep on the worktree.
   - 2026-11-10 (owner decisions, below): decision 7's default is replaced by an Automatic default, a
     project gets a host-owned record with its own id, and the interface word is "Project".
+  - 2026-11-11 (owner decisions, below): how Automatic isolation is built, and its first part.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -97,7 +98,8 @@ supersede the decisions above where they differ.
   already writing to, or when the person asks for work in parallel. The
   worktree is created at that first write, so a thread that only reads creates
   nothing. The options not taken were a worktree for every thread (decision 7
-  as written) and always Local. Not built yet.
+  as written) and always Local. The first part is built (owner decisions,
+  2026-11-11); the person asking for work in parallel is not.
   - The rest of decision 7 stands: archive keeps its snapshot ref, and a cap
     archives the oldest idle worktrees that no open thread uses.
   - Which thread moves was not part of Sean's answer. It is recorded here as
@@ -154,6 +156,125 @@ supersede the decisions above where they differ.
   repository's `repoCommonDir` through one function (`threadProjectKey`),
   where the project record's id will replace it; until then a second clone is
   a section of its own. A saved grouping is kept.
+
+## Owner decisions, 2026-11-11
+
+Sean's answers to how Automatic isolation (the default of 2026-11-10) is built.
+
+- **The thread moves at its first edit.** A run cannot change folder once it
+  has started, because its binding is fixed when it is admitted (ADR-0017). So
+  the host refuses the first edit that clashes, the run ends after that step,
+  and the same turn carries on in a new worktree. This costs one wasted model
+  step and adds one rule to the run engine. If the worktree cannot be made, the
+  edit is refused with the reason and is never written in place.
+- **"Already writing" means a run in progress that has edited a file with the
+  edit tools.** Shell commands do not count. Threads that take turns still
+  share the checkout.
+- **The new worktree starts from the last commit.** A thread that already has
+  uncommitted edits of its own in the shared checkout is not moved. Both keep
+  writing there, with a visible note.
+- **Nothing new is built for getting the work back.** The thread names its
+  branch, and the person merges it or asks the thread to.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- The later writer is the one that moves (recorded on 2026-11-10).
+- "The same checkout" is the folder an edit targets, by its root id. So the
+  rule also covers a thread with no folder of its own and two threads working
+  in one worktree.
+- A thread and its workers are one writer.
+  - A worker's edits count as its thread's writing for as long as the run that
+    dispatched the worker is in progress, whether or not the worker has ended.
+    Core reads that from the origin it already holds for a worker's run. So a
+    thread that has its workers make its edits is seen as writing between
+    workers.
+  - That stops when the dispatching run ends. A later run of the same thread
+    that only takes a finished background worker's results did not dispatch
+    it, so that worker's edits no longer count.
+  - Only a thread's own edits can move it. A worker's own clashing edit is
+    made in place, where its parent works, and never moves its parent.
+  - A thread whose workers are still working stays with them (ADR-0028
+    rule 5) and shares the folder, with the note. That includes a worker
+    dispatched in the same step as the edit, which begins while the worktree
+    is being made.
+- "In progress" includes a run that is waiting on an approval nobody has
+  answered. If that run has edited a folder, other threads' first edits there
+  keep moving, or sharing with the note, until the approval is answered or
+  the run is stopped.
+- A folder is taken when an edit's start is committed, in Core's one admission
+  queue, so of two first edits exactly one moves. After a restart the same
+  fact is read from the committed edit records. Nothing new is stored.
+- A run that is stopped, or whose thread is deleted, while its worktree is
+  being made does not move its thread. Its edit ends with the run.
+- The host names the worktree as the create sheet does (`generateWorktreeName`)
+  and puts it on the branch `bs/<name>`. The ledger records it as the agent's,
+  with the run and the thread.
+- Where a thread cannot be given a worktree it shares the folder, with the
+  note, as Sean's third answer does for a thread with uncommitted edits. An
+  edit is refused only when a worktree should exist and could not be made, or
+  when a thread reaches back into the checkout it left for its worktree.
+  - A thread has one checkout, so only the folder it works in is replaced by a
+    worktree. A clashing edit in another of its folders is made there.
+  - A folder outside git cannot have a worktree. Threads share it as they did
+    before Automatic. The option not taken was to refuse the later thread's
+    edit until the other run ends, which would stop work in a plain folder
+    whenever another thread is running or waiting on an approval.
+  - Three more folders cannot have one, and share the same way. A repository
+    with no commit yet has nothing for a worktree to start from. A folder
+    inside a repository, below its top folder, cannot be replaced by a
+    worktree of the whole repository: the same relative path would land
+    somewhere else. And on a machine where git is missing or cannot read the
+    folder, nothing says a worktree could exist; git's failure is logged. The
+    platform reads each case from what git reports of the folder, before it
+    creates anything.
+  - A thread in a worktree that reaches back into the checkout it left is
+    refused before anything else is weighed. A path it once edited there may
+    be uncommitted again by the other thread's change, which is not its own
+    work.
+- "Uncommitted edits of its own" (Sean's third answer) is read as the paths in
+  the edit records of the thread and its workers that git's status still
+  reports as changed.
+  - A path under a folder git reports as one entry, such as a nested
+    repository, counts. Names are compared in one Unicode form.
+  - Not seen: files git ignores, and changes a shell command made, which have
+    no edit record. A thread whose only uncommitted work is of those kinds is
+    moved, and that work stays in the checkout it left.
+- A host that cannot open a worktree as a folder (the standalone host) does
+  not apply the rule: its threads share a folder as they did.
+- The refused call's result is how the model learns of the move. It names the
+  worktree and the branch, and tells the model to make the edit again there
+  and to give the person the branch name when the work is done.
+- The visible note is a row in the thread's own transcript, from a committed
+  event (`checkout.shared`). It says which folder is shared and why the thread
+  stayed.
+
+Built, in the agent host:
+
+- The rule, for the four file tools (write, replace, rename, delete). The host
+  settles the refused call unrun, makes the worktree through the worktree
+  tool's own create-and-open, and moves the thread through the binding's own
+  command (ADR-0028 step 3). The binding's commit says the host made the move
+  and why (`enteredBy.cause: 'checkout-contended'`). Every file edit of the
+  same step is left unrun too.
+- A thread that only reads creates nothing.
+
+Not built:
+
+- The person asking for work in parallel (the control that says where a thread
+  works).
+- The cap that archives idle worktrees.
+- Moving a thread for a worker's edit or for a shell command.
+- A note for a worker's own clashing edit. It is made in place with no note.
+- Cleaning up a worktree that was made and never entered. It stays in the
+  ledger, bound to no thread, when the run is stopped or its thread is deleted
+  while the worktree is being made, whether the host made it or the model's
+  worktree tool did (`manageWorktree` create), and when a worker dispatched in
+  the same step keeps the thread where it is.
+- An action that brings a worktree's changes back.
+- The repository's setup script for a worktree the host made. Consent for it
+  is kept by the renderer, so the host skips the script and the worktree shows
+  the reason. Moving that consent to the host is a change of owner.
 
 ## Consequences
 

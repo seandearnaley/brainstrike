@@ -109,6 +109,8 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     return false;
   }
   return (
+    // ADR-0034: two threads write one folder, and nothing else in the answer says so.
+    event.kind === 'checkout.shared' ||
     event.kind === 'compaction.failed' ||
     event.kind === 'delegation.budget.exhausted' ||
     event.kind === 'delegation.ledger' ||
