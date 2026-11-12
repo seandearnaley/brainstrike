@@ -55,6 +55,8 @@ interface ActivityGroupLayout {
   readonly onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
   readonly setExpanded: (expanded: boolean) => void;
   readonly setFilter: (filter: ActivityFilter) => void;
+  /** Opens the group on its delegations, under their filter where the group has one. */
+  readonly showDelegations: () => void;
   /** Opens the first failure; undefined when nothing failed. */
   readonly showFirstFailure: (() => void) | undefined;
   readonly strip: readonly RunStripMark[];
@@ -205,6 +207,12 @@ export function useActivityGroupLayout(
   const failures = steps.filter((step) => step.state === 'failed');
   const firstFailure = failures[0]?.id;
   const showFirstFailure = firstFailure === undefined ? undefined : () => jumpTo(firstFailure);
+  const showDelegations = (): void => {
+    if (filterOptions.some((option) => option.filter === 'delegate')) {
+      setFilter('delegate');
+    }
+    setExpanded(true);
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     handleActivityGroupKey(event, (direction, from) => {
       const next = adjacentFailure(steps, direction, from);
@@ -232,6 +240,7 @@ export function useActivityGroupLayout(
       onKeyDown,
       setExpanded,
       setFilter,
+      showDelegations,
       showFirstFailure,
       strip,
       tail,

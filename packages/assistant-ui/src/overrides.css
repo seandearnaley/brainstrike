@@ -1169,13 +1169,16 @@ span.bs-composer-chip {
  * utility classes on the span, for the same reason as the label rule below:
  * this row's single-line height is a scroll-anchoring invariant (§4.7), and
  * `min-width: 0` here is what lets the headline shrink at all (a flex item's
- * automatic minimum is its content).
+ * automatic minimum is its content). Its meta never shrinks, so in a header
+ * too narrow for it the row clips at its own edge rather than paint over the
+ * controls beside the disclosure.
  */
 .assistant-ui-panel .bs-activity-summary-row {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   min-width: 0;
+  overflow: hidden;
 }
 
 /*
@@ -1797,10 +1800,17 @@ span.bs-composer-chip {
   width: auto;
 }
 
+/* Each control after the disclosure carries the disclosure's own inline
+   padding as its trailing space, so the row keeps one rhythm whichever of
+   them ends it (the strip leaves a narrow header), and a lone disclosure's
+   hover band still meets the border. */
+.assistant-ui-panel .bs-activity-header > :not(.bs-activity-summary) {
+  margin-inline-end: 0.6rem;
+}
+
 .assistant-ui-panel .bs-activity-header > .bs-activity-summary-failed {
   flex: 0 0 auto;
   font-size: 0.75rem;
-  padding-inline-end: 0.5rem;
 }
 
 .assistant-ui-panel .bs-activity-failed-jump {
@@ -1837,7 +1847,6 @@ span.bs-composer-chip {
   cursor: pointer;
   display: flex;
   flex: 0 4 8rem;
-  margin-inline-end: 0.375rem;
   min-width: 2.5rem;
   padding: 0 0.25rem;
 }
@@ -1848,8 +1857,11 @@ span.bs-composer-chip {
   }
 }
 
+/* A narrow header keeps the headline, the step count and the controls: the
+   strip leaves, and so does the elapsed time of a finished group. */
 @container (max-width: 26rem) {
-  .assistant-ui-panel .bs-run-strip {
+  .assistant-ui-panel .bs-run-strip,
+  .assistant-ui-panel .bs-activity-summary-elapsed {
     display: none;
   }
 }
@@ -3034,10 +3046,13 @@ span.bs-composer-chip {
   }
 }
 
-/* A subagent's call sign on a dot of its family colour (`SubagentChip`). */
+/* A subagent's call sign on a dot of its family colour (`SubagentChip`): a
+   1.25rem line inside its 1px border. A folded chip is the square of that
+   height (`.bs-activity-agents`). */
 .bs-subagent-chip {
   align-items: center;
   background: color-mix(in oklab, var(--agent-accent) 12%, transparent);
+  block-size: 1.375rem;
   border: 1px solid color-mix(in oklab, var(--agent-accent) 45%, transparent);
   border-radius: 9999px;
   color: var(--foreground);
@@ -3083,11 +3098,94 @@ button.bs-subagent-chip:focus-visible {
   padding-inline-start: 0.625rem;
 }
 
-/* The subagents a group delegated to, beside its collapsed header. */
+/*
+ * The subagents a group delegated to, beside its header: one line that never
+ * wraps and never shrinks under its chips.
+ */
 .bs-activity-agents {
   align-items: center;
   display: inline-flex;
-  flex-wrap: wrap;
+  flex: none;
   gap: 0.25rem;
-  min-width: 0;
+}
+
+/* A delegation chip renders nothing until its conversation is known. */
+.bs-activity-agents:empty {
+  display: none;
+}
+
+/* The delegations past the header's first three, as one count in the chip's
+   shape (`SubagentOverflowChip`). */
+.bs-subagent-more {
+  align-items: center;
+  background: color-mix(in oklab, var(--muted-foreground) 10%, transparent);
+  block-size: 1.375rem;
+  border: 1px solid color-mix(in oklab, var(--muted-foreground) 35%, transparent);
+  border-radius: 9999px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  justify-content: center;
+  line-height: 1.25rem;
+  min-inline-size: 1.375rem;
+  padding: 0 0.375rem;
+}
+
+.bs-subagent-more:hover {
+  background: color-mix(in oklab, var(--muted-foreground) 20%, transparent);
+  color: var(--foreground);
+}
+
+.bs-subagent-more:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/*
+ * Where the header has no room for the call signs beside a readable
+ * headline, every chip in the group folds to its colour dot; the name stays
+ * its accessible name and its tooltip. A name costs about 6rem, so the fold
+ * width grows by that per chip. It reads the header's width and the chip
+ * count only, never the headline, so a chip never flips between its forms
+ * while a live label changes. A fourth child is the count of the delegations
+ * past the first three (`SubagentOverflowChip`), so that row always folds.
+ */
+@container (width < 40rem) {
+  .bs-activity-agents {
+    --bs-agents-fold: fold;
+  }
+}
+
+@container (width < 46rem) {
+  .bs-activity-agents:has(> :nth-child(2)) {
+    --bs-agents-fold: fold;
+  }
+}
+
+@container (width < 52rem) {
+  .bs-activity-agents:has(> :nth-child(3)) {
+    --bs-agents-fold: fold;
+  }
+}
+
+.bs-activity-agents:has(> :nth-child(4)) {
+  --bs-agents-fold: fold;
+}
+
+@container style(--bs-agents-fold: fold) {
+  .bs-subagent-chip {
+    inline-size: 1.375rem;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .bs-subagent-chip-label {
+    block-size: 1px;
+    clip-path: inset(50%);
+    inline-size: 1px;
+    position: absolute;
+  }
 }
