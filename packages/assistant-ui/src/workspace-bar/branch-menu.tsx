@@ -17,7 +17,7 @@ import {
   RefreshCw,
   SplitSquareHorizontal,
 } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { type ReactElement, useRef, useState } from 'react';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarBranchRow,
@@ -250,11 +250,22 @@ const BranchRowContent = ({
   );
 };
 
+/** Gives the switcher's search field the keys. */
+const focusSearch = (content: HTMLElement): void => {
+  content.querySelector('input')?.focus({ preventScroll: true });
+};
+
 /**
  * The where-menu's Branch row: the branch switcher as a submenu, or, without
  * an interactive menu (web, no git bridge), a read-only row with the same
  * summary. The switcher is a cmdk list whose search field owns its keys, so
  * none reach the menu's own typeahead, arrow handling or ArrowLeft-to-close.
+ *
+ * Radix gives an opened submenu focus only when the keyboard opened it. The
+ * search field also takes focus when the Branch row is clicked, as the
+ * switcher's own popover did, and when the pointer moves into the switcher,
+ * as a menu row takes focus under the pointer; otherwise letters typed there
+ * would go to the where-menu's typeahead.
  */
 export const BranchSubmenu = ({
   branchMenu,
@@ -267,6 +278,11 @@ export const BranchSubmenu = ({
   readonly onDone: () => void;
 }): ReactElement => {
   const summary = branchSummary(checkout);
+  const [open, setOpen] = useState(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  // A click on the row while the switcher is not mounted: its search field takes focus when it
+  // mounts, which the menu's portal does a render after it opens.
+  const focusSearchOnMountRef = useRef(false);
   if (!branchMenu) {
     return (
       <DropdownMenuLabel
@@ -283,16 +299,29 @@ export const BranchSubmenu = ({
   }
   return (
     <DropdownMenuSub
-      onOpenChange={(open) => {
-        if (!open && branchMenu.query) {
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next && branchMenu.query) {
           branchMenu.onQueryChange('');
         }
       }}
+      open={open}
     >
       <DropdownMenuSubTrigger
         aria-label={`Branch: ${summary}`}
         data-dirty={checkout.dirty ? 'true' : 'false'}
         data-testid="workspace-bar-branch"
+        // Radix's own click focuses this row, so it is skipped: the click opens the
+        // switcher with its search field focused.
+        onClick={(event) => {
+          event.preventDefault();
+          if (contentRef.current) {
+            focusSearch(contentRef.current);
+          } else {
+            focusSearchOnMountRef.current = true;
+          }
+          setOpen(true);
+        }}
         title={summary}
       >
         <BranchRowContent checkout={checkout} />
@@ -301,11 +330,26 @@ export const BranchSubmenu = ({
         className="w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl p-0"
         data-testid="workspace-bar-branch-menu"
         // Opened from the keyboard, the menu focuses the submenu itself; the
-        // search field takes that focus, as it did when the switcher was its
-        // own popover.
+        // search field takes that focus.
         onFocus={(event) => {
           if (event.target === event.currentTarget) {
-            event.currentTarget.querySelector('input')?.focus();
+            focusSearch(event.currentTarget);
+          }
+        }}
+        // Radix's own test for a mouse: a pen or touch moving here does not take focus.
+        onPointerMove={(event) => {
+          if (
+            event.pointerType === 'mouse' &&
+            !event.currentTarget.contains(event.currentTarget.ownerDocument.activeElement)
+          ) {
+            focusSearch(event.currentTarget);
+          }
+        }}
+        ref={(node) => {
+          contentRef.current = node;
+          if (node && focusSearchOnMountRef.current) {
+            focusSearchOnMountRef.current = false;
+            focusSearch(node);
           }
         }}
       >
