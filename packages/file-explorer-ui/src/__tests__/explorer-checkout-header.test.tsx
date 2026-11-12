@@ -2,6 +2,8 @@
  * ADR-0034 decision 3: the Explorer's header names the active thread's
  * checkout, `<project> · <checkout>`, in the words app-shell gives it through
  * the thread-checkout context. Other folders, and no thread, keep their names.
+ * Its control opens the composer's where-control, the one place a thread's
+ * checkout is changed.
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
@@ -93,7 +95,7 @@ describe("the Explorer's header, one folder", () => {
   it('names the project and Local for the thread working in its folder', () => {
     renderExplorer({
       handles: [brainstrike],
-      header: { label: 'brainstrike · Local', rootId: ROOT_LOCAL },
+      header: { changeCheckout: null, label: 'brainstrike · Local', rootId: ROOT_LOCAL },
     });
     const name = within(screen.getByTestId('single-root-header-row')).getByText(
       'brainstrike · Local'
@@ -105,12 +107,37 @@ describe("the Explorer's header, one folder", () => {
     renderExplorer({
       checkout: IN_WORKTREE,
       handles: [swiftBadger],
-      header: { label: 'brainstrike · swift-badger', rootId: ROOT_WORKTREE },
+      header: { changeCheckout: null, label: 'brainstrike · swift-badger', rootId: ROOT_WORKTREE },
     });
     const name = within(screen.getByTestId('single-root-header-row')).getByText(
       'brainstrike · swift-badger'
     );
     expect(name).toHaveAttribute('title', '/managed/brainstrike/swift-badger');
+  });
+
+  it("opens where the thread works from its folder's header", async () => {
+    const user = userEvent.setup();
+    const changeCheckout = vi.fn();
+    renderExplorer({
+      handles: [brainstrike],
+      header: { changeCheckout, label: 'brainstrike · Local', rootId: ROOT_LOCAL },
+    });
+    await user.click(
+      within(screen.getByTestId('single-root-header-row')).getByRole('button', {
+        name: 'Change where this thread works',
+      })
+    );
+    expect(changeCheckout).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no control while nothing can change where the thread works', () => {
+    renderExplorer({
+      handles: [brainstrike],
+      header: { changeCheckout: null, label: 'brainstrike · Local', rootId: ROOT_LOCAL },
+    });
+    expect(
+      screen.queryByRole('button', { name: 'Change where this thread works' })
+    ).not.toBeInTheDocument();
   });
 
   it('keeps the folder name with no thread selected', () => {
@@ -127,7 +154,7 @@ describe("the Explorer's header, several folders", () => {
     renderExplorer({
       checkout: IN_WORKTREE,
       handles: [swiftBadger, docs],
-      header: { label: 'brainstrike · swift-badger', rootId: ROOT_WORKTREE },
+      header: { changeCheckout: null, label: 'brainstrike · swift-badger', rootId: ROOT_WORKTREE },
     });
     const [checkoutSection, docsSection] = screen.getAllByTestId('root-section-header');
     expect(checkoutSection).toHaveTextContent('brainstrike · swift-badger');
@@ -140,5 +167,27 @@ describe("the Explorer's header, several folders", () => {
     expect(
       (await screen.findAllByText('/managed/brainstrike/swift-badger')).length
     ).toBeGreaterThan(0);
+  });
+
+  it("offers the control on the thread's section only", async () => {
+    const user = userEvent.setup();
+    const changeCheckout = vi.fn();
+    renderExplorer({
+      checkout: IN_WORKTREE,
+      handles: [swiftBadger, docs],
+      header: { changeCheckout, label: 'brainstrike · swift-badger', rootId: ROOT_WORKTREE },
+    });
+    const [checkoutRow, docsRow] = screen.getAllByTestId('root-section-header-row');
+    expect(
+      within(docsRow as HTMLElement).queryByRole('button', {
+        name: 'Change where this thread works',
+      })
+    ).not.toBeInTheDocument();
+    await user.click(
+      within(checkoutRow as HTMLElement).getByRole('button', {
+        name: 'Change where this thread works',
+      })
+    );
+    expect(changeCheckout).toHaveBeenCalledTimes(1);
   });
 });

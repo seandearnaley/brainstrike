@@ -17,6 +17,11 @@ export interface ThreadCheckout {
  * it; the Explorer only shows it on that folder's header.
  */
 export interface ThreadCheckoutHeader {
+  /**
+   * Opens the composer's where-control, the one place the thread's checkout is changed; null
+   * while there is none to open, and the header offers no control then.
+   */
+  readonly changeCheckout: (() => void) | null;
   readonly label: string;
   readonly rootId: string;
 }
@@ -65,6 +70,12 @@ export function useRootHeaderLabel<Name extends string | undefined>(
 ): string | Name {
   const { header } = useContext(ThreadCheckoutContext);
   return header !== null && header.rootId === rootId ? header.label : folderName;
+}
+
+/** What opens where the active thread works, on the header of the folder it works in, else null. */
+export function useRootCheckoutChange(rootId: string | null): (() => void) | null {
+  const { header } = useContext(ThreadCheckoutContext);
+  return header !== null && header.rootId === rootId ? header.changeCheckout : null;
 }
 
 /**

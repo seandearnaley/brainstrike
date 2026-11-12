@@ -289,6 +289,12 @@ export interface WorkspaceBarProps {
   /** Makes a mounted workspace folder the primary of a thread with no live folder (BST-1990). */
   readonly onUseFolder: (folder: WorkspaceBarRecentRoot) => void;
   /**
+   * ADR-0034 decision 3: a count another surface (the Explorer's header) raises
+   * to open the where-control, the one place the thread's checkout is changed.
+   * Each new value opens it; the value it was first shown with does not.
+   */
+  readonly openRequest?: number | undefined;
+  /**
    * undefined = no folder connected → the where-control renders the "Choose a
    * folder" CTA. Secondaries are only meaningful alongside a primary — callers
    * must not pass `secondaryRoots` without also passing `primaryRoot`. The bar

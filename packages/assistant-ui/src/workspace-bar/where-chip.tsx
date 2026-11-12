@@ -52,6 +52,8 @@ export type WhereChipProps = FolderMenuProps & {
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   readonly checkout?: WorkspaceBarCheckout | undefined;
   readonly mode?: WorkspaceBarMode | undefined;
+  /** See `WorkspaceBarProps.openRequest`. */
+  readonly openRequest?: number | undefined;
   readonly threadCheckout?: WorkspaceBarThreadCheckout | undefined;
 };
 
@@ -630,8 +632,16 @@ const WhereChipLabel = ({
  * sheet took focus from an open where-menu and closed it.
  */
 export const WhereChip = (props: WhereChipProps): ReactElement => {
-  const { checkout, mode } = props;
+  const { checkout, mode, openRequest } = props;
   const [open, setOpen] = useState(false);
+  // Another surface asks this control to open by raising `openRequest`, adjusted
+  // while rendering like `lastMode` below; the value it was first shown with is
+  // not a request.
+  const [lastOpenRequest, setLastOpenRequest] = useState(openRequest);
+  if (openRequest !== lastOpenRequest) {
+    setLastOpenRequest(openRequest);
+    setOpen(true);
+  }
   const [createOpen, setCreateOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const shouldRestoreCreateFocusRef = useRef(false);

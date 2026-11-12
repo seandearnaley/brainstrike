@@ -1,8 +1,9 @@
 /**
  * ADR-0034: the Explorer follows the active thread. When the selected workspace thread works in
  * a worktree, the Explorer shows that worktree in place of the folder it was made from, and the
- * header of the folder the thread works in names its checkout (decision 3). While no thread is
- * selected the new-thread composer is the active thread, so its draft's folders are followed.
+ * header of the folder the thread works in names its checkout (decision 3), and its control opens
+ * the composer's where-control while one is shown. While no thread is selected the new-thread
+ * composer is the active thread, so its draft's folders are followed.
  */
 import { checkoutName } from '@brainstrike/assistant-contract/thread-checkout-name';
 import {
@@ -17,6 +18,10 @@ import {
   useFileExplorerStoreSelector,
 } from '@brainstrike/file-explorer-ui/shell';
 import { type ReactNode, useMemo } from 'react';
+import {
+  requestWhereControlOpen,
+  useWhereControlRequests,
+} from './workspace-bar/where-control-requests';
 
 export function ThreadCheckoutBridge({ children }: { readonly children: ReactNode }) {
   const threadId = useAssistantThreadStore(
@@ -41,9 +46,14 @@ export function ThreadCheckoutBridge({ children }: { readonly children: ReactNod
   const project = useFileExplorerStoreSelector((state) =>
     projectRootId ? state.rootDescriptors[projectRootId]?.displayName : undefined
   );
+  const whereControlShown = useWhereControlRequests((state) => (state.shown[threadId] ?? 0) > 0);
   const header =
     operatingRootId && project
-      ? { label: `${project} · ${checkoutName(worktreePath)}`, rootId: operatingRootId }
+      ? {
+          changeCheckout: whereControlShown ? () => requestWhereControlOpen(threadId) : null,
+          label: `${project} · ${checkoutName(worktreePath)}`,
+          rootId: operatingRootId,
+        }
       : null;
   return (
     <ThreadCheckoutProvider checkout={checkout} header={header}>
