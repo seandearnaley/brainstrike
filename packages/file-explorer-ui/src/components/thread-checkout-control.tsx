@@ -20,7 +20,7 @@ export function ThreadCheckoutControl({
   return (
     <button
       aria-label="Change where this thread works"
-      className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring shrink-0 cursor-pointer rounded p-0.5 focus-visible:ring-1 focus-visible:outline-hidden"
+      className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring shrink-0 cursor-pointer rounded p-1 focus-visible:ring-1 focus-visible:outline-hidden"
       data-testid="explorer-thread-checkout-control"
       onClick={changeCheckout}
       title="Change where this thread works"
