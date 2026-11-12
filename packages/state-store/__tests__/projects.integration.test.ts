@@ -349,6 +349,50 @@ test('a managed worktree, a scratch folder, an unknown folder and an unknown pro
   }
 });
 
+// ADR-0034 relink: a folder opened first and adopted as a managed worktree keeps kind `path`, but
+// the worktree ledger names it at its path. Moving its record to another folder would part the
+// thread's root from the checkout the ledger records.
+test("a managed worktree's record is never re-pinned to another folder, even one opened before it was adopted", async () => {
+  const store = await StateStore.open(freshDir('projects-relink-worktree'));
+  const adopted = folder('adopted', '1d2e3f40-5a6b-4c7d-8e9f-0a1b2c3d4e5f');
+  const elsewhere = { ...folder('elsewhere', adopted.preferredId) };
+  try {
+    await open(store, adopted);
+    await store.worktreeLedger({
+      operation: 'insert',
+      row: {
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: 'a'.repeat(40),
+        branch: 'adopted',
+        createdAt: '2026-11-12T00:00:00.000Z',
+        createdBy: 'user',
+        id: 'worktree-adopted',
+        path: adopted.path,
+        repoCommonDir: `${alpha.path}/.git`,
+        runId: null,
+        setupOutput: null,
+        setupReason: null,
+        setupStatus: 'none',
+        threadId: null,
+      },
+    });
+
+    await expect(open(store, elsewhere, true)).rejects.toEqual(
+      expect.objectContaining({
+        code: 'workspace.locate-unknown',
+        message: expect.stringMatching(/worktree or a scratch folder goes with its thread/u),
+      })
+    );
+    const { roots } = await store.workspaceRoots({ operation: 'list' });
+    expect(roots).toEqual([
+      expect.objectContaining({ id: adopted.preferredId, path: adopted.path }),
+    ]);
+  } finally {
+    await store.close();
+  }
+});
+
 test("joining a project writes no trust or hook-approval record: the folder keeps its own answers and takes none of the project's", async () => {
   const store = await StateStore.open(freshDir('projects-join-trust'));
   // The host keys a folder's trust and its approved hooks by the folder's canonical path.

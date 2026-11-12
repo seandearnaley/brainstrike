@@ -214,6 +214,15 @@ supersede the decisions above where they differ.
       for a folder still at its recorded place (it opens from Recents), and
       for a folder another record has. The Explorer then shows the folder by
       its path, as it shows a reopened one.
+    - **A managed worktree's record never moves to another folder.** A folder
+      opened before it was adopted as a managed worktree keeps kind `path`,
+      so the store's re-pin itself refuses, in its own commit, to point a
+      record the worktree ledger names (or a thread's own folder) at another
+      folder; moved, it would part from the checkout the ledger records.
+    - **A relink that committed is read again even when the Explorer cannot
+      show the folder.** The panel re-reads the folder rows after every
+      project action, whatever its outcome, and a refusal it shows goes with
+      the rename form and with Project grouping.
     - **Trust does not follow a relink.** The person's pick is not proof that
       it is the same folder, so it is asked again at its new place, as any
       folder is. Its old place's answer stays with that path.

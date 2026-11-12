@@ -2685,6 +2685,74 @@ describe('ThreadsPanel folders', () => {
       });
     });
 
+    // The relink commits before the Explorer is asked to show the folder, so the section reads its
+    // record again whatever the Explorer does: it stops offering Locate for a folder now found.
+    it('reads a located folder again when the Explorer cannot show it, and says why', async () => {
+      bindThreadToRoot('thread-a', { ...WORKSPACE_ROOT, status: 'disconnected' });
+      bindThreadToRoot('thread-b', OTHER_ROOT);
+      const { host } = hostWithProjects({
+        locate: vi.fn<AssistantHostProjects['locate']>(async (rootId) => {
+          for (const row of rootRows.filter((candidate) => candidate['id'] === rootId)) {
+            row['path'] = '/tmp/moved/workspace-a';
+            row['status'] = 'live';
+          }
+          return { path: '/tmp/moved/workspace-a', rootId };
+        }),
+      });
+      fileExplorerMocks.addRootDirectoryByPath.mockRejectedValue(new Error('mount failed'));
+      await showProjects(host);
+
+      await openProjectActions('workspace-a');
+      fireEvent.click(await screen.findByRole('button', { name: 'Locate folder…' }));
+
+      expect(await screen.findByTestId('thread-project-action-error')).toHaveTextContent(
+        'mount failed'
+      );
+      await openProjectActions('workspace-a');
+      expect(await screen.findByRole('button', { name: 'Rename project…' })).toBeVisible();
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Locate folder…' })).toBeNull();
+      });
+    });
+
+    // A refusal is about a project action: it goes with the rename form, and with Project grouping.
+    it('clears a refusal when the rename is cancelled or the panel leaves Project grouping', async () => {
+      bindThreadToRoot('thread-a');
+      const refused = new BoundaryFailureError(
+        refusal({
+          category: 'input',
+          code: 'project.name-too-long',
+          message: 'A project name is at most 80 characters, so the name was not changed.',
+        })
+      );
+      const { host } = hostWithProjects({ rename: vi.fn(async () => Promise.reject(refused)) });
+      await showProjects(host);
+      const refuse = async (): Promise<void> => {
+        await openProjectActions('workspace-a');
+        fireEvent.click(await screen.findByRole('button', { name: 'Rename project…' }));
+        fireEvent.change(screen.getByRole('textbox', { name: 'Project name' }), {
+          target: { value: 'x'.repeat(81) },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Save project name' }));
+        expect(await screen.findByTestId('thread-project-action-error')).toBeVisible();
+      };
+
+      await refuse();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel project rename' }));
+      expect(screen.queryByTestId('thread-project-action-error')).toBeNull();
+
+      await refuse();
+      fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+      fireEvent.click(await screen.findByRole('radio', { name: 'No grouping' }));
+      await waitFor(() => {
+        expect(screen.queryByTestId('thread-project-action-error')).toBeNull();
+      });
+      // Back in Project grouping, the old refusal does not come back.
+      fireEvent.click(await screen.findByRole('radio', { name: 'Project' }));
+      await screen.findAllByTestId('thread-folder-count');
+      expect(screen.queryByTestId('thread-project-action-error')).toBeNull();
+    });
+
     it('offers no project actions where the host has none', async () => {
       bindThreadToRoot('thread-a');
       bindThreadToRoot('thread-b', OTHER_ROOT);

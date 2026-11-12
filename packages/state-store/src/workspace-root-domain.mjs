@@ -155,6 +155,32 @@ function inProject(db, record, projectId) {
   return { ...record, projectId, projectName: name ?? null };
 }
 
+/**
+ * A managed worktree's or a scratch folder's record goes with its thread, including a folder
+ * opened before it was adopted as a managed worktree (still kind `path`). Re-pinned to another
+ * folder, it would part from the checkout the worktree ledger names at its path (ADR-0034
+ * relink), so that is refused. The same folder at another path is not a move.
+ * @param {import('better-sqlite3').Database} db
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRecord} pinned
+ * @param {string} canonicalPath The folder the record would be pinned to.
+ */
+function refuseMovingThreadFolder(db, pinned, canonicalPath) {
+  if (pinned.canonicalPath === canonicalPath) {
+    return;
+  }
+  const managed =
+    pinned.kind !== 'path' ||
+    db
+      .prepare('SELECT 1 FROM brainstrike_worktrees WHERE path = ? AND archived_at IS NULL')
+      .get(pinned.path);
+  if (managed) {
+    throw new WorkspaceRootRefusal(
+      'workspace.locate-unknown',
+      'Only one of your folders can be located; a worktree or a scratch folder goes with its thread.'
+    );
+  }
+}
+
 /** @param {import('better-sqlite3').Database} db
  * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'register'}} request
  * @param {RootPaths} paths
@@ -216,6 +242,7 @@ function register(db, request, paths) {
             db.prepare(`SELECT ${projection} FROM roots WHERE id = ?`).get(root.preferredId)
           );
         if (pinned) {
+          refuseMovingThreadFolder(db, pinned, root.canonicalPath);
           db.prepare(`UPDATE roots SET path = ?, display_name = ?, canonical_path = ?,
             status = 'live', last_verified_at = ?, open_position = ${openPosition}
             WHERE id = ?`).run(root.path, root.displayName, root.canonicalPath, now, pinned.id);

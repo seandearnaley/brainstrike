@@ -555,6 +555,50 @@ describe('host root registry', () => {
     ).toMatchObject({ path: gone, status: 'disconnected' });
   });
 
+  // A folder opened first and adopted as a managed worktree keeps kind `path`; the worktree ledger
+  // still names it, so Locate must not point its record at another folder.
+  it("Locate refuses a managed worktree's folder that was opened before it was adopted", async () => {
+    const alpha = folder('alpha');
+    const moved = path.join(base, 'moved-alpha');
+    const first = registry({ picked: alpha });
+    const { root } = await first.owner.service['workspace/roots/pick']({});
+    const rootId = root?.rootId ?? '';
+    await store.worktreeLedger({
+      operation: 'insert',
+      row: {
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: 'a'.repeat(40),
+        branch: 'adopted',
+        createdAt: '2026-11-12T00:00:00.000Z',
+        createdBy: 'user',
+        id: 'worktree-adopted',
+        path: alpha,
+        repoCommonDir: path.join(base, 'repo', '.git'),
+        runId: null,
+        setupOutput: null,
+        setupReason: null,
+        setupStatus: 'none',
+        threadId: null,
+      },
+    });
+    await first.owner.close();
+    owners.splice(owners.indexOf(first.owner), 1);
+    renameSync(alpha, moved);
+
+    const { owner } = registry({ picks: [moved] });
+    await owner.start();
+    // The store refuses in the re-pin's own commit; the host's connection types it (`storeRefusal`).
+    await expect(owner.service['workspace/roots/locate']({ rootId })).rejects.toMatchObject({
+      code: 'workspace.locate-unknown',
+    });
+    expect(
+      (await store.workspaceRoots({ operation: 'list' })).roots.find(
+        (record) => record.id === rootId
+      )
+    ).toMatchObject({ path: alpha });
+  });
+
   it('seeds folders only in a desktop E2E session', async () => {
     const workspace = folder('workspace');
     const seed = { recentPaths: [], roots: [{ path: workspace, rootId: crypto.randomUUID() }] };

@@ -134,7 +134,10 @@ export function ThreadFolderHeader({
         countTestId="thread-folder-count"
         label={
           <ThreadProjectRenameForm
-            onDone={() => setRenaming(false)}
+            onDone={() => {
+              setRenaming(false);
+              projectActions.dismiss();
+            }}
             onRename={(name) => projectActions.rename(project.projectId, name)}
             project={project}
           />

@@ -24,6 +24,8 @@ export interface ThreadProjectChoice {
 
 /** Each change resolves true once it committed, and false when it was refused (the panel says why). */
 export interface ThreadProjectActions {
+  /** Clears the refusal shown, once the form it answered is closed. */
+  readonly dismiss: () => void;
   readonly join: (rootId: string, projectId: string) => Promise<boolean>;
   /** Every project the panel lists now, in its order. */
   readonly listed: readonly ThreadProjectChoice[];
@@ -81,21 +83,29 @@ export function usePanelProjectActions({
 }): { readonly actions: ThreadProjectActions | null; readonly error: string | null } {
   const [error, setError] = useState<string | null>(null);
   if (!projects || view.kind !== 'folders') {
-    return { actions: null, error };
+    // A refusal answered a project action: it goes with Project grouping, and does not come back.
+    if (error !== null) {
+      setError(null);
+    }
+    return { actions: null, error: null };
   }
   const settle = async (change: () => Promise<void>): Promise<boolean> => {
     setError(null);
     try {
       await change();
+      return true;
     } catch (cause) {
       setError(describeFailure(cause));
       return false;
+    } finally {
+      // Read the records again whatever happened: Locate commits the relink before the Explorer
+      // is asked to show the folder, and that second step can fail on its own.
+      notifyRootRecordsChanged();
     }
-    notifyRootRecordsChanged();
-    return true;
   };
   return {
     actions: {
+      dismiss: () => setError(null),
       join: (rootId, projectId) => settle(() => projects.join(rootId, projectId)),
       listed: listedProjects(view),
       locate: showFolder
