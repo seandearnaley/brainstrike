@@ -5,7 +5,9 @@
     reads its repository's index) is void. A worktree's search is live grep on the worktree.
   - 2026-11-10 (owner decisions, below): decision 7's default is replaced by an Automatic default, a
     project gets a host-owned record with its own id, and the interface word is "Project".
-  - 2026-11-11 (owner decisions, below): how Automatic isolation is built, and its first part.
+  - 2026-11-11 (owner decisions, below): how Automatic isolation is built, and its first part;
+    the composer's folder, branch and checkout chips become one control that says where a thread
+    works.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -165,8 +167,10 @@ supersede the decisions above where they differ.
   worktree…, Switch in a new worktree, Use existing worktree…, Hand off to Local
   and Archive worktree…) waits for the thread's run to end, because a run keeps
   the checkout it was admitted with. Uncommitted changes stay in the thread's
-  folder, and the create sheet says so. Not built: the single control that says
-  where a thread works.
+  folder, and the create sheet says so. The same wait covers the Worktree Map's
+  move and hand-off, and an Archive whose inspection a run outlasts. The single
+  control that says where a thread works is below (owner decisions,
+  2026-11-11).
 
 ## Owner decisions, 2026-11-11
 
@@ -272,8 +276,9 @@ Built, in the agent host:
 
 Not built:
 
-- The person asking for work in parallel (the control that says where a thread
-  works).
+- The person asking for work in parallel from the control that says where a
+  thread works, beyond New worktree… and Other worktree… (the control itself is
+  below).
 - The cap that archives idle worktrees.
 - Moving a thread for a worker's edit or for a shell command.
 - A note for a worker's own clashing edit. It is made in place with no note.
@@ -286,6 +291,60 @@ Not built:
 - The repository's setup script for a worktree the host made. Consent for it
   is kept by the renderer, so the host skips the script and the worktree shows
   the reason. Moving that consent to the host is a change of owner.
+
+### The control that says where a thread works
+
+Sean's answers:
+
+- **Closed, it reads `<project> · <checkout>`**, in the Threads panel's words
+  for the checkout: `brainstrike · Local` or `brainstrike · swift-badger`. In a
+  worktree the project is named by the thread's Local folder. The branch moves
+  into the menu.
+- **Branch switching moves into the control**, as a Branch submenu: the
+  switcher as it was (switch, create, fetch, Switch in a new worktree). There
+  is no separate Branch chip.
+- There is no stored "its own worktree / stay here" choice.
+
+Built: the composer's Folder, Branch and checkout chips are one control
+(`workspace-bar-where-chip`); the Trust chip stays its own. It is a merge of
+the interface only: every row keeps its handler, hook, host method,
+preconditions, refusals and test id. Open, it lists the project and its Local
+folder's path; Local, checked while the thread works there and noting that a
+clashing edit moves the thread to a worktree of its own; the thread's
+worktree, checked, with its branch and any setup outcome; Other worktree… (the
+picker) and New worktree… (the create sheet); the Branch and Folders submenus;
+and, in a worktree, Create branch here and Archive worktree…. While the
+thread's run is in progress the checkout rows are disabled with the reason. A
+closed folder's repairs stay at the top level.
+
+Removed as duplicates:
+
+- the three separate triggers;
+- Hand off to Local as its own row: choosing the Local row is the hand-off;
+- the checkout's own Reveal and Open in Terminal, which the folder rows keep
+  (and with them `WorkspaceBarMode.onReveal`, `onOpenTerminal` and
+  `localPath`);
+- Make primary on the Local folder while the Local row can hand off to it.
+
+Decisions the build made, which are not Sean's:
+
+- Make primary on the Local folder is kept when no Local row can hand off: a
+  thread whose worktree folder is closed has no checkout rows, and Make
+  primary is then the one action that returns it to that folder.
+- The control is not modal, as the branch switcher's popover was not: a click
+  on another thread closes it and selects that thread in one click. Its own
+  trigger is not outside it, as a non-modal popover's is not.
+- The folder rows are the Folders submenu while the thread has a live primary
+  folder, and the menu itself while it has none (no folder, or a closed one).
+- The closed label counts the folders beyond the project and its worktree
+  (`brainstrike +1 · Local`). A folder outside git shows its name with no
+  checkout and no warning; any other unavailable checkout shows a warning.
+- The menu lists the thread's own worktree, not every worktree of the
+  repository; the others are a click away in Other worktree….
+- The Local row's branch in a worktree is read from the worktree list's
+  primary checkout, and is left blank when the list does not name it.
+- The project row shows the Local folder's full path; the control has no home
+  directory to shorten it with.
 
 ## Consequences
 

@@ -1,5 +1,7 @@
 /**
- * Everything the composer Mode chip needs, from the thread's point of view.
+ * Everything the where-control's checkout rows need (Local, the thread's
+ * worktree, Other worktree…, New worktree…, Create branch here, Archive), from
+ * the thread's point of view.
  *
  * Create ordering is deliberate: create the worktree, mount its folder, then
  * bind the thread. Binding earlier would leave the thread pointing at a root
@@ -23,6 +25,7 @@ import type {
   WorkspaceBarWorktreeOption,
   WorkspaceBarWorktreeSummary,
 } from '@brainstrike/assistant-ui';
+import { NOT_A_GIT_REPOSITORY_REASON } from '@brainstrike/assistant-ui/workspace-bar-checkout-reasons';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import type {
@@ -35,11 +38,8 @@ import type {
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { summarizeGitFailure } from '../git-failure-summary';
-import { resolvePlatformBridge } from '../platform-bridge';
 import { subscribeRootRegistered } from '../roots/root-registration-events';
-import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreesBridge } from '../workspace-git-services';
-import { useTerminalBridge } from '../workspace-terminal-services';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 import {
   errorMessage,
@@ -406,7 +406,7 @@ function missingWorktreeDiagnostic(input: {
  */
 export function unavailableRepositoryReason(statusFailure: string | null): string {
   return statusFailure === null
-    ? 'Not a git repository'
+    ? NOT_A_GIT_REPOSITORY_REASON
     : `Git status could not be read: ${summarizeGitFailure(statusFailure)}`;
 }
 
@@ -415,8 +415,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   // on the whole `args` object, which is fresh on every render.
   const { onHandOffToLocal: handOffToLocal, onSelectWorktree, threadState } = args;
   const bridge = useWorktreesBridge();
-  const platform = useMemo(() => resolvePlatformBridge(), []);
-  const terminalAvailable = useTerminalBridge() !== null;
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;
@@ -877,14 +875,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     if (!(bridge && args.primaryRootId)) {
       return;
     }
-    // `currentEntry.rootId` is the root that CONTAINS this worktree (the
-    // managed-directory mount for a chip-created one, the parent repo for a
-    // nested external one) while `currentEntry.path` is the checkout itself.
-    // Captured into a local const so the closure below needs no re-narrowing.
-    const terminalTarget =
-      terminalAvailable && currentEntry?.rootId
-        ? { cwd: currentEntry.path, rootId: currentEntry.rootId }
-        : null;
     const disabled = createDisabledReason(threadState, settings);
     if (!args.isRepository) {
       const reason = unavailableRepositoryReason(args.statusFailure);
@@ -896,7 +886,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         defaultBranchPrefix: 'bs/',
         defaultName: '',
         disabledReason: reason,
-        localPath: args.primaryRootPath,
         managedParentPath,
         onArchive: undefined,
         onCreate: () => Promise.reject(new Error(reason)),
@@ -904,8 +893,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         onHandOffToLocal: undefined,
         onOpenCreateSheet: () => Promise.resolve(),
         onOpenPicker: () => undefined,
-        onOpenTerminal: undefined,
-        onReveal: undefined,
         pending: false,
         picker: {
           error: null,
@@ -930,7 +917,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       defaultBranchPrefix: 'bs/',
       defaultName,
       disabledReason: missingWorktreeReason,
-      localPath: args.primaryRootPath,
       managedParentPath,
       onArchive: currentWorktreeId && args.threadId ? onArchive : undefined,
       onCreate,
@@ -938,17 +924,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       onHandOffToLocal: currentWorktreeId ? onHandOffToLocal : undefined,
       onOpenCreateSheet,
       onOpenPicker: () => onPickerOpenChange(true),
-      onOpenTerminal: terminalTarget
-        ? () => {
-            useTerminalTargetStore.getState().openTerminalAt(terminalTarget);
-          }
-        : undefined,
-      onReveal:
-        platform && currentEntry
-          ? () => {
-              void platform.showItemInFolder(currentEntry.path);
-            }
-          : undefined,
       pending,
       picker: {
         error: listError,
@@ -980,7 +955,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     archiveConfirmation,
     args.isRepository,
     args.primaryRootId,
-    args.primaryRootPath,
     args.statusFailure,
     args.threadId,
     bridge,
@@ -1006,11 +980,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     onSelectExisting,
     pending,
     pickerOpen,
-    platform,
     repositorySetup,
     repositorySetupDecision,
     settings,
-    terminalAvailable,
     threadState,
     uncommittedFolderName,
   ]);

@@ -29,27 +29,44 @@ function setup() {
   return userEvent.setup({ pointerEventsCheck: 0 });
 }
 
-async function openFolderMenu(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-  await user.click(screen.getByTestId('workspace-bar-folder-chip'));
-  await screen.findByRole('menu');
-}
-
 /**
- * Root rows with actions are submenus; open one the way a keyboard user does.
- * A POINTER open cannot be asserted in a headless DOM: Radix's submenu
- * "pointer grace area" is computed from getBoundingClientRect(), which is all
- * zeros here, so the very next pointer move onto a sub item reads as leaving
- * the submenu and closes it.
+ * Submenus open the way a keyboard user opens them. A POINTER open cannot be
+ * asserted in a headless DOM: Radix's submenu "pointer grace area" is computed
+ * from getBoundingClientRect(), which is all zeros here, so the very next
+ * pointer move onto a sub item reads as leaving the submenu and closes it.
  */
-async function openRootSubmenu(
-  user: ReturnType<typeof userEvent.setup>,
-  rootId: string
-): Promise<void> {
-  const trigger = await screen.findByTestId(`workspace-bar-root-${rootId}`);
+async function openSubmenu(user: ReturnType<typeof userEvent.setup>, testId: string) {
+  const trigger = await screen.findByTestId(testId);
   await act(async () => {
     trigger.focus();
   });
   await user.keyboard('{ArrowRight}');
+}
+
+/**
+ * The where-control's folder rows: its Folders submenu while the thread has a
+ * live primary folder, the where-menu itself while it has none.
+ */
+async function openFolderMenu(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByTestId('workspace-bar-where-chip'));
+  await screen.findByRole('menu');
+  if (screen.queryByTestId('workspace-bar-folders')) {
+    await openSubmenu(user, 'workspace-bar-folders');
+  }
+}
+
+/** Root rows with actions are submenus. */
+async function openRootSubmenu(
+  user: ReturnType<typeof userEvent.setup>,
+  rootId: string
+): Promise<void> {
+  await openSubmenu(user, `workspace-bar-root-${rootId}`);
+}
+
+/** The branch switcher: the where-control's Branch submenu. */
+async function openBranchMenu(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByTestId('workspace-bar-where-chip'));
+  await openSubmenu(user, 'workspace-bar-branch');
 }
 
 describe('WorkspaceBar', () => {
@@ -67,11 +84,11 @@ describe('WorkspaceBar', () => {
 
     expect(screen.getByTestId('workspace-bar')).toBeInTheDocument();
 
-    const chip = screen.getByTestId('workspace-bar-folder-chip');
+    const chip = screen.getByTestId('workspace-bar-where-chip');
     expect(chip).toHaveTextContent('brainstrike');
     expect(chip).toHaveTextContent('+2');
     expect(chip).toHaveAttribute('title', '/ws/brainstrike');
-    expect(chip).toHaveAccessibleName('Folder: brainstrike, 2 more');
+    expect(chip).toHaveAccessibleName('Where this thread works: brainstrike, 2 more');
   });
 
   // BST-1400: `data-checkout-state` is the deterministic e2e wait that
@@ -94,7 +111,7 @@ describe('WorkspaceBar', () => {
     const onAddFolder = vi.fn();
     render(<WorkspaceBar {...baseProps({ onAddFolder, primaryRoot: undefined })} />);
 
-    const chip = screen.getByTestId('workspace-bar-folder-chip');
+    const chip = screen.getByTestId('workspace-bar-where-chip');
     expect(chip).toHaveTextContent('Choose a folder');
     expect(chip).not.toHaveAttribute('title');
 
@@ -150,7 +167,7 @@ describe('WorkspaceBar', () => {
     // primaryRoot doc in workspace-bar.tsx), but if that invariant is
     // violated the bar must not silently hide already-mounted state: the CTA
     // stays in its no-primary form (no "+1" badge)...
-    const chip = screen.getByTestId('workspace-bar-folder-chip');
+    const chip = screen.getByTestId('workspace-bar-where-chip');
     expect(chip).toHaveTextContent('Choose a folder');
     expect(chip).not.toHaveTextContent('+1');
 
@@ -396,37 +413,41 @@ describe('WorkspaceBar', () => {
     expect(screen.queryByTestId('workspace-bar-open-terminal-r-fsa')).not.toBeInTheDocument();
   });
 
-  it('renders the branch chip states and hides it without checkout data', () => {
+  it('renders the Branch row states and hides it without checkout data', async () => {
+    const user = setup();
     const { rerender } = render(<WorkspaceBar {...baseProps()} />);
-    expect(screen.queryByTestId('workspace-bar-branch-chip')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
+    await screen.findByRole('menu');
+    expect(screen.queryByTestId('workspace-bar-branch')).not.toBeInTheDocument();
 
     rerender(
       <WorkspaceBar
         {...baseProps({ checkout: { ahead: 2, behind: 0, branch: 'main', dirty: false } })}
       />
     );
-    const chip = screen.getByTestId('workspace-bar-branch-chip');
-    expect(chip).toHaveTextContent('main');
-    expect(chip).toHaveTextContent('↑2');
-    expect(chip).not.toHaveTextContent('↓');
-    expect(chip).toHaveAttribute('data-dirty', 'false');
+    const row = await screen.findByTestId('workspace-bar-branch');
+    expect(row).toHaveTextContent('main');
+    expect(row).toHaveTextContent('↑2');
+    expect(row).not.toHaveTextContent('↓');
+    expect(row).toHaveAttribute('data-dirty', 'false');
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveAttribute('data-dirty', 'false');
     // The glyph cluster is compact by design; the spelled-out summary is what
-    // assistive tech actually gets (role="img" + aria-label built in
-    // branch-chip.tsx), so pin it directly rather than re-deriving it from
-    // the glyphs above.
-    expect(chip).toHaveAccessibleName('On branch main · 2 ahead · clean');
+    // assistive tech actually gets (the aria-label built in branch-menu.tsx),
+    // so pin it directly rather than re-deriving it from the glyphs above.
+    expect(row).toHaveAccessibleName('Branch: On branch main · 2 ahead · clean');
 
     rerender(
       <WorkspaceBar
         {...baseProps({ checkout: { ahead: null, behind: null, branch: null, dirty: true } })}
       />
     );
-    expect(screen.getByTestId('workspace-bar-branch-chip')).toHaveTextContent('detached');
-    expect(screen.getByTestId('workspace-bar-branch-chip')).toHaveAttribute('data-dirty', 'true');
+    expect(screen.getByTestId('workspace-bar-branch')).toHaveTextContent('detached');
+    expect(screen.getByTestId('workspace-bar-branch')).toHaveAttribute('data-dirty', 'true');
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveAttribute('data-dirty', 'true');
   });
 });
 
-describe('BranchChip menu', () => {
+describe('the Branch submenu', () => {
   const branchMenu = (overrides: Partial<WorkspaceBarBranchMenu> = {}): WorkspaceBarBranchMenu => ({
     onCreateBranch: vi.fn(),
     onFetch: vi.fn(),
@@ -463,11 +484,11 @@ describe('BranchChip menu', () => {
   const clean = { ahead: null, behind: null, branch: 'main', dirty: false };
   const dirty = { ahead: null, behind: null, branch: 'main', dirty: true };
 
-  it('opens a menu from the chip and switches to a switchable branch', async () => {
+  it('opens the switcher from the where-control and switches to a switchable branch', async () => {
     const user = setup();
     const menu = branchMenu();
     render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     await user.click(await screen.findByTestId('workspace-bar-branch-row-feature/alpha'));
     expect(menu.onSwitch).toHaveBeenCalledWith('feature/alpha');
   });
@@ -475,7 +496,7 @@ describe('BranchChip menu', () => {
   it('disables an unswitchable row and states the reason IN the row', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseProps()} branchMenu={branchMenu()} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     const beta = await screen.findByTestId('workspace-bar-branch-row-feature/beta');
     expect(beta).toHaveAttribute('data-disabled');
     expect(screen.getByTestId('workspace-bar-branch-reason-feature/beta')).toHaveTextContent(
@@ -506,7 +527,7 @@ describe('BranchChip menu', () => {
     const { unmount } = render(
       <WorkspaceBar {...baseProps()} branchMenu={withCapability} checkout={dirty} />
     );
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     const worktreeAction = await screen.findByTestId('workspace-bar-branch-worktree-feature/alpha');
     expect(worktreeAction).toHaveTextContent(
       "Switch in a new worktree (detached at this branch's tip)"
@@ -522,7 +543,7 @@ describe('BranchChip menu', () => {
         checkout={dirty}
       />
     );
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     expect(screen.queryByTestId('workspace-bar-branch-worktree-feature/alpha')).toBeNull();
   });
 
@@ -535,7 +556,7 @@ describe('BranchChip menu', () => {
         checkout={clean}
       />
     );
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     expect(await screen.findByTestId('workspace-bar-branch-scope-reason')).toHaveTextContent(
       'This folder is below the repository root.'
     );
@@ -546,7 +567,7 @@ describe('BranchChip menu', () => {
     const user = setup();
     const menu = branchMenu();
     render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     await user.type(await screen.findByTestId('workspace-bar-branch-search'), 'a');
     expect(menu.onQueryChange).toHaveBeenCalledWith('a');
   });
@@ -555,7 +576,7 @@ describe('BranchChip menu', () => {
     const user = setup();
     const menu = branchMenu();
     render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     await user.click(await screen.findByTestId('workspace-bar-branch-fetch'));
     expect(menu.onFetch).toHaveBeenCalledTimes(1);
   });
@@ -564,7 +585,7 @@ describe('BranchChip menu', () => {
     const user = setup();
     const menu = branchMenu({ query: ' bs/bright-fox ', rows: [] });
     render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     const create = await screen.findByTestId('workspace-bar-branch-create');
     expect(create).toHaveTextContent('Create branch bs/bright-fox');
     await user.click(create);
@@ -580,7 +601,7 @@ describe('BranchChip menu', () => {
         checkout={clean}
       />
     );
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     await screen.findByTestId('workspace-bar-branch-row-feature/alpha');
     expect(screen.queryByTestId('workspace-bar-branch-create')).toBeNull();
   });
@@ -588,21 +609,24 @@ describe('BranchChip menu', () => {
   it('groups branches held by another worktree apart from free ones', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseProps()} branchMenu={branchMenu()} checkout={clean} />);
-    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await openBranchMenu(user);
     const elsewhere = await screen.findByRole('group', { name: 'In other worktrees' });
     expect(within(elsewhere).getByTestId('workspace-bar-branch-row-feature/beta')).toBeVisible();
     expect(within(elsewhere).queryByTestId('workspace-bar-branch-row-feature/alpha')).toBeNull();
   });
 
-  it('stays a read-only image with no menu when branchMenu is absent', () => {
+  it('stays a read-only row with no submenu when branchMenu is absent', async () => {
+    const user = setup();
     render(
       <WorkspaceBar
         {...baseProps()}
         checkout={{ ahead: 2, behind: null, branch: 'main', dirty: false }}
       />
     );
-    const chip = screen.getByTestId('workspace-bar-branch-chip');
-    expect(chip).toHaveAttribute('role', 'img');
-    expect(chip).toHaveAccessibleName('On branch main · 2 ahead · clean');
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
+    const row = await screen.findByTestId('workspace-bar-branch');
+    expect(row).toHaveAttribute('role', 'img');
+    expect(row).not.toHaveAttribute('aria-haspopup');
+    expect(row).toHaveAccessibleName('Branch: On branch main · 2 ahead · clean');
   });
 });

@@ -14,6 +14,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { openWhereMenu, whereChip } from './utils/where-control';
 
 const API_KEY = 'test-key-worktree-thread-grep';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -55,14 +56,14 @@ async function enableChatModel(page: Page): Promise<void> {
 
 /** The composer's New worktree flow; returns the created worktree's folder. */
 async function workInNewWorktree(page: Page): Promise<string> {
-  await page.getByTestId('workspace-bar-mode-chip').click();
+  await openWhereMenu(page);
   await page.getByTestId('workspace-bar-mode-new-worktree').click();
   const dialog = page.getByTestId('worktree-create-dialog');
   await expect(dialog).toBeVisible({ timeout: 30_000 });
   const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
   const worktreePath = (await dialog.getByTestId('worktree-create-location').innerText()).trim();
   await dialog.getByTestId('worktree-create-submit').click();
-  await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText(name, {
+  await expect(whereChip(page)).toContainText(name, {
     timeout: 90_000,
   });
   return worktreePath;

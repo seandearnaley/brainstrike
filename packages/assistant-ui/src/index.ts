@@ -193,6 +193,7 @@ export {
 } from './use-tool-result-renderers';
 export { SharedFolderChip } from './workspace-bar/shared-folder-chip';
 export {
+  NOT_A_GIT_REPOSITORY_REASON,
   WorkspaceBar,
   type WorkspaceBarBaseRefOption,
   type WorkspaceBarBranchMenu,

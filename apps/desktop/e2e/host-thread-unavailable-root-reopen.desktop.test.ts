@@ -76,7 +76,7 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     await ensureAssistantShellVisible(reopened);
     const folder = reopened
       .getByRole('region', { exact: true, name: 'Assistant' })
-      .getByTestId('workspace-bar-folder-chip');
+      .getByTestId('workspace-bar-where-chip');
     await expect(folder).toHaveAccessibleName(MISSING, { timeout: 30_000 });
     await folder.click();
     await reopened.getByTestId(`workspace-bar-root-${before.binding?.operatingRootId}`).focus();
@@ -116,7 +116,7 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     await reopened.getByText('Try again', { exact: true }).click();
     await expect(reopened.getByText('root-restore.txt').first()).toBeVisible();
     await expect(folder).toHaveAccessibleName(
-      `Folder: ${before.binding?.operatingRootDisplayName}`
+      `Where this thread works: ${before.binding?.operatingRootDisplayName}`
     );
     await send(reopened, 'BOUND_AFTER_RECONNECT', 'RECONNECTED_SEND_SUCCEEDED');
     const reconnected = await withAppHost(userDataDir, async (client) => ({

@@ -29,6 +29,7 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { startThread } from './utils/new-thread';
 import { seedRoots } from './utils/seed-root';
 import { seedHostThreads, type WorkspaceRootRow } from './utils/seed-threads';
+import { openWhereMenu, whereChip } from './utils/where-control';
 
 const tempDirs = createTempDirTracker();
 
@@ -263,12 +264,12 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     // A new thread in the repository moves into a new worktree before its first send.
     await repoSection.getByTestId('thread-folder-new-thread').click();
     const welcome = page.getByTestId('new-thread-welcome');
-    await welcome.getByTestId('workspace-bar-mode-chip').click();
+    await openWhereMenu(welcome);
     await page.getByTestId('workspace-bar-mode-new-worktree').click();
     const create = page.getByTestId('worktree-create-dialog');
     const worktreeName = (await create.getByTestId('worktree-create-name').inputValue()).trim();
     await create.getByTestId('worktree-create-submit').click();
-    await expect(welcome.getByTestId('workspace-bar-mode-chip')).toContainText(worktreeName, {
+    await expect(whereChip(welcome)).toContainText(worktreeName, {
       timeout: 90_000,
     });
     await startThread(page, 'Start in the worktree.');
@@ -310,9 +311,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await repoSection.getByTestId('thread-folder-new-thread').click();
     const welcome = page.getByTestId('new-thread-welcome');
     // The new thread's composer names the folder it will start in.
-    await expect(welcome.getByTestId('workspace-bar-folder-chip')).toContainText(
-      path.basename(repo)
-    );
+    await expect(whereChip(welcome)).toContainText(path.basename(repo));
     await expect(page.getByTestId('thread-row')).toHaveCount(rowsBefore);
     await startThread(page, 'Start here.');
     await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('3', {

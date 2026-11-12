@@ -36,7 +36,7 @@ import {
 } from './worktree-map-collection';
 import { WorktreeMapPagination, WorktreeMapToolbar } from './worktree-map-toolbar';
 
-const EMPTY_STATE = "No worktrees yet — create one from the composer's Mode chip.";
+const EMPTY_STATE = 'No worktrees yet — create one with New worktree… in the composer.';
 
 export function WorktreeMapSurface(): ReactElement {
   const [query, setQuery] = useState('');

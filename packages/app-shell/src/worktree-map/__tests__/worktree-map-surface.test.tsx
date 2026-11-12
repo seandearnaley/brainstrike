@@ -448,7 +448,7 @@ describe('WorktreeMapSurface', () => {
     render(<Surface />);
 
     expect(
-      screen.getByText("No worktrees yet — create one from the composer's Mode chip.")
+      screen.getByText('No worktrees yet — create one with New worktree… in the composer.')
     ).toBeInTheDocument();
   });
 

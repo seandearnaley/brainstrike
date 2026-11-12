@@ -1,5 +1,6 @@
 /**
- * Desktop E2E for the composer MODE chip (BST-1390 W3).
+ * Desktop E2E for the composer where-control's checkout rows (BST-1390 W3,
+ * ADR-0034: the folder, branch and checkout chips are one control).
  *
  * Drives the built Electron app against real on-disk Git repositories and the
  * real SQLite-backed worktree ledger. Worktree create/archive/list operations
@@ -24,6 +25,7 @@ import {
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
 import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
+import { branchRow, openWhereMenu, openWhereSubmenu, whereChip } from './utils/where-control';
 
 const tempDirs = createTempDirTracker();
 const ROOT_ID = 'w3-worktree-mode-root-00000000-0000-4000-8000-000000000030';
@@ -47,6 +49,19 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
   });
 }
 
+/**
+ * The thread works in the created worktree: the where-control's title is its
+ * folder (the thread's primary), and the menu's Branch row names its branch.
+ */
+async function expectInWorktree(page: Page, created: CreatedWorktree): Promise<void> {
+  await expect(whereChip(page)).toHaveAttribute('title', created.worktreePath, {
+    timeout: 30_000,
+  });
+  await openWhereMenu(page);
+  await expect(branchRow(page)).toContainText(created.branch, { timeout: 30_000 });
+  await page.keyboard.press('Escape');
+}
+
 async function openComposer(page: Page): Promise<void> {
   await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
@@ -54,7 +69,7 @@ async function openComposer(page: Page): Promise<void> {
 }
 
 async function createAndUseWorktree(page: Page): Promise<CreatedWorktree> {
-  await page.getByTestId('workspace-bar-mode-chip').click();
+  await openWhereMenu(page);
   await page.getByTestId('workspace-bar-mode-new-worktree').click();
   const dialog = page.getByTestId('worktree-create-dialog');
   await expect(dialog).toBeVisible({ timeout: 30_000 });
@@ -64,7 +79,7 @@ async function createAndUseWorktree(page: Page): Promise<CreatedWorktree> {
   const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
   const worktreePath = (await dialog.getByTestId('worktree-create-location').innerText()).trim();
   await dialog.getByTestId('worktree-create-submit').click();
-  await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText(name, {
+  await expect(whereChip(page)).toContainText(name, {
     timeout: 90_000,
   });
   return { branch, name, worktreePath };
@@ -102,16 +117,16 @@ test.afterAll(() => {
 });
 
 test.describe('Worktree mode (desktop)', () => {
-  test('@smoke shows the Local mode chip for a git repo', async ({ window: page }) => {
+  test('@smoke shows the where-control in Local for a git repo', async ({ window: page }) => {
     test.setTimeout(90_000);
     const repo = freshRepo('local');
     await seedRoot(page, repo);
     await openComposer(page);
     await chooseThreadFolder(page, path.basename(repo));
 
-    const chip = page.getByTestId('workspace-bar-mode-chip');
+    const chip = whereChip(page);
     await expect(chip).toBeVisible({ timeout: 30_000 });
-    await expect(chip).toContainText('Local');
+    await expect(chip).toContainText('Local', { timeout: 30_000 });
     await expect(chip).toBeEnabled();
   });
 
@@ -123,12 +138,7 @@ test.describe('Worktree mode (desktop)', () => {
     await chooseThreadFolder(page, path.basename(repo));
 
     const created = await createAndUseWorktree(page);
-    await expect(page.getByTestId('workspace-bar-folder-chip')).toContainText(created.name, {
-      timeout: 30_000,
-    });
-    await expect(page.getByTestId('workspace-bar-branch-chip')).toContainText(created.branch, {
-      timeout: 30_000,
-    });
+    await expectInWorktree(page, created);
     expect(existsSync(created.worktreePath)).toBe(true);
     expect(listWorktreePaths(repo)).toContain(created.worktreePath);
     expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(
@@ -177,7 +187,7 @@ test.describe('Worktree mode (desktop)', () => {
     await ensureAssistantShellVisible(page);
     const region = page.getByRole('region', { exact: true, name: 'Assistant' });
     const input = region.getByRole('textbox', { name: 'Message input' });
-    const chip = region.getByTestId('workspace-bar-mode-chip');
+    const chip = whereChip(region);
     const approve = region.getByRole('button', { exact: true, name: `Approve ${tool}` });
     const asksAbout = region.getByTestId('approval-file-target-summary');
 
@@ -207,9 +217,11 @@ test.describe('Worktree mode (desktop)', () => {
     expect(worktrees).toHaveLength(1);
     const name = path.basename(worktrees[0] ?? '');
     await expect(chip).toContainText(name);
-    await expect(region.getByTestId('workspace-bar-branch-chip')).toContainText(`bs/${name}`, {
+    await openWhereMenu(region);
+    await expect(branchRow(page)).toContainText(`bs/${name}`, {
       timeout: 30_000,
     });
+    await page.keyboard.press('Escape');
     expect(existsSync(path.join(repo, 'second.txt'))).toBe(false);
 
     // The same turn carried on there: the edit is asked for again, in the worktree, and lands in it.
@@ -237,7 +249,7 @@ test.describe('Worktree mode (desktop)', () => {
     await openComposer(page);
     await chooseThreadFolder(page, path.basename(repo));
 
-    await page.getByTestId('workspace-bar-mode-chip').click();
+    await openWhereMenu(page);
     await page.getByTestId('workspace-bar-mode-pick-worktree').click();
     const dialog = page.getByTestId('worktree-picker-dialog');
     await expect(dialog).toBeVisible({ timeout: 30_000 });
@@ -259,9 +271,9 @@ test.describe('Worktree mode (desktop)', () => {
     await chooseThreadFolder(page, path.basename(repo));
 
     const created = await createAndUseWorktree(page);
-    await page.getByTestId('workspace-bar-mode-chip').click();
+    await openWhereMenu(page);
     await page.getByTestId('workspace-bar-mode-archive').click();
-    await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText('Local', {
+    await expect(whereChip(page)).toContainText('Local', {
       timeout: 90_000,
     });
     // The chip flips to "Local" as soon as the hand-off resolves — hand-off
@@ -281,7 +293,7 @@ test.describe('Worktree mode (desktop)', () => {
       })
       .toContain('refs/brainstrike/worktree-archive/');
 
-    await page.getByTestId('workspace-bar-mode-chip').click();
+    await openWhereMenu(page);
     await page.getByTestId('workspace-bar-mode-pick-worktree').click();
     const dialog = page.getByTestId('worktree-picker-dialog');
     await expect(dialog).toBeVisible({ timeout: 30_000 });
@@ -306,7 +318,7 @@ test.describe('Worktree mode (desktop)', () => {
       await page.keyboard.press('Escape');
       await expect(dialog).toBeHidden({ timeout: 10_000 });
       await page.waitForTimeout(1000);
-      await page.getByTestId('workspace-bar-mode-chip').click();
+      await openWhereMenu(page);
       await page.getByTestId('workspace-bar-mode-pick-worktree').click();
       await expect(dialog).toBeVisible({ timeout: 30_000 });
     }
@@ -314,7 +326,9 @@ test.describe('Worktree mode (desktop)', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('hands off to Local and the chip stays Local across a reload', async ({ window: page }) => {
+  test('choosing Local hands off and the control stays Local across a reload', async ({
+    window: page,
+  }) => {
     test.setTimeout(240_000);
     const repo = freshRepo('handoff');
     await seedRoot(page, repo);
@@ -322,16 +336,17 @@ test.describe('Worktree mode (desktop)', () => {
     await chooseThreadFolder(page, path.basename(repo));
     await createAndUseWorktree(page);
 
-    await page.getByTestId('workspace-bar-mode-chip').click();
+    await openWhereMenu(page);
+    // The Local row: in a worktree, choosing it is Hand off to Local.
     await page.getByTestId('workspace-bar-mode-handoff').click();
-    await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText('Local', {
+    await expect(whereChip(page)).toContainText('Local', {
       timeout: 90_000,
     });
 
     await reloadRenderer(page, 'worktree-mode: reload 1');
     await openComposer(page);
     await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText('Local', {
+    await expect(whereChip(page)).toContainText('Local', {
       timeout: 90_000,
     });
   });
@@ -346,15 +361,10 @@ test.describe('Worktree mode (desktop)', () => {
 
     await reloadRenderer(page, 'worktree-mode: reload 2');
     await openComposer(page);
-    await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText(created.name, {
+    await expect(whereChip(page)).toContainText(created.name, {
       timeout: 90_000,
     });
-    await expect(page.getByTestId('workspace-bar-folder-chip')).toContainText(created.name, {
-      timeout: 30_000,
-    });
-    await expect(page.getByTestId('workspace-bar-branch-chip')).toContainText(created.branch, {
-      timeout: 30_000,
-    });
+    await expectInWorktree(page, created);
   });
 
   test('moves a sent thread into a new worktree before its next send', async ({
@@ -392,7 +402,7 @@ test.describe('Worktree mode (desktop)', () => {
       name: 'Approve brainstrike.writeWorkspaceFile',
     });
     const stop = region.getByRole('button', { exact: true, name: 'Stop' });
-    const chip = page.getByTestId('workspace-bar-mode-chip');
+    const chip = whereChip(page);
     const send = async (turn: number): Promise<void> => {
       await region
         .getByRole('textbox', { name: 'Message input' })
@@ -402,7 +412,7 @@ test.describe('Worktree mode (desktop)', () => {
     };
 
     await send(1);
-    // While the run is in progress, the chip offers no checkout change and says why.
+    // While the run is in progress, the control offers no checkout change and says why.
     await chip.click();
     await expect(page.getByTestId('workspace-bar-mode-create-disabled-reason')).toHaveText(
       RUN_IN_PROGRESS,
@@ -417,11 +427,7 @@ test.describe('Worktree mode (desktop)', () => {
     // The pane leaves the running state once the host has committed the run's end.
     await expect(stop).toHaveCount(0);
     expect(readFileSync(path.join(repo, 'turn-1.txt'), 'utf8')).toBe('turn 1\n');
-    await expect(page.getByTestId('workspace-bar-branch-chip')).toHaveAttribute(
-      'data-dirty',
-      'true',
-      { timeout: 30_000 }
-    );
+    await expect(chip).toHaveAttribute('data-dirty', 'true', { timeout: 30_000 });
 
     // Between turns the sent thread can move: New worktree… is offered again.
     await chip.click();
@@ -451,7 +457,7 @@ test.describe('Worktree mode (desktop)', () => {
     expect(modelProvider.refusals()).toEqual([]);
   });
 
-  test('switches branches from the composer branch chip', async ({ window: page }) => {
+  test("switches branches from the where-control's Branch submenu", async ({ window: page }) => {
     test.setTimeout(120_000);
     const repo = freshRepo('switch');
     git(repo, ['branch', 'feature/alpha']);
@@ -459,15 +465,18 @@ test.describe('Worktree mode (desktop)', () => {
     await openComposer(page);
     await chooseThreadFolder(page, path.basename(repo));
 
-    // Checkout status can render a read-only chip before branch discovery settles.
-    // Wait for the menu trigger; a menu opened while only the PR diagnostic has
-    // arrived stays open and gains the branch rows when they load.
-    const chip = page.getByRole('button', { name: /^Branch:/u });
-    await expect(chip).toContainText('main', { timeout: 30_000 });
-    await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
-    await chip.click();
+    // Checkout status can render a read-only Branch row before branch discovery
+    // settles. Wait for the submenu trigger; a submenu opened while only the PR
+    // diagnostic has arrived stays open and gains the branch rows when they load.
+    await openWhereMenu(page);
+    const branch = branchRow(page);
+    await expect(branch).toContainText('main', { timeout: 30_000 });
+    await expect(branch).toHaveAttribute('aria-haspopup', 'menu');
+    await openWhereSubmenu(page, branch);
     await page.getByTestId('workspace-bar-branch-row-feature/alpha').click();
-    await expect(chip).toContainText('feature/alpha', { timeout: 60_000 });
+    await openWhereMenu(page);
+    await expect(branchRow(page)).toContainText('feature/alpha', { timeout: 60_000 });
+    await page.keyboard.press('Escape');
     expect(git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()).toBe('feature/alpha');
   });
 });

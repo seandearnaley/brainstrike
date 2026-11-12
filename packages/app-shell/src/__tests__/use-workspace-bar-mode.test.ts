@@ -52,7 +52,6 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   defaultBranchPrefix: 'bs/',
   defaultName: 'bright-fox',
   disabledReason: null,
-  localPath: '/work/app',
   managedParentPath: '/managed/app-slug',
   onArchive: undefined,
   onCreate: vi.fn(() => Promise.resolve()),
@@ -60,8 +59,6 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   onHandOffToLocal: undefined,
   onOpenCreateSheet: vi.fn(() => Promise.resolve()),
   onOpenPicker: vi.fn(),
-  onOpenTerminal: undefined,
-  onReveal: undefined,
   pending: false,
   picker: {
     error: null,

@@ -1,16 +1,12 @@
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
 } from '@brainstrike/ui';
 import {
-  ChevronDown,
   ClipboardCopy,
   Folder,
   FolderInput,
@@ -25,9 +21,14 @@ import {
   X,
 } from 'lucide-react';
 import { type ReactElement, useId } from 'react';
+import { removedFolderLabel } from './removed-folder';
 import type { WorkspaceBarProps, WorkspaceBarRecentRoot, WorkspaceBarRoot } from './workspace-bar';
 
-type FolderChipProps = Omit<WorkspaceBarProps, 'checkout'>;
+/** The folder half of the bar's props: everything the Folders menu reads. */
+export type FolderMenuProps = Omit<
+  WorkspaceBarProps,
+  'branchMenu' | 'checkout' | 'checkoutState' | 'mode' | 'onDropItems' | 'trust'
+>;
 
 interface RootAction {
   readonly disabledReason: string | null;
@@ -38,7 +39,7 @@ interface RootAction {
 }
 
 type RootHandlers = Pick<
-  FolderChipProps,
+  FolderMenuProps,
   | 'onAddRecent'
   | 'onCopyPath'
   | 'onMakePrimary'
@@ -46,34 +47,16 @@ type RootHandlers = Pick<
   | 'onRemovePrimary'
   | 'onRemoveSecondary'
   | 'reveal'
->;
+> & {
+  /**
+   * The where-menu offers its Local row, which hands the thread off to its
+   * Local folder. Make primary on that folder would do the same, so it is not
+   * offered twice.
+   */
+  readonly handOffOffered: boolean;
+};
 
 const REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER = 'Choose another folder for this thread first.';
-
-/**
- * What a folder the workspace no longer serves is doing, in the words the file tabs use: opening
- * again, closed, or unable to open (with the host's reason). A folder with no path left no row.
- */
-function removedFolderState(root: WorkspaceBarRoot): string {
-  if (root.reopening) {
-    return 'Opening…';
-  }
-  if (!root.path) {
-    return 'No longer exists';
-  }
-  return root.reopenFailure ? "Can't be opened" : 'Closed';
-}
-
-/**
- * Where a removed folder stands. The fixed wording opens a sentence in the menu and sits
- * lowercase inside the chip's accessible name; the host's reason is never recased.
- */
-function removedFolderLabel(root: WorkspaceBarRoot, inline = false): string {
-  const state = removedFolderState(root);
-  const words = inline ? state.toLowerCase() : state;
-  const reason = root.path && !root.reopening ? root.reopenFailure : undefined;
-  return reason ? `${words}: ${reason}` : words;
-}
 
 /**
  * A folder the workspace no longer serves (BST-1990): the host refuses the
@@ -144,7 +127,7 @@ function rootActions(
     return removedRootActions(root, isPrimary, hasOtherLiveFolder, handlers);
   }
   const actions: RootAction[] = [];
-  if (!isPrimary) {
+  if (!(isPrimary || (root.local && handlers.handOffOffered))) {
     actions.push({
       disabledReason: null,
       icon: Star,
@@ -231,9 +214,9 @@ const RootRowContent = ({
         <span className="text-destructive text-xs">{removedFolderLabel(root)}</span>
       ) : null}
     </span>
-    {isPrimary ? (
+    {isPrimary || root.local ? (
       <span className="text-muted-foreground shrink-0 text-[10px] tracking-wide uppercase">
-        Primary
+        {isPrimary ? 'Primary' : 'Local'}
       </span>
     ) : null}
   </>
@@ -298,7 +281,8 @@ const DisableableMenuItem = ({
   );
 };
 
-const RootRow = ({
+/** One of this thread's folders: a submenu of its actions, or an informational row with none. */
+export const RootRow = ({
   hasOtherLiveFolder,
   isPrimary,
   root,
@@ -377,25 +361,75 @@ const UseAnotherFolder = ({
   </DropdownMenuSub>
 );
 
-/** The chip's accessible name: the primary, whether it is removed, and how many more. */
-function folderChipName(primaryRoot: WorkspaceBarRoot | undefined, secondaryCount: number): string {
-  if (!primaryRoot) {
-    return 'Choose a folder';
-  }
-  const removed = primaryRoot.removed ? ` (${removedFolderLabel(primaryRoot, true)})` : '';
-  const more = secondaryCount > 0 ? `, ${secondaryCount} more` : '';
-  return `Folder: ${primaryRoot.displayName}${removed}${more}`;
-}
+const SECTION_LABEL_CLASS = 'text-muted-foreground text-[10px] tracking-wide uppercase';
+
+/** "Not in this thread" (BST-1990): a mounted folder joins the thread with one click. */
+const NotInThisThread = ({
+  addFolderDisabledReason,
+  folders,
+  onAddWorkspaceFolder,
+}: {
+  readonly addFolderDisabledReason: string | null;
+  readonly folders: readonly WorkspaceBarRecentRoot[];
+  readonly onAddWorkspaceFolder: (folder: WorkspaceBarRecentRoot) => void;
+}): ReactElement => (
+  <>
+    <DropdownMenuLabel className={SECTION_LABEL_CLASS}>Not in this thread</DropdownMenuLabel>
+    {folders.map((folder) => (
+      <DisableableMenuItem
+        disabledReason={addFolderDisabledReason}
+        icon={FolderPlus}
+        key={folder.path}
+        label={folder.displayName}
+        onSelect={() => onAddWorkspaceFolder(folder)}
+        testId={`workspace-bar-add-to-thread-${folder.path}`}
+        title={`Add ${folder.path} to this thread`}
+      />
+    ))}
+    <DropdownMenuSeparator />
+  </>
+);
+
+/** Recent folders the platform can re-mount without a picker. */
+const RecentFolders = ({
+  addFolderDisabledReason,
+  onAddRecent,
+  recents,
+}: {
+  readonly addFolderDisabledReason: string | null;
+  readonly onAddRecent: (path: string) => void;
+  readonly recents: readonly WorkspaceBarRecentRoot[];
+}): ReactElement => (
+  <>
+    <DropdownMenuLabel className={SECTION_LABEL_CLASS}>Recent</DropdownMenuLabel>
+    {recents.map((recent) => (
+      <DisableableMenuItem
+        disabledReason={addFolderDisabledReason}
+        icon={History}
+        key={recent.path}
+        label={recent.displayName}
+        onSelect={() => onAddRecent(recent.path)}
+        testId={`workspace-bar-recent-${recent.path}`}
+        title={recent.path}
+      />
+    ))}
+    <DropdownMenuSeparator />
+  </>
+);
 
 /**
- * The workspace bar's folder control: this thread's primary root (★) and its
+ * The where-menu's folder rows: this thread's primary root (★) and its
  * secondaries, the workspace's other mounted folders (one click adds one to the
- * thread), recent folders the platform can re-mount, and "Add folder…".
- * With no root connected the chip IS the call to action. A folder the
- * workspace no longer serves is marked, with its repairs (BST-1990).
+ * thread), recent folders the platform can re-mount, and "Add folder…". A
+ * folder the workspace no longer serves is marked, with its repairs (BST-1990).
+ *
+ * Rendered as the Folders submenu while the thread has a live primary folder,
+ * and in the where-menu itself while it has none. `shownElsewhere` names rows
+ * the where-menu already shows at its top level (closed folders' repairs).
  */
-export const FolderChip = ({
+export const FolderMenuItems = ({
   addFolderDisabledReason,
+  handOffOffered,
   onAddFolder,
   onAddRecent,
   onAddWorkspaceFolder,
@@ -409,11 +443,12 @@ export const FolderChip = ({
   recentRoots,
   reveal,
   secondaryRoots,
+  shownElsewhere,
   workspaceFolders,
-}: FolderChipProps): ReactElement => {
-  const secondaryCount = primaryRoot ? secondaryRoots.length : 0;
-  const label = primaryRoot ? primaryRoot.displayName : 'Choose a folder';
-  const accessibleName = folderChipName(primaryRoot, secondaryCount);
+}: FolderMenuProps & {
+  readonly handOffOffered: boolean;
+  readonly shownElsewhere: ReadonlySet<string>;
+}): ReactElement => {
   // Recents are an "add another" list: anything already mounted in this thread
   // would be a no-op row.
   const mountedPaths = new Set(
@@ -423,6 +458,7 @@ export const FolderChip = ({
   );
   const visibleRecents = recentRoots.filter((recent) => !mountedPaths.has(recent.path));
   const rootHandlers = {
+    handOffOffered,
     onAddRecent,
     onCopyPath,
     onMakePrimary,
@@ -433,103 +469,58 @@ export const FolderChip = ({
   };
   const liveSecondary = secondaryRoots.some((root) => !root.removed);
   const noLiveFolder = Boolean(primaryRoot?.removed) && !liveSecondary;
+  const listedSecondaries = secondaryRoots.filter((root) => !shownElsewhere.has(root.rootId));
+  const disabledReason = addFolderDisabledReason ?? null;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label={accessibleName}
-        className="bs-composer-chip"
-        data-testid="workspace-bar-folder-chip"
-        {...(primaryRoot?.path ? { title: primaryRoot.path } : {})}
-      >
-        {primaryRoot?.removed ? (
-          <FolderX aria-hidden="true" className="text-destructive" />
-        ) : (
-          <Folder aria-hidden="true" />
-        )}
-        <span className="bs-composer-chip-label">{label}</span>
-        {secondaryCount > 0 ? (
-          <span className="bs-composer-chip-badge">{`+${secondaryCount}`}</span>
-        ) : null}
-        <ChevronDown aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
-        {primaryRoot || secondaryRoots.length > 0 ? (
-          <>
-            <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
-              This thread
-            </DropdownMenuLabel>
-            {primaryRoot ? (
-              <RootRow
-                hasOtherLiveFolder={liveSecondary}
-                isPrimary
-                root={primaryRoot}
-                {...rootHandlers}
-              />
-            ) : null}
-            {secondaryRoots.map((root) => (
-              <RootRow
-                hasOtherLiveFolder={liveSecondary}
-                isPrimary={false}
-                key={root.rootId}
-                root={root}
-                {...rootHandlers}
-              />
-            ))}
-            {noLiveFolder && workspaceFolders.length > 0 ? (
-              <UseAnotherFolder folders={workspaceFolders} onUseFolder={onUseFolder} />
-            ) : null}
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        {noLiveFolder || workspaceFolders.length === 0 ? null : (
-          <>
-            <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
-              Not in this thread
-            </DropdownMenuLabel>
-            {workspaceFolders.map((folder) => (
-              <DisableableMenuItem
-                disabledReason={addFolderDisabledReason ?? null}
-                icon={FolderPlus}
-                key={folder.path}
-                label={folder.displayName}
-                onSelect={() => onAddWorkspaceFolder(folder)}
-                testId={`workspace-bar-add-to-thread-${folder.path}`}
-                title={`Add ${folder.path} to this thread`}
-              />
-            ))}
-            <DropdownMenuSeparator />
-          </>
-        )}
-        {onAddRecent && visibleRecents.length > 0 ? (
-          <>
-            <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
-              Recent
-            </DropdownMenuLabel>
-            {visibleRecents.map((recent) => (
-              <DisableableMenuItem
-                disabledReason={addFolderDisabledReason ?? null}
-                icon={History}
-                key={recent.path}
-                label={recent.displayName}
-                onSelect={() => onAddRecent(recent.path)}
-                testId={`workspace-bar-recent-${recent.path}`}
-                title={recent.path}
-              />
-            ))}
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        <DisableableMenuItem
-          disabledReason={addFolderDisabledReason ?? null}
-          icon={FolderPlus}
-          label="Add folder…"
-          onSelect={onAddFolder}
-          testId="workspace-bar-add-folder"
+    <>
+      {primaryRoot || listedSecondaries.length > 0 ? (
+        <>
+          <DropdownMenuLabel className={SECTION_LABEL_CLASS}>This thread</DropdownMenuLabel>
+          {primaryRoot ? (
+            <RootRow
+              hasOtherLiveFolder={liveSecondary}
+              isPrimary
+              root={primaryRoot}
+              {...rootHandlers}
+            />
+          ) : null}
+          {listedSecondaries.map((root) => (
+            <RootRow
+              hasOtherLiveFolder={liveSecondary}
+              isPrimary={false}
+              key={root.rootId}
+              root={root}
+              {...rootHandlers}
+            />
+          ))}
+          {noLiveFolder && workspaceFolders.length > 0 ? (
+            <UseAnotherFolder folders={workspaceFolders} onUseFolder={onUseFolder} />
+          ) : null}
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
+      {noLiveFolder || workspaceFolders.length === 0 ? null : (
+        <NotInThisThread
+          addFolderDisabledReason={disabledReason}
+          folders={workspaceFolders}
+          onAddWorkspaceFolder={onAddWorkspaceFolder}
         />
-      </DropdownMenuContent>
-    </DropdownMenu>
+      )}
+      {onAddRecent && visibleRecents.length > 0 ? (
+        <RecentFolders
+          addFolderDisabledReason={disabledReason}
+          onAddRecent={onAddRecent}
+          recents={visibleRecents}
+        />
+      ) : null}
+      <DisableableMenuItem
+        disabledReason={disabledReason}
+        icon={FolderPlus}
+        label="Add folder…"
+        onSelect={onAddFolder}
+        testId="workspace-bar-add-folder"
+      />
+    </>
   );
 };
-
-FolderChip.displayName = 'FolderChip';

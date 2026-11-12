@@ -19,6 +19,7 @@ import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
+import { openWhereMenu, whereChip } from './utils/where-control';
 
 const API_KEY = 'test-key-thread-reopens-as-left';
 const MODEL = 'anthropic/claude-sonnet-4.6';
@@ -213,13 +214,13 @@ async function reopenWorktreeThread(
     await enableChatModel(page);
     await ensureAssistantShellVisible(page);
     await chooseThreadFolder(page, path.basename(root));
-    await page.getByTestId('workspace-bar-mode-chip').click();
+    await openWhereMenu(page);
     await page.getByTestId('workspace-bar-mode-new-worktree').click();
     const dialog = page.getByTestId('worktree-create-dialog');
     await expect(dialog).toBeVisible({ timeout: 30_000 });
     const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
     await dialog.getByTestId('worktree-create-submit').click();
-    await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText(name, {
+    await expect(whereChip(page)).toContainText(name, {
       timeout: 90_000,
     });
     await send(page, 'STEP_1');
@@ -261,10 +262,10 @@ async function reopenWorktreeThread(
     // Opening the thread brings its worktree back without a click, and the thread sends.
     await openThread(restarted, tabId, stateDb, worktreePath);
     await send(restarted, 'STEP_2');
-    // The checkout chip names the worktree again, with no warning that it is missing.
-    await expect(restarted.getByTestId('workspace-bar-mode-chip')).toHaveAttribute(
+    // The where-control names the worktree again, with no warning that it is missing.
+    await expect(whereChip(restarted)).toHaveAttribute(
       'aria-label',
-      `Worktree: ${name}`
+      `Where this thread works: ${path.basename(root)} · ${name}`
     );
     const reopened = new DatabaseSync(stateDb, { readOnly: true });
     try {

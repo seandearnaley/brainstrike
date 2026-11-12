@@ -389,10 +389,10 @@ test.describe('Worktree Map (desktop)', () => {
     await newThread.click();
     await expectNewCommittedThread(page, previousThreadId);
     // Other thread tabs may be open beside the one just opened for the adopted
-    // worktree, each with its own mode chip — scope to the one that's actually
+    // worktree, each with its own where-control — scope to the one that's actually
     // visible (the newly active tab).
     await expect(
-      page.getByTestId('workspace-bar-mode-chip').filter({ visible: true })
+      page.getByTestId('workspace-bar-where-chip').filter({ visible: true })
     ).toContainText(path.basename(worktree), { timeout: 90_000 });
   });
 
@@ -436,11 +436,11 @@ test.describe('Worktree Map (desktop)', () => {
     const previousThreadId = await currentThreadId(page);
     await newThread.click();
     await expectNewCommittedThread(page, previousThreadId);
-    // The mount is the step the old rule refused; a bound mode chip proves
+    // The mount is the step the old rule refused; a bound where-control proves
     // mount + thread bind both completed instead of the stated
     // "can't be mounted automatically" action error.
     await expect(
-      page.getByTestId('workspace-bar-mode-chip').filter({ visible: true })
+      page.getByTestId('workspace-bar-where-chip').filter({ visible: true })
     ).toContainText(path.basename(worktree), { timeout: 90_000 });
   });
 

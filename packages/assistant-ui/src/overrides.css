@@ -737,6 +737,16 @@ span.bs-composer-chip {
   flex-shrink: 3;
 }
 
+/* The where-control stands in for the folder, branch and checkout chips, so it
+   takes more of the bar; its project name gives up room before the checkout. */
+.bs-composer-chip.bs-composer-chip-where {
+  max-width: 24rem;
+}
+
+.bs-composer-chip-where > .bs-composer-chip-label:first-of-type {
+  flex-shrink: 3;
+}
+
 /* A count cut short says nothing, so a chip that is one keeps its width. */
 .bs-composer-chip-count {
   flex-shrink: 0;

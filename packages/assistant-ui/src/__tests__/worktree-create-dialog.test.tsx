@@ -13,7 +13,6 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
     defaultBranchPrefix: 'bs/',
     defaultName: 'bright-fox',
     disabledReason: null,
-    localPath: '/work/brainstrike',
     managedParentPath: '/managed/brainstrike',
     onArchive: undefined,
     onCreate: vi.fn(() => Promise.resolve()),
@@ -21,8 +20,6 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
     onHandOffToLocal: undefined,
     onOpenCreateSheet: vi.fn(() => Promise.resolve()),
     onOpenPicker: vi.fn(),
-    onOpenTerminal: undefined,
-    onReveal: undefined,
     pending: false,
     picker: {
       error: null,

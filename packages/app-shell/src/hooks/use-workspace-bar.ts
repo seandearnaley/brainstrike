@@ -197,9 +197,10 @@ function modeEntry(mode: WorkspaceBarMode | undefined): { readonly mode?: Worksp
  * BST-1456: while checked out into a worktree, the secondary named by
  * `checkoutLocalRootId` is where a later hand-off returns to — its Remove
  * action must render disabled with a visible reason rather than let removal
- * silently strand that "return to". Pulled out (like `checkoutEntry` above)
- * so the hook's own cognitive-complexity budget stays untouched by this
- * decoration.
+ * silently strand that "return to". It is marked `local`, closed or not: the
+ * where-control names the project by it (ADR-0034, 2026-11-11). Pulled out
+ * (like `checkoutEntry` above) so the hook's own cognitive-complexity budget
+ * stays untouched by this decoration.
  */
 
 /**
@@ -223,12 +224,15 @@ function decorateHandOffReturnRoot(
   if (!(checkoutMode === 'worktree' && checkoutLocalRootId)) {
     return loadedSecondaryRoots;
   }
-  // A removed return folder can go: the host refuses the binding while it stays.
-  return loadedSecondaryRoots.map((root) =>
-    root.rootId === checkoutLocalRootId && !root.removed
-      ? { ...root, removeDisabledReason: HAND_OFF_RETURN_ROOT_REMOVE_REASON }
-      : root
-  );
+  return loadedSecondaryRoots.map((root) => {
+    if (root.rootId !== checkoutLocalRootId) {
+      return root;
+    }
+    // A removed return folder can go: the host refuses the binding while it stays.
+    return root.removed
+      ? { ...root, local: true as const }
+      : { ...root, local: true as const, removeDisabledReason: HAND_OFF_RETURN_ROOT_REMOVE_REASON };
+  });
 }
 
 /**
