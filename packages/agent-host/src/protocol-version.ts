@@ -133,5 +133,7 @@
 // own record. `worktrees/create-context` answers the standing decision with the script
 // (`repositorySetup.decision`), required. `worktrees/setup-consent/decide`,
 // `worktrees/setup-consent/list` and `worktrees/setup-consent/revoke` are new methods. Removing
-// the parameter and the required field are why this is a version bump.
+// the parameter and the required field are why this is a version bump. Additive since:
+// `worktrees/list-archived` (the archived managed worktrees of a root's repository, newest archive
+// first, which the where-control's picker restores; ADR-0034 decision 7), a new method.
 export const AGENT_HOST_PROTOCOL_VERSION = 27;

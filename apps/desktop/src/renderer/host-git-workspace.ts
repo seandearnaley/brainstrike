@@ -102,6 +102,7 @@ export function createDesktopWorkspaceGitServices(
       getSettings: () => request('worktrees/settings/read', {}),
       inspectArchive: ({ worktreeId }) => request('worktrees/inspect-archive', { worktreeId }),
       list: () => request('worktrees/list', {}),
+      listArchived: ({ rootId }) => request('worktrees/list-archived', { rootId }),
       listManagedPaths: () => request('worktrees/managed-paths', {}),
       listSetupConsent: () => request('worktrees/setup-consent/list', {}),
       restore: ({ worktreeId }) => request('worktrees/restore', { worktreeId }),
