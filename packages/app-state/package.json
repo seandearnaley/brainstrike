@@ -54,7 +54,6 @@
     "./stores/token-preferences-store": "./src/stores/token-preferences-store.ts",
     "./stores/tree-table-column-sizes-store": "./src/stores/tree-table-column-sizes-store.ts",
     "./stores/workspace-instructions-preferences-store": "./src/stores/workspace-instructions-preferences-store.ts",
-    "./stores/worktree-setup-consent-store": "./src/stores/worktree-setup-consent-store.ts",
     "./stores/assistant-preferences-store-name": "./src/stores/assistant-preferences-store-name.ts"
   },
   "license": "MIT",

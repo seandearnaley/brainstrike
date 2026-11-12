@@ -45,6 +45,7 @@
     "./settings/system/workspace-trust": "./src/settings/system/workspace-trust.ts",
     "./settings/system/workspace-trust-settings-category": "./src/settings/system/workspace-trust-settings-category.tsx",
     "./settings/system/worktree-settings-section": "./src/settings/system/worktree-settings-section.tsx",
+    "./settings/system/worktree-setup-consent-settings-section": "./src/settings/system/worktree-setup-consent-settings-section.tsx",
     "./settings/tools/index": "./src/settings/tools/index.tsx",
     "./settings/tools/mcp-elicitation-capability": "./src/settings/tools/mcp-elicitation-capability.tsx",
     "./settings/tools/use-mcp-elicitation-capability": "./src/settings/tools/use-mcp-elicitation-capability.ts",

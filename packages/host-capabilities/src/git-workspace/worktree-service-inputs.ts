@@ -19,9 +19,10 @@ import type { GitCommandRunner } from './git-service.ts';
 const logger = createLogger('WorktreeService');
 
 /**
- * A renderer-attested decision, pinned to the script's hash at decision time.
+ * The person's standing answer for the repository's setup script, as the host
+ * recorded it, pinned to the script's hash when they answered.
  * `resolveSetupCommand` re-hashes disk and refuses a mismatch (fail closed to
- * a visible skipped setup) rather than trusting a decision made against
+ * a visible skipped setup) rather than running under an answer given for
  * different script contents.
  */
 export interface RepositorySetupDecisionInput {
@@ -33,7 +34,13 @@ export interface RepositorySetupDecisionInput {
 export interface WorktreeSetupInput {
   /** Test seam; production uses `WORKTREE_INCLUDE_MAX_TOTAL_BYTES`. */
   readonly copyMaxBytes?: number;
-  /** Required only for the repository-committed fallback script. */
+  /**
+   * Test seam, absent in production: runs after the repository script's bytes
+   * were read and checked against the recorded answer and before setup runs,
+   * so a test can change the file on disk in between.
+   */
+  readonly onScriptChecked?: () => Promise<void>;
+  /** The repository's recorded answer; read only for the repository-committed fallback script. */
   readonly repositorySetupDecision?: RepositorySetupDecisionInput;
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
@@ -50,6 +57,14 @@ export interface WorktreeServiceDeps {
   readonly afterCreate?: (worktree: ManagedWorktreeRow, params: WorktreeCreateParams) => void;
   readonly getWorktreeStore: () => Promise<WorktreeLedgerPort>;
   readonly hasRunningThread: (worktreeId: string) => Promise<boolean>;
+  /**
+   * The repository's setup script consent, by its realpath'd common dir: the
+   * host's own record (`worktree-setup-consent.ts`), read for every create so
+   * a worktree no person's create sheet asked for runs setup too (ADR-0034).
+   */
+  readonly readRepositorySetupConsent: (
+    repositoryId: string
+  ) => Promise<RepositorySetupDecisionInput | undefined>;
   readonly readSettings: () => Promise<WorktreeSettings>;
   /**
    * The cached inventory snapshot — the same one `changes/inventory` host method
