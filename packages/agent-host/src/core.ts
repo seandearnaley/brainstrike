@@ -6,6 +6,7 @@ import { admitHostChildModel } from './child-model-admission.ts';
 import { HostContextCompactions } from './context-compaction.ts';
 import { hostCanvases } from './core-canvases.ts';
 import { type HostChildRunPort, HostChildRuns } from './core-child-runs.ts';
+import { HostIdleWorktreeNotices } from './core-idle-worktrees.ts';
 import { hostMcpTaskOwner } from './core-mcp-owner.ts';
 import { readHostThreadMemory } from './core-memory-read.ts';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.ts';
@@ -196,11 +197,7 @@ export class HostCore {
       this.accept(record.threadId, 'run/start', record, { runId }, events, this.foldRows),
     deletions: this.deletions,
     foldRows: (rows) => this.foldRows(rows),
-    // Queued: a thread being deleted or a closing host takes no notice.
-    post: (threadId, notice) =>
-      this.admit(threadId, () =>
-        this.append(threadId, [{ notice, type: 'notice.posted' }], 'normal', this.foldRows)
-      ),
+    post: (threadId, notice) => this.notify(threadId, { notice, type: 'notice.posted' }),
     presentations: this.presentations,
     runs: () => this.runs,
     selections: this.selections,
@@ -217,6 +214,10 @@ export class HostCore {
     command: (method, params, perform, fork) => this.settledCommand(method, params, perform, fork),
     owner: () => ({ pending: this.pendingAdmissions, platform: this.platform, runs: this.runs }),
   });
+  /** A notice no person typed, queued: a thread being deleted or a closing host takes none. */
+  private readonly notify = (threadId: string, event: HostEvent): Promise<HostLogRow[]> =>
+    this.admit(threadId, () => this.append(threadId, [event], 'normal', this.foldRows));
+  private readonly idleWorktrees = new HostIdleWorktreeNotices(this.notify, () => this.runs);
   private closing = false;
   private closeTask?: Promise<void>;
   readonly listing = new HostThreadListing();
@@ -263,6 +264,7 @@ export class HostCore {
     // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
     this.platform.attachMcpTaskOwner?.(hostMcpTaskOwner(this.executionPorts()));
     this.ends.exits.listen(this.platform);
+    this.idleWorktrees.listen(this.platform);
     await recoverHostRuns(this.runs.values(), {
       continueRun: (run) => this.continueRun(run),
       finish: (run, outcome, detail) => this.ends.finish(run, outcome, detail, true),
@@ -991,6 +993,7 @@ export class HostCore {
   private async closeOwned(): Promise<void> {
     this.closing = true;
     this.ends.exits.close();
+    this.idleWorktrees.close();
     // Retirement reads the runs the fold restores; a failed fold still closes what it opened.
     await this.hydrated.catch(() => undefined);
     const outcomes = await retireHostCoreRuns({

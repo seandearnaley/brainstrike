@@ -119,7 +119,9 @@ async function createWorktree(
   bridge: WorktreesBridge,
   primaryRootId: string,
   request: WorkspaceBarCreateWorktreeRequest,
-  repositorySetupDecision: RepositorySetupDecisionAttestation | undefined
+  repositorySetupDecision: RepositorySetupDecisionAttestation | undefined,
+  /** The selected thread: the host tells it which idle worktrees the creation's cap archived. */
+  threadId: string | null
 ): Promise<WorktreeCreateResult> {
   let created: Awaited<ReturnType<WorktreesBridge['create']>>;
   try {
@@ -130,6 +132,7 @@ async function createWorktree(
       name: request.name,
       rootId: primaryRootId,
       ...(repositorySetupDecision ? { repositorySetupDecision } : {}),
+      ...(threadId ? { threadId } : {}),
     });
   } catch (error) {
     const message = errorMessage(error);
@@ -408,7 +411,7 @@ export function unavailableRepositoryReason(statusFailure: string | null): strin
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
   // Plain function locals: the React Compiler memoizes a call through `args.`
   // on the whole `args` object, which is fresh on every render.
-  const { onHandOffToLocal: handOffToLocal, onSelectWorktree, threadState } = args;
+  const { onHandOffToLocal: handOffToLocal, onSelectWorktree, threadId, threadState } = args;
   const bridge = useWorktreesBridge();
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
@@ -636,7 +639,8 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
           bridge,
           primaryRootId,
           request,
-          repositorySetupDecisionForCreate
+          repositorySetupDecisionForCreate,
+          threadId
         );
         await mountWorktree(addRootDirectoryByPath, worktree.path);
         await onSelectWorktree({
@@ -670,6 +674,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       bridge,
       createSheetContext,
       refreshList,
+      threadId,
       threadState,
     ]
   );

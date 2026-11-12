@@ -22,6 +22,7 @@ import path from 'node:path';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ManagedWorktreeRow } from '@brainstrike/types';
 import { gitCommandFailed, gitUnexpected } from './git-failure.ts';
+import { parseWorktreeSummaries } from './git-repository-parsers.ts';
 import {
   GIT_DEFAULT_TIMEOUT_MS,
   type GitCommandRun,
@@ -234,6 +235,31 @@ async function inspectUnpushedSafety(input: {
       count,
     },
   };
+}
+
+/**
+ * The worktree's lock as git records it now: its reason (empty when none was given), or null
+ * when it is not locked. Read from the repository rather than the cached inventory, which can
+ * be older than a lock the person just set. Paths are compared as written and resolved, as git
+ * keeps the spelling a worktree was added with.
+ */
+export async function readWorktreeLock(input: {
+  /** Git in the repository the worktree belongs to. */
+  readonly invoke: GitInvoke;
+  readonly worktreePath: string;
+}): Promise<BoundaryResult<string | null>> {
+  const listRun = await invokeGitHookFree(input.invoke, ['worktree', 'list', '--porcelain', '-z']);
+  if (listRun.exitCode !== 0) {
+    return gitCommandFailed(listRun);
+  }
+  const resolve = (candidate: string) => fsPromises.realpath(candidate).catch(() => candidate);
+  const target = await resolve(path.resolve(input.worktreePath));
+  for (const worktree of parseWorktreeSummaries(listRun.stdout, target)) {
+    if (worktree.path === target || (await resolve(worktree.path)) === target) {
+      return { ok: true, value: worktree.lockedReason };
+    }
+  }
+  return { ok: true, value: null };
 }
 
 export async function inspectWorktreeSafety(input: {
