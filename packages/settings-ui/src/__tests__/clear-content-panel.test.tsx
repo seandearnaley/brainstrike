@@ -27,6 +27,26 @@ describe('Clear content', () => {
     expect(order).toEqual(['prepare', 'retire', 'clear']);
   });
 
+  // ADR-0015, ADR-0034: the clear archives the managed worktrees, forcing past their ignored
+  // files, and moves the scratch folders to the Trash.
+  it('says before the person confirms what becomes of worktrees and scratch folders', () => {
+    render(
+      <ClearContentPanel
+        clearContent={vi.fn(async () => undefined)}
+        prepare={vi.fn(async () => undefined)}
+        retireContent={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear content…' }));
+
+    expect(
+      screen.getByText(
+        'Managed worktrees are archived into their repositories first: uncommitted work is kept as a snapshot ref and their branches stay, but their ignored files, such as .env files and installed dependencies, are deleted. Scratch folders, made for chats started with no folder open, are moved to the Trash.'
+      )
+    ).toBeVisible();
+  });
+
   describe('after preparation began', () => {
     const order: string[] = [];
     const noteReloadIntent = vi.fn(async (reason: string) => {

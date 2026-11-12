@@ -56,6 +56,14 @@ export function ClearContentPanel({ clearContent, prepare, retireContent }: Clea
               search index's data. Settings, providers and keys stay. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {/* ADR-0034: the clear archives the managed worktrees, forcing past their ignored
+              files, and moves the scratch folders to the Trash. */}
+          <p className="text-muted-foreground text-sm">
+            Managed worktrees are archived into their repositories first: uncommitted work is kept
+            as a snapshot ref and their branches stay, but their ignored files, such as .env files
+            and installed dependencies, are deleted. Scratch folders, made for chats started with no
+            folder open, are moved to the Trash.
+          </p>
           {failed ? (
             <>
               <p className="text-destructive text-sm" role="alert">
