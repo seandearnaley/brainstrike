@@ -95,7 +95,7 @@ const DropdownMenuSubContent = ({
   ref,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent> & {
-  ref?: React.RefObject<React.ElementRef<typeof DropdownMenuPrimitive.SubContent> | null>;
+  ref?: React.Ref<React.ElementRef<typeof DropdownMenuPrimitive.SubContent>>;
 }) => (
   <DropdownMenuPrimitive.SubContent
     className={cn(

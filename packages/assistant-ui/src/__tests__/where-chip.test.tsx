@@ -483,6 +483,63 @@ describe('each where-control row wires only its own handler', () => {
     expect(screen.getByTestId('workspace-bar-branch-menu')).toBeInTheDocument();
   });
 
+  it('a click on the Branch row opens the switcher with its search field focused', async () => {
+    const user = setup();
+    const menu = branchMenu();
+    render(<WorkspaceBar {...local({ branchMenu: menu })} />);
+    await openWhere(user);
+    await user.click(screen.getByTestId('workspace-bar-branch'));
+    expect(await screen.findByTestId('workspace-bar-branch-search')).toHaveFocus();
+    await user.keyboard('m');
+    expect(menu.onQueryChange).toHaveBeenCalledWith('m');
+    expect(screen.getByTestId('workspace-bar-branch-menu')).toBeInTheDocument();
+  });
+
+  it('the pointer moving on over the clicked Branch row leaves the keys in its search field', async () => {
+    const user = setup();
+    const menu = branchMenu();
+    render(<WorkspaceBar {...local({ branchMenu: menu })} />);
+    await openWhere(user);
+    const trigger = screen.getByTestId('workspace-bar-branch');
+    await user.pointer({ coords: { clientX: 10, clientY: 10 }, target: trigger });
+    await user.click(trigger);
+    const search = await screen.findByTestId('workspace-bar-branch-search');
+    expect(search).toHaveFocus();
+    // A nudge of the mouse still over the row: Radix would focus the row, taking the keys back.
+    await user.pointer({ coords: { clientX: 12, clientY: 11 }, target: trigger });
+    expect(search).toHaveFocus();
+    await user.keyboard('m');
+    expect(menu.onQueryChange).toHaveBeenCalledWith('m');
+    expect(screen.getByTestId('workspace-bar-branch-menu')).toBeInTheDocument();
+  });
+
+  it('a click on the Branch row its hover already opened focuses the search field', async () => {
+    const user = setup();
+    render(<WorkspaceBar {...local({ branchMenu: branchMenu() })} />);
+    await openWhere(user);
+    const trigger = screen.getByTestId('workspace-bar-branch');
+    await user.hover(trigger);
+    const search = await screen.findByTestId('workspace-bar-branch-search');
+    // Hovering opens the switcher but leaves focus on the row, as every menu row has it.
+    expect(trigger).toHaveFocus();
+    await user.click(trigger);
+    expect(search).toHaveFocus();
+  });
+
+  it('the pointer moving into the Branch submenu gives its search field the keys', async () => {
+    const user = setup();
+    const menu = branchMenu();
+    render(<WorkspaceBar {...local({ branchMenu: menu })} />);
+    await openWhere(user);
+    await user.hover(screen.getByTestId('workspace-bar-branch'));
+    await user.hover(await screen.findByTestId('workspace-bar-branch-row-feature/alpha'));
+    expect(screen.getByTestId('workspace-bar-branch-search')).toHaveFocus();
+    // Typed letters filter the branches instead of jumping the where-menu to a row by name.
+    await user.keyboard('m');
+    expect(menu.onQueryChange).toHaveBeenCalledWith('m');
+    expect(screen.getByTestId('workspace-bar-branch-menu')).toBeInTheDocument();
+  });
+
   it('the Folders submenu adds a folder and makes a folder primary', async () => {
     const user = setup();
     const onAddFolder = vi.fn();
