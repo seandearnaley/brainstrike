@@ -572,6 +572,7 @@ export default function SettingsPageContent() {
       createWorkspaceSettingsCategory({
         onSave: worktreeSettings.save,
         settings: worktreeSettings.settings,
+        setupConsent: worktreeSettings.setupConsent,
         status: worktreeSettings.status,
       }),
       createNotificationSettingsCategory(),
@@ -642,6 +643,7 @@ export default function SettingsPageContent() {
     workspaceSettings,
     worktreeSettings.save,
     worktreeSettings.settings,
+    worktreeSettings.setupConsent,
     worktreeSettings.status,
   ]);
 

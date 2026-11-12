@@ -7,13 +7,13 @@ import {
   HostEventSchema,
   parseHostParams,
 } from '../src/protocol.js';
-import wireV26 from './fixtures/host-v26-methods.json' with { type: 'json' };
+import wireV27 from './fixtures/host-v27-methods.json' with { type: 'json' };
 
 test('every first-party host request/result/event grammar has one Effect owner', () => {
   const requests = Object.entries(HOST_METHOD_SCHEMAS);
   const results = Object.entries(HOST_RESULT_SCHEMAS);
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV26.version);
-  expect(requests.map(([name]) => name).sort()).toEqual(wireV26.methods);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV27.version);
+  expect(requests.map(([name]) => name).sort()).toEqual(wireV27.methods);
   expect(results.map(([name]) => name).sort()).toEqual(requests.map(([name]) => name).sort());
   expect(
     [...requests, ...results, ['event', HostEventSchema]]
@@ -23,7 +23,7 @@ test('every first-party host request/result/event grammar has one Effect owner',
 });
 
 test('protocol version and secret-bearing request refusal stay fixed', () => {
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(26);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(27);
   const badAccess = { access: 'x', catalogId: 'github', token: 'never-print-me' };
   expect(() => parseHostParams('mcp/config/install', badAccess)).toThrow(
     'Invalid MCP host request'

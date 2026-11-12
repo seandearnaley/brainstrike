@@ -1,11 +1,13 @@
 /**
- * Repository setup script consent (BST-1455): the create sheet's Allow/Skip
- * gate, the standing-decision persistence, hash-staleness re-prompting, and
- * the branch-menu "Switch in new worktree" path, which never opens the sheet
- * and must still resolve the same consent state — split out of
- * `use-worktree-mode.test.ts` to keep both files under the line-count ceiling.
+ * Repository setup script consent (ADR-0034): the host keeps the person's
+ * answer, so the create sheet shows the host's standing answer, Allow and Skip
+ * record one with the host for the script the sheet showed, and a create
+ * carries no answer of its own — the host reads its record for every create,
+ * including the branch menu's "Switch in a new worktree", which never opens
+ * the sheet. Split out of `use-worktree-mode.test.ts` to keep both files under
+ * the line-count ceiling.
  */
-import { useWorktreeSetupConsentStore } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
+import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,17 +18,17 @@ const {
   addRootByPathSpy,
   createContextSpy,
   createSpy,
+  decideSetupConsentSpy,
   getSettingsSpy,
   listSpy,
-  loggerErrorSpy,
   toastSpy,
 } = vi.hoisted(() => ({
   addRootByPathSpy: vi.fn(),
   createContextSpy: vi.fn(),
   createSpy: vi.fn(),
+  decideSetupConsentSpy: vi.fn(),
   getSettingsSpy: vi.fn(),
   listSpy: vi.fn(),
-  loggerErrorSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
 
@@ -34,21 +36,11 @@ const wrapper = workspaceGitWrapper({
   worktrees: stubWorktreesBridge({
     create: createSpy,
     createContext: createContextSpy,
+    decideSetupConsent: decideSetupConsentSpy,
     getSettings: getSettingsSpy,
     list: listSpy,
   }),
 });
-vi.mock('@brainstrike/logging', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
-  createLogger: () => ({
-    debug: vi.fn(),
-    error: loggerErrorSpy,
-    fatal: vi.fn(),
-    info: vi.fn(),
-    trace: vi.fn(),
-    warn: vi.fn(),
-  }),
-}));
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({
     addRootDirectory: vi.fn(),
@@ -57,14 +49,11 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: toastSpy }));
 
-const onHandOffToLocal = vi.fn(() => Promise.resolve());
-const onSelectWorktree = vi.fn(() => Promise.resolve());
-
 const ARGS = {
   checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },
   isRepository: true,
-  onHandOffToLocal,
-  onSelectWorktree,
+  onHandOffToLocal: vi.fn(() => Promise.resolve()),
+  onSelectWorktree: vi.fn(() => Promise.resolve()),
   primaryRootId: 'r-1',
   primaryRootPath: '/work/app',
   statusFailure: null,
@@ -80,11 +69,24 @@ const CREATE_REQUEST = {
 } as const;
 
 const REPOSITORY_SETUP = {
+  decision: null,
   repositoryId: '/work/app/.git',
   repositoryPath: '/work/app',
   scriptPath: '/work/app/.brainstrike/worktree-setup.sh',
-  scriptSha256: 'hash-current',
+  scriptSha256: 'a'.repeat(64),
 } as const;
+
+/** The host's create-sheet context, with its standing answer for the script. */
+function createContext(decision: 'approved' | 'denied' | null) {
+  return {
+    ok: true,
+    value: {
+      managedParentPath: '/managed/app-slug',
+      repositorySetup: { ...REPOSITORY_SETUP, decision },
+      suggestedName: 'bright-fox',
+    },
+  };
+}
 
 describe('useWorktreeMode repository setup consent', () => {
   beforeEach(() => {
@@ -98,14 +100,6 @@ describe('useWorktreeMode repository setup consent', () => {
       },
     });
     listSpy.mockResolvedValue({ ok: true, value: [] });
-    createContextSpy.mockResolvedValue({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        repositorySetup: null,
-        suggestedName: 'bright-fox',
-      },
-    });
     createSpy.mockResolvedValue({
       ok: true,
       value: {
@@ -114,7 +108,7 @@ describe('useWorktreeMode repository setup consent', () => {
           output: '',
           reason: null,
           skippedCopies: [],
-          status: 'none',
+          status: 'succeeded',
           truncated: false,
         },
         worktree: {
@@ -122,14 +116,15 @@ describe('useWorktreeMode repository setup consent', () => {
           archiveSnapshotRef: null,
           baseRef: 'main',
           branch: 'bs/bright-fox',
-          createdAt: '2026-08-25T00:00:00.000Z',
+          createdAt: '2026-11-12T00:00:00.000Z',
           createdBy: 'user',
           id: 'w-1',
           path: '/managed/app/bright-fox',
-          repoCommonDir: '/repo/.git',
+          repoCommonDir: '/work/app/.git',
+          runId: null,
           setupOutput: null,
           setupReason: null,
-          setupStatus: 'none',
+          setupStatus: 'succeeded',
           threadId: null,
         },
       },
@@ -137,153 +132,93 @@ describe('useWorktreeMode repository setup consent', () => {
     addRootByPathSpy.mockResolvedValue({ rootId: 'w-1' });
   });
 
-  it('requires a repository setup decision, forwards the durable approval, and keeps the consent block visible with the standing choice reflected', async () => {
-    createContextSpy.mockResolvedValueOnce({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        repositorySetup: REPOSITORY_SETUP,
-        suggestedName: 'bright-fox',
-      },
-    });
+  it('shows the host’s standing answer for the script when the sheet opens', async () => {
+    createContextSpy.mockResolvedValueOnce(createContext('denied'));
     const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
 
     await act(async () => {
       await result.current?.onOpenCreateSheet();
     });
+
     expect(result.current?.repositorySetupConsent).toMatchObject({
-      decision: null,
+      decision: 'denied',
       repositoryPath: '/work/app',
+      scriptPath: '/work/app/.brainstrike/worktree-setup.sh',
+    });
+  });
+
+  it('records Allow with the host for the script the sheet showed, then shows the host’s answer', async () => {
+    createContextSpy
+      .mockResolvedValueOnce(createContext(null))
+      .mockResolvedValueOnce(createContext('approved'));
+    decideSetupConsentSpy.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        decidedAt: '2026-11-12T00:00:00.000Z',
+        decision: 'approved',
+        repositoryId: '/work/app/.git',
+        scriptSha256: REPOSITORY_SETUP.scriptSha256,
+      },
+    });
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
+    await act(async () => {
+      await result.current?.onOpenCreateSheet();
+    });
+    expect(result.current?.repositorySetupConsent).toMatchObject({ decision: null });
+
+    await act(async () => {
+      await result.current?.repositorySetupConsent?.onDecision('approved');
     });
 
-    act(() => {
-      result.current?.repositorySetupConsent?.onDecision('approved');
-    });
-    // A decision no longer instantly hides the block — it stays visible with
-    // the standing choice reflected, so a misclick is a one-click change
-    // (the OTHER button) rather than durable until a full revoke.
-    expect(result.current?.repositorySetupConsent).toMatchObject({
+    expect(decideSetupConsentSpy).toHaveBeenCalledWith({
       decision: 'approved',
-      repositoryPath: '/work/app',
+      rootId: 'r-1',
+      scriptSha256: REPOSITORY_SETUP.scriptSha256,
     });
-    await act(async () => {
-      await result.current?.onCreate(CREATE_REQUEST);
-    });
-
-    expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repositorySetupDecision: {
-          decision: 'approved',
-          repositoryId: '/work/app/.git',
-          scriptSha256: 'hash-current',
-        },
-      })
-    );
+    expect(result.current?.repositorySetupConsent).toMatchObject({ decision: 'approved' });
   });
 
-  it('suppresses the prompt and forwards a persisted denial for the same repository', async () => {
-    useWorktreeSetupConsentStore.getState().decide('/work/app/.git', 'denied', 'hash-current');
-    createContextSpy.mockResolvedValueOnce({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        repositorySetup: REPOSITORY_SETUP,
-        suggestedName: 'bright-fox',
-      },
+  it('rejects with the host’s reason when it refuses the answer, and keeps asking', async () => {
+    createContextSpy.mockResolvedValueOnce(createContext(null));
+    decideSetupConsentSpy.mockResolvedValueOnce({
+      error: refusal({
+        category: 'conflict',
+        code: 'worktree.setup-consent-refused',
+        message:
+          '/work/app/.brainstrike/worktree-setup.sh changed since it was shown; review it again.',
+      }),
+      ok: false,
     });
     const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
-
     await act(async () => {
       await result.current?.onOpenCreateSheet();
     });
-    expect(result.current?.repositorySetupConsent).toMatchObject({ decision: 'denied' });
-    await act(async () => {
-      await result.current?.onCreate(CREATE_REQUEST);
-    });
-
-    expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repositorySetupDecision: {
-          decision: 'denied',
-          repositoryId: '/work/app/.git',
-          scriptSha256: 'hash-current',
-        },
-      })
-    );
-  });
-
-  it('treats a decision pinned to a DIFFERENT script hash as stale and re-prompts', async () => {
-    useWorktreeSetupConsentStore.getState().decide('/work/app/.git', 'approved', 'hash-old');
-    createContextSpy.mockResolvedValueOnce({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        // The script changed since the decision was made (pull / branch
-        // switch / rebase) — main now reports a different hash.
-        repositorySetup: { ...REPOSITORY_SETUP, scriptSha256: 'hash-new' },
-        suggestedName: 'bright-fox',
-      },
-    });
-    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
 
     await act(async () => {
-      await result.current?.onOpenCreateSheet();
+      await expect(result.current?.repositorySetupConsent?.onDecision('approved')).rejects.toThrow(
+        'changed since it was shown; review it again.'
+      );
     });
 
     expect(result.current?.repositorySetupConsent).toMatchObject({ decision: null });
   });
 
-  it('the branch-menu create path (no create sheet opened) still forwards an already-standing decision', async () => {
-    useWorktreeSetupConsentStore.getState().decide('/work/app/.git', 'approved', 'hash-current');
-    createContextSpy.mockResolvedValue({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        repositorySetup: REPOSITORY_SETUP,
-        suggestedName: 'bright-fox',
-      },
-    });
+  it('creates from the branch menu with no answer of its own: the host reads its record', async () => {
     const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
-    // Deliberately never calling onOpenCreateSheet: this is the branch menu's
-    // "Switch in new worktree" shape, which calls mode.onCreate directly.
+    // The branch menu's "Switch in a new worktree" never opens the sheet.
     await act(async () => {
       await result.current?.onCreate(CREATE_REQUEST);
     });
 
-    expect(createContextSpy).toHaveBeenCalledWith({ rootId: 'r-1' });
-    expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        repositorySetupDecision: {
-          decision: 'approved',
-          repositoryId: '/work/app/.git',
-          scriptSha256: 'hash-current',
-        },
-      })
-    );
-  });
-
-  it('the branch-menu create path with NO standing decision creates the worktree without silently running setup', async () => {
-    createContextSpy.mockResolvedValue({
-      ok: true,
-      value: {
-        managedParentPath: '/managed/app-slug',
-        repositorySetup: REPOSITORY_SETUP,
-        suggestedName: 'bright-fox',
-      },
+    expect(createSpy).toHaveBeenCalledWith({
+      baseRef: 'main',
+      branch: { name: 'bs/bright-fox' },
+      createdBy: 'user',
+      name: 'bright-fox',
+      rootId: 'r-1',
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
-    await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
-
-    await act(async () => {
-      await result.current?.onCreate(CREATE_REQUEST);
-    });
-
-    // No decision is forwarded — main's own "consent required" reason is what
-    // keeps this fail-closed to a VISIBLE skip, never a silent run.
-    expect(createSpy).toHaveBeenCalledWith(
-      expect.not.objectContaining({ repositorySetupDecision: expect.anything() })
-    );
+    expect(toastSpy).not.toHaveBeenCalled();
   });
 });

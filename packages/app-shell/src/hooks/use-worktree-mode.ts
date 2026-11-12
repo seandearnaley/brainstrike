@@ -9,11 +9,6 @@
  */
 
 import {
-  ensureWorktreeSetupConsentHydrated,
-  useWorktreeSetupConsentStore,
-  type WorktreeSetupConsentRecord,
-} from '@brainstrike/app-state/stores/worktree-setup-consent-store';
-import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
@@ -109,17 +104,16 @@ function rejectWithToast(title: string, description: string): never {
   throw new Error(description);
 }
 
-interface RepositorySetupDecisionAttestation {
-  readonly decision: WorktreeRepositorySetupDecision;
-  readonly repositoryId: string;
-  readonly scriptSha256: string;
-}
-
+/**
+ * The host reads the repository's setup script consent itself on every create
+ * (ADR-0034), so a create carries no answer of its own: the create sheet's,
+ * the branch menu's "Switch in a new worktree" and the host's own worktrees
+ * all run the script once the repository is approved at its current hash.
+ */
 async function createWorktree(
   bridge: WorktreesBridge,
   primaryRootId: string,
-  request: WorkspaceBarCreateWorktreeRequest,
-  repositorySetupDecision: RepositorySetupDecisionAttestation | undefined
+  request: WorkspaceBarCreateWorktreeRequest
 ): Promise<WorktreeCreateResult> {
   let created: Awaited<ReturnType<WorktreesBridge['create']>>;
   try {
@@ -129,7 +123,6 @@ async function createWorktree(
       createdBy: 'user',
       name: request.name,
       rootId: primaryRootId,
-      ...(repositorySetupDecision ? { repositorySetupDecision } : {}),
     });
   } catch (error) {
     const message = errorMessage(error);
@@ -140,54 +133,6 @@ async function createWorktree(
     rejectWithToast('Worktree creation failed', describeBoundaryFailure(created.error));
   }
   return created.value;
-}
-
-/**
- * Resolve the decision to attest for THIS create, regardless of which UI path
- * triggered it. The create sheet's "Create & use" button always has a fresh
- * `createSheetContext` (from `onOpenCreateSheet`'s `bridge.createContext()`
- * call). The branch menu's "Switch in new worktree" action calls
- * `mode.onCreate` directly and never opens the sheet, so `createSheetContext`
- * is null there — without resolving fresh here, that path would silently
- * never forward a decision, starving even an ALREADY-approved repository of
- * its setup script on every use through that entry point. A failed lookup
- * does not block creation (#2662: creation continues regardless; only setup
- * is skipped, VISIBLY, via the "consent required" reason main returns when no
- * decision is forwarded — never throw here and silently fail the whole
- * create instead). Main re-hashes disk independently and is the authority on
- * whether a forwarded decision's hash still matches — this only forwards
- * whatever the store holds, unfiltered.
- */
-async function resolveRepositorySetupDecisionForCreate(
-  bridge: WorktreesBridge,
-  primaryRootId: string,
-  createSheetContext: WorktreeCreateContext | null
-): Promise<RepositorySetupDecisionAttestation | undefined> {
-  await ensureWorktreeSetupConsentHydrated();
-  let repositorySetup = createSheetContext?.repositorySetup ?? null;
-  if (repositorySetup === null && createSheetContext === null) {
-    try {
-      const result = await bridge.createContext({ rootId: primaryRootId });
-      if (result.ok) {
-        repositorySetup = result.value.repositorySetup;
-      }
-    } catch {
-      // Best effort — see the function comment above.
-    }
-  }
-  if (!repositorySetup) {
-    return;
-  }
-  const record =
-    useWorktreeSetupConsentStore.getState().decisionsByRepositoryId[repositorySetup.repositoryId];
-  if (!record) {
-    return;
-  }
-  return {
-    decision: record.decision,
-    repositoryId: repositorySetup.repositoryId,
-    scriptSha256: record.scriptSha256,
-  };
 }
 
 async function mountWorktree(
@@ -328,41 +273,23 @@ function computeWorktreeSummary(params: {
 }
 
 /**
- * A record pinned to a DIFFERENT hash than the script's CURRENT contents is
- * stale — treated as no decision so the dialog proactively re-prompts rather
- * than showing a highlighted choice the user never actually made against
- * this script (mirrors main's own re-hash refusal in `resolveSetupCommand`;
- * the two must agree or the UI could show "approved" while main silently
- * skips a script that changed since).
- */
-function resolveNonStaleRepositorySetupDecision(
-  repositorySetup: WorktreeCreateContext['repositorySetup'],
-  record: WorktreeSetupConsentRecord | null
-): WorktreeRepositorySetupDecision | null {
-  if (!(repositorySetup && record) || record.scriptSha256 !== repositorySetup.scriptSha256) {
-    return null;
-  }
-  return record.decision;
-}
-
-/**
  * Rendered whenever the repository has a setup fallback needing a decision —
- * NOT only while one is outstanding. A standing decision stays visible with
- * its button highlighted (`decision` reflects it) so a misclick is a
- * one-click fix rather than durable until a full revoke: the dialog IS the
- * revocation surface for "change my mind before this create," and Settings →
- * Workspace's `revoke` action is for "clear it entirely, no create pending."
+ * NOT only while one is outstanding. The host's standing answer stays visible
+ * with its button highlighted (`decision`, which the host gives only for the
+ * script's current hash) so a misclick is a one-click fix rather than durable
+ * until a full revoke: the dialog IS the revocation surface for "change my
+ * mind before this create," and Settings → Workspace's Revoke is for "clear
+ * it entirely, no create pending."
  */
 function computeRepositorySetupConsent(
   repositorySetup: WorktreeCreateContext['repositorySetup'],
-  repositorySetupDecision: WorktreeRepositorySetupDecision | null,
-  onRepositorySetupDecision: (decision: WorktreeRepositorySetupDecision) => void
+  onRepositorySetupDecision: (decision: WorktreeRepositorySetupDecision) => Promise<void>
 ): WorkspaceBarRepositorySetupConsent | null {
   if (!repositorySetup) {
     return null;
   }
   return {
-    decision: repositorySetupDecision,
+    decision: repositorySetup.decision,
     onDecision: onRepositorySetupDecision,
     repositoryPath: repositorySetup.repositoryPath,
     scriptPath: repositorySetup.scriptPath,
@@ -420,9 +347,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [createSheetContext, setCreateSheetContext] = useState<WorktreeCreateContext | null>(null);
-  const decisionsByRepositoryId = useWorktreeSetupConsentStore(
-    (state) => state.decisionsByRepositoryId
-  );
   const [listRevision, setListRevision] = useState(0);
 
   useEffect(() => {
@@ -627,17 +551,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       const primaryRootId = args.primaryRootId;
       setPending(true);
       const create = async (): Promise<void> => {
-        const repositorySetupDecisionForCreate = await resolveRepositorySetupDecisionForCreate(
-          bridge,
-          primaryRootId,
-          createSheetContext
-        );
-        const { setup, worktree } = await createWorktree(
-          bridge,
-          primaryRootId,
-          request,
-          repositorySetupDecisionForCreate
-        );
+        const { setup, worktree } = await createWorktree(bridge, primaryRootId, request);
         await mountWorktree(addRootDirectoryByPath, worktree.path);
         await onSelectWorktree({
           branch: worktree.branch,
@@ -663,15 +577,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         setPending(false);
       });
     },
-    [
-      addRootDirectoryByPath,
-      onSelectWorktree,
-      args.primaryRootId,
-      bridge,
-      createSheetContext,
-      refreshList,
-      threadState,
-    ]
+    [addRootDirectoryByPath, onSelectWorktree, args.primaryRootId, bridge, refreshList, threadState]
   );
 
   const onSelectExisting = useCallback(
@@ -814,7 +720,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     }
     let result: Awaited<ReturnType<WorktreesBridge['createContext']>>;
     try {
-      await ensureWorktreeSetupConsentHydrated();
       result = await bridge.createContext({ rootId: args.primaryRootId });
     } catch (error) {
       const message = errorMessage(error);
@@ -832,20 +737,31 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     (settings.kind === 'ready' ? settings.value.managedDirectory : '');
   const defaultName = createSheetContext?.suggestedName ?? currentEntry?.name ?? '';
   const repositorySetup = createSheetContext?.repositorySetup ?? null;
-  const repositorySetupDecision = resolveNonStaleRepositorySetupDecision(
-    repositorySetup,
-    repositorySetup ? (decisionsByRepositoryId[repositorySetup.repositoryId] ?? null) : null
-  );
+  // The person's Allow or Skip goes to the host, which records it for the
+  // script's bytes they were shown, then the sheet reads the host's answer
+  // back. A refusal (the script changed since the sheet opened) rejects with
+  // the host's reason, which the sheet shows.
   const onRepositorySetupDecision = useCallback(
-    (decision: WorktreeRepositorySetupDecision): void => {
-      if (!repositorySetup) {
+    async (decision: WorktreeRepositorySetupDecision): Promise<void> => {
+      const rootId = args.primaryRootId;
+      if (!(bridge && rootId && repositorySetup)) {
         throw new Error('Repository setup consent context is unavailable.');
       }
-      useWorktreeSetupConsentStore
-        .getState()
-        .decide(repositorySetup.repositoryId, decision, repositorySetup.scriptSha256);
+      const decided = await bridge.decideSetupConsent({
+        decision,
+        rootId,
+        scriptSha256: repositorySetup.scriptSha256,
+      });
+      if (!decided.ok) {
+        throw new BoundaryFailureError(decided.error);
+      }
+      const refreshed = await bridge.createContext({ rootId });
+      if (!refreshed.ok) {
+        throw new BoundaryFailureError(refreshed.error);
+      }
+      setCreateSheetContext(refreshed.value);
     },
-    [repositorySetup]
+    [args.primaryRootId, bridge, repositorySetup]
   );
   const createBranchHereHandler =
     currentEntry?.id && currentEntry.managed && currentEntry.detached
@@ -936,7 +852,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       },
       repositorySetupConsent: computeRepositorySetupConsent(
         repositorySetup,
-        repositorySetupDecision,
         onRepositorySetupDecision
       ),
       setupSummary: describeSetup(settings),
@@ -981,7 +896,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     pending,
     pickerOpen,
     repositorySetup,
-    repositorySetupDecision,
     settings,
     threadState,
     uncommittedFolderName,

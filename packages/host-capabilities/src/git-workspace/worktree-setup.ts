@@ -322,8 +322,9 @@ async function resolveSetupCommand(input: WorktreeSetupInput): Promise<ResolvedC
   const script = path.join(input.sourcePath, REPOSITORY_SETUP_SCRIPT);
   // Read the bytes (not just probe existence): a decision is pinned to the
   // script's CONTENTS, so running it requires re-hashing disk here and
-  // comparing against the renderer-attested hash — the same read serves both
-  // the ENOENT check and the re-hash (mirrors the hooks trust precedent).
+  // comparing against the hash the host recorded with the person's answer —
+  // the same read serves both the ENOENT check and the re-hash (mirrors the
+  // hooks trust precedent).
   let scriptBytes: Buffer;
   try {
     scriptBytes = await fsPromises.readFile(script);

@@ -125,4 +125,11 @@
 // these records. Each root `workspace/roots/*` answers carries `scratch`, required.
 // `thread/workspace/scratch` gives a thread with no folder its scratch folder and binds it before
 // its first run, a new method.
-export const AGENT_HOST_PROTOCOL_VERSION = 26;
+// v27 (2026-11-12): the host keeps repository setup script consent (ADR-0034, Sean 2026-11-12), so
+// every worktree it creates, its own included, runs the script of a repository approved at the
+// script's hash. `worktrees/create` no longer takes `repositorySetupDecision`; the host reads its
+// own record. `worktrees/create-context` answers the standing decision with the script
+// (`repositorySetup.decision`), required. `worktrees/setup-consent/decide`,
+// `worktrees/setup-consent/list` and `worktrees/setup-consent/revoke` are new methods. Removing
+// the parameter and the required field are why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 27;

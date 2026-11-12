@@ -55,6 +55,7 @@ export function buildTestService(
   return createWorktreeService({
     getWorktreeStore: () => Promise.resolve(asLedgerStore(ctx.db)),
     hasRunningThread: async () => false,
+    readRepositorySetupConsent: async () => undefined,
     readSettings: () =>
       Promise.resolve({
         isDefaultDirectory: true,

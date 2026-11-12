@@ -43,6 +43,7 @@ import { isPathWithin } from './worktree-paths.ts';
 import { createWorktreeService, type WorktreeService } from './worktree-service.ts';
 import { readWorktreeSettings, writeWorktreeSettings } from './worktree-settings.ts';
 import { runWorktreeSetup } from './worktree-setup.ts';
+import { readWorktreeSetupConsent } from './worktree-setup-consent.ts';
 import type { HostWorktreeServices } from './worktree-tool-dependencies.ts';
 import { createWorktreesMethods } from './worktrees-methods.ts';
 
@@ -64,7 +65,7 @@ export interface WorktreeWorkspaceOptions {
   readonly onStart?: () => void;
   /** The workspace roots this host serves: the catalog's, or a standalone host's launch roots. */
   readonly roots: WorkspaceRootResolver;
-  /** The host's state store: the worktree ledger and settings. */
+  /** The host's state store: the worktree ledger, settings and setup script consent. */
   readonly store: StateStore;
 }
 
@@ -137,6 +138,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
         },
         worktreeId
       ),
+    readRepositorySetupConsent: (repositoryId) => readWorktreeSetupConsent(store, repositoryId),
     readSettings,
     resolveInventory: async (request) => {
       // `maxAgeMs: 0` guarantees a build that started after this call, which
@@ -292,6 +294,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
   const worktrees = createWorktreesMethods({
     readSettings,
     resolveService: () => worktreeService,
+    setupConsentStore: store,
     // BST-1342 containment applies at save time, so the user learns at once
     // rather than when a later create targets the saved path.
     writeSettings: (next) =>
@@ -348,6 +351,9 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     'worktrees/restore': (request) => worktrees.restore(request),
     'worktrees/settings/read': () => worktrees.getSettings(),
     'worktrees/settings/write': (request) => worktrees.setSettings(request),
+    'worktrees/setup-consent/decide': (request) => worktrees.decideSetupConsent(request),
+    'worktrees/setup-consent/list': () => worktrees.listSetupConsent(),
+    'worktrees/setup-consent/revoke': (request) => worktrees.revokeSetupConsent(request),
   };
   return {
     attachThreadReads: (reads) => {

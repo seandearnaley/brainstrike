@@ -46,6 +46,10 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
   - Home tiers load regardless; hooks keep their own hash pins.
     - A hook approval is for exact bytes, recorded under the same answering folder as workspace trust (`hostAnsweringFolder`, `packages/agent-host/src/answering-folder.ts`), so a managed worktree runs the one version its repository approved.
     - Resolve whose answer a folder shares through that one function; never match a worktree to its repository another way.
+  - The worktree setup script (`.brainstrike/worktree-setup.sh`) has its own pinned answer, kept by the host (ADR-0034, owner decision 2026-11-12): one setting, `worktrees.setup.consent`, keyed by the repository's realpath'd git common dir, read and written only through `packages/host-capabilities/src/git-workspace/worktree-setup-consent.ts`.
+    - Only a person's answer writes it (the create sheet's Allow or Skip through `worktrees/setup-consent/decide`, Settings › Workspace's Revoke). The writer re-hashes the script and refuses an answer for other bytes. Never record one from a run.
+    - The worktree service reads it on every create (`readRepositorySetupConsent`), so a worktree the host makes runs the script too; `worktrees/create` carries no decision. `resolveSetupCommand` re-hashes before running and fails closed.
+    - `worktrees/create-context` answers the standing decision only for the script's current hash; a client never compares hashes itself.
   - Any new repo-supplied input that steers the agent goes behind the same filter.
 - Every host (desktop and CLI) scans and injects these through `@brainstrike/host-capabilities/workspace-context` (ADR-0029 stage 2a).
   - Settings reads them over the host methods `workspace/skills`, `workspace/commands`, `workspace/personas` and `workspace/context-files`; the last two answer only the desktop's private client. Main serves none of them.

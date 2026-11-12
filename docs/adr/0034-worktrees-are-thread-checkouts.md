@@ -10,6 +10,8 @@
     works.
   - 2026-11-12 (owner decisions, below): a thread sent with no folder while none is open works
     in a scratch folder the host makes for it.
+  - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
+    to the host, so a worktree the host makes runs the script too.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -319,9 +321,9 @@ Not built:
   worktree tool did (`manageWorktree` create), and when a worker dispatched in
   the same step keeps the thread where it is.
 - An action that brings a worktree's changes back.
-- The repository's setup script for a worktree the host made. Consent for it
-  is kept by the renderer, so the host skips the script and the worktree shows
-  the reason. Moving that consent to the host is a change of owner.
+
+The repository's setup script for a worktree the host made was on this list
+until consent for it moved to the host (owner decision, 2026-11-12, below).
 
 ### The control that says where a thread works
 
@@ -530,6 +532,77 @@ Not built:
   thread that already ran with no folder.
 - Mounting only the scratch folders of open threads. Every one mounts at
   launch, as every managed worktree does, each with its own handle.
+
+## Owner decision, 2026-11-12: setup script consent moves to the host
+
+Sean's decision, approved: an approved change of owner.
+
+- **Repository setup script consent moves from the renderer to the host.**
+  The renderer kept it in its own storage, so the host skipped the script for
+  every worktree it made itself (Automatic isolation, the model's
+  `manageWorktree`), and the worktree said "Repository setup script consent is
+  required before it can run." Now one host record answers for every
+  creation: a repository approved at the script's current hash runs its setup
+  for the worktrees the host makes too.
+
+Built. The answer is still asked in the create sheet ("Run repository setup
+script?", Allow script / Skip script), changed there, and revoked in
+Settings › Workspace. Host protocol version 27.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **One record, keyed by repository.** One state-store setting,
+  `worktrees.setup.consent`, holds
+  `{ [repositoryId]: { decision, scriptSha256, decidedAt } }`, as the trusted
+  locations are one setting (ADR-0032): the store cannot list keys by prefix.
+  The repository id is the realpath'd git common dir, as before, so every
+  checkout of the repository shares the answer. An answer replaces the
+  repository's earlier one, and changes are serialized per store so two
+  answers never drop each other's. A record the host did not write fails the
+  read instead of reading as no answer.
+- **One reader and writer** (`worktree-setup-consent.ts` in host-capabilities'
+  git cluster), which reaches the store through `createWorktreeWorkspace`.
+  The writer resolves the root's repository, reads the script again and
+  refuses an answer whose hash differs from the one the person was shown, as
+  `hooks/trust` refuses one; nothing is recorded then. It is called only for
+  a person's answer, never by a run.
+- **Three host methods on the git cluster**, for the desktop's private client:
+  `worktrees/setup-consent/decide { rootId, decision, scriptSha256 }`,
+  `worktrees/setup-consent/list` (for Settings) and
+  `worktrees/setup-consent/revoke { repositoryId }`.
+  `worktrees/create-context` answers the standing decision with the script
+  (`repositorySetup.decision`) only when it was given for the script's
+  current hash, so the rule that an answer for other bytes asks again is the
+  host's, not the renderer's.
+- **The worktree service reads the record on every create**
+  (`readRepositorySetupConsent`), so the person's own worktree, the branch
+  menu's "Switch in a new worktree", the model's `manageWorktree` and
+  Automatic isolation run setup alike. `worktrees/create` no longer takes a
+  decision. `resolveSetupCommand` still re-hashes the script before it runs and
+  fails closed to a visible skip. A record that cannot be read fails the
+  worktree's setup, visibly, not its creation.
+- **The sheet asks the host, then reads the host's answer back.** Allow and
+  Skip call `decide` and then `create-context` again; a refusal (the script
+  changed since the sheet opened) is shown in the sheet, which keeps asking.
+- **No migration.** The renderer's record
+  (`brainstrike:worktree-setup-consent.v1`) is no longer read or removed;
+  Brainstrike is greenfield, as ADR-0032 did for hook records. Each repository
+  is asked once more.
+- **Reset.** The record is a host setting: Clear Database keeps it, as it keeps
+  workspace trust and hook approvals, and Factory Reset deletes it with the
+  state store. That is the lifecycle the renderer's record had.
+
+A known cost: setup runs inside the worktree service's one-at-a-time lock,
+with its 300-second timeout. So once a repository is approved, Automatic
+isolation's refused first edit waits for the setup script to finish before
+the turn carries on in the new worktree, and other worktree operations queue
+behind it. No timer was added for it.
+
+Not built: telling apart scripts that differ between a repository's
+checkouts. The script is read from the checkout the worktree is made from,
+and one answer per repository holds one hash, so approving one checkout's
+script makes another checkout's different script ask again.
 
 ## Consequences
 
