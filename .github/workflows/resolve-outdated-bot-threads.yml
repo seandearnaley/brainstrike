@@ -1,0 +1,114 @@
+# A push that changes the lines a bot's review finding points at resolves that
+# finding's thread, so a fixed finding no longer holds the PR in Mergify's
+# "Review threads resolved" merge protection (.mergify.yml) until someone
+# clicks Resolve.
+#
+# - Only threads a bot started (Claude Review, Codex, Copilot and the like) are
+#   resolved, and only once GitHub marks them outdated: the lines they anchor to
+#   changed in a later push. Threads a person started are left to people.
+# - Outdated means the lines moved or changed, not that the finding was fixed.
+#   Claude Review's follow-up reviews what the push changed and posts a new
+#   finding when the fix falls short; a Codex finding gets no such recheck.
+# - A thread nobody addressed stays unresolved and still holds the PR, as the
+#   2026-10-30 owner decision wants.
+# - GitHub computes outdated threads a little after the push lands, so the job
+#   waits, then looks a few times while any unresolved bot thread is left.
+#
+# Owner decision 2026-11-12: remediating a finding needs no formal resolution.
+
+name: Resolve Outdated Bot Threads
+
+on:
+  pull_request:
+    types: [synchronize]
+
+# A newer push supersedes this one's pass; its own run looks again.
+concurrency:
+  group: resolve-outdated-bot-threads-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve outdated bot threads
+    # Fork PRs get a read-only token and can't resolve threads.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Resolve bot threads this push made outdated
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const number = context.payload.pull_request.number;
+
+            const query = `
+              query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100, after: $after) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        id
+                        isResolved
+                        isOutdated
+                        path
+                        comments(first: 1) { nodes { author { __typename login } } }
+                      }
+                    }
+                  }
+                }
+              }`;
+            const mutation = `
+              mutation($id: ID!) {
+                resolveReviewThread(input: { threadId: $id }) { thread { isResolved } }
+              }`;
+
+            const startedByBot = (thread) => {
+              const author = thread.comments.nodes[0]?.author;
+              return author != null && (author.__typename === 'Bot' || author.login.endsWith('[bot]'));
+            };
+
+            async function openBotThreads() {
+              const threads = [];
+              let after = null;
+              do {
+                const page = await github.graphql(query, { owner, repo, number, after });
+                const { nodes, pageInfo } = page.repository.pullRequest.reviewThreads;
+                threads.push(...nodes);
+                after = pageInfo.hasNextPage ? pageInfo.endCursor : null;
+              } while (after);
+              return threads.filter((thread) => !thread.isResolved && startedByBot(thread));
+            }
+
+            const sleep = (seconds) => new Promise((done) => setTimeout(done, seconds * 1000));
+            const resolved = new Set();
+
+            for (const wait of [15, 20, 30, 45]) {
+              await sleep(wait);
+              const open = await openBotThreads();
+              for (const thread of open.filter((t) => t.isOutdated && !resolved.has(t.id))) {
+                try {
+                  await github.graphql(mutation, { id: thread.id });
+                  resolved.add(thread.id);
+                  const by = thread.comments.nodes[0].author.login;
+                  core.info(`Resolved ${by}'s outdated thread on ${thread.path ?? 'the PR'}.`);
+                } catch (error) {
+                  core.warning(`Could not resolve thread ${thread.id}: ${error.message}`);
+                }
+              }
+              if (open.every((t) => resolved.has(t.id))) break;
+            }
+
+            core.notice(
+              resolved.size === 0
+                ? 'No outdated bot threads to resolve.'
+                : `Resolved ${resolved.size} outdated bot thread(s).`
+            );
