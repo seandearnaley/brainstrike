@@ -373,6 +373,8 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     },
     'worktrees/adopt': (request) => worktrees.adopt(request),
     'worktrees/archive': (request) => worktrees.archive(request),
+    // ADR-0015, ADR-0034: Main's Factory Reset, before it deletes the ledger.
+    'worktrees/archive-for-reset': () => worktreeService.archiveForReset(),
     'worktrees/checkout-status': (request) => worktrees.checkoutStatus(request),
     // Main's root registration: a managed worktree mounts only with its ledger row.
     'worktrees/classify-path': async ({ path: candidate }) => {

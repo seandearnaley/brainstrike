@@ -140,6 +140,38 @@ describe('createDesktopFactoryResetHandler', () => {
     );
   });
 
+  it("gives Factory Reset its managed worktrees' archive, and Clear Database none", async () => {
+    const archiveManagedWorktrees = vi.fn(async () => ({
+      ok: true as const,
+      value: { archived: [], retained: [] },
+    }));
+    const clearRetainedContent = vi.fn(async () => undefined);
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      archiveManagedWorktrees,
+      clearRetainedContent,
+      completeSuccessfulReset: completeSuccessfulResetMock,
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      prepareDatabaseProfileReset,
+      resetLocalDatabase: vi.fn(async () => undefined),
+      runtimes: [],
+
+      sessionDataPath: '/mock/userData/session-data',
+      userDataPath: '/mock/userData',
+    });
+
+    await expect(handleReset.reset()).resolves.toEqual({ success: true });
+    await expect(handleReset.clearContent()).resolves.toEqual({ success: true });
+
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledTimes(1);
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({ archiveManagedWorktrees })
+    );
+    expect(clearRetainedContent).toHaveBeenCalledTimes(1);
+    expect(archiveManagedWorktrees).not.toHaveBeenCalled();
+  });
+
   it('returns a failed reset result without hiding the runtime shutdown error', async () => {
     const error = new Error('llm host refused to stop');
     resetDesktopApplicationDataMock.mockRejectedValueOnce(error);

@@ -529,6 +529,9 @@ const profileReset = createDesktopProfileResetOwner({
 });
 
 const handleResetLocal = createDesktopFactoryResetHandler({
+  // ADR-0034: the host archives every managed worktree into its repository, through Main's own
+  // client, before the reset retires it and deletes the ledger with its state DB.
+  archiveManagedWorktrees: () => agentHostMainClient.request('worktrees/archive-for-reset', {}),
   clearRetainedContent: async () => {
     const result = await hostProfile.clearAndRetireContent();
     for (const filePath of listErrorLogFilePaths(

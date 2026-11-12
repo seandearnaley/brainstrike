@@ -69,6 +69,7 @@ import {
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths.ts';
+import { createWorktreeResetArchive } from './worktree-reset-archive.ts';
 import {
   buildRootIdByRealPath,
   createMutex,
@@ -767,6 +768,8 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   const idleArchive = { archive: archiveUnserialized, inspectArchiveRow, invokeIn, ledger };
+  // ADR-0015, ADR-0034: Factory Reset's archive, after which no worktree is made.
+  const reset = createWorktreeResetArchive(serialize, lifetime, idleArchive);
   const operations = {
     async adopt(params: WorktreeAdoptParams): Promise<BoundaryResult<ManagedWorktreeRow>> {
       return await serialize(async () => {
@@ -810,7 +813,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     },
     /** Create a managed worktree, record it, and run its setup. */
     async create(params: WorktreeCreateParams): Promise<BoundaryResult<WorktreeCreateResult>> {
-      return await serialize(async () => {
+      return await reset.making(async () => {
         try {
           return await createUnserialized(params);
         } catch (error) {
@@ -1000,7 +1003,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     async restore(params: {
       readonly worktreeId: string;
     }): Promise<BoundaryResult<WorktreeCreateResult>> {
-      return await serialize(async () => {
+      return await reset.making(async () => {
         try {
           return await restoreUnserialized(params);
         } catch (error) {
@@ -1013,6 +1016,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   return {
     adopt: lifetime.admit(operations.adopt),
     archive: lifetime.admit(operations.archive),
+    archiveForReset: lifetime.admit(reset.archive),
     checkoutStatus: lifetime.admit(operations.checkoutStatus),
     create: lifetime.admit(operations.create),
     createBranchHere: lifetime.admit(operations.createBranchHere),

@@ -3,7 +3,10 @@ import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
-import { resetDesktopApplicationData } from './desktop-factory-reset';
+import {
+  type ResetDesktopApplicationDataOptions,
+  resetDesktopApplicationData,
+} from './desktop-factory-reset';
 import { isQuitTerminalRefusal, RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
 
 interface DesktopResetRuntime {
@@ -23,6 +26,11 @@ interface DesktopResetLogger {
 export type DesktopResetMode = 'factory' | 'content';
 
 export interface CreateDesktopFactoryResetHandlerOptions {
+  /**
+   * ADR-0034: Factory Reset archives every managed worktree through the host before it deletes
+   * the state DB that holds their ledger. Clear Database keeps them and does not call it.
+   */
+  readonly archiveManagedWorktrees?: ResetDesktopApplicationDataOptions['archiveManagedWorktrees'];
   /** Terminal clear through the current host writer; retains configuration in place. */
   readonly clearRetainedContent?: () => Promise<void>;
   /** Replaces the stale visible renderer and resolves only after its explicit
@@ -152,6 +160,7 @@ async function stopDesktopResetRuntimes(
 }
 
 export function createDesktopFactoryResetHandler({
+  archiveManagedWorktrees,
   clearRetainedContent,
   completeSuccessfulReset,
   crashDumpsPath,
@@ -179,6 +188,7 @@ export function createDesktopFactoryResetHandler({
         await clearRetainedContent();
       } else {
         await resetDesktopApplicationData({
+          ...(archiveManagedWorktrees === undefined ? {} : { archiveManagedWorktrees }),
           ...(crashDumpsPath === undefined ? {} : { crashDumpsPath }),
           ...(errorLogFilePaths === undefined ? {} : { errorLogFilePaths }),
           getProtectedPaths: () => {
