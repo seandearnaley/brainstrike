@@ -40,6 +40,7 @@ function createProps(overrides: Partial<ThreadRowProps> = {}): ThreadRowProps {
     onSetThreadPinned: null,
     onUpdateThreadAppearance: vi.fn().mockResolvedValue(undefined),
     pinned: false,
+    scratchFolder: null,
     selected: false,
     status: null,
     thread: THREAD,
@@ -74,13 +75,17 @@ describe('thread metadata badges', () => {
 
   describe('checkout chip: where the thread works', () => {
     it('says Local for a thread that works in its folder itself', () => {
-      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inFolder }} />);
+      render(
+        <ThreadMetadataBadges scratchFolder={null} thread={{ ...thread, metadata: inFolder }} />
+      );
 
       expect(screen.getByTestId('thread-checkout-chip')).toHaveTextContent('Local');
     });
 
     it('names the worktree for a thread that works in one', () => {
-      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inWorktree }} />);
+      render(
+        <ThreadMetadataBadges scratchFolder={null} thread={{ ...thread, metadata: inWorktree }} />
+      );
 
       const chip = screen.getByTestId('thread-checkout-chip');
       expect(chip).toHaveTextContent('swift-badger');
@@ -91,8 +96,40 @@ describe('thread metadata badges', () => {
       );
     });
 
+    it('names the scratch folder for a thread that works in one, at every panel width', () => {
+      const scratchFolder = {
+        displayName: 'quiet-otter',
+        path: '/profile/scratch/quiet-otter',
+        rootId: 'root-scratch',
+      };
+      render(
+        <ThreadMetadataBadges
+          scratchFolder={scratchFolder}
+          thread={{
+            ...thread,
+            metadata: {
+              operatingRootDisplayName: 'quiet-otter',
+              operatingRootId: 'root-scratch',
+              operatingRootPath: '/profile/scratch/quiet-otter',
+            },
+          }}
+        />
+      );
+
+      // Its section, Scratch, does not name the folder, so the chip does instead of Local.
+      const chip = screen.getByTestId('thread-checkout-chip');
+      expect(chip).toHaveTextContent('quiet-otter');
+      expect(chip).toHaveAttribute(
+        'title',
+        'Scratch folder quiet-otter at /profile/scratch/quiet-otter'
+      );
+      // Marked at every width, as a worktree is; the name waits for 420px.
+      expect(chip.className.split(' ')).not.toContain('hidden');
+      expect(screen.getByText('quiet-otter').className).toContain('@[420px]/threads:inline');
+    });
+
     it('shows nothing for a thread with no folder', () => {
-      const { container } = render(<ThreadMetadataBadges thread={thread} />);
+      const { container } = render(<ThreadMetadataBadges scratchFolder={null} thread={thread} />);
 
       expect(container).toBeEmptyDOMElement();
     });
@@ -100,7 +137,9 @@ describe('thread metadata badges', () => {
     // jsdom evaluates no container query, so these two pin the width gates by
     // class; the desktop spec checks the painted chips in a wide panel.
     it('keeps a worktree marked at every panel width, and names it once there is room', () => {
-      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inWorktree }} />);
+      render(
+        <ThreadMetadataBadges scratchFolder={null} thread={{ ...thread, metadata: inWorktree }} />
+      );
 
       // The pill itself is never gated: under 420px it is the branch icon alone,
       // so a narrow panel still tells a worktree thread from a Local one.
@@ -114,7 +153,9 @@ describe('thread metadata badges', () => {
     });
 
     it('leaves a narrow panel to the title for a Local thread', () => {
-      render(<ThreadMetadataBadges thread={{ ...thread, metadata: inFolder }} />);
+      render(
+        <ThreadMetadataBadges scratchFolder={null} thread={{ ...thread, metadata: inFolder }} />
+      );
 
       // Local is the unmarked case, so its chip is the one that gives way.
       expect(screen.getByTestId('thread-checkout-chip').className).toContain(
@@ -150,7 +191,7 @@ describe('thread metadata badges', () => {
     // (a) No checkout chip: provider is the row's first badge, so it shows
     // from the narrow band instead of also hiding until 560px.
     it('does not wide-gate the provider badge when no checkout chip renders', () => {
-      render(<ThreadMetadataBadges thread={threadWithProvider} />);
+      render(<ThreadMetadataBadges scratchFolder={null} thread={threadWithProvider} />);
 
       const className = providerBadgeClassName();
       expect(className).toContain('inline-flex');
@@ -161,7 +202,12 @@ describe('thread metadata badges', () => {
     // (b) Checkout chip present: it holds the row's first slot, so provider
     // hides until 560px, same as model/reasoning/max-output.
     it('wide-gates the provider badge once a checkout chip renders', () => {
-      render(<ThreadMetadataBadges thread={{ ...threadWithProvider, metadata: inFolder }} />);
+      render(
+        <ThreadMetadataBadges
+          scratchFolder={null}
+          thread={{ ...threadWithProvider, metadata: inFolder }}
+        />
+      );
 
       const providerClassName = providerBadgeClassName();
       expect(providerClassName).toContain('hidden');
