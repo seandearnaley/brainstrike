@@ -371,7 +371,11 @@ function requestedLocation(
  * The only writer of a folder's trust and of the trusted locations: Settings,
  * the composer's chip and the CLI all call it. A location is recorded only
  * here, with a `trusted` answer and on the person's explicit request, never by
- * a read, a run or anything a folder contains.
+ * a read, a run or anything a folder contains. The host itself calls it once
+ * more, at the moment it makes a folder (ADR-0032, owner decisions
+ * 2026-11-10: a folder the app makes is trusted with no question): it records
+ * that new folder as `trusted`, and never a folder that already existed
+ * (`scratch-folders.ts`).
  */
 export async function writeHostWorkspaceTrust(
   store: HostWorkspaceTrustStore,
@@ -398,6 +402,24 @@ export async function writeHostWorkspaceTrust(
     // which would answer again once it stopped being one.
     await store.deleteSetting(trustKey(folder));
   }
+}
+/**
+ * Forgets the answer recorded for the folder at `path` itself, before the
+ * host moves a folder it made to the Trash (ADR-0034 scratch threads), so no
+ * answer outlives its folder. The answer is keyed by the folder's canonical
+ * path, so it is read while the folder is there; resolves false, deleting
+ * nothing, when no folder is at `path`. The trusted locations stay.
+ */
+export async function forgetHostWorkspaceTrust(
+  store: HostWorkspaceTrustStore,
+  path: string
+): Promise<boolean> {
+  const { folder } = await answeringFolder(store, path);
+  if (folder === undefined) {
+    return false;
+  }
+  await store.deleteSetting(trustKey(folder));
+  return true;
 }
 /**
  * The roots whose repo-supplied agent configuration may load: instructions,

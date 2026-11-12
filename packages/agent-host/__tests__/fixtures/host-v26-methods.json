@@ -1,5 +1,5 @@
 {
-  "version": 25,
+  "version": 26,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
@@ -99,6 +99,7 @@
     "thread/workspace/binding/read",
     "thread/workspace/binding/update",
     "thread/workspace/read",
+    "thread/workspace/scratch",
     "thread/workspace/set",
     "workspace/commands",
     "workspace/context-files",

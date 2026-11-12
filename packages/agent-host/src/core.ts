@@ -94,6 +94,7 @@ import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
 import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
 import { HostThreadRewinds } from './thread-rewind.ts';
+import { bindHostScratch } from './thread-scratch.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
 import { HostThreadTrees } from './thread-summary.ts';
 import { HostToolRecords } from './tool-records.ts';
@@ -111,14 +112,7 @@ export class HostCore {
   private readonly mcpInputs = new HostMcpInputState();
   /** An MCP App's own tool calls, decided under the thread's live policy and grants. */
   readonly mcpApps = new HostMcpAppCalls({
-    assertAdmissible: (threadId) =>
-      assertHostCommandAdmissible(
-        threadId,
-        this.closing,
-        this.threads,
-        this.deletions,
-        this.failedAdmissions
-      ),
+    assertAdmissible: (threadId) => this.assertAdmissible(threadId),
     grants: (threadId) => this.children.grants(threadId),
     platform: () => this.platform,
     read: (threadId) => this.read(threadId, 0),
@@ -411,6 +405,15 @@ export class HostCore {
     );
   }
 
+  /** ADR-0034 scratch threads: made outside the admission queue (`thread-scratch.ts`). */
+  scratchWorkspace(params: HostParams<'thread/workspace/scratch'>) {
+    this.assertAdmissible(params.threadId);
+    return bindHostScratch(params, this, this.children, this.pendingAdmissions, this.platform);
+  }
+  private assertAdmissible(threadId: string | undefined): void {
+    const { closing, deletions, failedAdmissions, threads } = this;
+    assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);
+  }
   private command<T extends Json>(
     method: string,
     params: { commandId: string; threadId?: string },
@@ -452,8 +455,7 @@ export class HostCore {
     const queued = queueHostAdmission(
       this.admission,
       () => {
-        const { closing, deletions, failedAdmissions, threads } = this;
-        assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);
+        this.assertAdmissible(threadId);
         return perform();
       },
       signal
@@ -518,6 +520,7 @@ export class HostCore {
         queue: (tail) => {
           this.admission = tail;
         },
+        retireScratch: (threadId) => this.platform.scratchFolders?.retire({ threadId }),
         runs,
         threads: this.threads,
       },

@@ -158,6 +158,38 @@ export interface HostEnteredWorktree {
   readonly root: { readonly displayName: string; readonly path: string; readonly rootId: string };
   readonly worktreeId: string;
 }
+/** A folder the host made for a thread to work in (ADR-0034 scratch threads), as its root. */
+export interface HostScratchFolder {
+  readonly displayName: string;
+  readonly path: string;
+  readonly rootId: string;
+}
+/**
+ * ADR-0034 scratch threads: a thread sent with no folder while none is open in
+ * the workspace works in a folder the host makes for it. Absent where the host
+ * keeps no open folders (the CLI): there a thread with no folder runs with none.
+ */
+export interface HostScratchFolders {
+  /**
+   * The thread's scratch folder, mounted as a root that is never an open
+   * folder: the one recorded for it, else one made now inside the platform's
+   * scratch folder, which the host records as trusted at that moment
+   * (ADR-0032: a folder the app makes is trusted with no question). Null, with
+   * nothing made, while a folder is open in the workspace.
+   */
+  create(request: {
+    readonly signal: AbortSignal;
+    readonly threadId: string;
+  }): Promise<HostScratchFolder | null>;
+  /** The thread's scratch folder as recorded, or null when it has none. Reads only. */
+  read(request: { readonly threadId: string }): Promise<HostScratchFolder | null>;
+  /**
+   * After its thread is deleted: the scratch folder leaves the workspace, its
+   * records and its trust answer go, and it moves to the system Trash. Nothing
+   * for a thread that has none. Rejects with the reason it could not.
+   */
+  retire(request: { readonly threadId: string }): Promise<void>;
+}
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */
   readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
@@ -977,6 +1009,8 @@ export interface HostPlatform {
   readonly rewindFiles?: HostRewindFiles | undefined;
   /** The desktop workspace's open folders; absent where no window shows them (the CLI). */
   readonly rootRegistry?: HostRootRegistry;
+  /** ADR-0034 scratch threads; absent where the host keeps no open folders (the CLI). */
+  readonly scratchFolders?: HostScratchFolders | undefined;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
   /** The native-tool output rewrite policy; Core commits what it selects. */

@@ -15,7 +15,7 @@ import {
   type CommittedAssistantLogSourceSnapshot,
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
-import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
+import { useFileExplorerStoreContext, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import {
   type ReactElement,
   useCallback,
@@ -111,6 +111,7 @@ export function NewHostThread({
 }): ReactElement {
   const host = useAssistantThreadHost();
   const explorer = useFileExplorerStoreContext();
+  const { addRootDirectoryByPath } = useFileSystem();
   const threadId = newThreadId(resourceId);
   const selection = useNewThreadSelection();
   const readSelectionFolderId = useCallback(() => explorer.getState().currentFolderId, [explorer]);
@@ -145,12 +146,28 @@ export function NewHostThread({
       throw new Error('The new-thread composer requires the attached agent host.');
     }
     const repository = createHostAssistantThreadRepository(host);
-    // The draft binding (a folder or worktree picked here); none leaves the thread folderless.
+    // The draft binding (a folder or worktree picked here). With no folder picked and none open,
+    // the host makes the thread a scratch folder and binds it (ADR-0034), which the Explorer then
+    // shows and focuses, so the run is admitted there; with a folder open the thread has none.
     const bind = async (created: string): Promise<void> => {
       const draft = useAssistantThreadStore.getState().newThreadMetadataByResourceId[resourceId];
       if (draft) {
         await repository.updateThreadMetadata(created, draft);
       }
+      if (draft?.operatingRootId || explorer.getState().activeRootIds.length > 0) {
+        return;
+      }
+      const { root } = await client.request('thread/workspace/scratch', {
+        commandId: crypto.randomUUID(),
+        threadId: created,
+      });
+      if (root === null) {
+        return;
+      }
+      if (!addRootDirectoryByPath) {
+        throw new Error('This window cannot show the scratch folder the thread works in.');
+      }
+      await addRootDirectoryByPath(root.path);
     };
     const sendFirst = async (message: AppendMessage): Promise<void> => {
       if (sending.current) {
@@ -184,7 +201,7 @@ export function NewHostThread({
       });
     };
     return { onNew: sendFirst };
-  }, [client, explorer, host, replacement, resourceId, runs]);
+  }, [addRootDirectoryByPath, client, explorer, host, replacement, resourceId, runs]);
   const budgetGuardrail = useBudgetGuardrailBinding();
   return (
     <BudgetGuardrailProvider value={budgetGuardrail}>

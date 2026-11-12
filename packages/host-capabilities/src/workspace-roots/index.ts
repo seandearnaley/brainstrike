@@ -6,7 +6,12 @@
  */
 import { access, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { HostOpenRoot, HostRootRegistry, HostThreadReads } from '@brainstrike/agent-host';
+import type {
+  HostOpenRoot,
+  HostRootRegistry,
+  HostScratchFolderRoots,
+  HostThreadReads,
+} from '@brainstrike/agent-host';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type ManagedWorktreeAuthorizer,
@@ -63,6 +68,8 @@ export interface HostRootRegistryOwner {
   readonly registry: WorkspaceRootRegistry;
   /** The live folders every host capability resolves against (reads, watches, terminals, git). */
   readonly roots: WorkspaceRootResolver;
+  /** ADR-0034 scratch threads: the roots of the folders the host makes for threads. */
+  readonly scratch: HostScratchFolderRoots;
   readonly service: HostRootRegistry;
   /** Mounts the open folders, so the catalog's live roots are true before any client reads them. */
   start(): Promise<void>;
@@ -77,6 +84,7 @@ function wireRoot(descriptor: RootDescriptor): HostOpenRoot {
     available: descriptor.permissionState === 'granted',
     path: descriptor.handle.path,
     rootId: descriptor.rootId,
+    scratch: descriptor.handle.scratch === true,
     worktree: descriptor.handle.worktree === true,
   };
 }
@@ -270,6 +278,11 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     prepareClose: () => registry.prepareClose(),
     registry,
     roots,
+    scratch: {
+      add: (request) => registry.addScratchRoot(request),
+      forget: (threadId) => registry.forgetScratchRoot(threadId),
+      read: (threadId) => registry.readScratchRoot(threadId),
+    },
     service,
     start: async () => {
       await registry.restoreRoots();

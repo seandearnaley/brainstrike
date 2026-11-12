@@ -119,4 +119,10 @@
 // `workspace.binding.updated` `enteredBy` carries `cause` when the host itself made the worktree
 // it moved the thread into, and `checkout.shared` (a thread that edits a folder another thread's
 // run is editing and was not moved), a new variant.
-export const AGENT_HOST_PROTOCOL_VERSION = 25;
+// v26 (2026-11-12): scratch threads (ADR-0034, Sean 2026-11-12). A root record Main reads over
+// `host/workspace-roots` may be of kind `scratch`, a folder the host made for a thread sent with
+// no folder while none was open; Main decodes the kind strictly, so an older Main cannot read
+// these records. Each root `workspace/roots/*` answers carries `scratch`, required.
+// `thread/workspace/scratch` gives a thread with no folder its scratch folder and binds it before
+// its first run, a new method.
+export const AGENT_HOST_PROTOCOL_VERSION = 26;

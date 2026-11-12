@@ -1,4 +1,10 @@
-import { BoundaryFailureError, fault, refusalError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  describeBoundaryError,
+  fault,
+  refusalError,
+} from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
 import type { HostChildRuns } from './core-child-runs.ts';
 import {
@@ -10,6 +16,8 @@ import type { HostRunState } from './core-state.ts';
 import type { HostResults } from './protocol.ts';
 
 type Deletion = Promise<HostResults['thread/delete']>;
+
+const logger = createLogger('AgentHost');
 
 /** Core's state one thread deletion uses; Core keeps the admission queue's tail. */
 export interface HostThreadDeletionContext {
@@ -27,6 +35,8 @@ export interface HostThreadDeletionContext {
   readonly pendingAdmissions: ReadonlyMap<AbortController, string>;
   /** The new admission tail: later commands queue behind the deletion. */
   queue(tail: Promise<void>): void;
+  /** ADR-0034: the deleted thread's scratch folder goes to the system Trash (`HostScratchFolders`). */
+  retireScratch(threadId: string): Promise<void> | undefined;
   readonly runs: ReadonlyMap<string, HostRunState>;
   readonly threads: ReadonlySet<string>;
 }
@@ -56,7 +66,7 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
     return Promise.reject(new Error('The Root owner has no thread deletion capability'));
   }
   const subtree = context.children.subtree(threadId);
-  const deletion = context.admission.then(async (): Deletion => {
+  const erased = context.admission.then(async (): Deletion => {
     if (context.closing()) {
       throw new BoundaryFailureError(
         fault({ category: 'availability', code: 'host.closing', message: 'Host is closing' })
@@ -80,15 +90,47 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
     }
     return { deleted: true, threadIds: subtree };
   });
+  // Outside the admission queue, which every thread shares: moving a folder to the Trash can take
+  // a while, and nothing of the thread is left to admit.
+  const deletion = erased.then(async (deleted) => {
+    await retireHostScratchFolder(context, threadId);
+    return deleted;
+  });
   for (const id of subtree) {
     context.deletions.set(id, deletion);
     abortHostThreadRuns(id, context.pendingAdmissions, context.runs.values());
   }
   context.queue(
-    deletion.then(
+    erased.then(
       () => undefined,
       () => undefined
     )
   );
   return deletion;
+}
+
+/**
+ * The deleted thread's scratch folder, if it had one, leaves the workspace and
+ * goes to the Trash. A failure is logged and answers the deletion, which says
+ * the thread itself is gone.
+ */
+async function retireHostScratchFolder(
+  context: Pick<HostThreadDeletionContext, 'retireScratch'>,
+  threadId: string
+): Promise<void> {
+  try {
+    await context.retireScratch(threadId);
+  } catch (cause) {
+    logger.error('A deleted thread’s scratch folder was not moved to the Trash', {
+      cause,
+      threadId,
+    });
+    throw new BoundaryFailureError(
+      fault({
+        category: 'availability',
+        code: 'thread.scratch-folder-not-retired',
+        message: `The thread was deleted, but its scratch folder was not moved to the Trash: ${describeBoundaryError(cause)}`,
+      })
+    );
+  }
 }

@@ -9,6 +9,7 @@ import {
   type HostStartupContext,
   type HostTurnSnapshotRoot,
   hostPermissionGate,
+  hostScratchFolders,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
   readHostPermissionPolicy,
@@ -28,7 +29,10 @@ import {
   disposeHostTools,
   hostCommandSessionManager,
 } from '@brainstrike/host-capabilities/command-sessions';
-import { createGitWorkspace } from '@brainstrike/host-capabilities/git-workspace';
+import {
+  createGitWorkspace,
+  generateWorktreeName,
+} from '@brainstrike/host-capabilities/git-workspace';
 import {
   getGlobalHooksPath,
   loadHostRunHooks,
@@ -286,6 +290,20 @@ export async function createDesktopHostConfiguration(
     store: startup.store,
   });
   await startup.register(() => gitWorkspace.close());
+  // ADR-0034 scratch threads: a thread sent with no folder while none is open works in a folder
+  // made here, under userData, which a factory reset deletes. Main moves a deleted thread's to
+  // the system Trash.
+  const scratchFolders = hostScratchFolders({
+    directory: path.join(userDataDir, 'scratch'),
+    name: generateWorktreeName,
+    roots: rootRegistry.scratch,
+    store: startup.store,
+    trash: async (folder) => {
+      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+        await request('platform/workspace/trash-scratch-folder', { path: folder })
+      );
+    },
+  });
   // The open folders mount before any client reads the catalog's live roots.
   await rootRegistry.start();
   // A run's workspace borrow holds the registry's mounts; removing a folder ends it.
@@ -543,6 +561,7 @@ export async function createDesktopHostConfiguration(
     // The shadow-git owner restores a host thread's rewind and its redo.
     rewindFiles: gitWorkspace.rewindFiles,
     rootRegistry: rootRegistry.service,
+    scratchFolders,
     selectProjectionRewrites: selectHostProjectionRewrites,
     terminals: terminals.service,
     validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {

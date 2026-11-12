@@ -90,6 +90,10 @@ export {
   type HostStartupContext,
   startAgentHost,
 } from './runtime.ts';
+export {
+  type HostScratchFolderRoots,
+  hostScratchFolders,
+} from './scratch-folders.ts';
 export { pendingRewindSnapshotTargets } from './thread-rewind.ts';
 export { nodePortConnection, stdioConnection } from './transports.ts';
 export {

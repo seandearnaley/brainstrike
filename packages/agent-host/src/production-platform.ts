@@ -162,6 +162,8 @@ export interface ProductionHostPlatformOptions {
   readonly rewindFiles?: HostPlatform['rewindFiles'];
   /** ADR-0029 stage 4: the desktop workspace's open folders. */
   readonly rootRegistry?: HostPlatform['rootRegistry'];
+  /** ADR-0034 scratch threads: the folders the host makes for threads with none. */
+  readonly scratchFolders?: HostPlatform['scratchFolders'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
@@ -701,6 +703,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       : {}),
     ...(options.attachThreadReads ? { attachThreadReads: options.attachThreadReads } : {}),
     ...(options.checkoutIsolation ? { checkoutIsolation: options.checkoutIsolation } : {}),
+    ...(options.scratchFolders ? { scratchFolders: options.scratchFolders } : {}),
     ...(options.childConfiguration ? { childConfiguration: options.childConfiguration } : {}),
     ...(options.commandSessionExits ? { commandSessionExits: options.commandSessionExits } : {}),
     ...productionMemoryReadiness(options),
