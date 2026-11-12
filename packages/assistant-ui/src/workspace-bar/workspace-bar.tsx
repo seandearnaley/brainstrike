@@ -254,11 +254,12 @@ export interface WorkspaceBarProps {
    */
   readonly checkoutState?: 'pending' | 'resolved' | undefined;
   /**
-   * Non-null while Make primary would change the thread's checkout (it leaves a
-   * worktree) and must wait, as the checkout rows do: "Available when this
-   * thread's run ends." Rendered as each Make primary row's disabled reason.
+   * Non-null while the folder actions that would take the thread out of its
+   * worktree must wait for its run, as the checkout rows do: Make primary,
+   * Remove from this thread on the worktree folder or the Local folder, and Use
+   * another folder…. Rendered as each of those rows' disabled reason.
    */
-  readonly makePrimaryDisabledReason?: string | undefined;
+  readonly leaveWorktreeDisabledReason?: string | undefined;
   /** Desktop only — Local / Worktree selection [D1]. Absent ⇒ no checkout rows. */
   readonly mode?: WorkspaceBarMode | undefined;
   readonly onAddFolder: () => void;

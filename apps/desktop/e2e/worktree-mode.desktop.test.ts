@@ -82,6 +82,10 @@ async function createAndUseWorktree(page: Page): Promise<CreatedWorktree> {
   await expect(whereChip(page)).toContainText(name, {
     timeout: 90_000,
   });
+  // The thread moves before the operation ends; a person waits for "Worktree
+  // operation in progress." to go, and for the sheet to close.
+  await expect(whereChip(page)).not.toHaveAttribute('aria-busy', 'true', { timeout: 90_000 });
+  await expect(dialog).toBeHidden();
   return { branch, name, worktreePath };
 }
 

@@ -168,8 +168,10 @@ supersede the decisions above where they differ.
   and Archive worktree…) waits for the thread's run to end, because a run keeps
   the checkout it was admitted with. Uncommitted changes stay in the thread's
   folder, and the create sheet says so. The same wait covers the Worktree Map's
-  move and hand-off, an Archive whose inspection a run outlasts, and Make
-  primary in a worktree, which leaves the worktree. The single
+  move and hand-off, an Archive whose inspection a run outlasts, and the folder
+  actions that take a thread out of its worktree: Make primary, Remove from
+  this thread on its worktree folder or its Local folder, and Use another
+  folder…. The single
   control that says where a thread works is below (owner decisions,
   2026-11-11).
 
@@ -346,6 +348,11 @@ Decisions the build made, which are not Sean's:
   primary checkout, and is left blank when the list does not name it.
 - The project row shows the Local folder's full path; the control has no home
   directory to shorten it with.
+- While a worktree operation runs, the closed control is `aria-busy`. Once the
+  operation moves the thread, the new folder's git status is read before the
+  checkout rows return (BST-2129); the operation's sheet and dialogs, and the
+  busy state, keep the last rows' state through that read instead of closing
+  and coming back.
 
 ## Consequences
 

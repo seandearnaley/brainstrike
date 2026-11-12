@@ -40,7 +40,7 @@ interface RootAction {
 
 type RootHandlers = Pick<
   FolderMenuProps,
-  | 'makePrimaryDisabledReason'
+  | 'leaveWorktreeDisabledReason'
   | 'onAddRecent'
   | 'onCopyPath'
   | 'onMakePrimary'
@@ -84,16 +84,20 @@ function removedRootActions(
           },
         ]
       : []),
+    // In a worktree, removing the worktree folder (the primary) or the Local
+    // folder takes the thread out of it, which waits for its run to end.
     isPrimary
       ? {
-          disabledReason: hasOtherLiveFolder ? null : REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER,
+          disabledReason: hasOtherLiveFolder
+            ? (handlers.leaveWorktreeDisabledReason ?? null)
+            : REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER,
           icon: X,
           label: 'Remove from this thread',
           onSelect: () => handlers.onRemovePrimary(root.rootId),
           testId: `workspace-bar-remove-primary-${root.rootId}`,
         }
       : {
-          disabledReason: null,
+          disabledReason: root.local ? (handlers.leaveWorktreeDisabledReason ?? null) : null,
           icon: X,
           label: 'Remove from this thread',
           onSelect: () => handlers.onRemoveSecondary(root.rootId),
@@ -130,7 +134,7 @@ function rootActions(
   const actions: RootAction[] = [];
   if (!(isPrimary || (root.local && handlers.handOffOffered))) {
     actions.push({
-      disabledReason: handlers.makePrimaryDisabledReason ?? null,
+      disabledReason: handlers.leaveWorktreeDisabledReason ?? null,
       icon: Star,
       label: 'Make primary',
       onSelect: () => handlers.onMakePrimary(root.rootId),
@@ -335,9 +339,12 @@ export const RootRow = ({
  * is live, listing the workspace's other mounted folders.
  */
 const UseAnotherFolder = ({
+  disabledReason,
   folders,
   onUseFolder,
 }: {
+  /** In a worktree, using another folder takes the thread out of it, which waits for its run. */
+  readonly disabledReason: string | null;
   readonly folders: readonly WorkspaceBarRecentRoot[];
   readonly onUseFolder: (folder: WorkspaceBarRecentRoot) => void;
 }): ReactElement => (
@@ -348,15 +355,15 @@ const UseAnotherFolder = ({
     </DropdownMenuSubTrigger>
     <DropdownMenuSubContent>
       {folders.map((folder) => (
-        <DropdownMenuItem
-          data-testid={`workspace-bar-use-folder-${folder.path}`}
+        <DisableableMenuItem
+          disabledReason={disabledReason}
+          icon={Folder}
           key={folder.path}
+          label={folder.displayName}
           onSelect={() => onUseFolder(folder)}
+          testId={`workspace-bar-use-folder-${folder.path}`}
           title={folder.path}
-        >
-          <Folder aria-hidden="true" className="size-3.5" />
-          <span className="truncate">{folder.displayName}</span>
-        </DropdownMenuItem>
+        />
       ))}
     </DropdownMenuSubContent>
   </DropdownMenuSub>
@@ -431,7 +438,7 @@ const RecentFolders = ({
 export const FolderMenuItems = ({
   addFolderDisabledReason,
   handOffOffered,
-  makePrimaryDisabledReason,
+  leaveWorktreeDisabledReason,
   onAddFolder,
   onAddRecent,
   onAddWorkspaceFolder,
@@ -461,7 +468,7 @@ export const FolderMenuItems = ({
   const visibleRecents = recentRoots.filter((recent) => !mountedPaths.has(recent.path));
   const rootHandlers = {
     handOffOffered,
-    makePrimaryDisabledReason,
+    leaveWorktreeDisabledReason,
     onAddRecent,
     onCopyPath,
     onMakePrimary,
@@ -498,7 +505,11 @@ export const FolderMenuItems = ({
             />
           ))}
           {noLiveFolder && workspaceFolders.length > 0 ? (
-            <UseAnotherFolder folders={workspaceFolders} onUseFolder={onUseFolder} />
+            <UseAnotherFolder
+              disabledReason={leaveWorktreeDisabledReason ?? null}
+              folders={workspaceFolders}
+              onUseFolder={onUseFolder}
+            />
           ) : null}
           <DropdownMenuSeparator />
         </>

@@ -460,10 +460,13 @@ const FoldersSubmenu = ({
 
 /** The open where-menu: the checkout, then its branch and folders, then the worktree's own actions. */
 const WhereMenuBody = ({
+  busy,
   onDone,
   onOpenCreate,
   props,
 }: {
+  /** A worktree operation is in progress (see `WhereChip`'s `operationMode`). */
+  readonly busy: boolean;
   readonly onDone: () => void;
   readonly onOpenCreate: () => void;
   readonly props: WhereChipProps;
@@ -479,7 +482,7 @@ const WhereMenuBody = ({
   const handOffOffered = Boolean(mode?.worktree && mode.onHandOffToLocal && !mode.disabledReason);
   const rootHandlers = {
     handOffOffered,
-    makePrimaryDisabledReason: folders.makePrimaryDisabledReason,
+    leaveWorktreeDisabledReason: folders.leaveWorktreeDisabledReason,
     onAddRecent: folders.onAddRecent,
     onCopyPath: folders.onCopyPath,
     onMakePrimary: folders.onMakePrimary,
@@ -492,7 +495,7 @@ const WhereMenuBody = ({
   return (
     <>
       <DropdownMenuLabel className={SECTION_LABEL_CLASS}>Where this thread works</DropdownMenuLabel>
-      {mode?.pending ? (
+      {busy ? (
         <span className="text-muted-foreground text-2xs block px-3 py-1">
           Worktree operation in progress.
         </span>
@@ -579,6 +582,14 @@ const WhereChipLabel = ({
  * The create and picker dialogs live INSIDE this component's JSX because
  * dialog nesting depth is LEXICAL (`ui-conventions.md`): hoisting either one
  * would drop it to tier 1 and paint its scrim under the menu's own popup.
+ *
+ * A worktree operation outlives the mode for a moment: once it moves the
+ * thread, app-shell withholds the mode until the new folder's first git status
+ * read settles (`useWorkspaceBarMode`, BST-2129). The operation's sheet and
+ * dialogs, and the busy state, keep the last mode through that window
+ * (`operationMode`). Gated on the live mode, the create sheet unmounted mid-
+ * operation and came back as a fresh sheet when the status settled, and that
+ * sheet took focus from an open where-menu and closed it.
  */
 export const WhereChip = (props: WhereChipProps): ReactElement => {
   const { checkout, mode } = props;
@@ -587,6 +598,16 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const shouldRestoreCreateFocusRef = useRef(false);
   const summary = describeWhere(props);
+  // The last mode app-shell gave, adjusted while rendering (React's pattern for
+  // state derived from a prop), so it is never read from a ref during render.
+  const [lastMode, setLastMode] = useState(mode);
+  if (mode !== undefined && mode !== lastMode) {
+    setLastMode(mode);
+  }
+  // Held only while an operation is in flight or its sheet is open: a mode that
+  // is gone for any other reason takes its dialogs with it.
+  const operationMode = mode ?? (lastMode?.pending || createOpen ? lastMode : undefined);
+  const busy = operationMode?.pending === true;
 
   useLayoutEffect(() => {
     if (createOpen || !shouldRestoreCreateFocusRef.current) {
@@ -609,6 +630,8 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
       <DropdownMenu modal={false} onOpenChange={setOpen} open={open}>
         <DropdownMenuTrigger
           aria-label={summary.accessibleName}
+          // The closed control's only sign that a worktree operation is running.
+          {...(busy ? { 'aria-busy': true } : {})}
           className="bs-composer-chip bs-composer-chip-where"
           data-dirty={checkout?.dirty ? 'true' : 'false'}
           data-setup={mode?.worktree?.setupStatus ?? 'none'}
@@ -635,12 +658,17 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
             }
           }}
         >
-          <WhereMenuBody onDone={() => setOpen(false)} onOpenCreate={onOpenCreate} props={props} />
+          <WhereMenuBody
+            busy={busy}
+            onDone={() => setOpen(false)}
+            onOpenCreate={onOpenCreate}
+            props={props}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
-      {mode && createOpen ? (
+      {operationMode && createOpen ? (
         <WorktreeCreateDialog
-          mode={mode}
+          mode={operationMode}
           onOpenChange={(next: boolean) => {
             if (!next) {
               shouldRestoreCreateFocusRef.current = true;
@@ -653,9 +681,11 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
           open={createOpen}
         />
       ) : null}
-      {mode ? <WorktreePickerDialog picker={mode.picker} triggerRef={triggerRef} /> : null}
-      {mode?.archiveConfirmation ? (
-        <WorktreeArchiveConfirmationDialog confirmation={mode.archiveConfirmation} />
+      {operationMode ? (
+        <WorktreePickerDialog picker={operationMode.picker} triggerRef={triggerRef} />
+      ) : null}
+      {operationMode?.archiveConfirmation ? (
+        <WorktreeArchiveConfirmationDialog confirmation={operationMode.archiveConfirmation} />
       ) : null}
     </>
   );

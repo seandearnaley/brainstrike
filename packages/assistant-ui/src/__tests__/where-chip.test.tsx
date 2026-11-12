@@ -497,6 +497,71 @@ describe('what the merge removed', () => {
   });
 });
 
+/**
+ * The order a move into a new worktree takes in the app: the operation is
+ * pending, the binding lands (the thread's primary is the worktree folder,
+ * whose git status is not read yet, so app-shell withholds the mode), the
+ * status settles, and the operation ends.
+ */
+describe('a checkout change finishing', () => {
+  const movedFolders = {
+    primaryRoot: swiftBadger,
+    secondaryRoots: [{ ...brainstrike, local: true as const }],
+  };
+
+  it('keeps the create sheet, still creating, until its operation ends', async () => {
+    const user = setup();
+    const created = Promise.withResolvers<void>();
+    const started = mode({ onCreate: vi.fn(() => created.promise) });
+    const { rerender } = render(<WorkspaceBar {...local({ mode: started })} />);
+    await openWhere(user);
+    await user.click(screen.getByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('worktree-create-submit'));
+    rerender(<WorkspaceBar {...local({ mode: { ...started, pending: true } })} />);
+    expect(chip()).toHaveAttribute('aria-busy', 'true');
+
+    // The binding lands; the worktree folder's status is not read yet.
+    rerender(<WorkspaceBar {...props({ ...movedFolders, mode: undefined })} />);
+    expect(screen.getByTestId('worktree-create-submit')).toHaveTextContent('Creating…');
+    expect(chip()).toHaveAttribute('aria-busy', 'true');
+
+    const settled = inWorktree().mode;
+    rerender(<WorkspaceBar {...props({ ...movedFolders, mode: { ...settled, pending: true } })} />);
+    expect(screen.getByTestId('worktree-create-submit')).toHaveTextContent('Creating…');
+
+    rerender(<WorkspaceBar {...props({ ...movedFolders, mode: settled })} />);
+    await act(async () => {
+      created.resolve();
+    });
+    expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
+    expect(chip()).not.toHaveAttribute('aria-busy');
+    await openWhere(user);
+    expect(screen.getByTestId('workspace-bar-where-worktree')).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+  });
+
+  it('leaves an open menu open across the move, then shows the settled rows', async () => {
+    const user = setup();
+    const { rerender } = render(<WorkspaceBar {...local({ mode: mode({ pending: true }) })} />);
+    await openWhere(user);
+    expect(screen.getByText('Worktree operation in progress.')).toBeVisible();
+
+    rerender(<WorkspaceBar {...props({ ...movedFolders, mode: undefined })} />);
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+
+    rerender(<WorkspaceBar {...props({ ...movedFolders, mode: inWorktree().mode })} />);
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByTestId('workspace-bar-where-worktree')).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+    expect(screen.queryByText('Worktree operation in progress.')).toBeNull();
+    expect(chip()).not.toHaveAttribute('aria-busy');
+  });
+});
+
 describe('while the thread runs', () => {
   it('disables the checkout rows with the reason, and leaves branch, folders and repairs open', async () => {
     const user = setup();
@@ -538,7 +603,7 @@ describe('while the thread runs', () => {
     render(
       <WorkspaceBar
         {...value.props}
-        makePrimaryDisabledReason={RUN_IN_PROGRESS}
+        leaveWorktreeDisabledReason={RUN_IN_PROGRESS}
         onMakePrimary={onMakePrimary}
         secondaryRoots={[{ ...brainstrike, local: true }, docs]}
       />
@@ -551,5 +616,53 @@ describe('while the thread runs', () => {
     expect(makePrimary).toHaveAccessibleDescription(RUN_IN_PROGRESS);
     await user.click(makePrimary);
     expect(onMakePrimary).not.toHaveBeenCalled();
+  });
+
+  it('shows why removing a closed worktree folder waits, and does nothing', async () => {
+    const user = setup();
+    const onRemovePrimary = vi.fn();
+    render(
+      <WorkspaceBar
+        {...props({
+          leaveWorktreeDisabledReason: RUN_IN_PROGRESS,
+          onAddRecent: vi.fn(),
+          onRemovePrimary,
+          primaryRoot: { ...swiftBadger, removed: true },
+          secondaryRoots: [{ ...brainstrike, local: true }],
+        })}
+      />
+    );
+    await openWhere(user);
+    await openSubmenu(user, 'workspace-bar-root-r-wt');
+    const remove = await screen.findByTestId('workspace-bar-remove-primary-r-wt');
+    expect(remove).toHaveAttribute('aria-disabled', 'true');
+    expect(remove).toHaveAccessibleDescription(RUN_IN_PROGRESS);
+    // Reopening the folder changes no checkout and stays offered.
+    expect(screen.getByTestId('workspace-bar-readd-r-wt')).not.toHaveAttribute('aria-disabled');
+    await user.click(remove);
+    expect(onRemovePrimary).not.toHaveBeenCalled();
+  });
+
+  it('shows why Use another folder… waits, and does nothing', async () => {
+    const user = setup();
+    const onUseFolder = vi.fn();
+    render(
+      <WorkspaceBar
+        {...props({
+          leaveWorktreeDisabledReason: RUN_IN_PROGRESS,
+          onUseFolder,
+          primaryRoot: { ...swiftBadger, removed: true },
+          secondaryRoots: [{ ...brainstrike, local: true, removed: true }],
+          workspaceFolders: [{ displayName: 'charlie', path: '/ws/charlie' }],
+        })}
+      />
+    );
+    await openWhere(user);
+    await openSubmenu(user, 'workspace-bar-use-another-folder');
+    const charlie = await screen.findByTestId('workspace-bar-use-folder-/ws/charlie');
+    expect(charlie).toHaveAttribute('aria-disabled', 'true');
+    expect(charlie).toHaveAccessibleDescription(RUN_IN_PROGRESS);
+    await user.click(charlie);
+    expect(onUseFolder).not.toHaveBeenCalled();
   });
 });

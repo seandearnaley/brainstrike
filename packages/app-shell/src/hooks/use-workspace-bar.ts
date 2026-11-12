@@ -24,6 +24,7 @@ import { useFolderDrop } from '../workspace-connect/use-folder-drop';
 import { stripIpcInvokeEnvelope } from '../workspace-connect/workspace-connect-bridge';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useFollowPrimaryRecord } from './use-follow-primary-record';
+import { useLeaveWorktreeBetweenRuns } from './use-leave-worktree-between-runs';
 import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
 import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
@@ -51,7 +52,6 @@ import {
   writeStartingPoint,
 } from './use-workspace-bar-write-derive';
 import { NO_TOUCHED_FIELDS, useWriteTailQueue } from './use-workspace-bar-write-tail-queue';
-import { RUN_IN_PROGRESS_REASON } from './use-worktree-mode';
 import { copyWorkspaceBarPath } from './workspace-bar-clipboard';
 import { withFolderRequest } from './workspace-bar-folder-requests.ts';
 
@@ -192,25 +192,6 @@ function branchMenuEntry(
 
 function modeEntry(mode: WorkspaceBarMode | undefined): { readonly mode?: WorkspaceBarMode } {
   return mode ? { mode } : {};
-}
-
-/**
- * ADR-0034: in a worktree, Make primary leaves it (the thread is Local again),
- * a checkout change, so it waits for the thread's run to end as the checkout
- * rows do, on the same run state. In Local it changes no checkout.
- */
-function makePrimaryDisabledReasonFor(
-  checkoutMode: 'local' | 'worktree',
-  threadState: ReturnType<typeof useWorkspaceBarMode>['threadState']
-): string | null {
-  return checkoutMode === 'worktree' && threadState === 'running' ? RUN_IN_PROGRESS_REASON : null;
-}
-
-/** Ready-to-spread partial, for the same reason as `addFolderDisabledReasonEntry` above. */
-function makePrimaryDisabledReasonEntry(makePrimaryDisabledReason: string | null): {
-  readonly makePrimaryDisabledReason?: string;
-} {
-  return makePrimaryDisabledReason ? { makePrimaryDisabledReason } : {};
 }
 
 /**
@@ -1024,21 +1005,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedThread,
     worktreeCheckout,
   });
-  const makePrimaryDisabledReason = makePrimaryDisabledReasonFor(checkoutMode, threadState);
-  const onMakePrimaryBetweenRuns = useCallback(
-    (rootId: string) => {
-      if (makePrimaryDisabledReason) {
-        toast({
-          description: makePrimaryDisabledReason,
-          title: 'Could not make that folder primary',
-          variant: 'destructive',
-        });
-        return;
-      }
-      onMakePrimary(rootId);
-    },
-    [makePrimaryDisabledReason, onMakePrimary]
-  );
+  const leaveWorktreeActions = useLeaveWorktreeBetweenRuns({
+    checkoutLocalRootId,
+    checkoutMode,
+    onMakePrimary,
+    onRemoveFromThread,
+    onUseFolder,
+    threadState,
+  });
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
   const folderRequests = fileSystem.folderRequests;
   const shownSecondaryRoots = useMemo(
@@ -1060,11 +1034,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onAddWorkspaceFolder,
     onCopyPath,
     ...folderDropEntry,
-    ...makePrimaryDisabledReasonEntry(makePrimaryDisabledReason),
-    onMakePrimary: onMakePrimaryBetweenRuns,
-    onRemovePrimary: onRemoveFromThread,
-    onRemoveSecondary: onRemoveFromThread,
-    onUseFolder,
+    // Make primary, Remove and Use another folder… wait for a run before leaving a worktree.
+    ...leaveWorktreeActions,
     ...(primaryRoot ? { primaryRoot: withFolderRequest(primaryRoot, folderRequests) } : {}),
     recentRoots,
     ...(reveal ? { reveal } : {}),
