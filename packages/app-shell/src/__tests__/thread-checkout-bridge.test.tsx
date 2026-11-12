@@ -4,12 +4,14 @@
  * binding and the open folders' names; the Explorer shows it on that folder.
  */
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { useRootHeaderLabel } from '@brainstrike/file-explorer-ui/shell';
+import { useRootCheckoutChange, useRootHeaderLabel } from '@brainstrike/file-explorer-ui/shell';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileExplorerState } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThreadCheckoutBridge } from '../thread-checkout-bridge';
+import { showWhereControl, useWhereControlRequests } from '../workspace-bar/where-control-requests';
 
 const explorer = {
   rootDescriptors: {
@@ -78,12 +80,23 @@ function Header({ rootId }: { readonly rootId: string }): ReactElement {
   return <span data-testid={`header-${rootId}`}>{useRootHeaderLabel(rootId, '')}</span>;
 }
 
+function Control({ rootId }: { readonly rootId: string }): ReactElement | null {
+  const changeCheckout = useRootCheckoutChange(rootId);
+  return changeCheckout ? (
+    <button data-testid={`control-${rootId}`} onClick={changeCheckout} type="button">
+      Change
+    </button>
+  ) : null;
+}
+
 function renderHeaders(): void {
   render(
     <ThreadCheckoutBridge>
       <Header rootId="r-main" />
       <Header rootId="r-wt" />
       <Header rootId="r-docs" />
+      <Control rootId="r-main" />
+      <Control rootId="r-docs" />
     </ThreadCheckoutBridge>
   );
 }
@@ -134,5 +147,44 @@ describe("the Explorer header's words for the active thread", () => {
     selectThread({});
     renderHeaders();
     expect(screen.getByTestId('header-r-main')).toBeEmptyDOMElement();
+  });
+});
+
+describe("the Explorer header's control for the active thread", () => {
+  it("opens the active thread's where-control, offered only while it is shown", () => {
+    selectThread(LOCAL);
+    renderHeaders();
+    // Nothing to open: the header offers no control.
+    expect(screen.queryByTestId('control-r-main')).not.toBeInTheDocument();
+
+    let hide = (): void => undefined;
+    act(() => {
+      hide = showWhereControl(THREAD_ID);
+    });
+    fireEvent.click(screen.getByTestId('control-r-main'));
+    expect(useWhereControlRequests.getState().requests[THREAD_ID]).toBe(1);
+    // Only on the folder the thread works in.
+    expect(screen.queryByTestId('control-r-docs')).not.toBeInTheDocument();
+
+    act(() => {
+      hide();
+    });
+    expect(screen.queryByTestId('control-r-main')).not.toBeInTheDocument();
+  });
+
+  // Inactive thread tabs stay mounted, hidden, with their own composers.
+  it("never asks another thread's where-control to open", () => {
+    selectThread(LOCAL);
+    renderHeaders();
+    let hide = (): void => undefined;
+    act(() => {
+      hide = showWhereControl('thread-in-another-tab');
+    });
+    // Only another thread's where-control is shown: nothing for this one to open.
+    expect(screen.queryByTestId('control-r-main')).not.toBeInTheDocument();
+    expect(useWhereControlRequests.getState().requests['thread-in-another-tab']).toBeUndefined();
+    act(() => {
+      hide();
+    });
   });
 });

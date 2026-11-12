@@ -1,9 +1,13 @@
 import { act } from '@brainstrike/test-utils/react-act';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import type { UseWorkspaceBarArgs } from '../hooks/use-workspace-bar';
+import {
+  requestWhereControlOpen,
+  useWhereControlRequests,
+} from '../workspace-bar/where-control-requests';
 import { WorkspaceBarHost } from '../workspace-bar/workspace-bar-host';
 
 const { renders } = vi.hoisted(() => ({ renders: { bar: 0, parent: 0, probe: 0 } }));
@@ -12,9 +16,9 @@ const { renders } = vi.hoisted(() => ({ renders: { bar: 0, parent: 0, probe: 0 }
 // @brainstrike/assistant-ui except the bar itself (everything else is
 // type-only), and the bar's own rendering is covered in that package.
 vi.mock('@brainstrike/assistant-ui', () => ({
-  WorkspaceBar: (): ReactElement => {
+  WorkspaceBar: ({ openRequest }: { readonly openRequest?: number }): ReactElement => {
     renders.bar += 1;
-    return <div data-testid="bar" />;
+    return <div data-open-request={openRequest} data-testid="bar" />;
   },
 }));
 vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
@@ -58,6 +62,7 @@ function Parent({ tick }: { readonly tick: number }): ReactElement {
 
 beforeEach(() => {
   useChangesLiveRefreshStore.getState().reset();
+  useWhereControlRequests.setState({ requests: {}, shown: {} });
   renders.bar = 0;
   renders.parent = 0;
   renders.probe = 0;
@@ -90,5 +95,25 @@ describe('WorkspaceBarHost', () => {
     expect(renders.bar).toBe(2);
     expect(renders.parent).toBe(parentRenders);
     expect(renders.probe).toBe(probeRenders);
+  });
+
+  // ADR-0034 decision 3: inactive thread tabs keep their composers mounted, hidden, so the
+  // Explorer header's request opens the active thread's where-control and no other.
+  it("hands an open request to its own thread's bar only", () => {
+    render(
+      <>
+        <WorkspaceBarHost {...ARGS} selectedMemoryThreadId="thread-a" />
+        <WorkspaceBarHost {...ARGS} selectedMemoryThreadId="thread-b" />
+      </>
+    );
+    const [barA, barB] = screen.getAllByTestId('bar');
+    expect(useWhereControlRequests.getState().shown).toEqual({ 'thread-a': 1, 'thread-b': 1 });
+
+    act(() => {
+      requestWhereControlOpen('thread-b');
+    });
+
+    expect(barA).toHaveAttribute('data-open-request', '0');
+    expect(barB).toHaveAttribute('data-open-request', '1');
   });
 });
