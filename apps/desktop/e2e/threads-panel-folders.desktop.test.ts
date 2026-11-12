@@ -281,6 +281,22 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     });
     await expect(folderHeader(page, worktreeName)).toHaveCount(0);
     await expect(page.getByTestId('thread-folder-header')).toHaveCount(3);
+    // The section is the project's: the repository's folder reaches the panel with the project
+    // its record names (ADR-0034, owner decisions 2026-11-10).
+    const repositoryProjectId = await page.evaluate(async (rootId) => {
+      const catalog = (
+        window as unknown as {
+          threadGroups: {
+            readRoots(): Promise<{
+              readonly value?: readonly { readonly id: string; readonly projectId: unknown }[];
+            }>;
+          };
+        }
+      ).threadGroups;
+      const reply = await catalog.readRoots();
+      return reply.value?.find((root) => root.id === rootId)?.projectId;
+    }, ROOT_ID);
+    expect(repositoryProjectId).toEqual(expect.stringMatching(/\S/u));
     const worktreeChips = page
       .getByTestId('thread-checkout-chip')
       .filter({ hasText: worktreeName });

@@ -10,6 +10,8 @@ const root: ThreadCatalogRoot = {
   displayName: 'bright-fox',
   id: '01119602-b67e-4e7e-83ad-ab54def811ef',
   path: '/fixture/managed/bright-fox',
+  // A managed worktree's root has no project of its own.
+  projectId: null,
   status: 'live',
 };
 const candidate = { displayName: root.displayName, path: root.path };

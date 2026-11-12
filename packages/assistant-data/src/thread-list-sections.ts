@@ -21,6 +21,18 @@ export interface ThreadFolderRow {
 }
 
 /**
+ * A folder row as folder grouping reads it: with the project its `roots` record
+ * names (ADR-0034, owner decisions 2026-11-10).
+ */
+export interface ThreadFolderGroupingRow extends ThreadFolderRow {
+  /**
+   * Null for a managed worktree's root, which is a checkout of its repository,
+   * and for a folder recorded before projects existed and not opened since.
+   */
+  readonly projectId: string | null;
+}
+
+/**
  * Display facts for ONE repository (ADR-0034 decision 1), resolved by the
  * caller from the host's worktree listing. Its own checkout and its managed
  * worktrees are its checkouts, so their threads share its section.
@@ -33,14 +45,14 @@ export interface ThreadRepositoryRow {
   /** Its own checkout as an open folder, where a new thread starts; null while that folder is not open. */
   readonly folder: ThreadFolderRow | null;
   /**
-   * What its section is keyed on. Opaque here: the caller derives it in one
-   * place, today from the repository's realpath'd git common dir, where a
-   * project id will replace it (ADR-0034, owner decisions 2026-11-10). The
-   * section id is built from it, so a new key means new section ids.
+   * The repository as git finds it on disk, its realpath'd common dir. Its
+   * section is keyed on it only while it has no project.
    */
   readonly key: string;
   /** Its own checkout's path. */
   readonly path: string;
+  /** The project of its own checkout's folder; null while that folder is not open or has none. */
+  readonly projectId: string | null;
 }
 
 /** The run times a thread's activity is read from: its latest run, if it has one. */
@@ -121,7 +133,10 @@ interface ThreadListSectionBase {
 export interface ThreadListGroupSection extends ThreadListSectionBase {
   readonly header: ThreadListGroupHeader;
 }
-/** `id` is `repository:${key}`, `folder:${rootId}` or `folder-unassigned`. */
+/**
+ * `id` is `project:${projectId}`; for a repository or folder with no project,
+ * `repository:${key}` or `folder:${rootId}`; or `folder-unassigned`.
+ */
 export interface ThreadListFolderSection extends ThreadListSectionBase {
   readonly header: ThreadListFolderHeader | ThreadListRepositoryHeader | ThreadListUnassignedHeader;
 }
@@ -197,9 +212,25 @@ export function folderSectionId(rootId: string): string {
  */
 const REPOSITORY_SECTION_ID_PREFIX = 'repository:';
 
-/** Section id for the repository keyed `key`. */
+/** Section id for the repository keyed `key`, while it has no project. */
 export function repositorySectionId(key: string): string {
   return `${REPOSITORY_SECTION_ID_PREFIX}${key}`;
+}
+
+/**
+ * The prefix every project section id carries (ADR-0034, owner decisions
+ * 2026-11-10). A section belongs to a project whenever its project is known,
+ * so a repository's checkouts, a second clone and a folder picked again at a
+ * new place list together, and the section keeps its id when the folder moves.
+ *
+ * Collapse keys under it are kept, not pruned, as under the repository prefix:
+ * a project's folder can be closed while its threads remain.
+ */
+const PROJECT_SECTION_ID_PREFIX = 'project:';
+
+/** Section id for the project `projectId`. */
+export function projectSectionId(projectId: string): string {
+  return `${PROJECT_SECTION_ID_PREFIX}${projectId}`;
 }
 
 const EMPTY_THREAD_IDS: readonly string[] = Object.freeze([]);
@@ -275,9 +306,36 @@ function folderSectionName(header: FolderSectionHeader): string {
   return header.kind === 'repository' ? header.repository.displayName : header.folder.displayName;
 }
 
-/** One section's threads plus the header that opened the bucket. */
+/** The path a section's header falls back to after its name, so the choice between two is total. */
+function folderSectionPath(header: FolderSectionHeader): string {
+  return header.kind === 'repository'
+    ? header.repository.path
+    : (header.folder.path ?? header.folder.rootId);
+}
+
+/**
+ * Which of two headers names a section that several folders share, the same
+ * whichever thread comes first: a repository before a folder, then by name,
+ * then by path.
+ */
+function namingHeader(
+  current: FolderSectionHeader,
+  candidate: FolderSectionHeader
+): FolderSectionHeader {
+  if (current.kind !== candidate.kind) {
+    return current.kind === 'repository' ? current : candidate;
+  }
+  const byName = folderSectionName(candidate).localeCompare(folderSectionName(current), undefined, {
+    sensitivity: 'base',
+  });
+  const order =
+    byName === 0 ? folderSectionPath(candidate).localeCompare(folderSectionPath(current)) : byName;
+  return order < 0 ? candidate : current;
+}
+
+/** One section's threads plus the header that names it. */
 interface FolderBucket {
-  readonly header: FolderSectionHeader;
+  header: FolderSectionHeader;
   readonly id: string;
   readonly threads: AssistantMemoryThread[];
 }
@@ -285,7 +343,9 @@ interface FolderBucket {
 /**
  * Where one thread sits in folder grouping: its repository when its folder is
  * one of that repository's checkouts, its folder otherwise, and `null` ("No
- * folder") when it has no folder or the folder has no display row.
+ * folder") when it has no folder or the folder has no display row. Either is
+ * keyed on its project when it has one, so every folder of a project shares
+ * one section.
  */
 function resolveFolderSection(
   thread: AssistantMemoryThread,
@@ -295,19 +355,30 @@ function resolveFolderSection(
   if (repository !== undefined) {
     return {
       header: { kind: 'repository', repository },
-      id: repositorySectionId(repository.key),
+      id:
+        repository.projectId === null
+          ? repositorySectionId(repository.key)
+          : projectSectionId(repository.projectId),
     };
   }
   const rootId = getThreadPrimaryRootId(thread);
   const folder = rootId === null ? undefined : folderRowsByRootId.get(rootId);
-  return folder === undefined
-    ? null
-    : { header: { folder, kind: 'folder' }, id: folderSectionId(folder.rootId) };
+  if (folder === undefined) {
+    return null;
+  }
+  return {
+    header: { folder, kind: 'folder' },
+    id:
+      folder.projectId === null
+        ? folderSectionId(folder.rootId)
+        : projectSectionId(folder.projectId),
+  };
 }
 
 /**
- * Folder sections for the Threads panel: one section per repository (its own
- * checkout and its managed worktrees together), one per other workspace folder,
+ * Folder sections for the Threads panel: one section per project (a
+ * repository's own checkout and its managed worktrees together, or a folder),
+ * one per repository or folder that has no project,
  * alphabetical by display name, with a trailing "No folder" section for threads
  * whose primary root is missing, blank, or has no display row. An unresolved
  * root id is NOT an error here - the builder stays pure and the calling hook
@@ -332,6 +403,7 @@ function buildFolderSections(
       bucketsById.set(section.id, { ...section, threads: [thread] });
       continue;
     }
+    bucket.header = namingHeader(bucket.header, section.header);
     bucket.threads.push(thread);
   }
 
@@ -394,7 +466,7 @@ export function buildThreadMembership({
  */
 export interface BuildThreadListSectionsFolderInput {
   /** Resolved from `roots` by the caller; this package stays DB-free. */
-  readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>;
+  readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
   readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: 'folder';
   readonly ordering: ThreadListOrdering;
@@ -611,8 +683,8 @@ function resolveSectionThreads(
 
 /**
  * Thread ids belonging to ONE section, addressed by `section.id` (a group id in
- * custom-groups mode, `repository:${key}` / `folder:${rootId}` /
- * `folder-unassigned` in folder mode,
+ * custom-groups mode, `project:${projectId}` / `repository:${key}` /
+ * `folder:${rootId}` / `folder-unassigned` in folder mode,
  * `date:…` in date mode, {@link PINNED_SECTION_ID} for the Pinned section).
  * `null` addresses the custom-groups Ungrouped section, which has no section id
  * of its own; folder mode has no such section and answers empty.

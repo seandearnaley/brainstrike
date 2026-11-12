@@ -2,7 +2,8 @@
  * Which repository a thread works in, for the Threads panel's folder grouping
  * (ADR-0034 decision 1 and its owner decisions of 2026-11-10): a repository's
  * own checkout and its managed worktrees are its checkouts, so their threads
- * share one section.
+ * share one section, the section of the project its own checkout's folder
+ * belongs to.
  *
  * Pure. The one input that knows about git is the host's worktree listing
  * (`worktrees.list()`), which already joins git's worktree list with the
@@ -19,7 +20,7 @@
 import {
   type AssistantMemoryThread,
   getThreadPrimaryRootId,
-  type ThreadFolderRow,
+  type ThreadFolderGroupingRow,
   type ThreadRepositoryRow,
 } from '@brainstrike/assistant-data';
 import type { WorktreeListEntry } from '@brainstrike/types';
@@ -35,17 +36,12 @@ export interface ThreadRepositoryLookup {
 const NO_REPOSITORY_BY_THREAD_ID: ReadonlyMap<string, ThreadRepositoryRow> = new Map();
 
 /**
- * The key a listing entry's project is found by, and so the key of its section
- * in the thread list. Today it is the repository's realpath'd git common dir,
- * as the worktree ledger keys it.
- *
- * THE ONE PLACE that knows this. The host-owned project record (ADR-0034,
- * owner decisions 2026-11-10; not built) gives a project an id of its own that
- * survives a move and can join a second clone; when the listing carries it,
- * it replaces the common dir here. `repositoryRow` then has to choose among
- * several own checkouts, and section ids (and so saved collapse state) change.
+ * The repository a listing entry is a checkout of: its realpath'd git common
+ * dir, as the worktree ledger keys it. A repository's section is keyed on its
+ * project instead whenever its own checkout is a folder with one (see
+ * `ThreadRepositoryRow.projectId`).
  */
-function threadProjectKey(entry: WorktreeListEntry): string {
+function repositoryKey(entry: WorktreeListEntry): string {
   return entry.repoCommonDir;
 }
 
@@ -60,7 +56,7 @@ function ownFolderRootId(checkout: WorktreeListEntry | undefined): string | null
 
 function repositoryRow(
   entries: readonly WorktreeListEntry[],
-  folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>
+  folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>
 ): ThreadRepositoryRow | undefined {
   const [first] = entries;
   if (first === undefined) {
@@ -68,16 +64,18 @@ function repositoryRow(
   }
   const ownCheckout = entries.find((entry) => entry.primary);
   const rootId = ownFolderRootId(ownCheckout);
-  // The folder row comes from `roots`, the one source of a folder's name and
-  // path; while it has not resolved the section offers no "new thread here".
+  // The folder row comes from `roots`, the one source of a folder's name, path
+  // and project; while it has not resolved the section offers no "new thread
+  // here" and names no project.
   const folder = rootId === null ? null : (folderRowsByRootId.get(rootId) ?? null);
   return {
     branch: ownCheckout?.branch ?? null,
     detached: ownCheckout?.detached ?? false,
     displayName: folder?.displayName ?? folderNameOf(first.repositoryRoot),
     folder,
-    key: threadProjectKey(first),
+    key: repositoryKey(first),
     path: first.repositoryRoot,
+    projectId: folder?.projectId ?? null,
   };
 }
 
@@ -93,14 +91,14 @@ function isRepositoryCheckout(entry: WorktreeListEntry): boolean {
  */
 export function projectThreadRepositories(
   entries: readonly WorktreeListEntry[],
-  folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>
+  folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>
 ): ThreadRepositoryLookup {
-  const entriesByProjectKey = new Map<string, WorktreeListEntry[]>();
+  const entriesByRepositoryKey = new Map<string, WorktreeListEntry[]>();
   for (const entry of entries) {
-    const key = threadProjectKey(entry);
-    const repositoryEntries = entriesByProjectKey.get(key);
+    const key = repositoryKey(entry);
+    const repositoryEntries = entriesByRepositoryKey.get(key);
     if (repositoryEntries === undefined) {
-      entriesByProjectKey.set(key, [entry]);
+      entriesByRepositoryKey.set(key, [entry]);
       continue;
     }
     repositoryEntries.push(entry);
@@ -108,7 +106,7 @@ export function projectThreadRepositories(
 
   const byRootId = new Map<string, ThreadRepositoryRow>();
   const byWorktreeId = new Map<string, ThreadRepositoryRow>();
-  for (const repositoryEntries of entriesByProjectKey.values()) {
+  for (const repositoryEntries of entriesByRepositoryKey.values()) {
     const repository = repositoryRow(repositoryEntries, folderRowsByRootId);
     if (repository === undefined) {
       continue;
@@ -180,7 +178,7 @@ export function resolveThreadRepository(
 export function mapThreadRepositories(
   threads: readonly AssistantMemoryThread[],
   entries: readonly WorktreeListEntry[] | null,
-  folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>
+  folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>
 ): ReadonlyMap<string, ThreadRepositoryRow> {
   if (entries === null) {
     return NO_REPOSITORY_BY_THREAD_ID;

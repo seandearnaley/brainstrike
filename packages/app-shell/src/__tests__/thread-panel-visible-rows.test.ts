@@ -4,7 +4,11 @@ import type {
   ThreadFolderRow,
   ThreadListView,
 } from '@brainstrike/assistant-data';
-import { folderSectionId, UNASSIGNED_FOLDER_SECTION_ID } from '@brainstrike/assistant-data';
+import {
+  folderSectionId,
+  projectSectionId,
+  UNASSIGNED_FOLDER_SECTION_ID,
+} from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
 import { THREAD_CONTROL_ROW_PITCH_PX } from '../assistant-thread-presentation';
 import {
@@ -224,6 +228,40 @@ describe('buildThreadPanelVisibleRows', () => {
     expect(result.rows[1]).toMatchObject({ parentId: 'folder:root-1' });
     expect(result.rows[3]).toMatchObject({ parentId: 'folder-unassigned' });
     expect(result.visibleThreadIds).toEqual(['thread-a', 'thread-b']);
+  });
+
+  it("renders a project's section, collapsed through its own section key", () => {
+    const folder: ThreadFolderRow = {
+      displayName: 'brainstrike',
+      path: '/tmp/brainstrike',
+      rootId: 'root-1',
+    };
+    const view: ThreadListView = {
+      kind: 'folders',
+      pinned: null,
+      sections: [
+        {
+          header: { folder, kind: 'folder' },
+          id: projectSectionId('project-1'),
+          threads: [thread('thread-a')],
+        },
+      ],
+    };
+
+    const open = buildThreadPanelVisibleRows({
+      collapsedGroupIds: {},
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(open.rows.map((row) => row.id)).toEqual(['project:project-1', 'thread-a']);
+    expect(open.rows[1]).toMatchObject({ parentId: 'project:project-1' });
+
+    const collapsed = buildThreadPanelVisibleRows({
+      collapsedGroupIds: { 'project:project-1': true },
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(collapsed.rows.map((row) => row.id)).toEqual(['project:project-1']);
   });
 
   it('collapses and discloses folder sections through their own section keys', () => {

@@ -141,8 +141,31 @@ supersede the decisions above where they differ.
       project.
     - Joining a second clone will be something the person does. Nothing joins
       folders by a remote URL or a commit.
-  - Not built: reading the id in the Threads panel (`threadProjectKey`),
-    relinking a moved folder, joining a second clone and naming a project.
+  - Built: the Threads panel reads the id. Each root record reaches the
+    renderer with its project, and a section is the project's whenever its
+    project is known. The panel reads the records again whenever a root
+    registration commits, because a folder picked again can join another
+    project under the same root id. How it reads the id was not part of
+    Sean's answer and is recorded here as built:
+    - A thread's project is the project of its checkout: for a thread in its
+      repository's own checkout or one of its managed worktrees, the project
+      of the repository's own checkout folder; for any other thread, its
+      folder's. The worktree listing decides which repository a checkout
+      belongs to, as before, so a folder adopted as a worktree goes under its
+      repository's project, not the project it kept.
+    - Every folder of one project lists in one section: today a folder
+      picked again at a new place while a record still leads to the old one,
+      and a second clone once joining is built. The section is named by a
+      repository before a folder, then by name, whichever thread comes first.
+    - A repository whose own checkout is not an open folder has no project to
+      read and keeps its common-dir section, and a folder recorded before
+      projects keeps its own. The project of a repository reached only
+      through a subfolder or a containing folder is not built.
+    - Collapse state under a project is kept, not pruned, as for a
+      repository. Saved collapse state of sections from before (keyed on the
+      common dir or the root id) does not carry over.
+  - Not built: relinking a moved folder, joining a second clone and naming a
+    project.
 - **The interface word is "Project".** Labels that say workspace or folder for
   this are renamed as each screen is touched.
 - **Built so far: the Threads panel lists threads by project** (#5329, #5337).
@@ -154,10 +177,8 @@ supersede the decisions above where they differ.
   checkout chip, the worktree's name or Local, read from the thread's binding.
   A Needs you strip above the sections lists every thread waiting on the
   person, from the run state the host commits; a thread leaves it when its
-  request is answered or it has been shown. A section is keyed on the
-  repository's `repoCommonDir` through one function (`threadProjectKey`),
-  where the project record's id will replace it; until then a second clone is
-  a section of its own. A saved grouping is kept.
+  request is answered or it has been shown. A section is keyed on its project
+  (see the project record above). A saved grouping is kept.
 - **Built: a person moves a sent thread into a new worktree between turns.**
   This is a build decision, not one of Sean's answers. The composer's checkout
   chip (New worktree…) and the Branch chip's Switch in a new worktree now work
