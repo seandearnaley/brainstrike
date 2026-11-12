@@ -78,7 +78,38 @@ export type WorkspaceBarWorktreeOption = {
   readonly worktreeId: string | null;
 } & WorkspaceBarWorktreeUsability;
 
+/** An archived managed worktree the picker can restore (ADR-0034 decision 7). */
+export interface WorkspaceBarArchivedWorktree {
+  /** When it was archived (ISO-8601). */
+  readonly archivedAt: string;
+  readonly branch: string | null;
+  readonly name: string;
+  readonly path: string;
+  readonly worktreeId: string;
+}
+
+/**
+ * The picker's Archived section: the repository's archived managed worktrees,
+ * newest archive first, each with Restore and use.
+ */
+export interface WorkspaceBarArchivedWorktrees {
+  /** Why Restore and use waits, or null: a run keeps the checkout it was admitted with. */
+  readonly disabledReason: string | null;
+  readonly entries: readonly WorkspaceBarArchivedWorktree[];
+  /** Why the archived worktrees could not be read, or null. */
+  readonly error: string | null;
+  readonly loading: boolean;
+  /** Restores the worktree, then moves the thread into it. */
+  readonly onRestore: (worktree: WorkspaceBarArchivedWorktree) => void;
+  /** Why the last Restore and use did not finish, or null. */
+  readonly refusal: string | null;
+  /** The worktree being restored, or null. */
+  readonly restoringId: string | null;
+}
+
 export interface WorkspaceBarWorktreePicker {
+  /** Absent where the picker offers no restore. */
+  readonly archived?: WorkspaceBarArchivedWorktrees;
   readonly error: string | null;
   readonly loading: boolean;
   readonly onGrantAccess: (() => void) | undefined;

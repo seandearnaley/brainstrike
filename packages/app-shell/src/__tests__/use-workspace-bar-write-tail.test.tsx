@@ -285,6 +285,7 @@ function installWorktreesBridge(): void {
       },
     })),
     list: worktreeListSpy,
+    listArchived: vi.fn(),
     listManagedPaths: vi.fn(),
     listSetupConsent: vi.fn(),
     restore: vi.fn(),
