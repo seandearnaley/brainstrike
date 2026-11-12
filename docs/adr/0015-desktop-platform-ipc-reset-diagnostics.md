@@ -1,6 +1,6 @@
 # ADR-0015: Desktop IPC authorization, the factory-reset registry and diagnostics
 
-- **Status:** Accepted, with four amendments below.
+- **Status:** Accepted, with five amendments below.
   - Its "existing shutdown deadlines" language is superseded by
     [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) (joined quit, no global
     deadline).
@@ -74,6 +74,23 @@ Three desktop platform contracts carry rulings that outlive the reset.
     session API reaches. It has no channel that wipes storage, settings or secrets.
   - Renderer stores no longer reset themselves or register resetters: the replaced document
     starts from defaults.
+- **Managed worktrees (2026-11-12, build decisions, [ADR-0034](0034-worktrees-are-thread-checkouts.md)).**
+  - Managed worktrees live outside userData, and their ledger is in the state DB. Before
+    Factory Reset retires the host and deletes the state DB, Main asks the host to archive every
+    active one into its repository through the worktree service's own archive.
+  - Only Main asks: the request (`factory-reset/worktrees/archive`) travels on Main's private
+    platform connection, as the MCP retire for the reset does, and is not a client method, so no
+    window can reach it.
+  - A worktree left on disk (locked, holding nested repositories, a run active in it, or a
+    failed archive) is named with its path and why in the reset's outcome and Main's log. So is
+    an archive that could not run. Neither fails the reset, and no worktree folder is deleted
+    outside the archive.
+  - The replaced window never sees the reset's answer, so Main keeps the worktrees' outcome
+    and the replacement window takes it once (`db:takeResetWorktreeOutcome`) and shows it.
+  - The archive deletes each worktree's ignored files. Sean's answer accepted that for the idle
+    cap; the build extends it to the reset, and the Factory Reset dialog says so before the
+    person confirms.
+  - Clear Database keeps settings and deletes the ledger rows; it is out of scope.
 
 ## Consequences
 

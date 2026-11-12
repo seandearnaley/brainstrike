@@ -21,6 +21,7 @@ import ElectronStore from 'electron-store';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
+import { createMainWorktreeReset } from './agent-host-platform/factory-reset-worktrees';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
@@ -529,7 +530,16 @@ const profileReset = createDesktopProfileResetOwner({
   retireProfile: () => hostProfile.retire(),
 });
 
+// ADR-0015, ADR-0034: asked only on Main's private platform connection to the host it launched.
+const mainWorktreeReset = createMainWorktreeReset();
+
 const handleResetLocal = createDesktopFactoryResetHandler({
+  // ADR-0034: the host archives every managed worktree into its repository before the reset
+  // retires it and deletes the ledger with its state DB. A host that is gone starts first.
+  archiveManagedWorktrees: async () => {
+    await hostProfile.acquire();
+    return await mainWorktreeReset.archive();
+  },
   clearRetainedContent: async () => {
     const result = await hostProfile.clearAndRetireContent();
     for (const filePath of listErrorLogFilePaths(
@@ -668,6 +678,7 @@ async function acquireProfileAfterReset() {
 const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(acquireProfileAfterReset);
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
 const applicationIpcDomain = createApplicationIpcDomain({
+  factoryReset: handleResetLocal,
   getUserDataPath: () => app.getPath('userData'),
   onClearContent: async () => {
     const result = await handleResetLocal.clearContent();
@@ -675,7 +686,6 @@ const applicationIpcDomain = createApplicationIpcDomain({
       throw new Error(result.message ?? 'Content clearing failed.');
     }
   },
-  onResetLocal: () => handleResetLocal.reset(),
 });
 /** The host's open folders changed (ADR-0029 stage 4): File > Open Recent follows. */
 function onWorkspaceRootsChanged(change: {
@@ -1792,6 +1802,7 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     trashScratchFolder: (folder) =>
       trashScratchFolder(app.getPath('userData'), folder, (trashed) => shell.trashItem(trashed)),
     workspaceRootsChanged: onWorkspaceRootsChanged,
+    worktreeReset: mainWorktreeReset,
   });
 });
 
