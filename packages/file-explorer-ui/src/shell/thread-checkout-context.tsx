@@ -3,12 +3,13 @@ import { createContext, type ReactNode, useContext } from 'react';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
 /**
- * ADR-0034: the active thread works in a worktree. `localRootId` is the open folder the
- * worktree was made from, when the thread recorded one.
+ * ADR-0034: the active thread works in a folder of its own that is never an open folder: its
+ * worktree, or the scratch folder the host made for it. `localRootId` is the open folder the
+ * worktree was made from, when the thread recorded one; a scratch folder has none.
  */
 export interface ThreadCheckout {
   readonly localRootId: string | null;
-  readonly worktreeRootId: string;
+  readonly threadRootId: string;
 }
 
 /**
@@ -79,10 +80,10 @@ export function useRootCheckoutChange(rootId: string | null): (() => void) | nul
 }
 
 /**
- * The workspace's folders as the person sees them (ADR-0034). A managed worktree is never one
- * of the open folders: the active thread's worktree stands in for the folder it was made from,
- * and every other worktree is left out. The focused folder follows: a hidden one gives way to
- * the folder standing in its place.
+ * The workspace's folders as the person sees them (ADR-0034). A managed worktree or a scratch
+ * folder is never one of the open folders: the active thread's worktree stands in for the folder
+ * it was made from, its scratch folder joins the end, and every other thread's is left out. The
+ * focused folder follows: a hidden one gives way to the folder standing in its place.
  */
 export function threadCheckoutView(
   handles: readonly DirectoryHandle[],
@@ -90,10 +91,10 @@ export function threadCheckoutView(
   checkout: ThreadCheckout | null
 ): { readonly focused: DirectoryHandle | null; readonly handles: DirectoryHandle[] } {
   const active = checkout
-    ? handles.find((handle) => handle.rootId === checkout.worktreeRootId)
+    ? handles.find((handle) => handle.rootId === checkout.threadRootId)
     : undefined;
   const visible = handles.flatMap((handle) => {
-    if (handle.worktree) {
+    if (handle.worktree || handle.scratch) {
       return [];
     }
     return active && handle.rootId === checkout?.localRootId ? [active] : [handle];
@@ -119,9 +120,9 @@ export function threadCheckoutRootIds(
   if (checkout === null) {
     return openRootIds;
   }
-  const { localRootId, worktreeRootId } = checkout;
-  const ids = openRootIds.map((rootId) => (rootId === localRootId ? worktreeRootId : rootId));
-  return ids.includes(worktreeRootId) ? ids : [...ids, worktreeRootId];
+  const { localRootId, threadRootId } = checkout;
+  const ids = openRootIds.map((rootId) => (rootId === localRootId ? threadRootId : rootId));
+  return ids.includes(threadRootId) ? ids : [...ids, threadRootId];
 }
 
 /**
@@ -134,7 +135,7 @@ export function openFolderFor(
   checkout: ThreadCheckout | null,
   openRootIds: readonly string[]
 ): string | null {
-  if (checkout === null || rootId !== checkout.worktreeRootId) {
+  if (checkout === null || rootId !== checkout.threadRootId) {
     return rootId;
   }
   const { localRootId } = checkout;

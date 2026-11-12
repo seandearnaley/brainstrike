@@ -243,6 +243,9 @@ function composeHostRoot(
     get rewindFiles(): HostPlatform['rewindFiles'] {
       return currentPlatform().rewindFiles;
     },
+    get scratchFolders(): HostPlatform['scratchFolders'] {
+      return currentPlatform().scratchFolders;
+    },
     get tools(): HostPlatform['tools'] {
       return currentPlatform().tools;
     },

@@ -51,6 +51,17 @@ test('terminal content clear removes content and blobs but preserves configurati
         preferredId: 'root',
       },
     });
+    // A thread's scratch folder (ADR-0034) goes with the roots and threads.
+    await store.workspaceRoots({
+      operation: 'register-scratch',
+      root: {
+        canonicalPath: '/disposable/scratch/quiet-otter',
+        displayName: 'quiet-otter',
+        path: '/disposable/scratch/quiet-otter',
+        preferredId: 'scratch-root',
+      },
+      threadId: 'thread',
+    });
     const content = prose(rng(1), BLOB_MIN_BYTES);
     const contentHash = sha256Hex(content);
     await appendInputs(store, 'thread', [{ output: content, type: 'tool-result' }]);

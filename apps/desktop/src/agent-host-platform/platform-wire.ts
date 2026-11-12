@@ -127,6 +127,8 @@ export const PlatformSelectionSchema = Schema.Struct({
 });
 /** ADR-0029 stage 4: a folder the host opened that the focused window should show. */
 export const PlatformShowFolderSchema = Schema.Struct({ path: Id });
+/** ADR-0034 scratch threads: a deleted thread's scratch folder, for Main to move to the Trash. */
+export const PlatformTrashScratchFolderSchema = Schema.Struct({ path: Id });
 /** Main's native folder picker: the chosen folder, or the person's cancel. */
 export const PlatformPickFolderResultSchema = Schema.Union(
   [Schema.Struct({ path: Id }), Schema.Struct({ cancelled: Schema.Literal(true) })],

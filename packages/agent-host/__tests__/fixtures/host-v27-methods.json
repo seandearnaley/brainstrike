@@ -1,5 +1,5 @@
 {
-  "version": 25,
+  "version": 27,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
@@ -99,6 +99,7 @@
     "thread/workspace/binding/read",
     "thread/workspace/binding/update",
     "thread/workspace/read",
+    "thread/workspace/scratch",
     "thread/workspace/set",
     "workspace/commands",
     "workspace/context-files",
@@ -136,6 +137,9 @@
     "worktrees/managed-paths",
     "worktrees/restore",
     "worktrees/settings/read",
-    "worktrees/settings/write"
+    "worktrees/settings/write",
+    "worktrees/setup-consent/decide",
+    "worktrees/setup-consent/list",
+    "worktrees/setup-consent/revoke"
   ]
 }

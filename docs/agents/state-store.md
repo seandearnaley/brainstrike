@@ -58,6 +58,11 @@ Implementation: `packages/state-store` and `packages/agent-host`.
   - State DB version 16 creates both tables and writes no rows. A folder recorded before it has a null `projectId` until it is next registered. A launch registers each open folder it mounts; a folder that was removed, or cannot be mounted, stays without one.
   - A state DB that opens damaged is not upgraded, so one from before version 16 has neither table. Its folders are read with a null `projectId`.
   - Clear Database deletes both tables' rows with `roots`.
+- A scratch folder is a folder the host made for a thread sent with no folder while none was open (ADR-0034 scratch threads). `scratch_folders` records each one with its thread (`path`, `thread_id`, `created_at`; one per thread), and its root's kind is `scratch`.
+  - The roots domain is the only writer. `register-scratch` records the folder and its root in one commit; it refuses a folder already recorded (as a root or as a scratch folder) and a thread that has one. The root's kind comes from that record, so no other registration can make a root `scratch`. `forget-scratch` deletes both together.
+  - A scratch root is live, never open (`open_position` NULL, also when `register` records it again at a launch) and has no project. `list-scratch` lists every one, for the registry's restore; `scratch-of-thread` reads a thread's.
+  - State DB version 17 rebuilds `roots` with every row it holds (SQLite cannot widen its `kind` CHECK in place) and creates `scratch_folders`. A state DB that opens damaged is not upgraded, so one from before version 17 has no scratch folders, and `scratch-of-thread` probes for the table.
+  - Clear Database deletes `scratch_folders` rows with `roots`. The folders themselves stay on disk under the profile, as worktrees do; Factory Reset deletes the profile.
 - Content-addressed blobs store canonical edit baselines and current-format content through their existing owner.
   - Hashes and scope must match the bytes; a transient cache or derived embedding never becomes a source of truth.
   - Delete and purge join referencing work before collecting blobs and canonical records.

@@ -166,6 +166,7 @@ import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
+import { trashScratchFolder } from './scratch-folder-trash';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { markRendererFirstPaint, readStartupTimeline } from './startup-timeline';
@@ -1797,6 +1798,9 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     showWorkspaceFolder: (path) => {
       desktopBootstrap.workspaceOpenQueue.enqueue({ origin: 'agent-worktree', path });
     },
+    // ADR-0034: a deleted thread's scratch folder goes to the system Trash, from userData only.
+    trashScratchFolder: (folder) =>
+      trashScratchFolder(app.getPath('userData'), folder, (trashed) => shell.trashItem(trashed)),
     workspaceRootsChanged: onWorkspaceRootsChanged,
     worktreeReset: mainWorktreeReset,
   });

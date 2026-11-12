@@ -10,6 +10,10 @@
     works.
   - 2026-11-12 (owner decisions, below): decision 7's cap keeps 15 idle managed worktrees per
     repository; built.
+  - 2026-11-12 (owner decisions, below): a thread sent with no folder while none is open works
+    in a scratch folder the host makes for it.
+  - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
+    to the host, so a worktree the host makes runs the script too.
   - 2026-11-12 (build decisions, below): Factory Reset archives every managed worktree before
     it deletes their ledger.
 - **Date:** 2026-11-01
@@ -323,9 +327,9 @@ Not built:
   idle-worktree cap (owner decisions, 2026-11-12) archives it once its
   repository has more than 15 idle worktrees.
 - An action that brings a worktree's changes back.
-- The repository's setup script for a worktree the host made. Consent for it
-  is kept by the renderer, so the host skips the script and the worktree shows
-  the reason. Moving that consent to the host is a change of owner.
+
+The repository's setup script for a worktree the host made was on this list
+until consent for it moved to the host (owner decision, 2026-11-12, below).
 
 ### The control that says where a thread works
 
@@ -532,6 +536,188 @@ revisit:
 
 Not built: a control that restores an archived worktree (the host's
 `worktrees/restore` has none yet), and a cap after a thread is deleted.
+
+## Owner decisions, 2026-11-12: scratch threads
+
+Sean's answers, approved as written:
+
+- **A thread first sent while it has no folder and no folder is open in the
+  workspace works in a scratch folder.** The app makes the folder and binds
+  the thread to it before the run starts, so file tools work from the first
+  message. Before, with no folder open, they refused ("No folder is open in
+  the workspace…").
+  - With any folder open nothing changes: the run gets the live folders and
+    the Explorer's focused one.
+  - A thread that never sends makes nothing.
+- **The folder lives under Electron's userData**, `<userData>/scratch/<name>`,
+  named as managed worktrees are (`generateWorktreeName`). Factory Reset
+  already deletes userData.
+- **App-made folders are trusted with no question** (ADR-0032, owner
+  decisions 2026-11-10): at the moment the app makes the folder, the host
+  records it as `trusted` through `writeHostWorkspaceTrust`, never for a
+  folder that already existed.
+- **Deleting the thread moves its scratch folder to the system Trash.**
+- Approved changes of owner: the host makes a folder and registers it as a
+  root without the folder picker; Core binds the thread before its run is
+  admitted; a new durable record marks scratch folders, with a state DB and
+  protocol bump, joining the reset lifecycle (ADR-0015).
+
+Built: all of the above. State DB version 17 (`scratch_folders`, root kind
+`scratch`), host protocol version 26 (`thread/workspace/scratch`, the root
+kind and the roots' `scratch` flag), `HostPlatform.scratchFolders`, and Main's
+`platform/workspace/trash-scratch-folder`.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **The renderer asks, the host decides.** The new-thread first send calls
+  `thread/workspace/scratch` before `run/start` when its draft has no folder
+  and the window shows no open folder. The host makes nothing while a folder
+  is open: its root registry checks, in its own order of changes, so a folder
+  opened meanwhile is seen and the thread runs as before. A thread that
+  already works in a folder keeps it; the answer names its scratch folder when
+  that is the one.
+- **Made outside Core's admission queue, bound through the binding's
+  command.** The queue is shared by every thread, so the folder is made
+  outside it, as Automatic isolation makes a worktree, and the binding
+  commits through `updateWorkspaceBinding`, its only writer. A deletion of the
+  thread or the host's close aborts the making; the binding is then refused.
+- **One folder per thread, reused.** The store refuses a second scratch folder
+  for a thread, and a scratch command repeated after the folder was made, but
+  before the binding committed, finds the recorded folder and binds it.
+- **Its root is the thread's own, like a managed worktree's.** It is recorded
+  in the commit that records `scratch_folders`, so no other registration can
+  make a root a scratch folder. It is live, mounted for its thread at every
+  launch, never an open folder, never in Recents, has no project, and is
+  refused as the window's project. It reaches the renderer marked `scratch`.
+- **The Explorer shows only the active thread's.** The thread-checkout seam
+  that puts the active thread's worktree in the Explorer now carries its
+  scratch folder too (`ThreadCheckout.threadRootId`, renamed from
+  `worktreeRootId`), with no Local folder. Every other thread's is left out,
+  as other threads' worktrees are. Its header and the composer's
+  where-control read `<folder> · Local`: the folder is a project with one
+  checkout (decision 1), in the words a folder outside git already had.
+- **A run with no folder of its own never sees another thread's scratch
+  folder.** Main's admission roots leave scratch roots out, so a thread's
+  trusted folder (and its instructions) never reach another thread's run. A
+  thread bound to its scratch folder acquires it through its binding, and the
+  folder may be that run's selected folder.
+- **A run names the Explorer's focus only when its thread can see that
+  folder:** an open folder, or one of the thread's own (its binding's).
+  While the active thread shows no folder, the Explorer keeps its last focus,
+  which can be another thread's scratch folder or worktree; a send then names
+  no folder, rather than one admission refuses (`threadSelectionFolderId`).
+  The Explorer's focus itself is left as it is, so a restore that has not
+  mounted the folders yet keeps it.
+- **Made at its canonical path.** The host resolves the scratch directory
+  before naming a folder in it, so the root, its watch and its trust answer
+  spell it one way (a profile reached through a symbolic link, as the OS
+  temporary folder is on macOS, otherwise showed no changes in the Explorer).
+- **Retired by thread, not by binding.** A deleted thread's scratch folder is
+  the one recorded for it, so it goes even when the thread had moved to
+  another folder. After the thread's rows are erased, outside the admission
+  queue: the folder unmounts once its borrows end, its root and record are
+  deleted together, its trust answer goes, and Main moves it to the Trash.
+  Main moves only a folder directly inside `<userData>/scratch`, by canonical
+  path. A folder already removed outside Brainstrike is logged and skipped.
+  The thread is gone by then, so a failure (a volume with no Trash, a system
+  with none) does not fail the deletion: it is logged, the deletion's answer
+  names the folder and Main's reason (`scratchFolderNotRetired`), and the
+  window says so in a notice, so the person can remove the folder.
+
+Not built:
+
+- A "Scratch" section in the Threads panel. A scratch thread lists under its
+  folder's name, as any thread with one folder does.
+- Cleaning up scratch folders on Clear Database. Their rows go with the
+  roots; the folders stay in the profile until Factory Reset, as worktrees do.
+- Moving a scratch thread's work into a project, and starting one from a
+  thread that already ran with no folder.
+- Mounting only the scratch folders of open threads. Every one mounts at
+  launch, as every managed worktree does, each with its own handle.
+
+## Owner decision, 2026-11-12: setup script consent moves to the host
+
+Sean's decision, approved: an approved change of owner.
+
+- **Repository setup script consent moves from the renderer to the host.**
+  The renderer kept it in its own storage, so the host skipped the script for
+  every worktree it made itself (Automatic isolation, the model's
+  `manageWorktree`), and the worktree said "Repository setup script consent is
+  required before it can run." Now one host record answers for every
+  creation: a repository approved at the script's current hash runs its setup
+  for the worktrees the host makes too.
+
+Built. The answer is still asked in the create sheet ("Run repository setup
+script?", Allow script / Skip script), changed there, and revoked in
+Settings › Workspace. Host protocol version 27.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **One record, keyed by repository.** One state-store setting,
+  `worktrees.setup.consent`, holds
+  `{ [repositoryId]: { decision, scriptSha256, decidedAt } }`, as the trusted
+  locations are one setting (ADR-0032): the store cannot list keys by prefix.
+  The repository id is the realpath'd git common dir, as before, so every
+  checkout of the repository shares the answer. An answer replaces the
+  repository's earlier one, and changes are serialized per store so two
+  answers never drop each other's. A record the host did not write fails the
+  read instead of reading as no answer.
+- **One reader and writer** (`worktree-setup-consent.ts` in host-capabilities'
+  git cluster), which reaches the store through `createWorktreeWorkspace`.
+  The writer resolves the root's repository, reads the script again and
+  refuses an answer whose hash differs from the one the person was shown, as
+  `hooks/trust` refuses one; nothing is recorded then. It is called only for
+  a person's answer, never by a run.
+- **Three host methods on the git cluster**, for the desktop's private client:
+  `worktrees/setup-consent/decide { rootId, decision, scriptSha256 }`,
+  `worktrees/setup-consent/list` (for Settings) and
+  `worktrees/setup-consent/revoke { repositoryId }`.
+  `worktrees/create-context` answers the standing decision with the script
+  (`repositorySetup.decision`) only when it was given for the script's
+  current hash, so the rule that an answer for other bytes asks again is the
+  host's, not the renderer's.
+- **The worktree service reads the record on every create**
+  (`readRepositorySetupConsent`), so the person's own worktree, the branch
+  menu's "Switch in a new worktree", the model's `manageWorktree` and
+  Automatic isolation run setup alike. `worktrees/create` no longer takes a
+  decision. `resolveSetupCommand` still re-hashes the script before it runs and
+  fails closed to a visible skip. A record that cannot be read fails the
+  worktree's setup, visibly, not its creation.
+- **The script runs from a private copy of the approved bytes.** Setup reads
+  the script once, checks that buffer's hash against the answer, writes that
+  same buffer to a file in a private directory (`mkdtemp` under the OS temp
+  directory, mode 0700, the file 0600) and runs `/bin/sh` on it, with the
+  worktree as its working directory as before. The copy is removed however
+  setup ends, timeout and failure included. So the script's `$0` is that copy,
+  not `.brainstrike/worktree-setup.sh`, and it reaches the repository through
+  its working directory and `BRAINSTRIKE_ROOT_PATH`. A review of the first
+  build found the hole this closes: setup checked the file's hash and then
+  opened it by path again, so a run that could write the source checkout
+  could swap the script in between and have a worktree the host made run
+  bytes the person never approved.
+- **The sheet asks the host, then reads the host's answer back.** Allow and
+  Skip call `decide` and then `create-context` again; a refusal (the script
+  changed since the sheet opened) is shown in the sheet, which keeps asking.
+- **No migration.** The renderer's record
+  (`brainstrike:worktree-setup-consent.v1`) is no longer read or removed;
+  Brainstrike is greenfield, as ADR-0032 did for hook records. Each repository
+  is asked once more.
+- **Reset.** The record is a host setting: Clear Database keeps it, as it keeps
+  workspace trust and hook approvals, and Factory Reset deletes it with the
+  state store. That is the lifecycle the renderer's record had.
+
+A known cost: setup runs inside the worktree service's one-at-a-time lock,
+with its 300-second timeout. So once a repository is approved, Automatic
+isolation's refused first edit waits for the setup script to finish before
+the turn carries on in the new worktree, and other worktree operations queue
+behind it. No timer was added for it.
+
+Not built: telling apart scripts that differ between a repository's
+checkouts. The script is read from the checkout the worktree is made from,
+and one answer per repository holds one hash, so approving one checkout's
+script makes another checkout's different script ask again.
 
 ## Factory Reset archives the managed worktrees, 2026-11-12
 
