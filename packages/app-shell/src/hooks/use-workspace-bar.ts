@@ -51,6 +51,7 @@ import {
   writeStartingPoint,
 } from './use-workspace-bar-write-derive';
 import { NO_TOUCHED_FIELDS, useWriteTailQueue } from './use-workspace-bar-write-tail-queue';
+import { RUN_IN_PROGRESS_REASON } from './use-worktree-mode';
 import { copyWorkspaceBarPath } from './workspace-bar-clipboard';
 import { withFolderRequest } from './workspace-bar-folder-requests.ts';
 
@@ -102,7 +103,7 @@ function describeFailure(error: unknown): string {
 }
 
 /**
- * Gated on `primaryRoot`, not just on `checkout`: the branch chip describes
+ * Gated on `primaryRoot`, not just on `checkout`: the Branch row describes
  * the primary folder, so it must never outlive the row it describes — a
  * resolved id whose `operatingRoot` has not landed yet would otherwise render
  * a branch with no folder beside it. Returns a ready-to-spread partial (see
@@ -124,7 +125,7 @@ function checkoutEntry(
 
 /**
  * BST-1400: `data-checkout-state` on the bar element (the deterministic e2e
- * wait that replaces sampling for the branch chip's absence). Pulled out for
+ * wait that replaces sampling for the Branch row's absence). Pulled out for
  * the same reason as `checkoutEntry` above — a bare ternary inline in
  * `useWorkspaceBar`'s return statement was what tipped its cognitive
  * complexity over Biome's cap.
@@ -194,6 +195,25 @@ function modeEntry(mode: WorkspaceBarMode | undefined): { readonly mode?: Worksp
 }
 
 /**
+ * ADR-0034: in a worktree, Make primary leaves it (the thread is Local again),
+ * a checkout change, so it waits for the thread's run to end as the checkout
+ * rows do, on the same run state. In Local it changes no checkout.
+ */
+function makePrimaryDisabledReasonFor(
+  checkoutMode: 'local' | 'worktree',
+  threadState: ReturnType<typeof useWorkspaceBarMode>['threadState']
+): string | null {
+  return checkoutMode === 'worktree' && threadState === 'running' ? RUN_IN_PROGRESS_REASON : null;
+}
+
+/** Ready-to-spread partial, for the same reason as `addFolderDisabledReasonEntry` above. */
+function makePrimaryDisabledReasonEntry(makePrimaryDisabledReason: string | null): {
+  readonly makePrimaryDisabledReason?: string;
+} {
+  return makePrimaryDisabledReason ? { makePrimaryDisabledReason } : {};
+}
+
+/**
  * BST-1456: while checked out into a worktree, the secondary named by
  * `checkoutLocalRootId` is where a later hand-off returns to — its Remove
  * action must render disabled with a visible reason rather than let removal
@@ -239,7 +259,7 @@ function decorateHandOffReturnRoot(
  * Logs ONCE per path when the thread's primary folder is not mounted in this
  * workspace (bound elsewhere, or unmounted since), so no descriptor supplies an
  * adapter rootId. Nothing is invented for it — but the gap is observable: that
- * root's branch chip tracks git-metadata pushes only, never working-tree edits.
+ * root's Branch row tracks git-metadata pushes only, never working-tree edits.
  */
 function useUnmappedPrimaryRootNotice(
   primaryRootPath: string | undefined,
@@ -256,7 +276,7 @@ function useUnmappedPrimaryRootNotice(
     }
     loggedPaths.add(primaryRootPath);
     logger.debug(
-      'the primary root is not mounted in this workspace; working-tree edits are not mapped to its branch chip',
+      'the primary root is not mounted in this workspace; working-tree edits are not mapped to its Branch row',
       { path: primaryRootPath }
     );
   }, [primaryAdapterRootId, primaryRootPath]);
@@ -991,7 +1011,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId,
     threadMetadata: selectedThread?.metadata,
   });
-  const { branchSwitcher, branchSwitcherSettled, mode } = useWorkspaceBarMode({
+  const { branchSwitcher, branchSwitcherSettled, mode, threadState } = useWorkspaceBarMode({
     checkout,
     checkoutFailure,
     checkoutSettled,
@@ -1004,6 +1024,21 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedThread,
     worktreeCheckout,
   });
+  const makePrimaryDisabledReason = makePrimaryDisabledReasonFor(checkoutMode, threadState);
+  const onMakePrimaryBetweenRuns = useCallback(
+    (rootId: string) => {
+      if (makePrimaryDisabledReason) {
+        toast({
+          description: makePrimaryDisabledReason,
+          title: 'Could not make that folder primary',
+          variant: 'destructive',
+        });
+        return;
+      }
+      onMakePrimary(rootId);
+    },
+    [makePrimaryDisabledReason, onMakePrimary]
+  );
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
   const folderRequests = fileSystem.folderRequests;
   const shownSecondaryRoots = useMemo(
@@ -1014,7 +1049,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   return {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
     // BST-1400: the deterministic e2e wait `data-checkout-state` on the bar
-    // exposes, replacing a bounded-sampling loop over "no branch chip yet".
+    // exposes, replacing a bounded-sampling loop over "no Branch row yet".
     checkoutState: checkoutStateOf(checkoutSettled, branchSwitcherSettled),
     ...checkoutEntry(primaryRoot, checkout, branchSwitcherSettled),
     ...modeEntry(mode),
@@ -1025,7 +1060,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onAddWorkspaceFolder,
     onCopyPath,
     ...folderDropEntry,
-    onMakePrimary,
+    ...makePrimaryDisabledReasonEntry(makePrimaryDisabledReason),
+    onMakePrimary: onMakePrimaryBetweenRuns,
     onRemovePrimary: onRemoveFromThread,
     onRemoveSecondary: onRemoveFromThread,
     onUseFolder,

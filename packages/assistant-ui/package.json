@@ -68,7 +68,6 @@
     "./tool-fallback": "./src/tool-fallback.tsx",
     "./tool-result-renderer-context": "./src/tool-result-renderer-context.tsx",
     "./tool-result-renderers": "./src/use-tool-result-renderers.ts",
-    "./workspace-bar-checkout-reasons": "./src/workspace-bar/checkout-reasons.ts",
     "./worktree-archive-confirmation-dialog": "./src/workspace-bar/worktree-archive-confirmation-dialog.tsx"
   },
   "scripts": {

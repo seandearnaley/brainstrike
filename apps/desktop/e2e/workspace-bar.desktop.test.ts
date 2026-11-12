@@ -142,7 +142,7 @@ test.describe('Workspace bar (desktop)', () => {
     // Deterministic wait (BST-1400): `data-checkout-state` flips to
     // "resolved" once `useThreadCheckoutStatus`'s Git bridge `status`
     // round-trip for THIS root has settled — pending vs. "confirmed no
-    // branch chip" are otherwise indistinguishable from a chip that simply
+    // Branch row" are otherwise indistinguishable from a row that simply
     // had not mounted yet.
     await expect(page.getByTestId('workspace-bar')).toHaveAttribute(
       'data-checkout-state',

@@ -14,6 +14,7 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
     defaultName: 'bright-fox',
     disabledReason: null,
     managedParentPath: '/managed/brainstrike',
+    notARepository: false,
     onArchive: undefined,
     onCreate: vi.fn(() => Promise.resolve()),
     onCreateBranchHere: undefined,

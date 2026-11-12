@@ -83,7 +83,7 @@ export default function RootLayoutContent() {
   // The Explorer's Search tab runs on the agent host's live ripgrep (ADR-0035).
   const fileSearch = resolveDesktopFileSearch();
 
-  // The agent host owns the git cluster (ADR-0029): Changes, the branch chip
+  // The agent host owns the git cluster (ADR-0029): Changes, the composer's branch switcher
   // and worktrees. Resolved once; each surface below is offered only when its
   // bridge is present (no isElectron check).
   const workspaceGit = resolveDesktopWorkspaceGitServices();

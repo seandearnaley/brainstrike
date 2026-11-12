@@ -25,7 +25,6 @@ import type {
   WorkspaceBarWorktreeOption,
   WorkspaceBarWorktreeSummary,
 } from '@brainstrike/assistant-ui';
-import { NOT_A_GIT_REPOSITORY_REASON } from '@brainstrike/assistant-ui/workspace-bar-checkout-reasons';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import type {
@@ -406,7 +405,7 @@ function missingWorktreeDiagnostic(input: {
  */
 export function unavailableRepositoryReason(statusFailure: string | null): string {
   return statusFailure === null
-    ? NOT_A_GIT_REPOSITORY_REASON
+    ? 'Not a git repository'
     : `Git status could not be read: ${summarizeGitFailure(statusFailure)}`;
 }
 
@@ -887,6 +886,8 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         defaultName: '',
         disabledReason: reason,
         managedParentPath,
+        // Only a status read that succeeded can say "not a repository" (BST-2133).
+        notARepository: args.statusFailure === null,
         onArchive: undefined,
         onCreate: () => Promise.reject(new Error(reason)),
         onCreateBranchHere: undefined,
@@ -918,6 +919,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       defaultName,
       disabledReason: missingWorktreeReason,
       managedParentPath,
+      notARepository: false,
       onArchive: currentWorktreeId && args.threadId ? onArchive : undefined,
       onCreate,
       onCreateBranchHere: createBranchHereHandler,

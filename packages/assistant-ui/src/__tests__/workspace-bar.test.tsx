@@ -92,7 +92,7 @@ describe('WorkspaceBar', () => {
   });
 
   // BST-1400: `data-checkout-state` is the deterministic e2e wait that
-  // replaces sampling for the branch chip's absence.
+  // replaces sampling for the Branch row's absence.
   it('defaults data-checkout-state to resolved when the caller has no async checkout to await', () => {
     render(<WorkspaceBar {...baseProps()} />);
     expect(screen.getByTestId('workspace-bar')).toHaveAttribute('data-checkout-state', 'resolved');

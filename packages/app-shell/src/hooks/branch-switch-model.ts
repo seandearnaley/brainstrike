@@ -1,5 +1,5 @@
 /**
- * The pure row model behind the composer Branch chip's switcher
+ * The pure row model behind the composer's Branch submenu
  * (`use-branch-switcher.ts`), applying git's rule of one checkout per branch.
  *
  * NO SILENT DISABLES: every non-switchable row carries the reason it is not

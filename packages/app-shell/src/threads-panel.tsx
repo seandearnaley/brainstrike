@@ -1120,7 +1120,7 @@ function ThreadPanelTree({
     membershipByThreadId,
     // A folder is not a custom group, so folder mode offers no "Move to …"
     // row action: the binding is the thread's own, re-bound from the
-    // composer's folder chip.
+    // composer's Folders menu.
     moveTargets: folderMode ? EMPTY_MOVE_TARGETS : moveTargets,
     needsYouThreadIds,
     onDeleteThread,

@@ -1,6 +1,6 @@
 /**
  * BST-1990: an Explorer folder header says quietly when the folder is not one
- * of the selected thread's, as the Files cards and the folder chip do.
+ * of the selected thread's, as the Files cards and the composer's Folders menu do.
  */
 
 import { act } from '@brainstrike/test-utils/react-act';

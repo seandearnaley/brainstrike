@@ -168,7 +168,8 @@ supersede the decisions above where they differ.
   and Archive worktree…) waits for the thread's run to end, because a run keeps
   the checkout it was admitted with. Uncommitted changes stay in the thread's
   folder, and the create sheet says so. The same wait covers the Worktree Map's
-  move and hand-off, and an Archive whose inspection a run outlasts. The single
+  move and hand-off, an Archive whose inspection a run outlasts, and Make
+  primary in a worktree, which leaves the worktree. The single
   control that says where a thread works is below (owner decisions,
   2026-11-11).
 

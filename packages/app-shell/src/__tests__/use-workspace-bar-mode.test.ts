@@ -53,6 +53,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   defaultName: 'bright-fox',
   disabledReason: null,
   managedParentPath: '/managed/app-slug',
+  notARepository: false,
   onArchive: undefined,
   onCreate: vi.fn(() => Promise.resolve()),
   onCreateBranchHere: undefined,
@@ -341,7 +342,7 @@ describe('useWorkspaceBarMode checkout readiness (BST-2129)', () => {
     branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: true });
   });
 
-  it('offers no mode chip while the root is unknown, then the real one once it settles', () => {
+  it('offers no checkout rows while the root is unknown, then the real ones once it settles', () => {
     // useWorktreeMode reads a still-loading checkout as "Not a git repository".
     worktreeModeSpy.mockImplementation(({ isRepository }: { isRepository: boolean }) =>
       isRepository ? mode() : mode({ disabledReason: 'Not a git repository' })

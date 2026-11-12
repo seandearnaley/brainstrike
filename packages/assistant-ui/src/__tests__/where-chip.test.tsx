@@ -10,7 +10,6 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  NOT_A_GIT_REPOSITORY_REASON,
   WorkspaceBar,
   type WorkspaceBarBranchMenu,
   type WorkspaceBarMode,
@@ -52,6 +51,7 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
     defaultName: 'quiet-otter',
     disabledReason: null,
     managedParentPath: '/managed/brainstrike',
+    notARepository: false,
     onArchive: undefined,
     onCreate: vi.fn(() => Promise.resolve()),
     onCreateBranchHere: undefined,
@@ -221,7 +221,7 @@ describe('the where-control, closed', () => {
     const { container } = render(
       <WorkspaceBar
         {...props({
-          mode: mode({ disabledReason: NOT_A_GIT_REPOSITORY_REASON }),
+          mode: mode({ disabledReason: 'Not a git repository', notARepository: true }),
           primaryRoot: { displayName: 'notes', path: '/ws/notes', rootId: 'r-notes' },
         })}
       />
@@ -333,7 +333,11 @@ describe('the where-control, open', () => {
 
   it('shows why the checkout is unavailable, and still offers the folders', async () => {
     const user = setup();
-    render(<WorkspaceBar {...props({ mode: mode({ disabledReason: 'Not a git repository' }) })} />);
+    render(
+      <WorkspaceBar
+        {...props({ mode: mode({ disabledReason: 'Not a git repository', notARepository: true }) })}
+      />
+    );
     await openWhere(user);
     expect(screen.getByTestId('workspace-bar-mode-diagnostic')).toHaveTextContent(
       'Not a git repository'
@@ -525,5 +529,27 @@ describe('while the thread runs', () => {
     // The closed folder's repairs are at the top level, not inside Folders.
     await openSubmenu(user, 'workspace-bar-root-r-docs');
     expect(await screen.findByTestId('workspace-bar-readd-r-docs')).toBeInTheDocument();
+  });
+
+  it('shows why a Make primary that would leave the worktree waits, and does nothing', async () => {
+    const user = setup();
+    const onMakePrimary = vi.fn();
+    const value = inWorktree({ checkoutChangeDisabledReason: RUN_IN_PROGRESS });
+    render(
+      <WorkspaceBar
+        {...value.props}
+        makePrimaryDisabledReason={RUN_IN_PROGRESS}
+        onMakePrimary={onMakePrimary}
+        secondaryRoots={[{ ...brainstrike, local: true }, docs]}
+      />
+    );
+    await openWhere(user);
+    await openSubmenu(user, 'workspace-bar-folders');
+    await openSubmenu(user, 'workspace-bar-root-r-docs');
+    const makePrimary = await screen.findByTestId('workspace-bar-make-primary-r-docs');
+    expect(makePrimary).toHaveAttribute('aria-disabled', 'true');
+    expect(makePrimary).toHaveAccessibleDescription(RUN_IN_PROGRESS);
+    await user.click(makePrimary);
+    expect(onMakePrimary).not.toHaveBeenCalled();
   });
 });

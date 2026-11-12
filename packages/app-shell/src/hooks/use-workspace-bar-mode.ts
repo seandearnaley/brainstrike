@@ -13,7 +13,11 @@ import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-inte
 import { useBranchSwitcher } from './use-branch-switcher';
 import type { ThreadCheckoutState } from './use-thread-checkout';
 import { toastFailure } from './use-worktree-archive-action';
-import { RUN_IN_PROGRESS_REASON, useWorktreeMode } from './use-worktree-mode';
+import {
+  RUN_IN_PROGRESS_REASON,
+  type UseWorktreeModeArgs,
+  useWorktreeMode,
+} from './use-worktree-mode';
 
 const logger = createLogger('WorkspaceBarMode');
 
@@ -59,6 +63,11 @@ export interface WorkspaceBarModeComposition {
   /** Whether `branchSwitcher` is this root's answer yet (`BranchSwitcher.settled`). */
   readonly branchSwitcherSettled: boolean;
   readonly mode: WorkspaceBarMode | undefined;
+  /**
+   * The selected thread as a checkout change sees it, the one read the checkout
+   * rows gate on. Make primary, which can leave a worktree, gates on it too.
+   */
+  readonly threadState: UseWorktreeModeArgs['threadState'];
 }
 
 /** `feature/alpha` → `feature-alpha`: a branch name is not a path segment. */
@@ -173,7 +182,7 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
   });
   // While the root's first status read is in flight, `isRepository` above is
   // false only because nothing is known yet. Withhold the chip until it
-  // settles, as the branch chip does (BST-1400), instead of briefly offering
+  // settles, as the Branch row does (BST-1400), instead of briefly offering
   // the "Not a git repository" diagnostic (BST-2129).
   const mode = checkoutSettled ? resolvedMode : undefined;
   const onSwitchInNewWorktree = (branch: string): void => {
@@ -195,5 +204,5 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     dbRootId: primaryRootId ?? null,
     ...(mode && mode.createDisabledReason === null ? { onSwitchInNewWorktree } : {}),
   });
-  return { branchSwitcher, branchSwitcherSettled, mode };
+  return { branchSwitcher, branchSwitcherSettled, mode, threadState };
 }

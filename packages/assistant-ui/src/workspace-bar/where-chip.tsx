@@ -23,7 +23,6 @@ import {
 } from 'lucide-react';
 import { type ReactElement, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { BranchSubmenu } from './branch-menu';
-import { NOT_A_GIT_REPOSITORY_REASON } from './checkout-reasons';
 import { FolderMenuItems, type FolderMenuProps, RootRow } from './folders-menu';
 import { removedFolderLabel, removedFolderState } from './removed-folder';
 import type {
@@ -72,7 +71,7 @@ interface WhereSummary {
 
 /** Why the checkout part shows a warning: a failed setup, or a diagnostic other than "not a repository". */
 function checkoutWarning(mode: WorkspaceBarMode | undefined): string | null {
-  if (mode?.disabledReason && mode.disabledReason !== NOT_A_GIT_REPOSITORY_REASON) {
+  if (mode?.disabledReason && !mode.notARepository) {
     return mode.disabledReason;
   }
   return mode?.worktree?.setupStatus === 'failed' ? 'setup failed' : null;
@@ -480,6 +479,7 @@ const WhereMenuBody = ({
   const handOffOffered = Boolean(mode?.worktree && mode.onHandOffToLocal && !mode.disabledReason);
   const rootHandlers = {
     handOffOffered,
+    makePrimaryDisabledReason: folders.makePrimaryDisabledReason,
     onAddRecent: folders.onAddRecent,
     onCopyPath: folders.onCopyPath,
     onMakePrimary: folders.onMakePrimary,

@@ -301,7 +301,7 @@ function appendViewSections({
  * A view section — folder, date or Pinned — never renders the empty drop-zone
  * row a custom group does: `buildThreadListSections` only creates a section
  * that HAS threads, and none of them is a drop target (a folder is re-bound
- * through the composer's folder chip, a date is the thread's activity).
+ * through the composer's Folders menu, a date is the thread's activity).
  */
 function appendViewSection({
   collapsed,

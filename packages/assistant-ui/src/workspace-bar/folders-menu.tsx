@@ -40,6 +40,7 @@ interface RootAction {
 
 type RootHandlers = Pick<
   FolderMenuProps,
+  | 'makePrimaryDisabledReason'
   | 'onAddRecent'
   | 'onCopyPath'
   | 'onMakePrimary'
@@ -129,7 +130,7 @@ function rootActions(
   const actions: RootAction[] = [];
   if (!(isPrimary || (root.local && handlers.handOffOffered))) {
     actions.push({
-      disabledReason: null,
+      disabledReason: handlers.makePrimaryDisabledReason ?? null,
       icon: Star,
       label: 'Make primary',
       onSelect: () => handlers.onMakePrimary(root.rootId),
@@ -430,6 +431,7 @@ const RecentFolders = ({
 export const FolderMenuItems = ({
   addFolderDisabledReason,
   handOffOffered,
+  makePrimaryDisabledReason,
   onAddFolder,
   onAddRecent,
   onAddWorkspaceFolder,
@@ -459,6 +461,7 @@ export const FolderMenuItems = ({
   const visibleRecents = recentRoots.filter((recent) => !mountedPaths.has(recent.path));
   const rootHandlers = {
     handOffOffered,
+    makePrimaryDisabledReason,
     onAddRecent,
     onCopyPath,
     onMakePrimary,

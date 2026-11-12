@@ -33,6 +33,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   defaultName: 'bright-fox',
   disabledReason: null,
   managedParentPath: '/managed/app',
+  notARepository: false,
   onArchive: undefined,
   onCreate: vi.fn(() => Promise.resolve()),
   onCreateBranchHere: undefined,
@@ -99,7 +100,10 @@ describe("The where-control's worktree sheets and dialogs", () => {
   it('opens a diagnostic menu with the stated reason for a non-repository folder', async () => {
     const user = setup();
     render(
-      <WorkspaceBar {...baseBarProps} mode={mode({ disabledReason: 'Not a git repository' })} />
+      <WorkspaceBar
+        {...baseBarProps}
+        mode={mode({ disabledReason: 'Not a git repository', notARepository: true })}
+      />
     );
     const chip = screen.getByTestId('workspace-bar-where-chip');
     expect(chip).toHaveAttribute('title', 'Not a git repository');

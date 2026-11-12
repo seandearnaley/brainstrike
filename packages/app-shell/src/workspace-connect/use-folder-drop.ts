@@ -12,7 +12,7 @@
  * `onRootConnected` is `use-workspace-bar.ts`'s `recordAddedAsSecondary` —
  * injected rather than imported, since this hook has no thread/database
  * context of its own. A drop is a third gesture on the SAME bar as the
- * Folder chip's Add folder… (`onAddFolder`) and Add recent… (`onAddRecent`),
+ * Folders menu's Add folder… (`onAddFolder`) and Add recent… (`onAddRecent`),
  * both of which chain that same call after a successful mount so the folder
  * becomes a chip attached to THIS thread — a review finding: routing a drop
  * through `connectPath` alone mounts the folder globally but leaves the bar

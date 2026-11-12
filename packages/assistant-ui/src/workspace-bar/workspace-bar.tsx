@@ -5,8 +5,6 @@ import { WhereChip } from './where-chip';
 import { WorkspaceBarDropZone } from './workspace-bar-drop-zone';
 import type { WorktreeArchiveConfirmation } from './worktree-archive-confirmation-dialog';
 
-export { NOT_A_GIT_REPOSITORY_REASON } from './checkout-reasons';
-
 /** A folder mounted in this thread's workspace (primary or secondary). */
 export interface WorkspaceBarRoot {
   readonly displayName: string;
@@ -125,6 +123,12 @@ export interface WorkspaceBarMode {
   readonly disabledReason: string | null;
   /** Resolved `<managedDirectory>/<slug>` parent used for the create sheet's live Location preview. */
   readonly managedParentPath: string;
+  /**
+   * A settled git status read says the folder is not a repository. The
+   * where-control then names the folder with no checkout and no warning; any
+   * other `disabledReason` (a status read that failed, a missing worktree) warns.
+   */
+  readonly notARepository: boolean;
   readonly onArchive: (() => void) | undefined;
   readonly onCreate: (request: WorkspaceBarCreateWorktreeRequest) => Promise<void>;
   readonly onCreateBranchHere: ((branch: string) => Promise<void>) | undefined;
@@ -249,6 +253,12 @@ export interface WorkspaceBarProps {
    * this: it defaults to `'resolved'`, since there is nothing pending.
    */
   readonly checkoutState?: 'pending' | 'resolved' | undefined;
+  /**
+   * Non-null while Make primary would change the thread's checkout (it leaves a
+   * worktree) and must wait, as the checkout rows do: "Available when this
+   * thread's run ends." Rendered as each Make primary row's disabled reason.
+   */
+  readonly makePrimaryDisabledReason?: string | undefined;
   /** Desktop only — Local / Worktree selection [D1]. Absent ⇒ no checkout rows. */
   readonly mode?: WorkspaceBarMode | undefined;
   readonly onAddFolder: () => void;
