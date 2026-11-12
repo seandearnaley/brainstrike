@@ -53,6 +53,7 @@ import {
   findNestedRepositories,
   inspectWorktreeSafety,
   nestedRepositoriesArchiveBlocker,
+  resolveArchiveBlocker,
   type WorktreeSafetyReport as SafetyReport,
 } from './worktree-archive.ts';
 import {
@@ -69,6 +70,7 @@ import {
   repositorySlug,
   resolveWorktreeTargetPath,
 } from './worktree-paths.ts';
+import { createWorktreeResetArchive } from './worktree-reset-archive.ts';
 import {
   buildRootIdByRealPath,
   createMutex,
@@ -418,28 +420,6 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     return { ok: true, value: null };
   }
 
-  function resolveArchiveBlocker(safety: SafetyReport, force: boolean): string | null {
-    if (safety.threadIsRunning) {
-      // The ONE blocker `force` never overrides.
-      const runningBlocker = safety.blockers.find((blocker) => blocker.length > 0);
-      if (!runningBlocker) {
-        throw new Error(
-          'Internal error: threadIsRunning but no blocker was reported — archive refused (fail-closed).'
-        );
-      }
-      return runningBlocker;
-    }
-    // Nested repositories are not in the snapshot, so `force` cannot make
-    // archiving them safe either (BST-1625).
-    if (safety.nestedRepositories.length > 0) {
-      return nestedRepositoriesArchiveBlocker(safety.nestedRepositories);
-    }
-    if (!(force || safety.blockers.length === 0)) {
-      return safety.blockers.find((blocker) => blocker.length > 0) ?? null;
-    }
-    return null;
-  }
-
   async function archiveMissingWorktree(
     row: ManagedWorktreeRow
   ): Promise<BoundaryResult<WorktreeArchiveResult>> {
@@ -771,6 +751,8 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   const idleArchive = { archive: archiveUnserialized, inspectArchiveRow, invokeIn, ledger };
+  // ADR-0015, ADR-0034: a reset's archive, after which no worktree is made.
+  const reset = createWorktreeResetArchive(serialize, lifetime, idleArchive);
   const operations = {
     async adopt(params: WorktreeAdoptParams): Promise<BoundaryResult<ManagedWorktreeRow>> {
       return await serialize(async () => {
@@ -814,7 +796,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     },
     /** Create a managed worktree, record it, and run its setup. */
     async create(params: WorktreeCreateParams): Promise<BoundaryResult<WorktreeCreateResult>> {
-      return await serialize(async () => {
+      return await reset.making(async () => {
         try {
           return await createUnserialized(params);
         } catch (error) {
@@ -1008,7 +990,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     async restore(params: {
       readonly worktreeId: string;
     }): Promise<BoundaryResult<WorktreeCreateResult>> {
-      return await serialize(async () => {
+      return await reset.making(async () => {
         try {
           return await restoreUnserialized(params);
         } catch (error) {
@@ -1021,6 +1003,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   return {
     adopt: lifetime.admit(operations.adopt),
     archive: lifetime.admit(operations.archive),
+    archiveForReset: lifetime.admit(reset.archive),
     checkoutStatus: lifetime.admit(operations.checkoutStatus),
     create: lifetime.admit(operations.create),
     createBranchHere: lifetime.admit(operations.createBranchHere),

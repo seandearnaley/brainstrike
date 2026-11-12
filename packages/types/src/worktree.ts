@@ -272,6 +272,39 @@ export interface WorktreeArchiveResult {
   readonly worktree: ManagedWorktreeRow;
 }
 
+/** A worktree a reset archived: its snapshot ref keeps its uncommitted changes. */
+export interface WorktreeResetArchived {
+  readonly path: string;
+  readonly snapshotRef: string;
+  readonly worktreeId: string;
+}
+
+/** A worktree a reset left on disk, with the archive's refusal or failure. */
+export interface WorktreeResetRetained {
+  /** The refusal's code, such as `worktree.locked`. */
+  readonly code: string;
+  readonly path: string;
+  /** Why it stayed, in the archive's words. */
+  readonly reason: string;
+  readonly worktreeId: string;
+}
+
+/**
+ * A reset's archive of every active managed worktree, before Factory Reset deletes the state DB
+ * that holds their ledger or Clear Database deletes its rows (ADR-0015, ADR-0034).
+ */
+export interface WorktreeResetArchive {
+  readonly archived: readonly WorktreeResetArchived[];
+  readonly retained: readonly WorktreeResetRetained[];
+}
+
+/** What a reset did with the managed worktrees, as Main tells the replacement window. */
+export type WorktreeResetOutcome =
+  /** Each one archived into its repository, or left on disk and named with why. */
+  | (WorktreeResetArchive & { readonly status: 'archived' })
+  /** None could be archived: their folders stay on disk, and this says why. */
+  | { readonly reason: string; readonly status: 'failed' };
+
 /** Read-only disclosure shown before archive can delete ignored files. */
 export interface WorktreeArchivePreview {
   /** Opaque proof binding this worktree to the exact ignored-path set inspected. */

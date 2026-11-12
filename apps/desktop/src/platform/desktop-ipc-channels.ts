@@ -82,6 +82,7 @@ export const DESKTOP_IPC_CHANNELS = {
     clearAll: 'db:clearAll',
     getUserDataPath: 'db:getUserDataPath',
     resetLocal: 'db:resetLocal',
+    takeResetOutcome: 'db:takeResetOutcome',
   },
   diagnostics: {
     countByFingerprint: 'desktop-diagnostics:count-by-fingerprint',

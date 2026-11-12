@@ -352,6 +352,71 @@ test("a delegated worker's clashing edit never moves its parent, which says it s
   expect(sharedNotes(workerRows)).toEqual([]);
 });
 
+// Every worker under one dispatch notes at the same call of the person's thread, so the note for a
+// folder is said once there, however many of those workers edit it.
+test('workers under one dispatch that each clash in the same folder say it once at that call', async () => {
+  const WORKER_ONE = 'WORKER_ONE: write w.txt, then delegate.';
+  const WORKER_TWO = 'WORKER_TWO: write g.txt.';
+  const hosted = await host(
+    new MockLanguageModelV4({
+      doStream: async (call) => {
+        const first = userTexts(call)[0] ?? '';
+        const turn = latestTurn(call);
+        if (first.startsWith('A:')) {
+          return writesThenWorks('a.txt', 'a-write')(turn, call);
+        }
+        if (first.includes(WORKER_TWO)) {
+          return stream(turn.answered === 0 ? write('g.txt', 'g-write') : text('Second done.'));
+        }
+        if (first.includes(WORKER_ONE)) {
+          if (turn.answered === 0) {
+            return stream(write('w.txt', 'w-write'));
+          }
+          return stream(
+            turn.answered === 1
+              ? toolCall(
+                  'agent-worker',
+                  { _background: { disposition: 'awaited', enabled: true }, prompt: WORKER_TWO },
+                  'delegate-on'
+                )
+              : text('First done.')
+          );
+        }
+        return stream(
+          turn.answered === 0
+            ? toolCall(
+                'agent-worker',
+                { _background: { disposition: 'awaited', enabled: true }, prompt: WORKER_ONE },
+                'delegate'
+              )
+            : text('Parent done.')
+        );
+      },
+    })
+  );
+  const first = await firstThreadIsWriting(hosted);
+  const second = await hosted.thread();
+  const run = await hosted.run(second, 'B: delegate the writes.');
+  const rows = await rowsWhere(hosted.core(), second, (all) => all.some(finished(run)));
+
+  // Both workers wrote where the person's thread works.
+  expect(await hosted.files(LOCAL)).toEqual(['a.txt', 'g.txt', 'w.txt']);
+  expect(hosted.created).toEqual([]);
+  const workerThreads = (await hosted.store.threads()).filter(
+    (threadId) => threadId !== first && threadId !== second
+  );
+  expect(workerThreads).toHaveLength(2);
+  // One note for the folder, at the call that dispatched them.
+  expect(sharedNotes(rows)).toEqual([
+    expect.objectContaining({
+      reason: 'workers-running',
+      root: expect.objectContaining({ rootId: LOCAL }),
+      runId: run,
+      toolCallId: 'delegate',
+    }),
+  ]);
+});
+
 test("a finished worker's edit still counts as its thread writing while the thread's run goes on", async () => {
   const CHILD_TASK = 'CHILD_TASK: write w.txt.';
   const hosted = await host(

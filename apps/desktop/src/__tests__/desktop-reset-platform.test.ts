@@ -140,6 +140,77 @@ describe('createDesktopFactoryResetHandler', () => {
     );
   });
 
+  it("gives Factory Reset its managed worktrees' archive, and leaves its scratch folders to the purge", async () => {
+    const archiveManagedWorktrees = vi.fn(async () => ({
+      ok: true as const,
+      value: { archived: [], retained: [] },
+    }));
+    const trashScratchFolders = vi.fn(async () => ({ retained: [], trashed: [] }));
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      archiveManagedWorktrees,
+      completeSuccessfulReset: completeSuccessfulResetMock,
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      prepareDatabaseProfileReset,
+      resetLocalDatabase: vi.fn(async () => undefined),
+      runtimes: [],
+      sessionDataPath: '/mock/userData/session-data',
+      trashScratchFolders,
+      userDataPath: '/mock/userData',
+    });
+
+    await expect(handleReset.reset()).resolves.toEqual({ success: true });
+
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({ archiveManagedWorktrees })
+    );
+    // Factory Reset deletes userData, and the scratch folders inside it, itself.
+    expect(trashScratchFolders).not.toHaveBeenCalled();
+  });
+
+  // ADR-0034: the window that asked for the reset is replaced before the reset answers it, so
+  // the replacement window takes the managed worktrees' outcome once, while it starts.
+  it("returns the managed worktrees' outcome, and hands it once to the replacement window", async () => {
+    const managedWorktrees = {
+      archived: [],
+      retained: [
+        {
+          code: 'worktree.locked',
+          path: '/home/tester/.brainstrike/worktrees/app/calm-otter',
+          reason: 'This worktree is locked.',
+          worktreeId: 'wt-2',
+        },
+      ],
+      status: 'archived' as const,
+    };
+    resetDesktopApplicationDataMock.mockResolvedValueOnce({
+      deletedPaths: [],
+      managedWorktrees,
+      pendingDeletionPaths: [],
+      preservedPaths: [],
+    });
+    const takenByReplacement: unknown[] = [];
+
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      completeSuccessfulReset: async () => {
+        takenByReplacement.push(handleReset.takeResetOutcome());
+      },
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      prepareDatabaseProfileReset,
+      resetLocalDatabase: vi.fn(async () => undefined),
+      runtimes: [],
+
+      sessionDataPath: '/mock/userData/session-data',
+      userDataPath: '/mock/userData',
+    });
+
+    await expect(handleReset.reset()).resolves.toEqual({ managedWorktrees, success: true });
+    expect(takenByReplacement).toEqual([{ managedWorktrees, mode: 'factory' }]);
+    expect(handleReset.takeResetOutcome()).toBeNull();
+  });
+
   it('returns a failed reset result without hiding the runtime shutdown error', async () => {
     const error = new Error('llm host refused to stop');
     resetDesktopApplicationDataMock.mockRejectedValueOnce(error);
