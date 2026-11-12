@@ -29,6 +29,7 @@ import { hostRunSettings, settleLostSend } from './committed-host-conversation';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import type { HostThreadRuns } from './host-thread-runs';
 import { sendNewThreadFirstMessage } from './new-thread-first-send';
+import { threadSelectionFolderId } from './thread-selection-folder';
 import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
@@ -114,7 +115,15 @@ export function NewHostThread({
   const { addRootDirectoryByPath } = useFileSystem();
   const threadId = newThreadId(resourceId);
   const selection = useNewThreadSelection();
-  const readSelectionFolderId = useCallback(() => explorer.getState().currentFolderId, [explorer]);
+  // ADR-0034: the draft names the Explorer's focus only while it can see that folder.
+  const readSelectionFolderId = useCallback(
+    () =>
+      threadSelectionFolderId(
+        explorer.getState(),
+        useAssistantThreadStore.getState().newThreadMetadataByResourceId[resourceId]
+      ),
+    [explorer, resourceId]
+  );
   const {
     catalogKey: _catalogKey,
     readConfiguration,
@@ -141,6 +150,8 @@ export function NewHostThread({
   useEffect(() => () => store.dispose(), [store]);
   // One first send creates the thread; another before it opens keeps its text.
   const sending = useRef(false);
+  // The scratch folder the send in progress made, which its run names once it is focused.
+  const scratchRootId = useRef<string | undefined>(undefined);
   const commands = useMemo<CommittedAssistantCommands>(() => {
     if (!host) {
       throw new Error('The new-thread composer requires the attached agent host.');
@@ -164,6 +175,7 @@ export function NewHostThread({
       if (root === null) {
         return;
       }
+      scratchRootId.current = root.rootId;
       if (!addRootDirectoryByPath) {
         throw new Error('This window cannot show the scratch folder the thread works in.');
       }
@@ -174,6 +186,7 @@ export function NewHostThread({
         throw new MessageNotSentError('The new thread is still being created.');
       }
       sending.current = true;
+      scratchRootId.current = undefined;
       const current = settings.current;
       await sendNewThreadFirstMessage(
         {
@@ -187,7 +200,12 @@ export function NewHostThread({
             hostRunSettings({
               modelId: '',
               readConfiguration: () =>
-                current.readConfiguration(explorer.getState().currentFolderId),
+                current.readConfiguration(
+                  threadSelectionFolderId(explorer.getState(), {
+                    ...useAssistantThreadStore.getState().newThreadMetadataByResourceId[resourceId],
+                    ...(scratchRootId.current ? { operatingRootId: scratchRootId.current } : {}),
+                  })
+                ),
               readModelId: current.readModelId,
               readPlanMode: current.readPlanMode,
             }),

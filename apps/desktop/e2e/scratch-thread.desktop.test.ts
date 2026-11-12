@@ -16,18 +16,20 @@ import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { startThread } from './utils/new-thread';
+import { seedHostThreads } from './utils/seed-threads';
 import { whereChip } from './utils/where-control';
 
 const WRITE = 'brainstrike_writeWorkspaceFile';
 const FINAL = 'Notes written.';
 
-test('a first message with no folder open writes into a scratch folder the Explorer shows', async ({
+test('a first message with no folder open writes into a scratch folder the Explorer shows, a second thread gets its own, and a thread with no folder still sends', async ({
   electron,
   modelProvider,
   window: page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(150_000);
   await configureAssistantProvider(page);
   // Edits run without asking, so the write is the model's first and only step.
   await new HomePage(page).openSettings();
@@ -65,6 +67,43 @@ test('a first message with no folder open writes into a scratch folder the Explo
   // The composer's where-control names it the same way.
   await expect(whereChip(thread)).toHaveAccessibleName(`Where this thread works: ${name} · Local`, {
     timeout: 30_000,
+  });
+
+  // A second new thread, while the Explorer's focus is still the first thread's folder: that
+  // folder is not this thread's, so its send names no folder of another thread and runs in a
+  // scratch folder of its own.
+  const second = await startThread(page, 'Write notes.txt here too.');
+  await expect(second.getByText(FINAL, { exact: true })).toBeVisible({ timeout: 60_000 });
+  const folders = await readdir(scratch);
+  expect(folders).toHaveLength(2);
+  const [secondName] = folders.filter((folder) => folder !== name);
+  expect(await readFile(path.join(scratch, secondName ?? '', 'notes.txt'), 'utf8')).toBe(
+    'scratch notes\n'
+  );
+  await expect(page.getByTestId('single-root-header-row')).toContainText(`${secondName} · Local`, {
+    timeout: 30_000,
+  });
+
+  // A thread with no folder of its own, opened while the Explorer's focus is a scratch thread's
+  // folder, which it cannot see: its send names no folder, and it is answered.
+  await seedHostThreads(electron.getUserDataDir(), [{ folder: null, title: 'No folder' }]);
+  const { reloadRenderer } = await loadElectronHelpers();
+  await reloadRenderer(page, 'scratch-thread: a thread with no folder');
+  await ensureAssistantShellVisible(page);
+  await page
+    .getByTestId('threads-panel')
+    .getByRole('button', { exact: true, name: 'No folder' })
+    .click();
+  const tab = page
+    .getByRole('tablist', { name: 'Open assistant threads' })
+    .getByRole('tab', { name: 'No folder', selected: true });
+  await expect(tab).toBeVisible({ timeout: 30_000 });
+  const unbound = page.locator(`[id="${await tab.getAttribute('aria-controls')}"]`);
+  modelProvider.setScript(() => ({ finalText: 'Answered with no folder.' }));
+  await unbound.getByRole('textbox', { name: 'Message input' }).fill('Say hello.');
+  await unbound.getByRole('button', { exact: true, name: 'Send' }).click();
+  await expect(unbound.getByText('Answered with no folder.', { exact: true })).toBeVisible({
+    timeout: 60_000,
   });
   expect(modelProvider.refusals()).toEqual([]);
 });
