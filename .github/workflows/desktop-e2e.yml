@@ -19,6 +19,16 @@ on:
         required: false
         default: 1
         type: number
+      # A nightly caller's key for this workflow in Notify Linear's --results
+      # (flake-hunt.yml: desktop-e2e). Set, each shard uploads its Playwright
+      # JSON report and job status as nightly-results--<key>--<shard>, laid out
+      # <key>/<shard>/ (scripts/lib/nightly-test-results.mjs), so a failing test
+      # files its own issue instead of "uploaded no test results" (BST-2486).
+      nightly-results-job:
+        description: Notify Linear's results key for this workflow; empty uploads no nightly results
+        required: false
+        default: ""
+        type: string
     secrets:
       TURBO_TOKEN:
         required: true
@@ -76,9 +86,11 @@ jobs:
         shard: [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ]
     steps:
       - name: Checkout
+        id: checkout
         uses: actions/checkout@v7
 
       - name: Setup workspace
+        id: setup
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: "true"
@@ -90,6 +102,7 @@ jobs:
       # packages/mcp-test-lab/dist/index.js and failed with ERR_MODULE_NOT_FOUND
       # (run 39029251733), so build it here with the app.
       - name: Build desktop
+        id: build
         run: pnpm run build --filter @brainstrike/desktop --filter @brainstrike/mcp-test-lab
 
       # Desktop E2E drives the app through Playwright's Electron API
@@ -105,6 +118,7 @@ jobs:
       # Electron binary; ripgrep also serves host-thread-search's live grep
       # pass, which asserts `liveEngine: 'ripgrep'` (run 39029251733).
       - name: Provision the Linux desktop test host
+        id: host
         uses: ./.github/actions/linux-desktop-test-host
 
       # BST-2309: remove once the Electron 45 launch SIGTRAP is diagnosed.
@@ -154,7 +168,12 @@ jobs:
       # shows it: client 1 disconnects at 21:55:01, the server starts a new
       # generation, and the launch refused at 21:55:01.69 falls in between.
       - name: Run full desktop regression
+        id: tests
         working-directory: apps/desktop
+        env:
+          # Playwright writes its JSON report here (playwright.config.mts) when
+          # a nightly caller names its results key; empty, it writes none.
+          NIGHTLY_TEST_RESULTS_DIR: ${{ inputs.nightly-results-job != '' && format('{0}/nightly-results/{1}/{2}', runner.temp, inputs.nightly-results-job, matrix.shard) || '' }}
         run: >-
           xvfb-run --auto-servernum --error-file="$RUNNER_TEMP/xvfb.log"
           --server-args="-screen 0 1280x1024x24 -audit 2 -noreset"
@@ -172,7 +191,8 @@ jobs:
           path: |
             apps/desktop/test-results/
             apps/desktop/blob-report/
-          retention-days: 1
+          # A night's traces outlive the morning that reads its issues.
+          retention-days: ${{ inputs.nightly-results-job != '' && 7 || 1 }}
           if-no-files-found: warn
 
       - name: Upload the X server log
@@ -194,6 +214,50 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
           compression-level: 0
+
+      # Runs on failure and on the job timeout too. job.status lets Notify Linear
+      # judge this shard alone; a shard whose run wrote no report says why in
+      # full-regression.unreported: the step that stopped it, or the run's own
+      # outcome when Playwright ended without writing one.
+      - name: Record the shard status
+        if: always() && inputs.nightly-results-job != ''
+        env:
+          RESULTS_DIR: ${{ runner.temp }}/nightly-results/${{ inputs.nightly-results-job }}/${{ matrix.shard }}
+          JOB_STATUS: ${{ job.status }}
+          CHECKOUT: ${{ steps.checkout.outcome }}
+          SETUP: ${{ steps.setup.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          HOST: ${{ steps.host.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RESULTS_DIR"
+          printf '%s\n' "$JOB_STATUS" > "$RESULTS_DIR/job.status"
+          if [ -f "$RESULTS_DIR/desktop-e2e.json" ]; then
+            exit 0
+          fi
+          how="was ${TESTS:-not reached}"
+          case "$TESTS" in
+            success | failure) ;;
+            *)
+              for step in "Checkout=$CHECKOUT" "Setup workspace=$SETUP" "Build desktop=$BUILD" "Provision the Linux desktop test host=$HOST"; do
+                if [ "${step#*=}" != success ]; then
+                  how="never ran: ${step%%=*} was ${step#*=}"
+                  break
+                fi
+              done
+              ;;
+          esac
+          printf '%s\n' "$how" > "$RESULTS_DIR/full-regression.unreported"
+
+      - name: Upload the shard results
+        if: always() && inputs.nightly-results-job != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results--${{ inputs.nightly-results-job }}--${{ matrix.shard }}
+          path: ${{ runner.temp }}/nightly-results
+          retention-days: 7
+          if-no-files-found: error
 
   # The `Desktop Full Regression` check the ruleset will require (it names this job's
   # `name`, so keep it exact). Fan-in over the shard matrix, like `unit` over

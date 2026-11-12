@@ -34,6 +34,9 @@ jobs:
     with:
       suite: full
       repeat-each: 3
+      # Each shard uploads its test results for Notify Linear, so a failing
+      # test files its own issue (BST-2486).
+      nightly-results-job: desktop-e2e
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
@@ -49,5 +52,7 @@ jobs:
     with:
       workflow_name: Flake Hunt
       results: desktop-e2e=${{ needs.desktop-e2e.result }}
+      # desktop-e2e.yml's shard matrix: each shard is judged on its own results.
+      parts: desktop-e2e=1 2 3 4 5 6 7 8 9 10 11 12
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
