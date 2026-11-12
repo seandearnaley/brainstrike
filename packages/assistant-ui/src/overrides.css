@@ -1858,10 +1858,13 @@ span.bs-composer-chip {
 }
 
 /* A narrow header keeps the headline, the step count and the controls: the
-   strip leaves, and so does the elapsed time of a finished group. */
+   strip leaves, and where subagent chips share the row, so does the elapsed
+   time of a finished group. */
 @container (max-width: 26rem) {
   .assistant-ui-panel .bs-run-strip,
-  .assistant-ui-panel .bs-activity-summary-elapsed {
+  .assistant-ui-panel
+    .bs-activity-header:has(> .bs-activity-agents:not(:empty))
+    .bs-activity-summary-elapsed {
     display: none;
   }
 }
