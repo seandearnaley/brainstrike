@@ -42,15 +42,6 @@ export interface RootSectionHeaderProps {
    */
   path?: string | undefined;
   /**
-   * Reserve right clearance for the floating tree-actions cluster (BST-571).
-   * Set on the FIRST forest section only: at scrollTop 0 that header occupies
-   * the cluster's top-right band, and without clearance the hover-revealed
-   * disconnect X sits under the cluster and loses its pointer clicks. Later
-   * headers keep the full row — they only pass under the cluster transiently
-   * while scrolling.
-   */
-  reserveFloatingActionsClearance?: boolean | undefined;
-  /**
    * Optional selection control (the root's tristate select-all checkbox)
    * rendered as a SIBLING of the toggle button so checkbox clicks never
    * collapse the section (and buttons never nest — invalid HTML).
@@ -96,7 +87,6 @@ export const RootSectionHeader = ({
   onDisconnect,
   onToggleCollapse,
   path,
-  reserveFloatingActionsClearance,
   selectionControl,
   statusControl,
   toggleButtonRef,
@@ -112,7 +102,7 @@ export const RootSectionHeader = ({
     <div
       className={`group hover:bg-muted/40 relative flex w-full items-center ${
         isFocused ? 'bg-muted/40' : ''
-      } ${reserveFloatingActionsClearance ? 'pr-16' : ''}`}
+      }`}
       data-focused={isFocused ? 'true' : undefined}
       data-testid="root-section-header-row"
       onContextMenu={onContextMenu}
