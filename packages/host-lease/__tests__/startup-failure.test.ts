@@ -8,7 +8,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RootLock, RootLockedError } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
-import { failedStartupReport, startupFailure } from '../src/startup-failure.js';
+import {
+  failedStartupReport,
+  RootContentionError,
+  startupFailure,
+} from '../src/startup-failure.js';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -25,8 +29,8 @@ async function finishedOwnerRoot(): Promise<{
   return { previous, root };
 }
 
-test("a host refused by an earlier owner's native process reports that owner, and its launcher reads it as that refusal", async () => {
-  const { previous, root } = await finishedOwnerRoot();
+test("a host refused by an earlier owner's native process reports that owner", async () => {
+  const { previous } = await finishedOwnerRoot();
   const report = failedStartupReport(new RootLockedError(previous.owner, 'native-tail'));
   expect(report).toMatchObject({
     kind: 'root-locked',
@@ -37,12 +41,19 @@ test("a host refused by an earlier owner's native process reports that owner, an
       token: previous.owner.token,
     },
   });
+  // Read as the `native-tail` refusal only once that owner's process has exited: the
+  // launch against a dead host's surviving command is `native-tail.integration.test.ts`.
+});
+
+test('a refusal naming an owner that is still running is its release in progress, and the launch acquires again', async () => {
+  // The owner (this process) released its record and has not yet closed its flock: a host
+  // that asks in that moment finds the flock held. No native process survives anyone.
+  const { previous, root } = await finishedOwnerRoot();
+  const report = failedStartupReport(new RootLockedError(previous.owner, 'native-tail'));
+
   const refusal = startupFailure(root, report);
-  expect(refusal).toBeInstanceOf(RootLockedError);
-  expect(refusal).toMatchObject({
-    holder: 'native-tail',
-    owner: { pid: previous.owner.pid, token: previous.owner.token },
-  });
+  expect(refusal).toBeInstanceOf(RootContentionError);
+  expect(refusal).not.toBeInstanceOf(RootLockedError);
 });
 
 test('the report no longer describes a Root another owner has taken since', async () => {

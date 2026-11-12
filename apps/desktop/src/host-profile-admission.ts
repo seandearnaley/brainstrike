@@ -104,8 +104,8 @@ export function createHostProfileAdmission(
     }
     try {
       assertOpen();
-    } catch (refusal) {
-      return Promise.reject(refusal);
+    } catch (closed) {
+      return Promise.reject(closed);
     }
     const admitted = admit(signal).catch((cause: unknown) => {
       throw borrowFailure(cause);

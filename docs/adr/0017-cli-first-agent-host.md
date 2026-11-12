@@ -128,7 +128,9 @@ delete anything under the Root. The refusal reaches the launcher and the person 
 host refused that way names the owner in its `failed` startup report, its launcher ends the
 launch with that refusal instead of starting another host, and desktop profile admission
 gives its borrowers a refusal saying a process the previous host started still holds the
-profile's data folder.
+profile's data folder. The refusal is final only once the named owner's own process has
+exited: an owner releases its record before it closes its flock, so a host that asks in
+between finds the flock held by an owner that is only leaving, and its launch acquires again.
 
 ## Consequences
 

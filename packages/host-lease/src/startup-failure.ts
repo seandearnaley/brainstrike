@@ -1,4 +1,11 @@
-import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
+import { hostname } from 'node:os';
+import {
+  ForeignLockError,
+  type LockOwner,
+  processStartTime,
+  RootLock,
+  RootLockedError,
+} from '@brainstrike/state-store';
 import type { StartupMessage } from './startup-message.ts';
 
 type FailedStartup = Extract<StartupMessage, { readonly event: 'failed' }>;
@@ -45,6 +52,15 @@ export function failedStartupReport(cause: unknown): FailedStartup {
 }
 
 /**
+ * Whether `owner`'s own process is still running on this machine. An owner releases its
+ * record before it closes its flock (`RootLock.release`), so a host that asks in between
+ * finds the flock held by an owner that is only leaving.
+ */
+function ownerStillRunning(owner: LockOwner): boolean {
+  return owner.host === hostname() && processStartTime(owner.pid) === owner.start;
+}
+
+/**
  * A starter's failure report as the error its launcher acts on. Every host
  * starter (the Node spawner, the desktop's utility process) maps it here, so
  * the launcher sees one vocabulary.
@@ -54,8 +70,9 @@ export function startupFailure(root: string, message: FailedStartup): Error {
   if (message.kind === 'root-locked') {
     // ADR-0017 (BST-2477): a native process the newest owner started still holds the Root.
     // A record naming another owner means the Root changed hands since, so the report no
-    // longer describes it.
-    if (lease && message.nativeTail?.token === lease.token) {
+    // longer describes it. While that owner's own process still runs, it is releasing the
+    // Root, not leaving a native process behind: the launch acquires again (below).
+    if (lease && message.nativeTail?.token === lease.token && !ownerStillRunning(lease)) {
       return new RootLockedError(lease, 'native-tail');
     }
     return lease && !lease.released
