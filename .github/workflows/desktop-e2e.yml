@@ -129,6 +129,7 @@ jobs:
       # every other core. A Main core is about 1.9 GB: about 250 MB of data, plus
       # address-space reservations that the pipe sends as zeros.
       - name: Keep Electron SIGTRAP cores (BST-2309)
+        id: cores
         run: |
           set -euo pipefail
           cores="$RUNNER_TEMP/cores"
@@ -228,6 +229,7 @@ jobs:
           SETUP: ${{ steps.setup.outcome }}
           BUILD: ${{ steps.build.outcome }}
           HOST: ${{ steps.host.outcome }}
+          CORES: ${{ steps.cores.outcome }}
           TESTS: ${{ steps.tests.outcome }}
         run: |
           set -euo pipefail
@@ -240,7 +242,7 @@ jobs:
           case "$TESTS" in
             success | failure) ;;
             *)
-              for step in "Checkout=$CHECKOUT" "Setup workspace=$SETUP" "Build desktop=$BUILD" "Provision the Linux desktop test host=$HOST"; do
+              for step in "Checkout=$CHECKOUT" "Setup workspace=$SETUP" "Build desktop=$BUILD" "Provision the Linux desktop test host=$HOST" "Keep Electron SIGTRAP cores=$CORES"; do
                 if [ "${step#*=}" != success ]; then
                   how="never ran: ${step%%=*} was ${step#*=}"
                   break
