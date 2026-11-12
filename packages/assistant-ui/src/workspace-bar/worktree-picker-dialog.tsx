@@ -8,8 +8,14 @@ import {
   DialogTitle,
   Input,
 } from '@brainstrike/ui';
-import { type ReactElement, type RefObject, useState } from 'react';
-import type { WorkspaceBarWorktreeOption, WorkspaceBarWorktreePicker } from './workspace-bar';
+import { type ReactElement, type RefObject, useId, useState } from 'react';
+import { formatAbsoluteTime } from '../relative-time';
+import type {
+  WorkspaceBarArchivedWorktree,
+  WorkspaceBarArchivedWorktrees,
+  WorkspaceBarWorktreeOption,
+  WorkspaceBarWorktreePicker,
+} from './workspace-bar';
 
 const TOOL_LABELS: Record<NonNullable<WorkspaceBarWorktreeOption['externalTool']>, string> = {
   'claude-code': 'Claude Code',
@@ -86,11 +92,102 @@ const PickerRow = ({
   );
 };
 
-/** A worktree matches when every word appears in its name, branch, repository or path. */
-function matchesQuery(option: WorkspaceBarWorktreeOption, query: string): boolean {
-  const haystack = [option.name, option.branch ?? '', option.repositoryName, option.path]
-    .join(' ')
-    .toLowerCase();
+const ArchivedRow = ({
+  archived,
+  worktree,
+}: {
+  readonly archived: WorkspaceBarArchivedWorktrees;
+  readonly worktree: WorkspaceBarArchivedWorktree;
+}): ReactElement => (
+  <li
+    className="border-border/60 flex items-start gap-3 rounded-md border px-3 py-2"
+    data-testid={`worktree-picker-archived-row-${worktree.worktreeId}`}
+  >
+    <div className="min-w-0 flex-1">
+      <span className="block truncate text-sm font-medium">{worktree.name}</span>
+      <p className="text-muted-foreground text-2xs truncate font-mono">{worktree.path}</p>
+      <p className="text-muted-foreground text-2xs">
+        {worktree.branch ?? 'Detached HEAD'} · Archived{' '}
+        {formatAbsoluteTime(Date.parse(worktree.archivedAt))}
+      </p>
+    </div>
+    <Button
+      className="shrink-0"
+      data-testid={`worktree-picker-restore-${worktree.worktreeId}`}
+      disabled={archived.disabledReason !== null || archived.restoringId !== null}
+      onClick={() => archived.onRestore(worktree)}
+      size="sm"
+      type="button"
+    >
+      {archived.restoringId === worktree.worktreeId ? 'Restoring…' : 'Restore and use'}
+    </Button>
+  </li>
+);
+
+/**
+ * The repository's archived worktrees (ADR-0034 decision 7), as the host lists
+ * them: newest archive first. Restore and use brings one back with its
+ * uncommitted changes and moves the thread into it; a refusal says why here.
+ */
+const ArchivedSection = ({
+  archived,
+  visible,
+}: {
+  readonly archived: WorkspaceBarArchivedWorktrees;
+  readonly visible: readonly WorkspaceBarArchivedWorktree[];
+}): ReactElement | null => {
+  const headingId = useId();
+  if (!(archived.entries.length > 0 || archived.loading || archived.error || archived.refusal)) {
+    return null;
+  }
+  return (
+    <section
+      aria-labelledby={headingId}
+      className="space-y-2"
+      data-testid="worktree-picker-archived"
+    >
+      <h3 className="text-muted-foreground text-xs font-medium" id={headingId}>
+        Archived
+      </h3>
+      {archived.error ? (
+        <p className="text-destructive text-sm" data-testid="worktree-picker-archived-error">
+          {archived.error}
+        </p>
+      ) : null}
+      {archived.refusal ? (
+        <p
+          className="text-destructive text-sm"
+          data-testid="worktree-picker-restore-error"
+          role="alert"
+        >
+          {archived.refusal}
+        </p>
+      ) : null}
+      {archived.loading ? (
+        <p className="text-muted-foreground text-sm" data-testid="worktree-picker-archived-loading">
+          Reading archived worktrees…
+        </p>
+      ) : null}
+      {archived.disabledReason && archived.entries.length > 0 ? (
+        <p
+          className="text-muted-foreground text-2xs"
+          data-testid="worktree-picker-restore-disabled-reason"
+        >
+          {archived.disabledReason}
+        </p>
+      ) : null}
+      <ul aria-label="Archived worktrees" className="space-y-2">
+        {visible.map((worktree) => (
+          <ArchivedRow archived={archived} key={worktree.worktreeId} worktree={worktree} />
+        ))}
+      </ul>
+    </section>
+  );
+};
+
+/** A worktree matches when every word appears in one of its fields. */
+function matchesQuery(fields: readonly (string | null)[], query: string): boolean {
+  const haystack = fields.join(' ').toLowerCase();
   return query
     .toLowerCase()
     .split(/\s+/u)
@@ -113,8 +210,17 @@ export function WorktreePickerDialog({
   const [query, setQuery] = useState('');
   const trimmed = query.trim();
   const visible = trimmed
-    ? picker.options.filter((option) => matchesQuery(option, trimmed))
+    ? picker.options.filter((option) =>
+        matchesQuery([option.name, option.branch, option.repositoryName, option.path], trimmed)
+      )
     : picker.options;
+  const archivedEntries = picker.archived?.entries ?? [];
+  const visibleArchived = trimmed
+    ? archivedEntries.filter((worktree) =>
+        matchesQuery([worktree.name, worktree.branch, worktree.path], trimmed)
+      )
+    : archivedEntries;
+  const hasWorktrees = picker.options.length > 0 || archivedEntries.length > 0;
   return (
     <Dialog
       onOpenChange={(open) => {
@@ -150,12 +256,12 @@ export function WorktreePickerDialog({
             Reading the repository inventory…
           </p>
         ) : null}
-        {!(picker.loading || picker.error) && picker.options.length === 0 ? (
+        {picker.loading || picker.error || hasWorktrees ? null : (
           <p className="text-muted-foreground text-sm" data-testid="worktree-picker-empty">
             No worktrees yet — create one from this chip.
           </p>
-        ) : null}
-        {picker.options.length > 0 ? (
+        )}
+        {hasWorktrees ? (
           <Input
             aria-label="Filter worktrees"
             data-testid="worktree-picker-filter"
@@ -165,21 +271,26 @@ export function WorktreePickerDialog({
             value={query}
           />
         ) : null}
-        {trimmed && visible.length === 0 ? (
+        {trimmed && visible.length === 0 && visibleArchived.length === 0 ? (
           <p className="text-muted-foreground text-sm" role="status">
             No worktrees match “{trimmed}”.
           </p>
         ) : null}
-        <ul aria-label="Worktrees" className="max-h-96 space-y-2 overflow-y-auto">
-          {visible.map((option) => (
-            <PickerRow
-              key={option.path}
-              onGrantAccess={picker.onGrantAccess}
-              onSelect={picker.onSelect}
-              option={option}
-            />
-          ))}
-        </ul>
+        <div className="max-h-96 space-y-3 overflow-y-auto">
+          <ul aria-label="Worktrees" className="space-y-2">
+            {visible.map((option) => (
+              <PickerRow
+                key={option.path}
+                onGrantAccess={picker.onGrantAccess}
+                onSelect={picker.onSelect}
+                option={option}
+              />
+            ))}
+          </ul>
+          {picker.archived ? (
+            <ArchivedSection archived={picker.archived} visible={visibleArchived} />
+          ) : null}
+        </div>
       </DialogContent>
     </Dialog>
   );

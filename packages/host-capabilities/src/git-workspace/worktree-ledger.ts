@@ -110,6 +110,20 @@ function requireRow(rows: readonly unknown[], id: string): ManagedWorktreeRow {
   return readRow(row);
 }
 
+/**
+ * The archived rows of a repository's listing, newest archive first (ADR-0034
+ * decision 7: what the where-control's picker offers to restore). Ties keep the
+ * ledger's own order.
+ */
+export function newestArchiveFirst(
+  rows: readonly ManagedWorktreeRow[]
+): readonly ManagedWorktreeRow[] {
+  return rows
+    .flatMap((row) => (row.archivedAt === null ? [] : [{ archivedAt: row.archivedAt, row }]))
+    .sort((left, right) => Date.parse(right.archivedAt) - Date.parse(left.archivedAt))
+    .map(({ row }) => row);
+}
+
 export interface WorktreeLedger {
   get(id: string): Promise<ManagedWorktreeRow | null>;
   getByPath(worktreePath: string): Promise<ManagedWorktreeRow | null>;
