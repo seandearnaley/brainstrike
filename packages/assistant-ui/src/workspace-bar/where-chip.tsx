@@ -21,7 +21,14 @@ import {
   type LucideIcon,
   TriangleAlert,
 } from 'lucide-react';
-import { type ReactElement, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { BranchSubmenu } from './branch-menu';
 import { FolderMenuItems, type FolderMenuProps, RootRow } from './folders-menu';
 import { removedFolderLabel, removedFolderState } from './removed-folder';
@@ -43,6 +50,8 @@ export type WhereChipProps = FolderMenuProps & {
 };
 
 const SECTION_LABEL_CLASS = 'text-muted-foreground text-[10px] tracking-wide uppercase';
+/** The where-menu's exit keeps its scale (tw-animate-css reads `--tw-exit-scale`). */
+const WHERE_MENU_EXIT = { '--tw-exit-scale': '1' } as CSSProperties;
 const NO_IDS: ReadonlySet<string> = new Set();
 
 /** `/managed/app/bright-fox` → `bright-fox`: a worktree is named by its folder, as the Threads panel names it. */
@@ -657,6 +666,18 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
               event.preventDefault();
             }
           }}
+          // Upward, as the composer's other menus open. Placed by Radix's
+          // default (below, flipping when short of room), a menu opened while
+          // its git-dependent rows were still arriving was placed below the
+          // composer from its short first render, and the rows that came next
+          // were squeezed into a scrolling strip: focusing a row scrolled it, and
+          // a submenu anchored to that row moved when the strip did.
+          side="top"
+          // Closes by fading, without the shared shrink: a submenu open inside
+          // it is part of its box, so shrinking the menu toward its corner drew
+          // the submenu along (16px for the Branch switcher) instead of letting
+          // it fade where it is. The submenu's own close still shrinks in place.
+          style={WHERE_MENU_EXIT}
         >
           <WhereMenuBody
             busy={busy}

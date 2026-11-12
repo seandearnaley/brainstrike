@@ -268,6 +268,16 @@ describe('the where-control, closed', () => {
 });
 
 describe('the where-control, open', () => {
+  // Like the composer's other menus: the composer sits at the foot of a thread,
+  // and a menu placed below it from a short first render is squeezed into a
+  // scrolling strip once the rows that wait on git arrive.
+  it('opens upward from the composer', async () => {
+    const user = setup();
+    render(<WorkspaceBar {...local()} />);
+    const menu = await openWhere(user);
+    expect(menu).toHaveAttribute('data-side', 'top');
+  });
+
   it('in Local, checks Local and says a clashing edit moves the thread to a worktree', async () => {
     const user = setup();
     render(<WorkspaceBar {...local()} />);
