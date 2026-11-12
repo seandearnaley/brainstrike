@@ -68,6 +68,17 @@ test('a first message with no folder open writes into a scratch folder the Explo
   await expect(whereChip(thread)).toHaveAccessibleName(`Where this thread works: ${name} · Local`, {
     timeout: 30_000,
   });
+  // The Threads panel lists it in its Scratch section, not in a section named by its folder, and
+  // its row's chip names the folder.
+  const threadsPanel = page.getByTestId('threads-panel');
+  const scratchSection = threadsPanel.getByTestId('thread-folder-header').filter({
+    hasText: 'Scratch',
+  });
+  await expect(scratchSection.getByTestId('thread-folder-count')).toHaveText('1', {
+    timeout: 30_000,
+  });
+  await expect(threadsPanel.getByTestId('thread-folder-header')).toHaveCount(1);
+  await expect(threadsPanel.getByTitle(`Scratch folder ${name} at `)).toHaveCount(1);
 
   // A second new thread, while the Explorer's focus is still the first thread's folder: that
   // folder is not this thread's, so its send names no folder of another thread and runs in a
@@ -83,6 +94,12 @@ test('a first message with no folder open writes into a scratch folder the Explo
   await expect(page.getByTestId('single-root-header-row')).toContainText(`${secondName} · Local`, {
     timeout: 30_000,
   });
+  // Both scratch threads share the one Scratch section, each chipped with its own folder.
+  await expect(scratchSection.getByTestId('thread-folder-count')).toHaveText('2', {
+    timeout: 30_000,
+  });
+  await expect(threadsPanel.getByTestId('thread-folder-header')).toHaveCount(1);
+  await expect(threadsPanel.getByTitle(`Scratch folder ${secondName} at `)).toHaveCount(1);
 
   // A thread with no folder of its own, opened while the Explorer's focus is a scratch thread's
   // folder, which it cannot see: its send names no folder, and it is answered.

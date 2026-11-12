@@ -121,6 +121,34 @@ describe('useThreadFolderRows', () => {
     expect(readRoots).toHaveBeenCalledTimes(2);
   });
 
+  // ADR-0034: the Threads panel lists every scratch thread in one section, from its folder's record.
+  it("marks a scratch folder's row as its record does, and no other row", async () => {
+    readRoots.mockImplementation(async () => [
+      ...ROOT_ROWS.map((row) => ({ ...row, status: 'live' as const })),
+      {
+        displayName: 'quiet-otter',
+        id: 'root-scratch',
+        path: '/profile/scratch/quiet-otter',
+        projectId: null,
+        scratch: true,
+        status: 'live' as const,
+      },
+    ]);
+    const { result } = renderHook(() => useThreadFolderRows(['root-a', 'root-scratch']));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.rowsByRootId.get('root-scratch')).toEqual({
+      displayName: 'quiet-otter',
+      path: '/profile/scratch/quiet-otter',
+      projectId: null,
+      rootId: 'root-scratch',
+      scratch: true,
+    });
+    expect(result.current.rowsByRootId.get('root-a')).not.toHaveProperty('scratch');
+  });
+
   it('does not read the catalog and reports resolved emptiness for an empty id list', async () => {
     const { result } = renderHook(() => useThreadFolderRows([]));
 

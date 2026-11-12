@@ -142,6 +142,7 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
                 path: row.path,
                 projectId: row.projectId,
                 rootId: row.id,
+                ...(row.scratch ? { scratch: true as const } : {}),
               },
             ])
           );
