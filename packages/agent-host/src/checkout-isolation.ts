@@ -11,7 +11,9 @@
  * tools: its committed edit records, and its edit calls in flight. Nothing is
  * stored for it. A thread and its workers are one writer: a worker's edits
  * count for as long as the run that dispatched it is in progress, and a
- * worker's own edit is made in place and never moves its parent.
+ * worker's own edit is made in place and never moves its parent. A worker's
+ * edit in a folder another thread is editing is noted in the person's own
+ * thread, which stays there with its workers.
  */
 import {
   describeBoundaryFailureForModel,
@@ -213,6 +215,39 @@ function sharedNote({ action, root, run }: EditCall, reason: Shared['reason']): 
   };
 }
 
+/** A note to commit, and the thread whose transcript shows it. */
+interface SharedNoteRow {
+  readonly event: Shared;
+  readonly threadId: string;
+}
+
+/**
+ * Where a worker's clashing edit is noted: in the person's own thread, at the
+ * run and the call that dispatched the worker (through any workers between).
+ * Where that run is no longer known, in the worker's own thread.
+ */
+function workerSharedNote(facts: HostCheckoutFacts, call: EditCall): SharedNoteRow {
+  let worker = call.run;
+  for (;;) {
+    const origin = worker.origin;
+    const dispatcher = origin ? facts.runs.get(origin.parentRunId) : undefined;
+    if (!(origin && dispatcher)) {
+      return { event: sharedNote(call, 'workers-running'), threadId: call.run.threadId };
+    }
+    if (dispatcher.origin === undefined) {
+      return {
+        event: {
+          ...sharedNote(call, 'workers-running'),
+          runId: dispatcher.id,
+          toolCallId: origin.toolCallId,
+        },
+        threadId: dispatcher.threadId,
+      };
+    }
+    worker = dispatcher;
+  }
+}
+
 /**
  * The move, once the call's start is committed. Where the thread cannot be
  * given a worktree it stays and shares the folder, with a committed note
@@ -307,7 +342,7 @@ async function moveHostThread(
 type FirstEdit =
   | { readonly kind: 'again' }
   | { readonly kind: 'moving'; readonly move: Promise<HostCheckoutMove> }
-  | { readonly kind: 'started'; readonly note?: Shared; readonly started: HostEditStart };
+  | { readonly kind: 'started'; readonly note?: SharedNoteRow; readonly started: HostEditStart };
 
 /**
  * A run's first edit in a folder, decided in Core's admission queue with the
@@ -323,16 +358,24 @@ async function decideFirstEdit(
   if (run.isolation !== undefined) {
     return { kind: 'again' };
   }
-  // A worker writes where its parent works; it never moves its parent.
-  if (facts.children.isChild(run.threadId) || !contended(facts, run, root.rootId)) {
+  if (!contended(facts, run, root.rootId)) {
     return { kind: 'started', started: await startInPlace(call) };
+  }
+  // A worker writes where its parent works; it never moves its parent, which stays with it
+  // (ADR-0028 rule 5) and shares the folder, visibly.
+  if (facts.children.isChild(run.threadId)) {
+    return {
+      kind: 'started',
+      note: workerSharedNote(facts, call),
+      started: await startInPlace(call),
+    };
   }
   const enter = ports.enterWorktree(run, action);
   if (!enter) {
     // The thread stays with its workers (ADR-0028 rule 5) and shares the folder, visibly.
     return {
       kind: 'started',
-      note: sharedNote(call, 'workers-running'),
+      note: { event: sharedNote(call, 'workers-running'), threadId: run.threadId },
       started: await startInPlace(call),
     };
   }
@@ -386,7 +429,7 @@ export async function startHostEdit(
     );
     if (first.kind === 'started') {
       if (first.note) {
-        await ports.append(run.threadId, [first.note]);
+        await ports.append(first.note.threadId, [first.note.event]);
       }
       return first.started;
     }

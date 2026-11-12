@@ -232,7 +232,10 @@ revisit:
     that only takes a finished background worker's results did not dispatch
     it, so that worker's edits no longer count.
   - Only a thread's own edits can move it. A worker's own clashing edit is
-    made in place, where its parent works, and never moves its parent.
+    made in place, where its parent works, and never moves its parent. The
+    person's own thread shows the note for it, at the run and the call that
+    dispatched the worker, through any workers between; the worker's thread
+    shows none.
   - A thread whose workers are still working stays with them (ADR-0028
     rule 5) and shares the folder, with the note. That includes a worker
     dispatched in the same step as the edit, which begins while the worktree
@@ -304,8 +307,10 @@ Not built:
   thread works, beyond New worktree… and Other worktree… (the control itself is
   below).
 - The cap that archives idle worktrees.
-- Moving a thread for a worker's edit or for a shell command.
-- A note for a worker's own clashing edit. It is made in place with no note.
+- Moving a thread for a worker's edit or for a shell command. A worker's run
+  keeps the binding it was admitted with, and its thread cannot move while it
+  works (ADR-0028 rule 5); a shell command is not writing (Sean's second
+  answer).
 - Cleaning up a worktree that was made and never entered. It stays in the
   ledger, bound to no thread, when the run is stopped or its thread is deleted
   while the worktree is being made, whether the host made it or the model's
