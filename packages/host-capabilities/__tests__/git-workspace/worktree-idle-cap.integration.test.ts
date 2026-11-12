@@ -20,6 +20,7 @@ import { buildTestService, createTestWorkspace, git } from './worktree-service.s
 
 interface ListedThread {
   readonly binding: ThreadWorkspaceBinding | null;
+  readonly hasRun: boolean;
   readonly threadId: string;
 }
 
@@ -39,7 +40,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
     db = await StateStore.open(workspace.freshTempDir('bst-idle-cap-state-'));
     repo = workspace.freshRepo('idle-cap-repo');
     managedDirectory = workspace.freshManagedDir();
-    threads = [{ binding: null, threadId: 'thread-1' }];
+    threads = [{ binding: null, hasRun: true, threadId: 'thread-1' }];
     roots = [];
     running = new Set();
     told = [];
@@ -234,7 +235,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
       { canonicalPath: asOtherFolder.path, id: 'other-root', path: asOtherFolder.path },
     ];
     threads = [
-      { binding: null, threadId: 'thread-1' },
+      { binding: null, hasRun: true, threadId: 'thread-1' },
       {
         binding: {
           checkoutLocalRootId: 'r-1',
@@ -245,10 +246,12 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
           operatingRootId: 'checkout-root',
           operatingRootPath: asCheckout.path,
         },
+        hasRun: true,
         threadId: 'thread-2',
       },
       {
         binding: { operatingRootDisplayName: 'idle-01', operatingRootId: 'folder-root' },
+        hasRun: true,
         threadId: 'thread-3',
       },
       {
@@ -257,6 +260,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
           operatingRootId: 'r-1',
           secondaryRootIds: ['other-root'],
         },
+        hasRun: true,
         threadId: 'thread-4',
       },
     ];
@@ -286,9 +290,10 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
     mkdirSync(inside, { recursive: true });
     roots = [{ canonicalPath: inside, id: 'inside-root', path: inside }];
     threads = [
-      { binding: null, threadId: 'thread-1' },
+      { binding: null, hasRun: true, threadId: 'thread-1' },
       {
         binding: { operatingRootDisplayName: 'app', operatingRootId: 'inside-root' },
+        hasRun: true,
         threadId: 'thread-2',
       },
     ];
@@ -321,6 +326,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
                 checkoutWorktreeId: oldest.id,
                 checkoutWorktreePath: oldest.path,
               },
+              hasRun: true,
               threadId: 'thread-2',
             },
           ];
@@ -402,6 +408,19 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
     for (const row of [...others, ...mine]) {
       expect((await ledgerRow(row.id)).archivedAt).toBeNull();
       expect(existsSync(row.path)).toBe(true);
+    }
+    expect(told).toEqual([]);
+  });
+
+  // Its notice is shown with a run: with no run to show it with, nothing is archived.
+  it("runs no cap for the person's creation in a thread that has no run yet", async () => {
+    const seeded = await seedMany(16);
+    threads = [{ binding: null, hasRun: false, threadId: 'thread-1' }];
+
+    await createForThread({ threadId: 'thread-1' }, 'before-first-send');
+
+    for (const row of seeded) {
+      expect((await ledgerRow(row.id)).archivedAt).toBeNull();
     }
     expect(told).toEqual([]);
   });

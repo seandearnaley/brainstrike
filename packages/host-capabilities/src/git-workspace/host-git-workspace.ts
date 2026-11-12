@@ -260,8 +260,9 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     },
     readRoots: async () => (await store.workspaceRoots({ operation: 'list' })).roots,
     readThreads: async () =>
-      (await workspace.threadReads().listThreads()).map(({ binding, threadId }) => ({
+      (await workspace.threadReads().listThreads()).map(({ binding, latestRun, threadId }) => ({
         binding,
+        hasRun: latestRun !== undefined,
         threadId,
       })),
   });
@@ -436,6 +437,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
         }
       })()),
     idleWorktreeArchives: {
+      settle: () => idleCap.close(),
       subscribe: (listener) => {
         archiveListeners.add(listener);
         return () => {

@@ -35,9 +35,14 @@ const ARCHIVED = [
 /** A host whose platform reports the cap's archives the test emits. */
 async function capHost() {
   const listeners = new Set<(archive: HostIdleWorktreeArchive) => void>();
+  // The archive the cap still has in flight when the host starts to close; none by default.
+  const inFlight = { settle: async (): Promise<void> => undefined };
   const model = new MockLanguageModelV4({ doStream: async () => stream(text('Done.')) });
   const harness = await setupChildRunHost(model, cleanup, {
     idleWorktreeArchives: {
+      settle: async () => {
+        await inFlight.settle();
+      },
       subscribe: (listener) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -49,7 +54,7 @@ async function capHost() {
       listener({ limit: 15, worktrees: ARCHIVED, ...report });
     }
   };
-  return { archive, harness, listeners };
+  return { archive, harness, inFlight, listeners };
 }
 
 const archivedRow = (row: HostLogRow) => row.event.type === 'worktrees.archived';
@@ -91,4 +96,29 @@ test('stops listening when the host closes', async () => {
   await harness.core().close();
 
   expect(listeners.size).toBe(0);
+});
+
+// The cap finishes the archive it has in flight before the host closes, and the thread is told.
+test('tells the thread of an archive that finishes as the host starts to close', async () => {
+  const { archive, harness, inFlight } = await capHost();
+  const run = await harness.start('Make a worktree.');
+  await harness.core().idle(harness.threadId);
+  inFlight.settle = async () => {
+    archive({ runId: run, threadId: harness.threadId });
+  };
+
+  await harness.core().close();
+
+  // Read from the store: the closed host serves no reads.
+  const rows = await harness.core().store.read(harness.threadId);
+  expect(
+    rows.map(({ event }) => event).filter(({ type }) => type === 'worktrees.archived')
+  ).toEqual([
+    expect.objectContaining({
+      limit: 15,
+      runId: run,
+      type: 'worktrees.archived',
+      worktrees: ARCHIVED,
+    }),
+  ]);
 });

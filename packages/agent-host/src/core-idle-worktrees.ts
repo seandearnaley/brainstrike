@@ -22,6 +22,7 @@ interface HostIdleWorktreePorts {
 
 export class HostIdleWorktreeNotices {
   private readonly ports: HostIdleWorktreePorts;
+  private readonly posting = new Set<Promise<unknown>>();
   private unsubscribe: (() => void) | undefined;
 
   constructor(post: HostIdleWorktreePorts['post'], runs: HostIdleWorktreePorts['runs']) {
@@ -32,7 +33,14 @@ export class HostIdleWorktreeNotices {
     this.unsubscribe = platform.idleWorktreeArchives?.subscribe((archive) => this.tell(archive));
   }
 
-  close(): void {
+  /**
+   * Before the host stops admitting: the cap starts no further archive, finishes the one in
+   * flight and its notice is committed, so no worktree goes without its thread being told.
+   * Then Core stops listening.
+   */
+  async retire(platform: Pick<HostPlatform, 'idleWorktreeArchives'>): Promise<void> {
+    await platform.idleWorktreeArchives?.settle();
+    await Promise.allSettled([...this.posting]);
     this.unsubscribe?.();
     this.unsubscribe = undefined;
   }
@@ -62,11 +70,13 @@ export class HostIdleWorktreeNotices {
       type: 'worktrees.archived',
       worktrees: [...archive.worktrees],
     };
-    void this.ports.post(archive.threadId, event).catch((cause: unknown) => {
+    const posted = this.ports.post(archive.threadId, event).catch((cause: unknown) => {
       logger.error('Could not tell a thread its idle worktrees were archived', {
         ...context,
         cause,
       });
     });
+    this.posting.add(posted);
+    void posted.finally(() => this.posting.delete(posted));
   }
 }

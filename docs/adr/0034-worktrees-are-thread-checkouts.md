@@ -477,8 +477,10 @@ revisit:
   time, so a second creation's cap sees the first one's archives. An archive
   holds the worktree service's one queue while it runs, as a person's does, so
   a worktree operation asked for meanwhile waits for it. A failure is logged
-  with the repository and worktree. At the host's close the cap stops before
-  its next archive. It does not run when a thread is deleted or handed back to
+  with the repository and worktree. At the host's close the cap starts no
+  further archive, and Core waits for the one in flight and commits its
+  notice before it stops admitting, so no worktree is archived untold (from
+  Codex's review). It does not run when a thread is deleted or handed back to
   Local; those worktrees are counted at the repository's next creation.
 - **The worktree just made is never counted.** Its thread is about to enter
   it, so the count does not depend on whether that binding has committed yet.
@@ -522,7 +524,9 @@ revisit:
   it between runs. A creation that names no thread (no client of the app
   sends one), or whose thread is gone before the cap reads its list, has no
   one to tell, so it runs no cap; the repository's next creation for a thread
-  does.
+  does. Nor does the person's creation in a thread with no run yet (a new
+  thread before its first send): the row has no run to be shown with, and an
+  archive is never left untold (from Codex's and Claude's review).
 
 Not built: a control that restores an archived worktree (the host's
 `worktrees/restore` has none yet), and a cap after a thread is deleted.

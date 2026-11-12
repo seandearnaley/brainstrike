@@ -46,9 +46,16 @@ export interface IdleWorktreeCapDeps {
   readonly readRoots: () => Promise<
     readonly { readonly canonicalPath: string; readonly id: string; readonly path: string }[]
   >;
-  /** Every existing thread with its committed binding; a deleted thread is not listed. */
+  /**
+   * Every existing thread with its committed binding and whether it has a run yet; a deleted
+   * thread is not listed.
+   */
   readonly readThreads: () => Promise<
-    readonly { readonly binding: ThreadWorkspaceBinding | null; readonly threadId: string }[]
+    readonly {
+      readonly binding: ThreadWorkspaceBinding | null;
+      readonly hasRun: boolean;
+      readonly threadId: string;
+    }[]
   >;
 }
 
@@ -171,8 +178,18 @@ export function createIdleWorktreeCap(deps: IdleWorktreeCapDeps): IdleWorktreeCa
     runId: string | undefined
   ): Promise<void> {
     const threads = await deps.readThreads();
-    if (!threads.some((thread) => thread.threadId === threadId)) {
+    const thread = threads.find((listed) => listed.threadId === threadId);
+    if (thread === undefined) {
       logger.info('The thread a worktree was made for is gone; with no one to tell, no cap runs', {
+        threadId,
+        worktreeId: created.id,
+      });
+      return;
+    }
+    // The notice is shown with a run: the run that made the worktree, or the thread's latest.
+    // With none to show it with, nothing is archived; the repository's next creation counts.
+    if (runId === undefined && !thread.hasRun) {
+      logger.info('The thread has no run to show the notice with; no cap runs', {
         threadId,
         worktreeId: created.id,
       });

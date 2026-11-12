@@ -991,9 +991,9 @@ export class HostCore {
   }
 
   private async closeOwned(): Promise<void> {
+    await this.idleWorktrees.retire(this.platform);
     this.closing = true;
     this.ends.exits.close();
-    this.idleWorktrees.close();
     // Retirement reads the runs the fold restores; a failed fold still closes what it opened.
     await this.hydrated.catch(() => undefined);
     const outcomes = await retireHostCoreRuns({

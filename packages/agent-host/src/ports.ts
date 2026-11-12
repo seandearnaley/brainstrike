@@ -955,6 +955,11 @@ export interface HostPlatform {
    */
   readonly idleWorktreeArchives?:
     | {
+        /**
+         * Starts no further cap and settles once the archive in flight has finished and been
+         * reported, so Core can tell its thread before it stops admitting.
+         */
+        settle(): Promise<void>;
         subscribe(listener: (archive: HostIdleWorktreeArchive) => void): () => void;
       }
     | undefined;
