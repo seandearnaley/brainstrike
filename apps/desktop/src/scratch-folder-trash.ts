@@ -43,5 +43,14 @@ export async function trashScratchFolder(
   if (directory === undefined || resolved === undefined || path.dirname(resolved) !== directory) {
     throw notScratch(folder);
   }
-  await trash(resolved);
+  try {
+    await trash(resolved);
+  } catch (cause) {
+    // The system's reason, so the person reads why the folder stayed (a volume with no Trash).
+    throw refusalError(
+      'availability',
+      'workspace.trash-failed',
+      `${resolved} was not moved to the Trash: ${cause instanceof Error ? cause.message : String(cause)}`
+    );
+  }
 }

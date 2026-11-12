@@ -53,6 +53,8 @@ export async function scratchThreadHost(
   // The folders each root id names, as a registry's mounts resolve them.
   const folders = new Map<string, string>();
   const trashed: string[] = [];
+  /** Set to make the next move to the Trash fail with this cause, as a Trash that is missing does. */
+  const harness: { failTrash?: Error } = {};
   const requests: HostRunAdmissionRequest[] = [];
   /** The file tools of a run that works in `bound`, as the desktop admits them per run. */
   const fileTools = (bound: string): Record<string, HostTool> => ({
@@ -178,6 +180,9 @@ export async function scratchThreadHost(
       roots,
       store,
       trash: async (path) => {
+        if (harness.failTrash) {
+          throw harness.failTrash;
+        }
         await rename(path, join(trash, basename(path)));
         trashed.push(path);
       },
@@ -193,6 +198,7 @@ export async function scratchThreadHost(
   });
   return {
     core,
+    harness,
     /** Opens a folder in the workspace, as the person does. */
     open: async (): Promise<void> => {
       folders.set(OPEN, open);

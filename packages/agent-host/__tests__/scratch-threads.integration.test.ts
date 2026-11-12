@@ -8,6 +8,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test } from 'vitest';
 import { readHostWorkspaceTrust } from '../src/workspace-trust.js';
 import { rowsWhere, scripted, startedRuns, write } from './fixtures/automatic-isolation-host.js';
@@ -126,4 +127,32 @@ test('deleting the thread moves its scratch folder to the Trash and forgets it',
   ).toEqual([]);
   // No answer outlives its folder: a folder made at that path again would be asked about anew.
   expect(await hosted.store.getSetting(`workspace.trust/${path}`)).toBeUndefined();
+});
+
+test('a scratch folder the Trash refuses leaves the thread deleted, and the deletion says where the folder is and why', async () => {
+  const hosted = await host();
+  const threadId = await hosted.thread();
+  const { root } = await hosted.core.scratchWorkspace({ commandId: randomUUID(), threadId });
+  await hosted.run(threadId, 'S: write notes.txt.');
+  await finishedTurn(hosted, threadId);
+  // As Main refuses a move the system Trash cannot make (`scratch-folder-trash.ts`).
+  hosted.harness.failTrash = refusalError(
+    'availability',
+    'workspace.trash-failed',
+    'The Trash is not available on this volume'
+  );
+
+  await expect(hosted.core.deleteThread({ threadId })).resolves.toEqual({
+    deleted: true,
+    scratchFolderNotRetired: {
+      path: root?.path,
+      reason: expect.stringContaining('The Trash is not available on this volume'),
+    },
+    threadIds: [threadId],
+  });
+
+  // The thread is gone, as any deleted thread is; its folder stays where it was, unmoved.
+  expect(hosted.core.listThreads().map((thread) => thread.threadId)).toEqual([]);
+  expect(await hosted.scratchFolders()).toEqual(['quiet-otter-1']);
+  expect(hosted.trashed).toEqual([]);
 });

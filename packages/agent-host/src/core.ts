@@ -520,8 +520,8 @@ export class HostCore {
         queue: (tail) => {
           this.admission = tail;
         },
-        retireScratch: (threadId) => this.platform.scratchFolders?.retire({ threadId }),
         runs,
+        scratchFolders: this.platform.scratchFolders,
         threads: this.threads,
       },
       params.threadId

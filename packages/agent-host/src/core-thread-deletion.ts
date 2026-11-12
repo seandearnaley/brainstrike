@@ -13,6 +13,7 @@ import {
   joinHostThreadDeletion,
 } from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
+import type { HostScratchFolders } from './ports.ts';
 import type { HostResults } from './protocol.ts';
 
 type Deletion = Promise<HostResults['thread/delete']>;
@@ -35,9 +36,9 @@ export interface HostThreadDeletionContext {
   readonly pendingAdmissions: ReadonlyMap<AbortController, string>;
   /** The new admission tail: later commands queue behind the deletion. */
   queue(tail: Promise<void>): void;
-  /** ADR-0034: the deleted thread's scratch folder goes to the system Trash (`HostScratchFolders`). */
-  retireScratch(threadId: string): Promise<void> | undefined;
   readonly runs: ReadonlyMap<string, HostRunState>;
+  /** ADR-0034: the deleted thread's scratch folder goes to the system Trash. */
+  readonly scratchFolders: HostScratchFolders | undefined;
   readonly threads: ReadonlySet<string>;
 }
 
@@ -93,8 +94,8 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
   // Outside the admission queue, which every thread shares: moving a folder to the Trash can take
   // a while, and nothing of the thread is left to admit.
   const deletion = erased.then(async (deleted) => {
-    await retireHostScratchFolder(context, threadId);
-    return deleted;
+    const notRetired = await retireHostScratchFolder(context.scratchFolders, threadId);
+    return notRetired ? { ...deleted, scratchFolderNotRetired: notRetired } : deleted;
   });
   for (const id of subtree) {
     context.deletions.set(id, deletion);
@@ -111,26 +112,27 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
 
 /**
  * The deleted thread's scratch folder, if it had one, leaves the workspace and
- * goes to the Trash. A failure is logged and answers the deletion, which says
- * the thread itself is gone.
+ * goes to the Trash. The thread is already gone, so a failure does not fail
+ * the deletion: it is logged, and the deletion's answer names the folder and
+ * why, for the person to see.
  */
 async function retireHostScratchFolder(
-  context: Pick<HostThreadDeletionContext, 'retireScratch'>,
+  scratchFolders: HostScratchFolders | undefined,
   threadId: string
-): Promise<void> {
+): Promise<NonNullable<HostResults['thread/delete']['scratchFolderNotRetired']> | undefined> {
+  let path: string | undefined;
   try {
-    await context.retireScratch(threadId);
+    path = (await scratchFolders?.read({ threadId }))?.path;
+    if (path !== undefined) {
+      await scratchFolders?.retire({ threadId });
+    }
+    return;
   } catch (cause) {
     logger.error('A deleted thread’s scratch folder was not moved to the Trash', {
       cause,
+      path,
       threadId,
     });
-    throw new BoundaryFailureError(
-      fault({
-        category: 'availability',
-        code: 'thread.scratch-folder-not-retired',
-        message: `The thread was deleted, but its scratch folder was not moved to the Trash: ${describeBoundaryError(cause)}`,
-      })
-    );
+    return { ...(path === undefined ? {} : { path }), reason: describeBoundaryError(cause) };
   }
 }

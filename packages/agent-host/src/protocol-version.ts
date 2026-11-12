@@ -124,5 +124,6 @@
 // no folder while none was open; Main decodes the kind strictly, so an older Main cannot read
 // these records. Each root `workspace/roots/*` answers carries `scratch`, required.
 // `thread/workspace/scratch` gives a thread with no folder its scratch folder and binds it before
-// its first run, a new method.
+// its first run, a new method. A `thread/delete` result carries `scratchFolderNotRetired` when the
+// deleted thread's scratch folder was not moved to the Trash, an optional field.
 export const AGENT_HOST_PROTOCOL_VERSION = 26;
