@@ -266,4 +266,38 @@ describe('useThreadFolderRows', () => {
       expect(result.current.rowsByRootId.get('root-b')?.displayName).toBe('Project B');
     });
   });
+
+  // BST-2493: a thread joining a folder must not empty the map the Threads panel draws its
+  // sections from, or the panel stands a loading card in for every row.
+  it('keeps the rows already read for the ids still asked for while an added id is read', async () => {
+    const { rerender, result } = renderHook(
+      (rootIds: readonly string[]) => useThreadFolderRows(rootIds),
+      { initialProps: ['root-a'] as readonly string[] }
+    );
+    await waitFor(() => {
+      expect(result.current.rowsByRootId.size).toBe(1);
+    });
+
+    let release: (() => void) | undefined;
+    readRoots.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => {
+            resolve(ROOT_ROWS.map((row) => ({ ...row, status: 'live' as const })));
+          };
+        })
+    );
+    rerender(['root-a', 'root-b']);
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.rowsByRootId.get('root-a')?.displayName).toBe('Project A');
+    expect(result.current.rowsByRootId.has('root-b')).toBe(false);
+    act(() => {
+      release?.();
+    });
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.rowsByRootId.get('root-b')?.displayName).toBe('Project B');
+  });
 });

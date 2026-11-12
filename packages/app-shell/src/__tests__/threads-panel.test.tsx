@@ -19,6 +19,7 @@ import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
+  createHostAssistantThreadRepository,
 } from '../assistant-thread-host-context';
 import {
   THREAD_CONTROL_ACTION_CLASS_NAME,
@@ -2162,6 +2163,85 @@ describe('ThreadsPanel folders', () => {
     expect(() => renderThreadsPanel()).not.toThrow();
 
     expect((await screen.findAllByTestId('thread-folder-count')).length).toBeGreaterThan(0);
+  });
+
+  // BST-2493: a "Loading projects…" card stood in for the list whenever a thread got a new folder,
+  // so every row unmounted and a menu open on any of them closed.
+  it('keeps the list, and a row menu open on it, while a thread’s new folder is read', async () => {
+    bindThreadToRoot('thread-a');
+    const { threadGroups: transport } = window as unknown as {
+      readonly threadGroups: {
+        readonly readRoots: () => Promise<unknown>;
+        readonly request: (input: unknown) => Promise<unknown>;
+      };
+    };
+    const heldReads: (() => void)[] = [];
+    let holdReads = false;
+    Object.defineProperty(window, 'threadGroups', {
+      configurable: true,
+      value: {
+        readRoots: async () => {
+          if (holdReads) {
+            await new Promise<void>((release) => heldReads.push(release));
+          }
+          return transport.readRoots();
+        },
+        request: transport.request,
+      },
+    });
+    const host = createDefaultHost();
+    renderThreadsPanel(host);
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    await enterFolderGrouping();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Thread actions First thread' }));
+    expect(screen.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
+
+    // The host makes the other thread a scratch folder, as a first send with none open does.
+    holdReads = true;
+    bindThreadToRoot('thread-b', {
+      displayName: 'quiet-otter',
+      id: 'root-quiet-otter',
+      path: '/profile/scratch/quiet-otter',
+      projectId: null,
+      scratch: true,
+    });
+    await act(async () => {
+      await useAssistantThreadStore
+        .getState()
+        .refreshResourceThreads(
+          createHostAssistantThreadRepository(host),
+          WORKSPACE_MEMORY_RESOURCE_ID
+        );
+    });
+    await waitFor(() => {
+      expect(heldReads).not.toHaveLength(0);
+    });
+
+    expect(screen.queryByTestId('threads-folders-loading-card')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    expect(screen.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
+
+    await act(async () => {
+      for (const release of heldReads) {
+        release();
+      }
+    });
+    // The open menu hides the treegrid from role queries, so the row is found by its title.
+    const secondRow = screen
+      .getByText('Second thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    if (!secondRow) {
+      throw new Error('Expected a rendered row for Second thread.');
+    }
+    await waitFor(() => {
+      expect(within(secondRow).getByTestId('thread-checkout-chip')).toHaveTextContent(
+        'quiet-otter'
+      );
+    });
+    expect(screen.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
   });
 
   it('offers folder sort without Custom and drives folderSortBy', async () => {
