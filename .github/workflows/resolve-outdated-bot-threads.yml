@@ -3,12 +3,16 @@
 # "Review threads resolved" merge protection (.mergify.yml) until someone
 # clicks Resolve.
 #
-# - Only threads a bot started (Claude Review, Codex, Copilot and the like) are
+# - Only threads another review bot started (Codex, Copilot and the like) are
 #   resolved, and only once GitHub marks them outdated: the lines they anchor to
 #   changed in a later push. Threads a person started are left to people.
+# - Claude Review's threads (github-actions[bot]) are left to Claude Review. Its
+#   follow-up rechecks its open findings against the push and resolves the ones
+#   it fixed; resolving them here first would hide an unfixed one from that
+#   recheck.
 # - Outdated means the lines moved or changed, not that the finding was fixed.
-#   Claude Review's follow-up reviews what the push changed and posts a new
-#   finding when the fix falls short; a Codex finding gets no such recheck.
+#   A Codex finding gets no recheck, so a push that only moves its lines
+#   resolves it too.
 # - A thread nobody addressed stays unresolved and still holds the PR, as the
 #   2026-10-30 owner decision wants.
 # - GitHub computes outdated threads a little after the push lands, so the job
@@ -71,9 +75,12 @@ jobs:
                 resolveReviewThread(input: { threadId: $id }) { thread { isResolved } }
               }`;
 
+            // Claude Review resolves its own threads after rechecking them.
+            const claudeReview = new Set(['github-actions', 'github-actions[bot]']);
             const startedByBot = (thread) => {
               const author = thread.comments.nodes[0]?.author;
-              return author != null && (author.__typename === 'Bot' || author.login.endsWith('[bot]'));
+              if (author == null || claudeReview.has(author.login)) return false;
+              return author.__typename === 'Bot' || author.login.endsWith('[bot]');
             };
 
             async function openBotThreads() {
