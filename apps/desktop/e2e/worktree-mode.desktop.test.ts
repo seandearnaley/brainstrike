@@ -7,7 +7,14 @@
  * cross the production preload, IPC, service, Git, mount, and thread-metadata
  * chain; only assistant model traffic is replaced at its external boundary.
  */
-import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -152,13 +159,21 @@ test.describe('Worktree mode (desktop)', () => {
 
   // ADR-0034 Automatic isolation: nothing here waits on a clock. The first
   // thread's run stays in progress because it waits for a person, and each
-  // step follows an approval card.
+  // step follows an approval card. The repository's setup script was allowed
+  // once, in the create sheet, so the worktree the host makes runs it too.
   test('a second thread moves to a worktree at its first edit in a folder a running thread has edited', async ({
     modelProvider,
     window: page,
   }) => {
     test.setTimeout(240_000);
     const repo = freshRepo('automatic');
+    mkdirSync(path.join(repo, '.brainstrike'));
+    writeFileSync(
+      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
+      'echo ran > setup-ran.txt\n'
+    );
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-m', 'add the worktree setup script']);
     const tool = 'brainstrike.writeWorkspaceFile';
     const write = (file: string) => ({
       arguments: { content: `${file}\n`, path: file },
@@ -195,8 +210,19 @@ test.describe('Worktree mode (desktop)', () => {
     const approve = region.getByRole('button', { exact: true, name: `Approve ${tool}` });
     const asksAbout = region.getByTestId('approval-file-target-summary');
 
-    // The first thread edits the checkout, then waits for a person: its run is in progress.
+    // The person allows the repository's setup script in the create sheet and
+    // creates nothing: the host keeps the answer.
     await chooseThreadFolder(region, path.basename(repo));
+    await openWhereMenu(region);
+    await page.getByTestId('workspace-bar-mode-new-worktree').click();
+    const sheet = page.getByTestId('worktree-create-dialog');
+    const allow = sheet.getByRole('button', { exact: true, name: 'Allow script' });
+    await allow.click();
+    await expect(allow).toHaveAttribute('data-variant', 'default', { timeout: 30_000 });
+    await sheet.getByRole('button', { exact: true, name: 'Cancel' }).click();
+    await expect(sheet).toBeHidden();
+
+    // The first thread edits the checkout, then waits for a person: its run is in progress.
     await input.fill('The first thread: write two files.');
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(asksAbout).toContainText('first.txt', { timeout: 60_000 });
@@ -228,6 +254,9 @@ test.describe('Worktree mode (desktop)', () => {
     });
     await page.keyboard.press('Escape');
     expect(existsSync(path.join(repo, 'second.txt'))).toBe(false);
+    // No sheet asked about this worktree: the host read the repository's answer and ran the script.
+    expect(existsSync(path.join(worktrees[0] ?? '', 'setup-ran.txt'))).toBe(true);
+    expect(existsSync(path.join(repo, 'setup-ran.txt'))).toBe(false);
 
     // The same turn carried on there: the edit is asked for again, in the worktree, and lands in it.
     await expect(region.getByTestId('approval-workspace-root-value')).toHaveText(name, {

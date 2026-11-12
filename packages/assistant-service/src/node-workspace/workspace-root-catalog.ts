@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
 import type { RecordedWorkspaceRoot } from './workspace-root-types.ts';
 import { recordWorkspaceRootDisconnections } from './workspace-roots.ts';
 
@@ -41,7 +41,7 @@ export async function recordWorkspaceRoot(
   catalog: WorkspaceRootPort,
   root: { readonly canonicalPath: string; readonly path: string; readonly preferredId: string },
   repin = false
-): Promise<{ readonly id: string; readonly kind: 'path' | 'worktree' }> {
+): Promise<{ readonly id: string; readonly kind: WorkspaceRootRecord['kind'] }> {
   const { roots } = await catalog.workspaceRoots({
     operation: 'register',
     ...(repin ? { repin } : {}),

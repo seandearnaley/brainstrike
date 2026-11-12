@@ -131,8 +131,10 @@ export interface WorkspaceBarBaseRefOption {
 }
 
 export interface WorkspaceBarRepositorySetupConsent {
+  /** The host's standing answer for the script's current bytes, or null. */
   readonly decision: WorktreeRepositorySetupDecision | null;
-  readonly onDecision: (decision: WorktreeRepositorySetupDecision) => void;
+  /** Records the person's answer with the host; rejects with the host's reason when refused. */
+  readonly onDecision: (decision: WorktreeRepositorySetupDecision) => Promise<void>;
   readonly repositoryPath: string;
   readonly scriptPath: string;
 }

@@ -22,12 +22,20 @@ const service = {
 /** The ledger's rows of one repository, archived ones too. */
 const listRepositoryWorktrees = vi.fn();
 
+/** No answer is recorded in these tests; the record is covered with the consent module. */
+const setupConsentStore = {
+  deleteSetting: vi.fn(),
+  getSetting: vi.fn(async () => undefined),
+  setSetting: vi.fn(),
+};
+
 function handlers() {
   return createWorktreesMethods({
     listRepositoryWorktrees,
     readSettings: () =>
       Promise.resolve({ isDefaultDirectory: true, managedDirectory: '/m', setupCommand: null }),
     resolveService: () => service as never,
+    setupConsentStore,
     writeSettings: (next: unknown) => Promise.resolve(next as never),
   });
 }
@@ -43,6 +51,7 @@ describe('worktrees IPC handlers', () => {
       readSettings: () =>
         Promise.resolve({ isDefaultDirectory: true, managedDirectory: '/m', setupCommand: null }),
       resolveService: () => null,
+      setupConsentStore,
       writeSettings: (next: unknown) => Promise.resolve(next as never),
     });
     expect(await withoutService.list()).toEqual({
@@ -215,71 +224,21 @@ describe('worktrees IPC handlers', () => {
     expect(service.create).toHaveBeenCalledWith(params);
   });
 
-  it('forwards a validated repository setup decision to the service', async () => {
-    service.create.mockResolvedValue({ ok: true, value: { setup: null, worktree: null } });
-    const params = {
-      baseRef: 'main',
-      branch: { name: 'bs/x' },
-      createdBy: 'user',
-      name: 'x',
-      repositorySetupDecision: {
-        decision: 'denied',
-        repositoryId: '/work/app/.git',
-        scriptSha256: 'hash-1',
-      },
+  it('records nothing for a malformed setup script answer', async () => {
+    const result = await handlers().decideSetupConsent({
+      decision: 'sometimes',
       rootId: 'r',
-    };
-
-    await handlers().create(params);
-
-    expect(service.create).toHaveBeenCalledWith(params);
-  });
-
-  it('rejects a malformed repository setup decision at the boundary', async () => {
-    const result = await handlers().create({
-      baseRef: 'main',
-      branch: { name: 'bs/x' },
-      createdBy: 'user',
-      name: 'x',
-      repositorySetupDecision: {
-        decision: 'sometimes',
-        repositoryId: '/work/app/.git',
-        scriptSha256: 'hash-1',
-      },
-      rootId: 'r',
+      scriptSha256: 'a'.repeat(64),
     });
 
     expect(result).toEqual({
       error: expect.objectContaining({
         message:
-          'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
+          'worktrees:setup-consent/decide requires { rootId, decision: "approved" | "denied", scriptSha256 }.',
       }),
       ok: false,
     });
-    expect(service.create).not.toHaveBeenCalled();
-  });
-
-  it('rejects a repository setup decision missing its script hash at the boundary', async () => {
-    const result = await handlers().create({
-      baseRef: 'main',
-      branch: { name: 'bs/x' },
-      createdBy: 'user',
-      name: 'x',
-      repositorySetupDecision: {
-        decision: 'approved',
-        repositoryId: '/work/app/.git',
-      },
-      rootId: 'r',
-    });
-
-    expect(result).toEqual({
-      error: expect.objectContaining({
-        message:
-          'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.',
-      }),
-      ok: false,
-    });
-    expect(service.create).not.toHaveBeenCalled();
+    expect(setupConsentStore.setSetting).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed archive payload at the boundary', async () => {
@@ -444,6 +403,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings,
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings: (next: unknown) => Promise.resolve(next as never),
     });
 
@@ -455,6 +415,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.reject(new Error('settings read failed')),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings: (next: unknown) => Promise.resolve(next as never),
     });
 
@@ -470,6 +431,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings,
     });
 
@@ -488,6 +450,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings,
     });
 
@@ -510,6 +473,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings,
     });
 
@@ -530,6 +494,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings,
     });
 
@@ -557,6 +522,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.resolve(settings),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings,
     });
 
@@ -572,6 +538,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.resolve(settings),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings,
     });
 
@@ -592,6 +559,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => readWorktreeSettings(store, '/home/me'),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings: (next) =>
         writeWorktreeSettings(store, '/home/me', next, () => Promise.resolve(['/work/project'])),
     });
@@ -622,6 +590,7 @@ describe('worktrees IPC handlers', () => {
       listRepositoryWorktrees,
       readSettings: () => Promise.resolve({} as never),
       resolveService: () => service as never,
+      setupConsentStore,
       writeSettings: () => Promise.reject(new Error('managed directory refused')),
     });
 

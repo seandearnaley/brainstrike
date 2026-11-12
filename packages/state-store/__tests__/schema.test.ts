@@ -21,6 +21,7 @@ const DESKTOP_CATALOG = [
   'projects',
   'provider_choices',
   'roots',
+  'scratch_folders',
   'thread_groups',
   'thread_pins',
   'thread_placements',
@@ -29,6 +30,18 @@ const DESKTOP_CATALOG = [
 const RUN_LOG = ['purge_intent', 'run_events', 'run_sync', 'settings', 'threads'];
 const MEMORY = ['brainstrike_memory_scopes', 'brainstrike_memory_entities'];
 const ISO = '2026-10-02T00:00:00.000Z';
+/** The roots table as version 16 left it, before a root could be a scratch folder. */
+const V16_ROOTS = `CREATE TABLE roots (
+  id TEXT PRIMARY KEY NOT NULL CHECK (length(id) > 0),
+  path TEXT NOT NULL UNIQUE CHECK (length(path) > 0),
+  canonical_path TEXT NOT NULL CHECK (length(canonical_path) > 0),
+  display_name TEXT NOT NULL CHECK (length(display_name) > 0),
+  kind TEXT NOT NULL CHECK (kind IN ('path', 'worktree')),
+  status TEXT NOT NULL CHECK (status IN ('live', 'disconnected')),
+  open_position INTEGER CHECK (open_position IS NULL OR open_position >= 0),
+  created_at REAL NOT NULL,
+  last_verified_at REAL NOT NULL
+) STRICT;`;
 
 async function openDb(): Promise<{ store: StateStore; db: Database.Database }> {
   const root = freshDir('schema');
@@ -227,6 +240,66 @@ describe('state DB migrations', () => {
           expect.objectContaining({ id: 'r1', projectId: null }),
         ]);
       }
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before scratch folders keeps every folder, its order, kind and project', () => {
+    const db = new Database(':memory:');
+    const paths = { isGranted: () => true };
+    try {
+      db.pragma('foreign_keys = ON');
+      db.exec(UPGRADES.slice(0, 16).join(';'));
+      db.exec(`${V16_ROOTS}
+      INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      INSERT INTO roots VALUES ('r2', '/wt', '/wt', 'wt', 'worktree', 'disconnected', NULL, 2, 2);
+      INSERT INTO projects VALUES ('p1', 1);
+      INSERT INTO project_folders VALUES ('/cur', 'p1');
+      PRAGMA user_version = 16;`);
+      migrate(db);
+      expect(executeWorkspaceRootRequest(db, { operation: 'list' }, paths).roots).toEqual([
+        expect.objectContaining({ id: 'r1', kind: 'path', projectId: 'p1', status: 'live' }),
+        expect.objectContaining({ id: 'r2', kind: 'worktree', projectId: null }),
+      ]);
+      expect(
+        executeWorkspaceRootRequest(db, { operation: 'list-open' }, paths).roots.map(
+          (root) => root.id
+        )
+      ).toEqual(['r1']);
+      // The upgraded table takes a scratch folder (ADR-0034), recorded with its thread.
+      expect(
+        executeWorkspaceRootRequest(
+          db,
+          {
+            operation: 'register-scratch',
+            root: { canonicalPath: '/s/a', displayName: 'a', path: '/s/a', preferredId: 'r3' },
+            threadId: 't1',
+          },
+          paths
+        ).roots
+      ).toEqual([expect.objectContaining({ id: 'r3', kind: 'scratch' })]);
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before scratch folders that opens damaged, so is not upgraded, has none', () => {
+    const db = new Database(':memory:');
+    const paths = { isGranted: () => true };
+    try {
+      db.exec(UPGRADES.slice(0, 16).join(';'));
+      db.exec(`${V16_ROOTS}
+      INSERT INTO roots VALUES ('r1', '/cur', '/cur', 'cur', 'path', 'live', 0, 1, 1);
+      PRAGMA user_version = 16;`);
+      db.pragma('query_only = ON');
+      expect(
+        executeWorkspaceRootRequest(db, { operation: 'scratch-of-thread', threadId: 't1' }, paths)
+          .roots
+      ).toEqual([]);
+      expect(executeWorkspaceRootRequest(db, { operation: 'list-scratch' }, paths).roots).toEqual(
+        []
+      );
     } finally {
       db.close();
     }

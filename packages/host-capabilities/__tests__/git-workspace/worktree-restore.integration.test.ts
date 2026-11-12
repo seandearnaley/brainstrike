@@ -104,6 +104,7 @@ describe('restoring an archived worktree (real git + real SQLite)', () => {
       listRepositoryWorktrees: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
       readSettings: unused,
       resolveService: () => worktrees,
+      setupConsentStore: db,
       writeSettings: unused,
     }).listArchived({ rootId });
   }

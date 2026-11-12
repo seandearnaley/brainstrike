@@ -4,8 +4,9 @@ import {
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { WorktreeSettingsStatus } from '@brainstrike/settings-ui/settings/system/worktree-settings-section';
+import type { WorktreeSetupConsents } from '@brainstrike/settings-ui/settings/system/worktree-setup-consent-settings-section';
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export interface UseWorktreeSettingsResult {
   readonly save: (next: {
@@ -13,6 +14,8 @@ export interface UseWorktreeSettingsResult {
     readonly setupCommand: WorktreeSetupCommand;
   }) => Promise<void>;
   readonly settings: WorktreeSettings | null;
+  /** The host's setup script answers (ADR-0034); undefined without a worktree host. */
+  readonly setupConsent: WorktreeSetupConsents | undefined;
   readonly status: WorktreeSettingsStatus;
 }
 
@@ -76,5 +79,28 @@ export function useWorktreeSettings(): UseWorktreeSettingsResult {
     setSettings(result.value);
   };
 
-  return { save, settings, status };
+  // One object per bridge: the section rereads whenever it changes.
+  const setupConsent = useMemo<WorktreeSetupConsents | undefined>(
+    () =>
+      bridge
+        ? {
+            list: async () => {
+              const result = await bridge.listSetupConsent();
+              if (!result.ok) {
+                throw new BoundaryFailureError(result.error);
+              }
+              return result.value;
+            },
+            revoke: async (repositoryId) => {
+              const result = await bridge.revokeSetupConsent({ repositoryId });
+              if (!result.ok) {
+                throw new BoundaryFailureError(result.error);
+              }
+            },
+          }
+        : undefined,
+    [bridge]
+  );
+
+  return { save, settings, setupConsent, status };
 }

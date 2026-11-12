@@ -9,7 +9,7 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
   - Revalidate the same binding after awaited work.
   - Registry add, restore and disconnect complete before renderer projection; a failed removal leaves the root connected.
 - The registry (`@brainstrike/host-capabilities/workspace-roots`) is the one writer of the open folders and their order (`roots.open_position`), the recent-folders ledger and each folder's grant-time identity (`roots.canonical_path`).
-  - It serves `workspace/roots/*` to the desktop's private client only; Main answers the picker (`platform/workspace/pick-folder`) and nothing else about folders.
+  - It serves `workspace/roots/*` to the desktop's private client only; Main answers the picker (`platform/workspace/pick-folder`), and moves a deleted thread's scratch folder to the Trash (`platform/workspace/trash-scratch-folder`), and nothing else about folders.
 - The registry owns each folder's one `SecureRoot`.
   - Reads, watches and run borrows borrow it (`useMountedRoot`, `root-pins.ts`, source leases); never open a second handle in the host.
   - A mount closes only after its borrows end.
@@ -23,6 +23,14 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
   - A terminal cwd pin is shell-only and never changes assistant authority.
   - Rebuilt handles carry their durable root ID, not a selection or cache folder ID.
 
+- Scratch threads (ADR-0034, Sean 2026-11-12): a thread first sent with no folder while none is open works in a folder the host makes for it, `<userData>/scratch/<name>`, bound before its run is admitted.
+  - The renderer's first send asks `thread/workspace/scratch` before `run/start`, only when the draft has no folder and no folder is open. The host makes nothing while a folder is open (the registry checks, in its own order of changes), and a thread that already works in a folder keeps it.
+  - The folder is made outside Core's admission queue, then bound through the binding's own command (`thread-scratch.ts`). Never make or bind it from inside admission.
+  - The platform's `HostPlatform.scratchFolders` (`scratch-folders.ts`, composed in `desktop-node-platform.ts`) makes the leaf alone under the canonical scratch directory, named by `generateWorktreeName`, records it trusted, and has the registry mount and record it (`addScratchRoot`, `register-scratch`). A thread's recorded folder is reused, so no second is made.
+  - A scratch root is mounted for its thread at every launch, as a worktree is, and is never an open folder, a Recents entry or a project. It reaches the renderer marked `scratch`; the Explorer shows only the active thread's (`threadCheckoutView`), and a run with no folder of its own never sees another thread's (Main's admission roots leave scratch roots out).
+  - Deleting the thread, after its rows are erased and outside the admission queue, unmounts the folder, deletes its records and trust answer, and has Main move it to the system Trash (`platform/workspace/trash-scratch-folder`). Main moves only a folder directly inside `<userData>/scratch`, by canonical path. The thread is already gone, so a failure never fails `thread/delete`: it is logged and the result names the folder and why (`scratchFolderNotRetired`), which the window shows.
+  - A run names the Explorer's focus only when its thread can see that folder: an open folder or one of its own (`threadSelectionFolderId`). The Explorer keeps its last focus while the active thread shows none, so never send that focus unchecked.
+
 ## Instructions, prompts and skills
 
 - A folder's agent configuration (AGENTS.md/AGENT.md/CLAUDE.md, project skills, slash commands, subagent personas) loads only once the person trusts the folder.
@@ -33,12 +41,17 @@ Implementation: `packages/host-capabilities` (workspace context and tools), `pac
     - `writeHostWorkspaceTrust` is the only writer of a location: with a `trusted` answer, on the person's explicit request, as the parent of the folder being trusted. Never add one from a run, a scan, a headless start or anything a folder contains.
     - The host says which parent may be named (`offeredLocation`, from `hostTrustedLocationOffer`). Show that path and send it back; never work a parent out in a client.
     - A folder counts only when the person alone can add to it: they own it, and neither its group nor everyone can write to it. That holds for the location, the folder itself and every folder between. A test that expects a location to cover a folder makes its folders with mode `0o755`, since the machine's umask may leave them group-writable.
-    - A folder the app itself creates is recorded as trusted through the same writer when it is created, and never a folder that already existed. No such action exists yet.
+    - A folder the app itself creates is recorded as trusted through the same writer when it is created, and never a folder that already existed. The one such folder is a scratch folder (below); its answer is forgotten before it goes to the Trash (`forgetHostWorkspaceTrust`).
   - The composer's chip asks only about the thread's own folders (the binding's operating folder and secondaries; every open folder while it has none), once per answer. `workspace/trust/list` names the answering folder (`answeredBy`); group by it rather than matching paths in the renderer.
   - An untrusted folder still mounts and stays readable and editable.
   - Home tiers load regardless; hooks keep their own hash pins.
     - A hook approval is for exact bytes, recorded under the same answering folder as workspace trust (`hostAnsweringFolder`, `packages/agent-host/src/answering-folder.ts`), so a managed worktree runs the one version its repository approved.
     - Resolve whose answer a folder shares through that one function; never match a worktree to its repository another way.
+  - The worktree setup script (`.brainstrike/worktree-setup.sh`) has its own pinned answer, kept by the host (ADR-0034, owner decision 2026-11-12): one setting, `worktrees.setup.consent`, keyed by the repository's realpath'd git common dir, read and written only through `packages/host-capabilities/src/git-workspace/worktree-setup-consent.ts`.
+    - Only a person's answer writes it (the create sheet's Allow or Skip through `worktrees/setup-consent/decide`, Settings › Workspace's Revoke). The writer re-hashes the script and refuses an answer for other bytes. Never record one from a run.
+    - The worktree service reads it on every create (`readRepositorySetupConsent`), so a worktree the host makes runs the script too; `worktrees/create` carries no decision. `resolveSetupCommand` re-hashes before running and fails closed.
+    - The checked bytes run from a private copy (`runWithPrivateScript`: a 0700 `mkdtemp` directory, removed however setup ends). Never open the script by its path again after the check: a run that can write the checkout could swap it in between.
+    - `worktrees/create-context` answers the standing decision only for the script's current hash; a client never compares hashes itself.
   - Any new repo-supplied input that steers the agent goes behind the same filter.
 - Every host (desktop and CLI) scans and injects these through `@brainstrike/host-capabilities/workspace-context` (ADR-0029 stage 2a).
   - Settings reads them over the host methods `workspace/skills`, `workspace/commands`, `workspace/personas` and `workspace/context-files`; the last two answer only the desktop's private client. Main serves none of them.

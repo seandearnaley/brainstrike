@@ -77,18 +77,11 @@ import {
   type WorktreeServiceDeps,
   type WorktreeSetupInput,
 } from './worktree-service-inputs.ts';
-import {
-  repositorySetupDecisionInput,
-  resolveRepositorySetupContext,
-} from './worktree-setup-consent.ts';
+import { resolveRepositorySetupContext } from './worktree-setup-consent.ts';
 
 const logger = createLogger('WorktreeService');
 
-export type {
-  RepositorySetupDecisionInput,
-  WorktreeServiceDeps,
-  WorktreeSetupInput,
-} from './worktree-service-inputs.ts';
+export type { WorktreeServiceDeps, WorktreeSetupInput } from './worktree-service-inputs.ts';
 
 export function createWorktreeService(deps: WorktreeServiceDeps) {
   const ledger = createWorktreeLedger(deps.getWorktreeStore, deps.hasRunningThread);
@@ -257,9 +250,21 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }
   }
 
-  async function runSetupSafely(input: WorktreeSetupInput): Promise<WorktreeSetupOutcome> {
+  /**
+   * The repository's standing answer is read here, for every create, so the
+   * person's own worktree, the model's and Automatic isolation's run setup
+   * alike. A record that cannot be read fails setup visibly, not the create.
+   */
+  async function runSetupSafely(
+    repositoryId: string,
+    input: Omit<WorktreeSetupInput, 'repositorySetupDecision'>
+  ): Promise<WorktreeSetupOutcome> {
     try {
-      return await deps.runSetup(input);
+      const decision = await deps.readRepositorySetupConsent(repositoryId);
+      return await deps.runSetup({
+        ...input,
+        ...(decision ? { repositorySetupDecision: decision } : {}),
+      });
     } catch (error) {
       return {
         copiedPaths: [],
@@ -314,8 +319,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     const row = await insertCreatedWorktree(context.value, params, branchName, target);
     // Setup failure is VISIBLE and does NOT block using the worktree (§6.3):
     // the outcome rides back on the result and is persisted on the row.
-    const setup = await runSetupSafely({
-      ...repositorySetupDecisionInput(params, context.value.commonDir),
+    const setup = await runSetupSafely(context.value.commonDir, {
       settings,
       sourcePath: context.value.repositoryRoot,
       worktree: row,
@@ -908,7 +912,11 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           ok: true,
           value: {
             managedParentPath: path.join(settings.managedDirectory, slug),
-            repositorySetup: await resolveRepositorySetupContext(settings, context.value),
+            repositorySetup: await resolveRepositorySetupContext(
+              settings,
+              context.value,
+              deps.readRepositorySetupConsent
+            ),
             suggestedName: generateWorktreeName(taken),
           },
         };

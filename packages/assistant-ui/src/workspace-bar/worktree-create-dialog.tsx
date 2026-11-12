@@ -1,3 +1,4 @@
+import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
 import {
   Button,
   Dialog,
@@ -63,10 +64,12 @@ export function WorktreeCreateDialog({
   const [baseRef, setBaseRef] = useState(mode.baseRefs[0].value);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deciding, setDeciding] = useState(false);
   const trimmedName = name.trim();
   const nameError = worktreeNameError(name);
   const repositorySetupConsent = mode.repositorySetupConsent;
-  const consentRequired = repositorySetupConsent?.decision === null;
+  // While an answer is on its way to the host, the sheet waits for the host's.
+  const consentRequired = repositorySetupConsent?.decision === null || deciding;
   const derivedBranch = branchTouched
     ? branch
     : `${mode.defaultBranchPrefix}${trimmedName || mode.defaultName}`;
@@ -93,6 +96,24 @@ export function WorktreeCreateDialog({
       })
       .finally(() => {
         setSubmitting(false);
+      });
+  };
+
+  // The host records the answer for the script it showed; a refusal (the
+  // script changed since) is shown here, and the sheet keeps asking.
+  const decide = (decision: WorktreeRepositorySetupDecision): void => {
+    if (!repositorySetupConsent || deciding) {
+      return;
+    }
+    setDeciding(true);
+    setError(null);
+    repositorySetupConsent
+      .onDecision(decision)
+      .catch((caught: unknown) => {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      })
+      .finally(() => {
+        setDeciding(false);
       });
   };
 
@@ -225,7 +246,8 @@ export function WorktreeCreateDialog({
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() => repositorySetupConsent.onDecision('approved')}
+                  disabled={deciding}
+                  onClick={() => decide('approved')}
                   size="sm"
                   type="button"
                   variant={repositorySetupConsent.decision === 'approved' ? 'default' : 'outline'}
@@ -233,7 +255,8 @@ export function WorktreeCreateDialog({
                   Allow script
                 </Button>
                 <Button
-                  onClick={() => repositorySetupConsent.onDecision('denied')}
+                  disabled={deciding}
+                  onClick={() => decide('denied')}
                   size="sm"
                   type="button"
                   variant={repositorySetupConsent.decision === 'denied' ? 'default' : 'outline'}

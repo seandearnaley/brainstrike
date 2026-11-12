@@ -23,13 +23,21 @@ import type {
   WorktreeCreateParams,
   WorktreeCreateResult,
   WorktreeListEntry,
+  WorktreeRepositorySetupDecision,
   WorktreeSettings,
   WorktreeSetupCommand,
+  WorktreeSetupConsent,
 } from '@brainstrike/types';
 import { Predicate } from 'effect';
 import { gitInvalid, gitRefused, gitThrew } from './git-failure.ts';
 import { newestArchiveFirst } from './worktree-ledger.ts';
 import type { WorktreeService } from './worktree-service.ts';
+import {
+  decideWorktreeSetupConsent,
+  listWorktreeSetupConsents,
+  revokeWorktreeSetupConsent,
+  type WorktreeSetupConsentStore,
+} from './worktree-setup-consent.ts';
 
 const logger = createLogger('WorktreesMethods');
 
@@ -40,6 +48,8 @@ export interface WorktreesMethods {
   readonly create: (payload: unknown) => Promise<BoundaryResult<WorktreeCreateResult>>;
   readonly createBranchHere: (payload: unknown) => Promise<BoundaryResult<ManagedWorktreeRow>>;
   readonly createContext: (payload: unknown) => Promise<BoundaryResult<WorktreeCreateContext>>;
+  /** A person's Allow or Skip for the root's repository setup script, at the hash they saw. */
+  readonly decideSetupConsent: (payload: unknown) => Promise<BoundaryResult<WorktreeSetupConsent>>;
   readonly getSettings: () => Promise<BoundaryResult<WorktreeSettings>>;
   readonly inspectArchive: (payload: unknown) => Promise<BoundaryResult<WorktreeArchivePreview>>;
   readonly list: () => Promise<BoundaryResult<readonly WorktreeListEntry[]>>;
@@ -47,7 +57,11 @@ export interface WorktreesMethods {
     payload: unknown
   ) => Promise<BoundaryResult<readonly ManagedWorktreeRow[]>>;
   readonly listManagedPaths: () => Promise<BoundaryResult<readonly ManagedWorktreePathEntry[]>>;
+  readonly listSetupConsent: () => Promise<BoundaryResult<readonly WorktreeSetupConsent[]>>;
   readonly restore: (payload: unknown) => Promise<BoundaryResult<WorktreeCreateResult>>;
+  readonly revokeSetupConsent: (
+    payload: unknown
+  ) => Promise<BoundaryResult<{ readonly revoked: boolean }>>;
   readonly setSettings: (payload: unknown) => Promise<BoundaryResult<WorktreeSettings>>;
 }
 
@@ -58,6 +72,8 @@ export interface WorktreesMethodsOptions {
   ) => Promise<readonly ManagedWorktreeRow[]>;
   readonly readSettings: () => Promise<WorktreeSettings>;
   readonly resolveService: () => WorktreeService | null;
+  /** The host's state store, which holds the repositories' setup script consent. */
+  readonly setupConsentStore: WorktreeSetupConsentStore;
   readonly writeSettings: (next: {
     readonly managedDirectory: string | null;
     readonly setupCommand: WorktreeSetupCommand;
@@ -143,21 +159,6 @@ function validateCreate(payload: unknown): BoundaryResult<WorktreeCreateParams> 
   if (!(detached || named)) {
     return gitInvalid('worktrees:create branch must be { detached: true } or { name: string }.');
   }
-  const repositorySetupDecision = payload['repositorySetupDecision'];
-  if (
-    repositorySetupDecision !== undefined &&
-    !(
-      Predicate.isObject(repositorySetupDecision) &&
-      nonEmptyString(repositorySetupDecision['repositoryId']) &&
-      nonEmptyString(repositorySetupDecision['scriptSha256']) &&
-      (repositorySetupDecision['decision'] === 'approved' ||
-        repositorySetupDecision['decision'] === 'denied')
-    )
-  ) {
-    return gitInvalid(
-      'worktrees:create repositorySetupDecision must identify a repository, be approved or denied, and carry the script hash it is pinned to.'
-    );
-  }
   return {
     ok: true,
     value: {
@@ -168,15 +169,6 @@ function validateCreate(payload: unknown): BoundaryResult<WorktreeCreateParams> 
       createdBy: payload['createdBy'],
       name: payload['name'],
       rootId: payload['rootId'],
-      ...(Predicate.isObject(repositorySetupDecision)
-        ? {
-            repositorySetupDecision: {
-              decision: repositorySetupDecision['decision'] as 'approved' | 'denied',
-              repositoryId: repositorySetupDecision['repositoryId'] as string,
-              scriptSha256: repositorySetupDecision['scriptSha256'] as string,
-            },
-          }
-        : {}),
       // Schema-stability field: forwarded now but intentionally inert until
       // the worktree timeline lands in Task 18.
       ...(nonEmptyString(payload['runId']) ? { runId: payload['runId'] } : {}),
@@ -262,6 +254,42 @@ function validateRestore(payload: unknown): BoundaryResult<{
   return { ok: true, value: { worktreeId: payload['worktreeId'] } };
 }
 
+function validateDecideSetupConsent(payload: unknown): BoundaryResult<{
+  readonly decision: WorktreeRepositorySetupDecision;
+  readonly rootId: string;
+  readonly scriptSha256: string;
+}> {
+  if (
+    !(
+      Predicate.isObject(payload) &&
+      nonEmptyString(payload['rootId']) &&
+      nonEmptyString(payload['scriptSha256']) &&
+      (payload['decision'] === 'approved' || payload['decision'] === 'denied')
+    )
+  ) {
+    return gitInvalid(
+      'worktrees:setup-consent/decide requires { rootId, decision: "approved" | "denied", scriptSha256 }.'
+    );
+  }
+  return {
+    ok: true,
+    value: {
+      decision: payload['decision'],
+      rootId: payload['rootId'],
+      scriptSha256: payload['scriptSha256'],
+    },
+  };
+}
+
+function validateRevokeSetupConsent(
+  payload: unknown
+): BoundaryResult<{ readonly repositoryId: string }> {
+  if (!(Predicate.isObject(payload) && nonEmptyString(payload['repositoryId']))) {
+    return gitInvalid('worktrees:setup-consent/revoke requires { repositoryId }.');
+  }
+  return { ok: true, value: { repositoryId: payload['repositoryId'] } };
+}
+
 export function createWorktreesMethods(options: WorktreesMethodsOptions): WorktreesMethods {
   const failed = (channel: string, error: unknown): BoundaryResult<never> => {
     logger.error(`Unexpected ${channel} handler failure`, { error });
@@ -332,6 +360,25 @@ export function createWorktreesMethods(options: WorktreesMethodsOptions): Worktr
         service.createContext(params.value)
       );
     },
+    // Called only for a person's answer: the create sheet's Allow or Skip.
+    decideSetupConsent: async (payload) => {
+      const params = validateDecideSetupConsent(payload);
+      if (!params.ok) {
+        return params;
+      }
+      const { decision, rootId, scriptSha256 } = params.value;
+      return await withService('worktrees:setup-consent/decide', async (service) => {
+        const repository = await service.repositoryContextForRoot(rootId);
+        if (!repository.ok) {
+          return repository;
+        }
+        return await decideWorktreeSetupConsent(options.setupConsentStore, {
+          decision,
+          repository: repository.value,
+          scriptSha256,
+        });
+      });
+    },
     getSettings: async () => {
       try {
         return { ok: true, value: await options.readSettings() };
@@ -367,12 +414,39 @@ export function createWorktreesMethods(options: WorktreesMethodsOptions): Worktr
     },
     listManagedPaths: async () =>
       await withService('worktrees:listManagedPaths', (service) => service.listManagedPaths()),
+    listSetupConsent: async () => {
+      try {
+        return { ok: true, value: await listWorktreeSetupConsents(options.setupConsentStore) };
+      } catch (error) {
+        return failed('worktrees:setup-consent/list', error);
+      }
+    },
     restore: async (payload) => {
       const params = validateRestore(payload);
       if (!params.ok) {
         return params;
       }
       return await withService('worktrees:restore', (service) => service.restore(params.value));
+    },
+    // Called only for a person's answer: Settings › Workspace's Revoke.
+    revokeSetupConsent: async (payload) => {
+      const params = validateRevokeSetupConsent(payload);
+      if (!params.ok) {
+        return params;
+      }
+      try {
+        return {
+          ok: true,
+          value: {
+            revoked: await revokeWorktreeSetupConsent(
+              options.setupConsentStore,
+              params.value.repositoryId
+            ),
+          },
+        };
+      } catch (error) {
+        return failed('worktrees:setup-consent/revoke', error);
+      }
     },
     setSettings: async (payload) => {
       if (!Predicate.isObject(payload)) {

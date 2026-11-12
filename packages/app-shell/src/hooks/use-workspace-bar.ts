@@ -953,13 +953,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   );
   // The workspace's mounted folders that are not this thread's. A managed
   // worktree is a checkout of its project, never another folder (ADR-0034
-  // decision 2): another thread's stays mounted for it, and is left out.
+  // decision 2), and a scratch folder is the thread's it was made for: another
+  // thread's stays mounted for it, and is left out.
   const primaryRootPathForFolders = primaryRoot?.path;
   const threadPaths = new Set([primaryRootPathForFolders, ...secondaryRoots.map((r) => r.path)]);
   const workspaceFolders: readonly WorkspaceBarRecentRoot[] = Object.values(
     rootDescriptors ?? {}
   ).flatMap((descriptor) =>
-    descriptor.worktree || threadPaths.has(descriptor.path)
+    descriptor.worktree || descriptor.scratch || threadPaths.has(descriptor.path)
       ? []
       : [{ displayName: descriptor.displayName, path: descriptor.path }]
   );

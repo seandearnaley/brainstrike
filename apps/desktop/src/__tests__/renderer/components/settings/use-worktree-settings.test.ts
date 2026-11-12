@@ -31,12 +31,15 @@ function createBridge({
     create: unused,
     createBranchHere: unused,
     createContext: unused,
+    decideSetupConsent: unused,
     getSettings,
     inspectArchive: unused,
     list: unused,
     listArchived: unused,
     listManagedPaths: unused,
+    listSetupConsent: unused,
     restore: unused,
+    revokeSetupConsent: unused,
     setSettings,
   };
 }

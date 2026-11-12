@@ -26,6 +26,8 @@ export interface StoredRootDescriptor {
   displayName: string;
   path: string;
   rootId: string;
+  /** A scratch folder: mounted for the thread it was made for, never an open folder (ADR-0034). */
+  scratch?: true;
   /**
    * A managed worktree: mounted for its thread, so it has a descriptor, but never one of the open
    * folders in `activeRootIds` (ADR-0034).

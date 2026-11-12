@@ -80,6 +80,9 @@ export function bindHostGitWorkspaceMethods(
   serve('worktrees/restore');
   serve('worktrees/settings/read');
   serve('worktrees/settings/write');
+  serve('worktrees/setup-consent/decide');
+  serve('worktrees/setup-consent/list');
+  serve('worktrees/setup-consent/revoke');
   return {
     dispose: () => {
       unsubscribe?.();

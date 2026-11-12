@@ -14,6 +14,8 @@ const logger = createLogger('WorkspaceBar');
 export interface WorkspaceBarRootDescriptor {
   readonly displayName: string;
   readonly path: string;
+  /** A scratch folder, mounted for the thread the host made it for (ADR-0034). */
+  readonly scratch?: true | undefined;
   /** A managed worktree, mounted for the thread that works in it (ADR-0034). */
   readonly worktree?: true | undefined;
 }

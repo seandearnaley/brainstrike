@@ -223,7 +223,14 @@ let installedWorktrees: WorktreesBridge | null = null;
 
 function installWorktreesBridge(): void {
   installedWorktrees = {
-    ...{ adopt: vi.fn(), checkoutStatus: vi.fn() }, // no test here asserts on these
+    // No test here asserts on these.
+    ...{
+      adopt: vi.fn(),
+      checkoutStatus: vi.fn(),
+      decideSetupConsent: vi.fn(),
+      listSetupConsent: vi.fn(),
+      revokeSetupConsent: vi.fn(),
+    },
     archive: worktreeArchiveSpy,
     create: worktreeCreateSpy,
     createBranchHere: vi.fn(),

@@ -24,6 +24,8 @@ interface HostOpenRoot {
   readonly available: boolean;
   readonly path: string;
   readonly rootId: string;
+  /** A scratch folder: the host made it for one thread, never one of the open folders (ADR-0034). */
+  readonly scratch: boolean;
   /** A managed worktree: a thread's checkout, never one of the open folders (ADR-0034). */
   readonly worktree: boolean;
 }
@@ -33,8 +35,11 @@ function descriptor(root: HostOpenRoot): RootDescriptor {
     { addedAt: 0, path: root.path, rootId: root.rootId },
     root.available ? 'granted' : 'unknown'
   );
-  return root.worktree
-    ? { ...described, handle: { ...described.handle, worktree: true } }
+  if (root.worktree) {
+    return { ...described, handle: { ...described.handle, worktree: true } };
+  }
+  return root.scratch
+    ? { ...described, handle: { ...described.handle, scratch: true } }
     : described;
 }
 

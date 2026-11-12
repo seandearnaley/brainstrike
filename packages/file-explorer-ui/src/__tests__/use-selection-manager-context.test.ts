@@ -268,7 +268,7 @@ describe('useSelectionManager', () => {
         selectedFilePaths: new Set([KEY_B]),
       });
       vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
-      const checkout = { localRootId: ROOT_A, worktreeRootId: WORKTREE };
+      const checkout = { localRootId: ROOT_A, threadRootId: WORKTREE };
       const wrapper = ({ children }: { children: ReactNode }) =>
         createElement(ThreadCheckoutProvider, { checkout, children });
 
