@@ -230,7 +230,7 @@ export function WorktreeMapCard({
             {/*
               An unmanaged card is not "refused" — Adopt is its own ENABLED
               action (spec §10 A7), the only surface that ever
-              calls `worktrees.adopt` for real: the Mode chip's picker never
+              calls `worktrees.adopt` for real: the where-control's Other worktree… picker never
               could (every unmanaged row is `usable: false`, so its select
               button stays disabled — see A1's correction). New thread here
               stays present-but-disabled until this card is adopted (its

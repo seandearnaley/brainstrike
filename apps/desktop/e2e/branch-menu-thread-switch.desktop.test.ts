@@ -11,6 +11,7 @@ import { chooseThreadFolder } from './utils/choose-thread-folder';
 import { createTempDirTracker, freshRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot } from './utils/seed-root';
+import { openWhereMenu, openWhereSubmenu } from './utils/where-control';
 
 const tempDirs = createTempDirTracker();
 
@@ -49,9 +50,10 @@ test('selecting another thread closes the open branch menu', async ({
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText('Second reply.')).toBeVisible({ timeout: 60_000 });
 
-  // Until a thread's branch list loads, its chip is a read-only label that
-  // ignores a click; the switcher is the button it becomes.
-  const chip = region.getByRole('button', { name: /^Branch: /u });
+  // The switcher is the where-control's Branch submenu. Until a thread's branch
+  // list loads, its Branch row is a read-only label; the switcher is the
+  // submenu trigger it becomes.
+  const chip = page.getByRole('menuitem', { name: /^Branch: /u });
   const menu = page.getByTestId('workspace-bar-branch-menu');
   const rows = page
     .getByRole('treegrid', { name: 'Workspace threads' })
@@ -63,14 +65,24 @@ test('selecting another thread closes the open branch menu', async ({
    * menu is gone: it may fade where it was, but never shows anywhere else.
    */
   async function closesInPlace(switchThread: () => Promise<void>, selected: string) {
-    await chip.click();
+    await openWhereMenu(region);
+    // Past the where-menu's opening animation, so the submenu anchors to where its row rests.
+    const whereMenu = page.getByRole('menu').first();
+    await expect
+      .poll(() => whereMenu.evaluate((element) => element.getAnimations().length))
+      .toBe(0);
+    await openWhereSubmenu(page, chip);
     await expect(menu).toBeVisible();
     // Past the opening animation, where the menu rests.
     await expect.poll(() => menu.evaluate((element) => element.getAnimations().length)).toBe(0);
     const open = await menu.boundingBox();
     const anchor = await chip.boundingBox();
-    // Anchored to its chip: the menu starts at the chip's left edge.
-    expect(Math.abs((open?.x ?? 0) - (anchor?.x ?? Number.NaN))).toBeLessThan(2);
+    // Anchored to its row: the submenu starts at the Branch row's edge, on
+    // whichever side it had room.
+    const right = (anchor?.x ?? Number.NaN) + (anchor?.width ?? Number.NaN);
+    const fromRight = Math.abs((open?.x ?? 0) - right);
+    const fromLeft = Math.abs((open?.x ?? 0) + (open?.width ?? 0) - (anchor?.x ?? Number.NaN));
+    expect(Math.min(fromRight, fromLeft)).toBeLessThan(2);
     await page.evaluate(() => {
       const frames: { x: number; y: number }[] = [];
       (window as unknown as { __menuFrames: typeof frames }).__menuFrames = frames;

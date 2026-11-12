@@ -4,7 +4,7 @@ import type { GitBridge } from './git-bridge';
 import type { WorktreesBridge } from './worktrees/worktrees-bridge';
 
 /**
- * The workspace git cluster — Changes, the branch chip and managed worktrees —
+ * The workspace git cluster — Changes, the branch switcher and managed worktrees —
  * as the renderer reaches it. The desktop builds each from
  * its agent-host connection (ADR-0029); a host without one provides `null` and
  * every surface built on it is omitted, never stubbed.

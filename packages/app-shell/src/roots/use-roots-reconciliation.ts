@@ -18,7 +18,7 @@ const logger = createLogger('useRootsReconciliation');
  * app-ready (mid-session Add Folder / Recents / `addRootByPath`, or a fresh
  * install whose renderer reconciliation inserts rows after main's eager build)
  * is never discovered: no watcher, no `changes:invalidated` push, and the
- * composer's Branch chip stays stale until something else calls `inventory()`.
+ * composer's Branch row stays stale until something else calls `inventory()`.
  * Root registration is the exact moment a root becomes discoverable, so it is
  * where the one nudge belongs. NOT polling — one call per registration event.
  *

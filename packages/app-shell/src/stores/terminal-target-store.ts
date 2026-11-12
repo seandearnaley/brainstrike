@@ -4,7 +4,7 @@
  *
  * Session-lived and NON-persisted. The Terminal panel normally follows the
  * FOCUSED workspace root (`useActiveRootId`); this store is how a DIFFERENT
- * surface — a Worktree Map card, the Mode chip, a Folder chip root row — says
+ * surface — a Worktree Map card, a where-control folder row — says
  * "open a shell in THIS checkout instead". The panel derives its session from
  * `target ?? focused root` during render, so this is one owned value read in one
  * place, not a second source of truth.

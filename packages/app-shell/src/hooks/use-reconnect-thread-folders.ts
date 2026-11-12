@@ -12,7 +12,7 @@
  *
  * Only the opening does this: the folders are read once, when the thread's folders are known. A
  * folder the person disconnects while the thread stays open stays disconnected. One that cannot
- * come back (never granted here, or gone from disk) keeps the folder chip's Removed state with
+ * come back (never granted here, or gone from disk) keeps the where-control's Removed state with
  * its Re-add action. That chip is where the person sees it, so no toast interrupts each opening
  * of the thread with the same news.
  */

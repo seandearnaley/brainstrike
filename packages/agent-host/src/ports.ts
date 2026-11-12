@@ -668,7 +668,7 @@ export type HostGitWorkspaceMethod = Exclude<
 >;
 
 /**
- * ADR-0029 stage 2: the desktop's git cluster (Changes, the branch chip and
+ * ADR-0029 stage 2: the desktop's git cluster (Changes, the branch switcher and
  * managed worktrees), owned by the host that owns the workspace catalog. Each
  * method answers its own wire method.
  */

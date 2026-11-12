@@ -2,7 +2,7 @@ import type { HostToolDefinition } from '@brainstrike/agent/tool-runtime';
 /**
  * The two worktree agent tools (BST-1392, spec §6.4).
  *
- * They call the SAME `WorktreeService` the Mode chip calls — there is exactly
+ * They call the SAME `WorktreeService` the composer's where-control calls — there is exactly
  * one worktree code path, and neither tool shells out to `git worktree`. The
  * capability object closes over the request's `runId`, `threadId` and
  * `createdBy: 'agent'`, so the ledger's provenance columns are filled by

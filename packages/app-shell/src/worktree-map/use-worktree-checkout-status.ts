@@ -3,7 +3,7 @@
  * (path, invalidation generation).
  *
  * Deliberately not folded into `worktrees.list()`: that call also backs the
- * Mode chip's picker and runs on every refresh, and N status subprocesses
+ * where-control's Other worktree… picker and runs on every refresh, and N status subprocesses
  * behind an orientation surface is the cost this seam exists to avoid (A3).
  * Concurrency is bounded so a workspace with twenty worktrees does not fork
  * twenty gits at once.

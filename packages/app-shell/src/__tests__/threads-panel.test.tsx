@@ -2609,7 +2609,7 @@ describe('ThreadsPanel folders', () => {
     await enterFolderGrouping();
 
     const folderRow = rowFor('First thread');
-    // A folder is not a custom group: re-binding is the composer's folder chip,
+    // A folder is not a custom group: re-binding is the composer's Folders menu,
     // so the row offers no drag source and no membership actions.
     expect(folderRow.closest('[draggable="true"]')).toBeNull();
     fireEvent.contextMenu(screen.getByText('First thread'));

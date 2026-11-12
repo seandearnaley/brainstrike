@@ -32,16 +32,14 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   defaultBranchPrefix: 'bs/',
   defaultName: 'bright-fox',
   disabledReason: null,
-  localPath: '/work/app',
   managedParentPath: '/managed/app',
+  notARepository: false,
   onArchive: undefined,
   onCreate: vi.fn(() => Promise.resolve()),
   onCreateBranchHere: undefined,
   onHandOffToLocal: undefined,
   onOpenCreateSheet: vi.fn(() => Promise.resolve()),
   onOpenPicker: vi.fn(),
-  onOpenTerminal: undefined,
-  onReveal: vi.fn(),
   pending: false,
   picker: {
     error: null,
@@ -69,52 +67,7 @@ const worktree = {
   worktreeId: 'w-1',
 };
 
-const interactiveWorktreeMode = () => {
-  const onArchive = vi.fn<() => void>();
-  const onCreateBranchHere = vi.fn<(branch: string) => Promise<void>>(() => Promise.resolve());
-  const onHandOffToLocal = vi.fn<() => void>();
-  const onOpenPicker = vi.fn<() => void>();
-  const onReveal = vi.fn<() => void>();
-  return {
-    mode: mode({
-      onArchive,
-      onCreateBranchHere,
-      onHandOffToLocal,
-      onOpenPicker,
-      onReveal,
-      worktree,
-    }),
-    onArchive,
-    onCreateBranchHere,
-    onHandOffToLocal,
-    onOpenPicker,
-    onReveal,
-  };
-};
-
-describe('ModeChip', () => {
-  it('reads "Local" with the folder path in its tooltip when no worktree is selected', () => {
-    render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
-    const chip = screen.getByTestId('workspace-bar-mode-chip');
-    expect(chip).toHaveTextContent('Local');
-    expect(chip).toHaveAttribute('title', 'Edits land in /work/app');
-  });
-
-  it('reads the worktree name once the thread is in a worktree', () => {
-    render(
-      <WorkspaceBar
-        {...baseBarProps}
-        mode={mode({
-          worktree,
-        })}
-      />
-    );
-    const chip = screen.getByTestId('workspace-bar-mode-chip');
-    expect(chip).toHaveTextContent('bright-fox');
-    expect(chip).not.toHaveTextContent('⧉');
-    expect(chip).toHaveAttribute('title', '/managed/app/bright-fox');
-  });
-
+describe("The where-control's worktree sheets and dialogs", () => {
   it('renders the destructive archive confirmation supplied by the mode', () => {
     render(
       <WorkspaceBar
@@ -147,9 +100,12 @@ describe('ModeChip', () => {
   it('opens a diagnostic menu with the stated reason for a non-repository folder', async () => {
     const user = setup();
     render(
-      <WorkspaceBar {...baseBarProps} mode={mode({ disabledReason: 'Not a git repository' })} />
+      <WorkspaceBar
+        {...baseBarProps}
+        mode={mode({ disabledReason: 'Not a git repository', notARepository: true })}
+      />
     );
-    const chip = screen.getByTestId('workspace-bar-mode-chip');
+    const chip = screen.getByTestId('workspace-bar-where-chip');
     expect(chip).toHaveAttribute('title', 'Not a git repository');
     await user.click(chip);
     expect(await screen.findByTestId('workspace-bar-mode-diagnostic')).toHaveTextContent(
@@ -164,7 +120,7 @@ describe('ModeChip', () => {
         mode={mode({ disabledReason: 'Worktree capability unavailable', worktree })}
       />
     );
-    const chip = screen.getByTestId('workspace-bar-mode-chip');
+    const chip = screen.getByTestId('workspace-bar-where-chip');
     expect(chip).toHaveTextContent('bright-fox');
     expect(chip).not.toHaveTextContent('Local');
   });
@@ -172,7 +128,7 @@ describe('ModeChip', () => {
   it('opens the create sheet with an auto-generated, EDITABLE bs/ branch name [D2]', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     expect(await screen.findByTestId('worktree-create-branch')).toHaveValue('bs/bright-fox');
     expect(screen.getByTestId('worktree-create-name')).toHaveValue('bright-fox');
@@ -185,10 +141,10 @@ describe('ModeChip', () => {
     );
   });
 
-  it('returns focus to the mode chip when Escape closes the create sheet', async () => {
+  it('returns focus to the where-control when Escape closes the create sheet', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     expect(await screen.findByTestId('worktree-create-dialog')).toBeVisible();
 
@@ -197,7 +153,7 @@ describe('ModeChip', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('worktree-create-dialog')).not.toBeInTheDocument();
     });
-    expect(screen.getByTestId('workspace-bar-mode-chip')).toHaveFocus();
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveFocus();
   });
 
   it('awaits fresh create context before mounting the sheet with its live defaults', async () => {
@@ -210,7 +166,7 @@ describe('ModeChip', () => {
       onOpenCreateSheet,
     });
     const { rerender } = render(<WorkspaceBar {...baseBarProps} mode={initial} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
 
@@ -240,7 +196,7 @@ describe('ModeChip', () => {
     const user = setup();
     const onOpenCreateSheet = vi.fn(() => Promise.reject(new Error('inventory unavailable')));
     render(<WorkspaceBar {...baseBarProps} mode={mode({ onOpenCreateSheet })} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     expect(onOpenCreateSheet).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
@@ -249,7 +205,7 @@ describe('ModeChip', () => {
   it('updates the location preview when the folder name changes', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
@@ -263,7 +219,7 @@ describe('ModeChip', () => {
     const user = setup();
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     expect(value.onCreate).toHaveBeenCalledWith({
@@ -277,7 +233,7 @@ describe('ModeChip', () => {
     const user = setup();
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     await user.click(await screen.findByTestId('worktree-create-detached'));
     expect(screen.queryByTestId('worktree-create-branch')).toBeNull();
@@ -293,7 +249,7 @@ describe('ModeChip', () => {
     const user = setup();
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     await user.click(await screen.findByTestId('worktree-create-base-ref'));
     await user.click(await screen.findByRole('option', { name: 'origin/main (fresh)' }));
@@ -313,7 +269,7 @@ describe('ModeChip', () => {
       ),
     });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     const error = await screen.findByTestId('worktree-create-error');
@@ -328,7 +284,7 @@ describe('ModeChip', () => {
       onCreate: vi.fn(() => Promise.reject(new Error('branch already exists'))),
     });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     const name = await screen.findByTestId('worktree-create-name');
     const branch = screen.getByTestId('worktree-create-branch');
@@ -340,7 +296,7 @@ describe('ModeChip', () => {
     expect(await screen.findByTestId('worktree-create-error')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     expect(screen.queryByTestId('worktree-create-error')).toBeNull();
     expect(await screen.findByTestId('worktree-create-name')).toHaveValue('bright-fox');
@@ -353,7 +309,7 @@ describe('ModeChip', () => {
       onCreate: vi.fn(() => Promise.reject(new Error('branch already exists'))),
     });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     expect(await screen.findByTestId('worktree-create-error')).toBeVisible();
@@ -369,7 +325,7 @@ describe('ModeChip', () => {
     const user = setup();
     const value = mode({ onCreate: vi.fn(() => new Promise<void>(() => undefined)) });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     const submit = screen.getByTestId('worktree-create-submit');
@@ -380,7 +336,7 @@ describe('ModeChip', () => {
   it('shows the pending reason in the menu', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode({ pending: true })} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     expect(await screen.findByText('Worktree operation in progress.')).toBeVisible();
   });
 
@@ -395,7 +351,7 @@ describe('ModeChip', () => {
   it('keeps new-worktree creation enabled without a disabled reason', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     const item = await screen.findByTestId('workspace-bar-mode-new-worktree');
     expect(item).not.toHaveAttribute('data-disabled');
     expect(screen.queryByTestId('workspace-bar-mode-create-disabled-reason')).toBeNull();
@@ -411,7 +367,7 @@ describe('ModeChip', () => {
         mode={mode({ createDisabledReason: 'Create before sending the first request.' })}
       />
     );
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     expect(await screen.findByTestId('workspace-bar-mode-new-worktree')).toHaveAttribute(
       'data-disabled'
     );
@@ -420,40 +376,11 @@ describe('ModeChip', () => {
     );
   });
 
-  it('disables every row that moves the thread while its run is in progress, each saying why', async () => {
-    const user = setup();
-    const reason = "Available when this thread's run ends.";
-    const value = interactiveWorktreeMode();
-    render(
-      <WorkspaceBar
-        {...baseBarProps}
-        mode={{ ...value.mode, checkoutChangeDisabledReason: reason, createDisabledReason: reason }}
-      />
-    );
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-
-    for (const row of ['handoff', 'archive', 'pick-worktree', 'new-worktree']) {
-      expect(await screen.findByTestId(`workspace-bar-mode-${row}`)).toHaveAttribute(
-        'data-disabled'
-      );
-    }
-    for (const row of ['handoff', 'archive', 'pick-worktree', 'create']) {
-      expect(screen.getByTestId(`workspace-bar-mode-${row}-disabled-reason`)).toHaveTextContent(
-        reason
-      );
-    }
-    // Rows that leave the thread where it is stay available.
-    expect(screen.getByTestId('workspace-bar-mode-reveal')).not.toHaveAttribute('data-disabled');
-    expect(screen.getByTestId('workspace-bar-mode-create-branch-here')).not.toHaveAttribute(
-      'data-disabled'
-    );
-  });
-
   it('rejects a folder name containing a path separator', async () => {
     const user = setup();
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
@@ -468,7 +395,7 @@ describe('ModeChip', () => {
   it('rejects a parent-directory folder name', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
@@ -482,7 +409,7 @@ describe('ModeChip', () => {
   it('accepts a single-segment folder name', async () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
@@ -537,70 +464,7 @@ describe('ModeChip', () => {
     );
   });
 
-  it('offers the in-worktree menu items ONLY when their handlers exist', async () => {
-    const user = setup();
-    const worktree = {
-      branch: null,
-      detached: true,
-      name: 'bright-fox',
-      path: '/managed/app/bright-fox',
-      setupReason: null,
-      setupStatus: 'none' as const,
-      worktreeId: 'w-1',
-    };
-    render(
-      <WorkspaceBar
-        {...baseBarProps}
-        mode={mode({
-          onArchive: vi.fn(),
-          onCreateBranchHere: vi.fn(),
-          onHandOffToLocal: vi.fn(),
-          worktree,
-        })}
-      />
-    );
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    expect(await screen.findByTestId('workspace-bar-mode-handoff')).toBeVisible();
-    expect(screen.getByTestId('workspace-bar-mode-create-branch-here')).toBeVisible();
-    expect(screen.getByTestId('workspace-bar-mode-archive')).toBeVisible();
-    // Still absent HERE, for the ordinary handler-presence reason this test
-    // exists to pin (no onOpenTerminal in this render) — not because the
-    // capability is deferred. BST-1457 landed the action; the case below
-    // proves it renders and fires when the handler IS supplied.
-    expect(screen.queryByTestId('workspace-bar-mode-open-terminal')).toBeNull();
-    expect(screen.getByTestId('workspace-bar-mode-pick-worktree')).toBeVisible();
-  });
-
-  it('renders Open in Terminal only when its handler exists and wires it to that handler alone', async () => {
-    const user = setup();
-    const onOpenTerminal = vi.fn<() => void>();
-    const value = interactiveWorktreeMode();
-    render(<WorkspaceBar {...baseBarProps} mode={{ ...value.mode, onOpenTerminal }} />);
-
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-open-terminal'));
-
-    expect(onOpenTerminal).toHaveBeenCalledTimes(1);
-    expect(value.onReveal).not.toHaveBeenCalled();
-    expect(value.onArchive).not.toHaveBeenCalled();
-    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
-    expect(value.onOpenPicker).not.toHaveBeenCalled();
-  });
-
-  it('wires Use existing worktree only to its own handler', async () => {
-    const user = setup();
-    const value = interactiveWorktreeMode();
-    render(<WorkspaceBar {...baseBarProps} mode={value.mode} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-pick-worktree'));
-    expect(value.onOpenPicker).toHaveBeenCalledTimes(1);
-    expect(value.onArchive).not.toHaveBeenCalled();
-    expect(value.onCreateBranchHere).not.toHaveBeenCalled();
-    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
-    expect(value.onReveal).not.toHaveBeenCalled();
-  });
-
-  it('returns focus to the mode chip when Escape closes the worktree picker', async () => {
+  it('returns focus to the where-control when Escape closes the worktree picker', async () => {
     const user = setup();
     const value = mode({
       picker: {
@@ -636,7 +500,7 @@ describe('ModeChip', () => {
       );
     };
     render(<PickerHarness />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
+    await user.click(screen.getByTestId('workspace-bar-where-chip'));
     await user.click(await screen.findByTestId('workspace-bar-mode-pick-worktree'));
     expect(await screen.findByTestId('worktree-picker-dialog')).toBeVisible();
 
@@ -645,76 +509,6 @@ describe('ModeChip', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('worktree-picker-dialog')).not.toBeInTheDocument();
     });
-    expect(screen.getByTestId('workspace-bar-mode-chip')).toHaveFocus();
-  });
-
-  it('wires Hand off to Local only to its own handler', async () => {
-    const user = setup();
-    const value = interactiveWorktreeMode();
-    render(<WorkspaceBar {...baseBarProps} mode={value.mode} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-handoff'));
-    expect(value.onHandOffToLocal).toHaveBeenCalledTimes(1);
-    expect(value.onArchive).not.toHaveBeenCalled();
-    expect(value.onCreateBranchHere).not.toHaveBeenCalled();
-    expect(value.onReveal).not.toHaveBeenCalled();
-  });
-
-  it('wires Create branch here only to its own handler', async () => {
-    const user = setup();
-    const value = interactiveWorktreeMode();
-    render(<WorkspaceBar {...baseBarProps} mode={value.mode} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-create-branch-here'));
-    expect(value.onCreateBranchHere).toHaveBeenCalledTimes(1);
-    expect(value.onCreateBranchHere).toHaveBeenCalledWith('bs/bright-fox');
-    expect(value.onArchive).not.toHaveBeenCalled();
-    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
-    expect(value.onReveal).not.toHaveBeenCalled();
-  });
-
-  it('wires Reveal only to its own handler', async () => {
-    const user = setup();
-    const value = interactiveWorktreeMode();
-    render(<WorkspaceBar {...baseBarProps} mode={value.mode} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-reveal'));
-    expect(value.onReveal).toHaveBeenCalledTimes(1);
-    expect(value.onArchive).not.toHaveBeenCalled();
-    expect(value.onCreateBranchHere).not.toHaveBeenCalled();
-    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
-  });
-
-  it('wires Archive only to its own handler', async () => {
-    const user = setup();
-    const value = interactiveWorktreeMode();
-    render(<WorkspaceBar {...baseBarProps} mode={value.mode} />);
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-archive'));
-    expect(value.onArchive).toHaveBeenCalledTimes(1);
-    expect(value.onCreateBranchHere).not.toHaveBeenCalled();
-    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
-    expect(value.onReveal).not.toHaveBeenCalled();
-  });
-
-  it('surfaces a failed setup on the chip and in the menu, with its reason', async () => {
-    const user = setup();
-    render(
-      <WorkspaceBar
-        {...baseBarProps}
-        mode={mode({
-          worktree: {
-            ...worktree,
-            setupReason: 'Setup command exited with code 3.',
-            setupStatus: 'failed',
-          },
-        })}
-      />
-    );
-    expect(screen.getByTestId('workspace-bar-mode-chip')).toHaveAttribute('data-setup', 'failed');
-    await user.click(screen.getByTestId('workspace-bar-mode-chip'));
-    expect(await screen.findByTestId('workspace-bar-mode-setup-reason')).toHaveTextContent(
-      'Setup command exited with code 3.'
-    );
+    expect(screen.getByTestId('workspace-bar-where-chip')).toHaveFocus();
   });
 });

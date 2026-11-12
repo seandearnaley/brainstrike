@@ -36,7 +36,7 @@ export interface ThreadCheckoutRoot {
 }
 
 export interface ThreadCheckoutStatusResult {
-  /** Read-only git state for the Branch chip; see the function doc for `undefined`'s meanings. */
+  /** Read-only git state for the Branch row; see the function doc for `undefined`'s meanings. */
   readonly checkout: WorkspaceBarCheckout | undefined;
   /**
    * Why the CURRENT root's last status read failed, or null. A failure leaves
@@ -59,7 +59,7 @@ export interface ThreadCheckoutStatusResult {
 }
 
 /**
- * Read-only git state for the workspace bar's Branch chip. Desktop only
+ * Read-only git state for the workspace bar's Branch row. Desktop only
  * (the Git bridge); `undefined` = no chip (web, no root, not a repository, or a
  * failed status — a failure is logged and never rendered as "clean").
  *

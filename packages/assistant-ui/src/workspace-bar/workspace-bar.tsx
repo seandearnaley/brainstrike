@@ -1,15 +1,18 @@
 import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
 import type { ReactElement } from 'react';
-import { BranchChip } from './branch-chip';
-import { FolderChip } from './folder-chip';
-import { ModeChip } from './mode-chip';
 import { TrustChip } from './trust-chip';
+import { WhereChip } from './where-chip';
 import { WorkspaceBarDropZone } from './workspace-bar-drop-zone';
 import type { WorktreeArchiveConfirmation } from './worktree-archive-confirmation-dialog';
 
 /** A folder mounted in this thread's workspace (primary or secondary). */
 export interface WorkspaceBarRoot {
   readonly displayName: string;
+  /**
+   * While the thread works in a worktree, this secondary is its Local folder:
+   * the one a hand-off returns to (BST-1456), which names the project.
+   */
+  readonly local?: true | undefined;
   /** Absolute path (desktop); absent for web FSA roots. */
   readonly path?: string | undefined;
   /** Non-null when this secondary must stay attached; rendered on its disabled Remove action. */
@@ -109,33 +112,32 @@ export interface WorkspaceBarMode {
   readonly baseRefs: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]];
   /**
    * Non-null while the thread's run is in progress: a run keeps the checkout it
-   * was admitted with, so Use existing, Hand off and Archive say why they wait,
-   * as New worktree… does with `createDisabledReason`.
+   * was admitted with, so the Local row (a hand-off), Other worktree… and
+   * Archive say why they wait, as New worktree… does with `createDisabledReason`.
    */
   readonly checkoutChangeDisabledReason: string | null;
   readonly createDisabledReason: string | null;
   readonly defaultBranchPrefix: string;
   readonly defaultName: string;
-  /** Non-null ⇒ the chip opens a diagnostic-only menu that says why (spec §4.5). */
+  /** Non-null ⇒ the where-menu shows why in place of its checkout rows (spec §4.5). */
   readonly disabledReason: string | null;
-  readonly localPath: string | null;
   /** Resolved `<managedDirectory>/<slug>` parent used for the create sheet's live Location preview. */
   readonly managedParentPath: string;
+  /**
+   * A settled git status read says the folder is not a repository. The
+   * where-control then names the folder with no checkout and no warning; any
+   * other `disabledReason` (a status read that failed, a missing worktree) warns.
+   */
+  readonly notARepository: boolean;
   readonly onArchive: (() => void) | undefined;
   readonly onCreate: (request: WorkspaceBarCreateWorktreeRequest) => Promise<void>;
   readonly onCreateBranchHere: ((branch: string) => Promise<void>) | undefined;
+  /** What choosing the Local row does while the thread works in a worktree. */
   readonly onHandOffToLocal: (() => void) | undefined;
   /** Refreshes main-owned create defaults; rejection keeps the sheet closed. */
   readonly onOpenCreateSheet: () => Promise<void>;
-  /** Asks the caller to open the controlled "Use an existing worktree…" picker. */
+  /** Asks the caller to open the controlled "Other worktree…" picker. */
   readonly onOpenPicker: () => void;
-  /**
-   * Opens the app's Terminal on this worktree's checkout. Present only when the
-   * platform has a terminal bridge AND the checkout resolves inside an open
-   * folder — absent otherwise, never a disabled row.
-   */
-  readonly onOpenTerminal: (() => void) | undefined;
-  readonly onReveal: (() => void) | undefined;
   readonly pending: boolean;
   readonly picker: WorkspaceBarWorktreePicker;
   /** Present only while this repository's fallback script needs a decision. */
@@ -161,8 +163,8 @@ export interface WorkspaceBarBranchRow {
 }
 
 /**
- * The interactive half of the Branch chip. Absent (web, no git bridge, not a
- * repository) => the chip stays the read-only image W1 shipped.
+ * The where-menu's Branch submenu. Absent (web, no git bridge, not a
+ * repository) => the Branch row is a read-only summary.
  *
  * `onSwitchInNewWorktree` is OPTIONAL on purpose: the escape from a dirty tree
  * only exists once the worktree capability does (a later layer). Without it a
@@ -237,21 +239,28 @@ export interface WorkspaceBarProps {
    * `WorkspaceBarRoot.removeDisabledReason` does.
    */
   readonly addFolderDisabledReason?: string | undefined;
-  /** Desktop only — makes the Branch chip an interactive switcher. */
+  /** Desktop only — makes the Branch row an interactive switcher submenu. */
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
-  /** Desktop only — read-only git state for the primary root; undefined hides the chip. */
+  /** Desktop only — read-only git state for the primary root; undefined hides the Branch row. */
   readonly checkout?: WorkspaceBarCheckout | undefined;
   /**
    * Whether the primary root's checkout status and branch menu have settled
    * at least once — surfaced as `data-checkout-state` on the bar's own
    * element (BST-1400) so e2e can await "checkout resolved" deterministically
-   * instead of sampling across a bounded window for the branch chip's
+   * instead of sampling across a bounded window for the Branch row's
    * absence. Callers that never
    * have an async checkout to await (most pure-component usage) can omit
    * this: it defaults to `'resolved'`, since there is nothing pending.
    */
   readonly checkoutState?: 'pending' | 'resolved' | undefined;
-  /** Desktop only — Local / Worktree selection [D1]. Absent ⇒ no chip. */
+  /**
+   * Non-null while the folder actions that would take the thread out of its
+   * worktree must wait for its run, as the checkout rows do: Make primary,
+   * Remove from this thread on the worktree folder or the Local folder, and Use
+   * another folder…. Rendered as each of those rows' disabled reason.
+   */
+  readonly leaveWorktreeDisabledReason?: string | undefined;
+  /** Desktop only — Local / Worktree selection [D1]. Absent ⇒ no checkout rows. */
   readonly mode?: WorkspaceBarMode | undefined;
   readonly onAddFolder: () => void;
   /** Present only when the platform can re-mount a recent folder without a picker (desktop). */
@@ -280,9 +289,9 @@ export interface WorkspaceBarProps {
   /** Makes a mounted workspace folder the primary of a thread with no live folder (BST-1990). */
   readonly onUseFolder: (folder: WorkspaceBarRecentRoot) => void;
   /**
-   * undefined = no folder connected → the chip renders the "Choose a folder"
-   * CTA. Secondaries are only meaningful alongside a primary — callers must
-   * not pass `secondaryRoots` without also passing `primaryRoot`. The bar
+   * undefined = no folder connected → the where-control renders the "Choose a
+   * folder" CTA. Secondaries are only meaningful alongside a primary — callers
+   * must not pass `secondaryRoots` without also passing `primaryRoot`. The bar
    * still renders any mounted secondaries in that case (never hides mounted
    * state), but the CTA and "+N" badge stay in their no-primary form.
    */
@@ -301,20 +310,17 @@ export interface WorkspaceBarProps {
 }
 
 /**
- * The composer workspace bar: Folder chip (this thread's primary + secondary
- * folders, recents, Add folder…), a Branch chip and a checkout chip (desktop),
- * and the workspace trust chip while a folder's answer is missing. Always
- * rendered — its job is orientation, not disambiguation. Pure + prop-driven:
- * app-shell supplies everything, so this package stays store-free.
+ * The composer workspace bar: the where-control (this thread's folders, its
+ * branch and its checkout, ADR-0034) and the workspace trust chip while a
+ * folder's answer is missing. Always rendered — its job is orientation, not
+ * disambiguation. Pure + prop-driven: app-shell supplies everything, so this
+ * package stays store-free.
  */
 export const WorkspaceBar = ({
-  branchMenu,
-  checkout,
   checkoutState = 'resolved',
-  mode,
   onDropItems,
   trust,
-  ...folder
+  ...where
 }: WorkspaceBarProps): ReactElement => {
   const bar = (
     // A plain container, not a labelled group: each chip carries its own
@@ -325,9 +331,7 @@ export const WorkspaceBar = ({
       data-checkout-state={checkoutState}
       data-testid="workspace-bar"
     >
-      <FolderChip {...folder} />
-      {checkout ? <BranchChip branchMenu={branchMenu} checkout={checkout} /> : null}
-      {mode ? <ModeChip mode={mode} /> : null}
+      <WhereChip {...where} />
       {trust ? <TrustChip trust={trust} /> : null}
     </div>
   );
