@@ -540,7 +540,11 @@ and later work may revisit them:
   repository the thread's folder is in, newest archive first, each with its
   name, branch, when it was archived and Restore and use. The picker's filter
   narrows it with the live list. The host lists them from the ledger's archived
-  rows (`worktrees/list-archived`, a method added under protocol v25).
+  rows (`worktrees/list-archived`, a method added under protocol v27). The list
+  belongs to the folder it was read for: when the thread's folder moves to
+  another repository, the first repository's rows are neither shown nor
+  restorable there, and a restore that finishes after the folder moved does not
+  move the thread into it.
 - **What it does.** Restore and use calls the host's existing
   `worktrees/restore`, the one writer: it recreates the worktree on its branch
   and replays its archive snapshot, so its uncommitted changes come back. Then
@@ -550,11 +554,13 @@ and later work may revisit them:
   cap does not archive it again while the thread works there. Nothing new is
   stored: no restore time, and a restored worktree keeps its first creation
   time (above).
-- **Failure is visible.** A refused restore says why in the picker: its folder
-  is taken, its snapshot ref is gone, its branch has moved, or its branch is
-  checked out in another worktree (git's own words). Nothing is retried or done
-  instead. A worktree that was restored but that the thread could not enter (its
-  folder did not open, or the binding refused) says so too; it is no longer
+- **Failure is visible.** A refused restore says why in a toast, as Use's,
+  Create's and Archive's failures do, so it is seen after the picker closes, and
+  in the picker while it is open: its folder is taken, its snapshot ref is gone,
+  its branch has moved, or its branch is checked out in another worktree (git's
+  own words). Nothing is retried or done instead. A worktree that was restored
+  but that the thread could not enter (its folder did not open, the binding
+  refused, or the thread's folder moved meanwhile) says so too; it is no longer
   archived, so Use can choose it.
 - **The notice** says where to restore: Other worktree… in the composer's
   Where this thread works menu, then Restore and use under Archived.

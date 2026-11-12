@@ -111,9 +111,28 @@ function restored(row: ManagedWorktreeRow) {
   };
 }
 
+/** A promise the test settles when it chooses. */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+/** The same thread, after its folder changed to another repository's. */
+const IN_OTHER_REPOSITORY: UseWorktreeModeArgs = {
+  ...ARGS,
+  primaryRootId: 'r-2',
+  primaryRootPath: '/work/other',
+};
+
 /** The where-control with its Other worktree… picker open and its archived list read. */
 async function openPicker(args: UseWorktreeModeArgs = ARGS) {
-  const rendered = renderHook(() => useWorktreeMode(args), { wrapper });
+  const rendered = renderHook((props: UseWorktreeModeArgs) => useWorktreeMode(props), {
+    initialProps: args,
+    wrapper,
+  });
   await waitFor(() => expect(rendered.result.current?.picker).toBeDefined());
   act(() => {
     rendered.result.current?.picker.onOpenChange(true);
@@ -216,6 +235,93 @@ describe('restoring an archived worktree from the where-control', () => {
       )
     );
     expect(result.current?.picker.open).toBe(true);
+    expect(toastSpy).toHaveBeenCalledWith({
+      description: 'the thread binding refused',
+      title: 'Restored swift-badger, but this thread could not move into it',
+      variant: 'destructive',
+    });
+  });
+
+  it('a restore refused after the picker closed still says why, in a toast', async () => {
+    const restoring = deferred<ReturnType<typeof gitFailure>>();
+    restoreSpy.mockReturnValue(restoring.promise);
+    const { result } = await openPicker();
+
+    act(() => {
+      result.current?.picker.archived?.onRestore(BADGER_ENTRY);
+    });
+    act(() => {
+      result.current?.picker.onOpenChange(false);
+    });
+    await act(async () => {
+      restoring.resolve(gitFailure('The archive snapshot no longer exists in this repository.'));
+      await restoring.promise;
+    });
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: 'The archive snapshot no longer exists in this repository.',
+        title: 'Could not restore swift-badger',
+        variant: 'destructive',
+      })
+    );
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+  });
+
+  it("never shows or restores one repository's archived worktrees for another", async () => {
+    const rendered = await openPicker();
+    expect(rendered.result.current?.picker.archived?.entries).toHaveLength(2);
+    const otherRead = deferred<{ ok: true; value: ManagedWorktreeRow[] }>();
+    listArchivedSpy.mockReturnValueOnce(otherRead.promise);
+    act(() => {
+      rendered.result.current?.picker.onOpenChange(false);
+    });
+
+    rendered.rerender(IN_OTHER_REPOSITORY);
+    expect(rendered.result.current?.picker.archived?.entries).toEqual([]);
+    act(() => {
+      rendered.result.current?.picker.onOpenChange(true);
+    });
+
+    expect(listArchivedSpy).toHaveBeenLastCalledWith({ rootId: 'r-2' });
+    expect(rendered.result.current?.picker.archived).toMatchObject({ entries: [], loading: true });
+    act(() => {
+      rendered.result.current?.picker.archived?.onRestore(BADGER_ENTRY);
+    });
+    expect(restoreSpy).not.toHaveBeenCalled();
+    await act(async () => {
+      otherRead.resolve({ ok: true, value: [] });
+      await otherRead.promise;
+    });
+    expect(rendered.result.current?.picker.archived).toMatchObject({
+      entries: [],
+      loading: false,
+    });
+  });
+
+  it('does not move a thread whose folder changed while its worktree was being restored', async () => {
+    const restoring = deferred<ReturnType<typeof restored>>();
+    restoreSpy.mockReturnValue(restoring.promise);
+    const rendered = await openPicker();
+
+    act(() => {
+      rendered.result.current?.picker.archived?.onRestore(BADGER_ENTRY);
+    });
+    rendered.rerender(IN_OTHER_REPOSITORY);
+    await act(async () => {
+      restoring.resolve(restored(BADGER));
+      await restoring.promise;
+    });
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith({
+        description: "This thread's folder changed while the worktree was being restored.",
+        title: 'Restored swift-badger, but this thread could not move into it',
+        variant: 'destructive',
+      })
+    );
+    expect(addRootByPathSpy).not.toHaveBeenCalled();
+    expect(onSelectWorktree).not.toHaveBeenCalled();
   });
 
   it("waits for the thread's run to end, like every checkout change", async () => {
