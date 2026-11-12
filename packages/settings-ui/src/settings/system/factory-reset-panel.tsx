@@ -117,6 +117,12 @@ export function FactoryResetPanel() {
               logs may be preserved. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {/* ADR-0034: the reset archives the managed worktrees, forcing past their ignored files. */}
+          <p className="text-muted-foreground text-sm">
+            Managed worktrees are archived into their repositories first: uncommitted work is kept
+            as a snapshot ref and their branches stay, but their ignored files, such as .env files
+            and installed dependencies, are deleted.
+          </p>
           <DialogFooter>
             <Button
               disabled={running}

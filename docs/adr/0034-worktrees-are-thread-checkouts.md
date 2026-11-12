@@ -14,6 +14,8 @@
     in a scratch folder the host makes for it.
   - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
     to the host, so a worktree the host makes runs the script too.
+  - 2026-11-12 (build decisions, below): Factory Reset archives every managed worktree before
+    it deletes their ledger.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -772,6 +774,75 @@ Not built: telling apart scripts that differ between a repository's
 checkouts. The script is read from the checkout the worktree is made from,
 and one answer per repository holds one hash, so approving one checkout's
 script makes another checkout's different script ask again.
+
+## Factory Reset archives the managed worktrees, 2026-11-12
+
+Build decisions, not Sean's, which later work may revisit. Managed worktrees
+live in `~/.brainstrike/worktrees` or the folder chosen in Settings, outside
+userData, and their ledger is in the state DB. Factory Reset deleted the
+ledger with the state DB and purged userData, but nothing removed the folders:
+they stayed on disk, unknown to the app, still in each repository's
+`git worktree list`, and possibly holding the person's uncommitted work.
+
+- **Before the state DB goes, every active managed worktree is archived**
+  through the worktree service's own archive, the one a person's Archive
+  worktree… and the cap use. Its snapshot ref
+  (`refs/brainstrike/worktree-archive/<id>`) keeps its uncommitted changes in
+  its repository, the branch stays, and the folder and git's registration go,
+  so the person's work survives the reset in their own repository.
+- **It forces as the cap does**, with the archive preview's own confirmation
+  of ignored files, which are deleted. Every thread goes with the reset, so a
+  worktree a thread is bound to is archived too. A locked worktree, one with
+  nested repositories and one a run is active in are never forced; they stay
+  in place, as does one whose archive fails (`worktree-reset-archive.ts`).
+- **The person is told before they confirm** (from review of the build).
+  Sean's answer that archiving deletes ignored files covered the idle cap.
+  The build extends it to the reset, and the Factory Reset dialog says so up
+  front: managed worktrees are archived into their repositories, uncommitted
+  work kept as a snapshot ref and branches kept, and their ignored files, such
+  as `.env` files and installed dependencies, deleted. Confirming is then an
+  informed choice. The option not taken was to leave every worktree with
+  ignored files in place.
+- **What stays is named, and never stops the reset.** Each worktree left on
+  disk is named with its path and why in the reset's result
+  (`managedWorktrees`) and in Main's log. When the archive cannot run at all
+  (no host, or a store it cannot open) the outcome says why, and the reset
+  still completes: the person chose it, and Factory Reset is how a damaged
+  store is recovered. Nothing deletes a worktree folder outside the archive.
+- **The window shows it** (from review of the build). The window that asked
+  for the reset is replaced before the reset answers it, so no result reached
+  the person. Main keeps the outcome, and the replacement window takes it
+  once as it starts (`db:takeResetWorktreeOutcome`) and shows a notice: each
+  worktree left on disk with its path and why, or why none could be archived,
+  with a line that archived work is in each repository's
+  `refs/brainstrike/worktree-archive/*` and its branch. A clean archive shows
+  only how many were archived. A reset that fails after the archive does not
+  keep the outcome; the log has it.
+- **Where it runs.** Main owns the reset (ADR-0015). After the reset's
+  background runtimes stop and before it retires the profile, the last moment
+  the host still serves the ledger, Main asks the host it launched, starting
+  it first if it is gone. The archives take one turn of the worktree
+  service's queue, and the service makes and restores no worktree after it, so
+  a run still in progress cannot make one the reset would leave unnamed; the
+  host closes next.
+- **Only Main can ask** (from the commit security review). The request
+  (`factory-reset/worktrees/archive`) travels on Main's private platform
+  connection to the host, where Main's MCP retire for the reset already goes,
+  and Main sends it once the host has confirmed Main ready. It is not a client
+  method: the desktop's client connection, which every window and Main's own
+  client share as `desktop-ui`, has no such method, so a window cannot force
+  every worktree's archive or stop the service making worktrees. The option
+  not taken was a client origin of Main's own, which every desktop-only
+  method would then have had to admit.
+- **What it does not cover.**
+  - A run in progress when the reset starts keeps its worktree, named as
+    above: the host ends runs only when it closes, after this step.
+  - A worktree a run's shell command makes after this step is not seen: the
+    service did not make it.
+  - A reset that fails after this step leaves the worktrees archived: the
+    ledger says so, and their snapshot refs and branches hold the work.
+  - Clear Database keeps settings and deletes the ledger rows, and still
+    leaves the folders. It is out of scope.
 
 ## Consequences
 

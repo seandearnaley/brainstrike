@@ -34,7 +34,7 @@ describe('current profile reset and path IPC', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' });
     const completion = Promise.withResolvers<{ success: boolean; message?: string }>();
     const reset = vi.fn(() => completion.promise);
-    const close = registerFactoryResetIpcHandlers(reset);
+    const close = registerFactoryResetIpcHandlers({ reset, takeWorktreeOutcome: () => null });
     const result = invoke('db:resetLocal');
     expect(reset).toHaveBeenCalledOnce();
     completion.resolve({ message: 'reset refused', success: false });
@@ -47,19 +47,31 @@ describe('current profile reset and path IPC', () => {
   it('preserves Windows reset admission without invoking the owner', async () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     const reset = vi.fn(async () => ({ success: true }));
-    const close = registerFactoryResetIpcHandlers(reset);
+    const close = registerFactoryResetIpcHandlers({ reset, takeWorktreeOutcome: () => null });
     await expect(invoke('db:resetLocal')).resolves.toMatchObject({ success: false });
     expect(reset).not.toHaveBeenCalled();
     close();
   });
   it('refuses non-window callers and malformed reset arguments before mutation', async () => {
     const reset = vi.fn(async () => ({ success: true }));
-    const close = registerFactoryResetIpcHandlers(reset);
+    const close = registerFactoryResetIpcHandlers({ reset, takeWorktreeOutcome: () => null });
     await expect(invokeFromUntrackedSender('db:resetLocal')).rejects.toThrow(
       'Desktop IPC db:resetLocal requires an app window sender.'
     );
     await expect(invoke('db:resetLocal', 'extra')).rejects.toThrow();
     expect(reset).not.toHaveBeenCalled();
+    close();
+  });
+  it("hands the replacement window the reset's managed worktrees from the reset owner", async () => {
+    const outcome = { reason: 'The agent host is not running.', status: 'failed' as const };
+    const takeWorktreeOutcome = vi.fn(() => outcome);
+    const close = registerFactoryResetIpcHandlers({
+      reset: vi.fn(async () => ({ success: true })),
+      takeWorktreeOutcome,
+    });
+    await expect(invoke('db:takeResetWorktreeOutcome')).resolves.toEqual(outcome);
+    expect(takeWorktreeOutcome).toHaveBeenCalledOnce();
+    await expect(invoke('db:takeResetWorktreeOutcome', 'extra')).rejects.toThrow();
     close();
   });
   it('returns the injected current profile path and removes its handler', async () => {

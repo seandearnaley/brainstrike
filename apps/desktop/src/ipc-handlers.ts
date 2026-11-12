@@ -1,13 +1,15 @@
 import {
+  type FactoryResetIpcOwner,
   registerContentClearIpcHandlers,
   registerFactoryResetIpcHandlers,
   registerProfilePathIpcHandlers,
 } from './ipc-factory-reset';
 
 interface RegisterIpcHandlerOptions {
+  /** Main's Factory Reset owner: the reset, and its managed worktrees' outcome. */
+  readonly factoryReset?: FactoryResetIpcOwner;
   readonly getUserDataPath?: () => string;
   readonly onClearContent?: () => Promise<void>;
-  readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
 }
 
 /**
@@ -34,8 +36,8 @@ export function createApplicationIpcDomain(
   const unregisterContentClear = options.onClearContent
     ? registerContentClearIpcHandlers(options.onClearContent)
     : undefined;
-  const unregisterFactoryReset = options.onResetLocal
-    ? registerFactoryResetIpcHandlers(options.onResetLocal)
+  const unregisterFactoryReset = options.factoryReset
+    ? registerFactoryResetIpcHandlers(options.factoryReset)
     : undefined;
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
