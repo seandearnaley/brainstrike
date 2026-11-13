@@ -213,7 +213,7 @@ const LlmModelSchema = Schema.Struct({
 const ProviderModelSchema = LlmModelSchema;
 const ProviderSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
-  authType: Schema.Literals(['api_key', 'aws']),
+  authType: Schema.Literals(['api_key', 'aws', 'chatgpt_sign_in']),
   billsCutOffStreams: Schema.optional(Schema.Boolean),
   capabilities: Schema.Struct({
     streaming: Schema.Boolean,
@@ -223,7 +223,7 @@ const ProviderSchema = Schema.Struct({
   displayName: Schema.String,
   docsUrl: Schema.optional(Schema.String),
   envKeys: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  id: Schema.Literals(['openai', 'anthropic', 'google', 'openrouter', 'bedrock']),
+  id: Schema.Literals(['openai', 'anthropic', 'google', 'openrouter', 'bedrock', 'chatgpt']),
   keyFormatHint: Schema.optional(Schema.String),
   keyNotes: Schema.optional(Schema.String),
   models: Schema.mutable(Schema.Array(ProviderModelSchema)),

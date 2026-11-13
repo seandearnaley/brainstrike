@@ -368,7 +368,9 @@ export function buildProviderOptions(
   }
 
   switch (providerId) {
-    case 'openai': {
+    case 'openai':
+    case 'chatgpt': {
+      // Both routes speak the OpenAI Responses API under the SDK's `openai` options key.
       const openai = buildOpenAiOptions(settings);
       return openai ? { openai } : undefined;
     }

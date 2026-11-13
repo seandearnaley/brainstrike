@@ -196,6 +196,7 @@
     "lucide-react": "catalog:",
     "minimatch": "catalog:",
     "node-pty": "catalog:",
+    "openid-client": "catalog:",
     "pino": "catalog:",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

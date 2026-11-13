@@ -52,6 +52,9 @@ export class UnsupportedCredentialTypeError extends Error {
 const PROFILE_CHAIN_UNSUPPORTED_DETAIL =
   'AWS profile/credential-chain auth requires the desktop app (it reads your local AWS profiles); store a Bedrock API key (bearer) instead.';
 
+const CHATGPT_SIGN_IN_UNSUPPORTED_DETAIL =
+  'A ChatGPT sign-in answers model requests only; it has no API key to hand to this feature.';
+
 export interface ProviderAuthProjectionOptions {
   /**
    * Builds the AWS default credential chain for a profile. INJECTED, not
@@ -67,6 +70,12 @@ export interface ProviderAuthProjectionOptions {
    * type below is erased at compile time.
    */
   readonly awsCredentialChain?: (profile: string | undefined) => AwsCredentialIdentityProvider;
+  /**
+   * A currently valid Sign in with ChatGPT access token (ADR-0038). INJECTED by
+   * the host that holds the session and renews it; a consumer that supplies
+   * none cannot spend a ChatGPT plan, and the credential throws typed.
+   */
+  readonly chatGptAccessToken?: () => Promise<string>;
   /**
    * Env map consulted for `AWS_REGION` when an aws-auth provider resolves an
    * env bearer key (env credentials are always `api_key`-shaped — they carry
@@ -162,6 +171,15 @@ export function providerAuthInputFromCredential(
       region: credential.region,
     };
   }
+  if (credential.type === 'chatgpt_sign_in' && authType === 'chatgpt_sign_in') {
+    // The stored tokens are not read here: only the host's closure knows
+    // whether the one it holds is still valid, and renews it when it is not.
+    const accessToken = options?.chatGptAccessToken;
+    if (!accessToken) {
+      throw new UnsupportedCredentialTypeError(provider, CHATGPT_SIGN_IN_UNSUPPORTED_DETAIL);
+    }
+    return { accessToken, kind: 'access_token' };
+  }
   throw new UnsupportedCredentialTypeError(provider);
 }
 
@@ -180,6 +198,7 @@ export function createProviderApiKeyReader(
 ): ProviderApiKeyReader {
   return async (provider: string): Promise<string | undefined> => {
     const auth = providerAuthInputFromCredential(provider, await readCredential(provider));
-    return auth?.apiKey;
+    // No options are passed, so a sign-in's token never reaches a string consumer.
+    return auth && 'apiKey' in auth ? auth.apiKey : undefined;
   };
 }

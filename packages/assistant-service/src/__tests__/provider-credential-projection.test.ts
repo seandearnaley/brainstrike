@@ -115,7 +115,7 @@ describe('providerAuthInputFromCredential (BST-1350 aws mapping)', () => {
     expect(awsCredentialChain).toHaveBeenCalledWith('work');
     expect(auth).toEqual({ credentialProvider: resolver, kind: 'aws', region: 'us-east-1' });
     // A chain carries NO bearer — the two forms are mutually exclusive.
-    expect(auth?.apiKey).toBeUndefined();
+    expect(auth && 'apiKey' in auth ? auth.apiKey : undefined).toBeUndefined();
   });
 
   it('passes an ABSENT profile through as undefined (the chain default)', () => {
@@ -149,5 +149,59 @@ describe('providerAuthInputFromCredential (BST-1350 aws mapping)', () => {
     expect(thrown).toBeInstanceOf(UnsupportedCredentialTypeError);
     expect((thrown as UnsupportedCredentialTypeError).provider).toBe('openai');
     expect((thrown as UnsupportedCredentialTypeError).message).not.toContain('stored-bearer');
+  });
+});
+
+describe('providerAuthInputFromCredential (ADR-0038 ChatGPT sign-in)', () => {
+  const signedIn = {
+    clientId: 'oaiapp_fixture',
+    hostId: 'urn:uuid:3f1f4d6e-58a6-4b7b-9d0e-6c1a2b3c4d5e',
+    session: {
+      accessToken: 'stored-access-token',
+      expiresAt: 1_800_000_000_000,
+      refreshToken: 'stored-refresh-token',
+      scopes: ['chatgpt.tokens.use.direct'],
+    },
+    source: 'stored',
+    subject: 'user-ada',
+    type: 'chatgpt_sign_in',
+  } as const;
+
+  it("hands the request the host's token closure, never the stored token", async () => {
+    const chatGptAccessToken = vi.fn(async () => 'renewed-access-token');
+    const auth = providerAuthInputFromCredential(
+      'chatgpt',
+      { ...signedIn, session: { ...signedIn.session, scopes: [...signedIn.session.scopes] } },
+      { chatGptAccessToken }
+    );
+
+    expect(auth?.kind).toBe('access_token');
+    await expect(auth?.kind === 'access_token' && auth.accessToken()).resolves.toBe(
+      'renewed-access-token'
+    );
+  });
+
+  it('refuses where no host lends a session, and on any provider but ChatGPT', () => {
+    const credential = {
+      ...signedIn,
+      session: { ...signedIn.session, scopes: [...signedIn.session.scopes] },
+    };
+    const refusals = [
+      () => providerAuthInputFromCredential('chatgpt', credential),
+      () =>
+        providerAuthInputFromCredential('openai', credential, {
+          chatGptAccessToken: async () => 'token',
+        }),
+    ];
+    for (const refuse of refusals) {
+      let thrown: unknown;
+      try {
+        refuse();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(UnsupportedCredentialTypeError);
+      expect((thrown as Error).message).not.toContain('stored-access-token');
+    }
   });
 });

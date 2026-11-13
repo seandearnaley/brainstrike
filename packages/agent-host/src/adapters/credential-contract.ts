@@ -185,7 +185,8 @@ export function credentialToApiKey(provider: string, credential: ProviderCredent
 export function credentialStoredKeyFingerprint(
   credential: ProviderCredential
 ): StoredKeyFingerprint | undefined {
-  const metadata = credential.metadata;
+  // A ChatGPT sign-in is not a saved key: it has no save fingerprint.
+  const metadata = 'metadata' in credential ? credential.metadata : undefined;
   if (!metadata) {
     return;
   }

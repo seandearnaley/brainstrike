@@ -12,6 +12,7 @@ import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { CredentialInventory } from '../secrets/credential-inventory/credential-inventory';
 import { KeySourceBadge } from '../secrets/key-source-badge';
+import { ChatGptSignInSection } from './chatgpt-sign-in-section';
 import type {
   ProviderCardModel,
   ProviderConnectionState,
@@ -80,10 +81,12 @@ function ConnectionBadge({
   connection,
   providerId,
   rejected,
+  rejectedLabel,
 }: {
   readonly connection: ProviderConnectionState;
   readonly providerId: string;
   readonly rejected: boolean;
+  readonly rejectedLabel: string;
 }) {
   return (
     <span
@@ -99,7 +102,7 @@ function ConnectionBadge({
           rejected ? 'bg-destructive' : CONNECTION_DOT_CLASSES[connection]
         )}
       />
-      {rejected ? 'Key rejected' : CONNECTION_LABELS[connection]}
+      {rejected ? rejectedLabel : CONNECTION_LABELS[connection]}
     </span>
   );
 }
@@ -121,7 +124,18 @@ function ProviderKeySourceBadge({
       </Badge>
     );
   }
-  return <KeySourceBadge source={card.source} sourceState={sourceState} testId={testId} />;
+  return (
+    <KeySourceBadge
+      labels={
+        card.definition.authType === 'chatgpt_sign_in'
+          ? { absent: 'Not signed in', stored: 'Signed in' }
+          : undefined
+      }
+      source={card.source}
+      sourceState={sourceState}
+      testId={testId}
+    />
+  );
 }
 
 /**
@@ -181,6 +195,8 @@ export function ProviderCard({
 }: ProviderCardProps) {
   const { definition } = card;
   const providerId = definition.id;
+  // Registry metadata decides the credential surface: a sign-in has no key to type.
+  const signsIn = definition.authType === 'chatgpt_sign_in';
   const chainProbeFired = useRef(false);
 
   // The chain's reaction to a verdict is an EVENT, not an effect: the moment a
@@ -307,6 +323,7 @@ export function ProviderCard({
               connection={card.connection}
               providerId={providerId}
               rejected={rejected}
+              rejectedLabel={signsIn ? 'Sign-in rejected' : 'Key rejected'}
             />
             {models.length > 0 ? (
               <span
@@ -334,18 +351,26 @@ export function ProviderCard({
           data-testid={`provider-card-body-${providerId}`}
           id={`provider-card-body-${providerId}`}
         >
-          <ProviderCredentialSection
-            deprecatedEnvVars={statusDeprecatedEnvVars}
-            editable={editable}
-            highlightedSlotId={highlightedSlotId}
-            highlightNonce={highlightNonce}
-            providerFilter={providerFilter}
-            providerId={providerId}
-            statusError={statusError}
-            statusProviderKeySources={statusProviderKeySources}
-          />
+          {signsIn ? (
+            <ChatGptSignInSection providerId={providerId} />
+          ) : (
+            <ProviderCredentialSection
+              deprecatedEnvVars={statusDeprecatedEnvVars}
+              editable={editable}
+              highlightedSlotId={highlightedSlotId}
+              highlightNonce={highlightNonce}
+              providerFilter={providerFilter}
+              providerId={providerId}
+              statusError={statusError}
+              statusProviderKeySources={statusProviderKeySources}
+            />
+          )}
 
-          <ProviderGuidance docsUrl={definition.docsUrl} providerId={providerId} />
+          <ProviderGuidance
+            docsUrl={definition.docsUrl}
+            label={signsIn ? 'How ChatGPT plan usage works' : 'Get an API key'}
+            providerId={providerId}
+          />
 
           <ProviderTestConnection
             disabled={card.connection !== 'connected'}
@@ -422,6 +447,7 @@ function ProviderCredentialSection({
 
 interface ProviderGuidanceProps {
   readonly docsUrl: string | undefined;
+  readonly label: string;
   readonly providerId: string;
 }
 
@@ -436,7 +462,7 @@ interface ProviderGuidanceProps {
  * verification on the Bedrock card. What survives is the one affordance the
  * editor cannot offer before it is opened: where to GET a key.
  */
-function ProviderGuidance({ docsUrl, providerId }: ProviderGuidanceProps) {
+function ProviderGuidance({ docsUrl, label, providerId }: ProviderGuidanceProps) {
   if (!docsUrl) {
     return null;
   }
@@ -449,7 +475,7 @@ function ProviderGuidance({ docsUrl, providerId }: ProviderGuidanceProps) {
           rel="noreferrer"
           target="_blank"
         >
-          Get an API key
+          {label}
           <ExternalLink aria-hidden="true" className="ml-1 size-3" />
         </a>
       </Button>
