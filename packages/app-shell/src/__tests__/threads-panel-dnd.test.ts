@@ -256,7 +256,14 @@ describe('resolveThreadsPanelDrop', () => {
       sections: [
         {
           header: {
-            folder: { displayName: 'work', path: '/tmp/work', rootId: 'root-1' },
+            folder: {
+              displayName: 'work',
+              path: '/tmp/work',
+              projectId: null,
+              projectName: null,
+              rootId: 'root-1',
+              status: 'live',
+            },
             kind: 'folder',
           },
           id: 'folder:root-1',

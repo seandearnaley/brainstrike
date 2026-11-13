@@ -1,6 +1,8 @@
 import path from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
+import { pathsEqual } from './workspace-root-paths.ts';
 import type { RecordedWorkspaceRoot } from './workspace-root-types.ts';
 import { recordWorkspaceRootDisconnections } from './workspace-roots.ts';
 
@@ -52,6 +54,45 @@ export async function recordWorkspaceRoot(
     throw new Error('Workspace registration returned a different identity');
   }
   return { id: recorded.id, kind: recorded.kind };
+}
+
+/**
+ * ADR-0034 relink: the record `rootId` may be pointed at the folder the person chose only while
+ * it is one of their folders (not a thread's worktree or scratch folder) and no other record has
+ * that folder, at its path or by its identity. The store's re-pin would otherwise move that other
+ * record, or two records would name one folder.
+ */
+export async function assertRelinkTarget(
+  catalog: WorkspaceRootPort,
+  rootId: string,
+  chosen: { readonly canonicalPath: string; readonly path: string }
+): Promise<void> {
+  const { roots } = await catalog.workspaceRoots({ operation: 'list' });
+  if (roots.find((root) => root.id === rootId)?.kind !== 'path') {
+    throw locateUnknownRefusal();
+  }
+  const recordedElsewhere = roots.some(
+    (root) =>
+      root.id !== rootId &&
+      (pathsEqual(root.path, chosen.path) || pathsEqual(root.canonicalPath, chosen.canonicalPath))
+  );
+  if (recordedElsewhere) {
+    throw refusalError(
+      'conflict',
+      'workspace.locate-recorded',
+      'That folder is already one of your folders, so it cannot stand in for this one.',
+      "Choose the folder this one moved to, or move this project's threads with Move to project."
+    );
+  }
+}
+
+/** A located record must be one of the person's folders; a thread's own goes with its thread. */
+export function locateUnknownRefusal(): Error {
+  return refusalError(
+    'input',
+    'workspace.locate-unknown',
+    'Only one of your folders can be located; a worktree or a scratch folder goes with its thread.'
+  );
 }
 
 export async function markRootsDisconnectedExcept(

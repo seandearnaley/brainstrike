@@ -44,6 +44,21 @@ export class StateStoreReadOnlyError extends Error {
   }
 }
 
+/**
+ * A request the store declined for a reason its caller can act on (ADR-0034: a project name too
+ * long, a folder or project the store does not have). A refusal: nothing was written. `code` is a
+ * boundary failure code (`project.<reason>`) and `message` is said to the person as it is.
+ */
+export class StateStoreRefusalError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'StateStoreRefusalError';
+    this.code = code;
+  }
+}
+
 /** Purge and thread delete need the indexer: it re-derives the purged event and owns the blob reference counts. */
 export class IndexerRequiredError extends Error {
   constructor(operation: string) {

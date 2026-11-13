@@ -7,6 +7,7 @@ export * from './node-workspace/user-personas-loader.ts';
 export * from './node-workspace/user-slash-commands-loader.ts';
 export * from './node-workspace/workspace-recent-roots.ts';
 export * from './node-workspace/workspace-root-availability.ts';
+export { locateUnknownRefusal } from './node-workspace/workspace-root-catalog.ts';
 export * from './node-workspace/workspace-root-mounts.ts';
 export * from './node-workspace/workspace-root-paths.ts';
 export * from './node-workspace/workspace-root-read.ts';

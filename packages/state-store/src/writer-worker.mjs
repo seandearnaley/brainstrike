@@ -55,7 +55,7 @@ import { migrate } from './schema.mjs';
 import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 import { executeThreadGroups } from './thread-groups-domain.mjs';
 import { executeViewFilterPresetRequest } from './view-filter-preset-domain.mjs';
-import { executeWorkspaceRootRequest } from './workspace-root-domain.mjs';
+import { executeWorkspaceRootRequest, WorkspaceRootRefusal } from './workspace-root-domain.mjs';
 import { executeWorktreeLedgerRequest } from './worktree-ledger-domain.mjs';
 
 /**
@@ -219,6 +219,10 @@ function errorReply(e) {
   }
   if (e instanceof CheckpointBlockedError) {
     return { error: e.message, errorKind: 'checkpoint-blocked' };
+  }
+  if (e instanceof WorkspaceRootRefusal) {
+    // A request declined for a reason the person can act on: its code and message travel as they are.
+    return { code: e.code, error: e.message, errorKind: 'refused' };
   }
   // BST-2144: a damaged state DB opens query_only (or read-only), so SQLite
   // refuses each write with SQLITE_READONLY. That is the store's own read-only

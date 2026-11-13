@@ -8,19 +8,32 @@
  * Deliberately NOT `ThreadGroupHeader` with a different icon. A custom group is
  * a durable object the user creates, renames, colors, reorders and drops
  * threads into; a folder section is a VIEW over where each thread already
- * works (its binding). So this header carries no rename, no appearance, no
- * delete and no drop target, only the section's identity, the branch a
- * repository's own checkout is on, its live count, and the one action that
- * belongs to a folder: start a thread in it. Re-binding an EXISTING thread
- * stays where the binding is made, the composer's Folders menu, and the header
- * says so in its tooltip.
+ * works (its binding). So this header carries no appearance, no delete and no
+ * drop target, only the section's identity, the branch a repository's own
+ * checkout is on, its live count, and the actions that belong to a project:
+ * start a thread in it, and (ADR-0034 build decisions) name the project, move
+ * its folder into another project, and locate a folder that moved. A named
+ * project's section reads its name. Re-binding an EXISTING thread stays where
+ * the binding is made, the composer's Folders menu, and the header says so in
+ * its tooltip.
  */
-import type { ThreadFolderRow, ThreadListFolderSection } from '@brainstrike/assistant-data';
+import {
+  type ThreadFolderRow,
+  type ThreadListFolderSection,
+  threadFolderSectionLabel,
+} from '@brainstrike/assistant-data';
 import { Button } from '@brainstrike/ui';
 import { Folder, FolderPen, FolderX, GitBranch, Plus } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { useState } from 'react';
 import { THREAD_CONTROL_ACTION_CLASS_NAME } from './assistant-thread-presentation';
 import { ThreadMarkChip } from './thread-identity-mark';
+import { useThreadProjectActions } from './thread-project-actions';
+import {
+  ThreadProjectMenu,
+  ThreadProjectRenameForm,
+  type ThreadSectionProject,
+} from './thread-project-menu';
 import { ThreadSectionHeader } from './thread-section-header';
 
 /**
@@ -49,11 +62,11 @@ interface ThreadFolderHeaderFacts {
 function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFolderHeaderFacts {
   switch (header.kind) {
     case 'repository': {
-      const { branch, detached, displayName, folder, path } = header.repository;
+      const { branch, detached, folder, path } = header.repository;
       return {
         // A detached HEAD has no branch name; a bare repository has neither and shows nothing.
         branch: detached ? 'detached' : branch,
-        displayName,
+        displayName: threadFolderSectionLabel(header),
         newThreadFolder: folder,
         path,
       };
@@ -61,7 +74,7 @@ function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFol
     case 'folder':
       return {
         branch: null,
-        displayName: header.folder.displayName,
+        displayName: threadFolderSectionLabel(header),
         newThreadFolder: header.folder,
         path: header.folder.path,
       };
@@ -76,6 +89,30 @@ function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFol
   }
 }
 
+/**
+ * The project a section stands for, with the folder its actions act on: the repository's own
+ * checkout, or the folder. Null for a section with no project, and for Scratch and No project.
+ */
+function sectionProject(header: ThreadListFolderSection['header']): ThreadSectionProject | null {
+  if (header.kind === 'unassigned' || header.kind === 'scratch') {
+    return null;
+  }
+  const folder = header.kind === 'repository' ? header.repository.folder : header.folder;
+  const projectId =
+    header.kind === 'repository' ? header.repository.projectId : header.folder.projectId;
+  if (folder === null || projectId === null) {
+    return null;
+  }
+  return {
+    folderName: folder.displayName,
+    folderRootId: folder.rootId,
+    label: threadFolderSectionLabel(header),
+    locatable: header.kind === 'folder' && header.folder.status === 'disconnected',
+    name: header.kind === 'repository' ? header.repository.projectName : header.folder.projectName,
+    projectId,
+  };
+}
+
 export function ThreadFolderHeader({
   header,
   onNewThreadHere,
@@ -87,26 +124,62 @@ export function ThreadFolderHeader({
   readonly threadCount: number;
 }): ReactElement {
   const { branch, displayName, newThreadFolder, path } = folderHeaderFacts(header);
+  const projectActions = useThreadProjectActions();
+  const project = projectActions ? sectionProject(header) : null;
+  const [renaming, setRenaming] = useState(false);
+  if (renaming && projectActions && project) {
+    return (
+      <ThreadSectionHeader
+        count={threadCount}
+        countTestId="thread-folder-count"
+        label={
+          <ThreadProjectRenameForm
+            onDone={() => {
+              setRenaming(false);
+              projectActions.dismiss();
+            }}
+            onRename={(name) => projectActions.rename(project.projectId, name)}
+            project={project}
+          />
+        }
+        mark={
+          <ThreadMarkChip color={null} testId="thread-folder-icon">
+            <Folder className="size-3" />
+          </ThreadMarkChip>
+        }
+        testId="thread-folder-header"
+      />
+    );
+  }
   return (
     <ThreadSectionHeader
       actions={
-        newThreadFolder && onNewThreadHere ? (
-          <Button
-            aria-label={`New thread in ${displayName}`}
-            className={THREAD_CONTROL_ACTION_CLASS_NAME}
-            data-testid="thread-folder-new-thread"
-            onClick={(event) => {
-              event.stopPropagation();
-              onNewThreadHere(newThreadFolder);
-            }}
-            size="icon-xs"
-            title={`New thread in ${displayName}`}
-            type="button"
-            variant="ghost"
-          >
-            <Plus className="size-3.5" />
-          </Button>
-        ) : null
+        <>
+          {newThreadFolder && onNewThreadHere ? (
+            <Button
+              aria-label={`New thread in ${displayName}`}
+              className={THREAD_CONTROL_ACTION_CLASS_NAME}
+              data-testid="thread-folder-new-thread"
+              onClick={(event) => {
+                event.stopPropagation();
+                onNewThreadHere(newThreadFolder);
+              }}
+              size="icon-xs"
+              title={`New thread in ${displayName}`}
+              type="button"
+              variant="ghost"
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          ) : null}
+          {projectActions && project ? (
+            <ThreadProjectMenu
+              actions={projectActions}
+              onRenameStart={() => setRenaming(true)}
+              project={project}
+            />
+          ) : null}
+        </>
       }
       count={threadCount}
       countTestId="thread-folder-count"
