@@ -73,10 +73,19 @@ function BedrockGlyph({ className, style }: GlyphProps) {
   );
 }
 
+/** The maker whose mark a route wears: ChatGPT is OpenAI's own route. */
+function routeBrand(id: string): BrandMarkId | undefined {
+  if (id === 'chatgpt') {
+    return 'openai';
+  }
+  return isBrandMark(id) ? id : undefined;
+}
+
 /** A route's own mark: a brand mark, the Bedrock glyph, or a generic bot for anything else. */
 function RouteGlyph({ className, id, style }: GlyphProps & { id: string }) {
-  if (isBrandMark(id)) {
-    return <BrandGlyph className={className} id={id} style={style} />;
+  const brand = routeBrand(id);
+  if (brand) {
+    return <BrandGlyph className={className} id={brand} style={style} />;
   }
   if (id === 'bedrock') {
     return <BedrockGlyph className={className} style={style} />;
@@ -117,7 +126,7 @@ export interface ModelMarkProps {
  */
 export function ModelMark({ className, label, provider, vendor }: ModelMarkProps) {
   const maker = isBrandMark(vendor) ? vendor : undefined;
-  const badge = maker !== undefined && maker !== provider;
+  const badge = maker !== undefined && maker !== routeBrand(provider);
   const attributes = {
     className: cn('inline-flex shrink-0 items-end gap-px', className),
     'data-model-mark': maker ?? provider,

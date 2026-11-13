@@ -714,7 +714,10 @@ export const ProviderSettingsPanel = ({
   }
 
   const normalizedProvider = providerId.toLowerCase();
-  const isOpenAiFamily = normalizedProvider === 'openai' || normalizedProvider === 'openrouter';
+  const isOpenAiFamily =
+    normalizedProvider === 'openai' ||
+    normalizedProvider === 'chatgpt' ||
+    normalizedProvider === 'openrouter';
   const isAnthropic = normalizedProvider === 'anthropic';
   const isGoogle = normalizedProvider === 'google';
 

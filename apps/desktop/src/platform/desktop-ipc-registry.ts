@@ -21,6 +21,7 @@ export type DesktopIpcDomain =
   | 'appLifetime'
   | 'appUpdates'
   | 'browser'
+  | 'chatGptSignIn'
   | 'clipboard'
   | 'db'
   | 'diagnostics'

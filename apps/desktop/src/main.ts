@@ -125,6 +125,7 @@ import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery'
 import { registerAppLifetimeIpcHandlers } from './ipc-app-lifetime';
 import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
+import { registerChatGptSignInIpcHandlers } from './ipc-chatgpt-sign-in';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { pickWorkspaceFolder } from './ipc-domains/file-system-ipc';
@@ -716,6 +717,18 @@ const agentHostPrivateClients = desktopBootstrap.privateClients;
 const agentHostMainClient = createAgentHostMainClient(
   hostProfile.acquire,
   agentHostPrivateClients.open
+);
+// Settings › Providers (ADR-0038): the host runs Sign in with ChatGPT and holds its tokens.
+ipcDisposers.add(
+  'chatgpt-sign-in',
+  registerChatGptSignInIpcHandlers({
+    cancel: async () => {
+      await agentHostMainClient.request('auth/chatgpt/cancel', {});
+    },
+    signIn: (newAccount) => agentHostMainClient.request('auth/chatgpt/sign-in', { newAccount }),
+    signOut: () => agentHostMainClient.request('auth/chatgpt/sign-out', {}),
+    status: (settled) => agentHostMainClient.request('auth/chatgpt/status', { settled }),
+  })
 );
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>

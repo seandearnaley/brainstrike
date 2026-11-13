@@ -36,6 +36,11 @@ export interface HostCapabilitiesOptions {
   readonly env: NodeJS.ProcessEnv;
   /** Trusted process launch selection; never inferred or defaulted. */
   readonly launch: HostPlatformLaunchOptions | undefined;
+  /**
+   * Opens the system browser on the launching client, for Sign in with ChatGPT.
+   * A host with no interactive client lends none, and sign-in refuses there.
+   */
+  readonly openExternal?: (url: string) => Promise<void>;
   readonly startup: HostStartupContext;
 }
 
@@ -56,13 +61,18 @@ export async function createHostCapabilities(
   };
   // Own the credential lane before any capability can start native work.
   await options.startup.register(close);
-  const auth = createHostAuthority({ credentials, env: options.env });
+  const auth = createHostAuthority({
+    credentials,
+    env: options.env,
+    ...(options.openExternal ? { openExternal: options.openExternal } : {}),
+  });
   return {
     auth,
     close,
     credentials,
     providers: createHostProviderServices({
       auth,
+      chatGptAccessToken: () => auth.resolveChatGptAccessToken(),
       env: options.env,
       envFileFailures: options.launch?.envFileFailures ?? [],
     }),

@@ -23,6 +23,8 @@ export function createProvidersSettingsCategory(options: ProvidersSettingsProps)
       'secrets',
       'credentials',
       'openai',
+      'chatgpt',
+      'sign in',
       'anthropic',
       'google',
       'bedrock',

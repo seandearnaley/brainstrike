@@ -20,6 +20,11 @@ export class ProviderCredentialMissingError extends Error {
 }
 
 export interface HostProviderAuthOptions {
+  /**
+   * The host's Sign in with ChatGPT session: a valid access token per request.
+   * A composition that lends none cannot spend a ChatGPT plan, and says so.
+   */
+  readonly chatGptAccessToken?: () => Promise<string>;
   readonly credentials: HostCredentials;
   readonly env: NodeJS.ProcessEnv;
 }
@@ -53,6 +58,7 @@ export function createHostProviderAuth(
         : createAwsCredentialChain;
     return providerAuthInputFromCredential(provider, credential, {
       awsCredentialChain,
+      ...(options.chatGptAccessToken ? { chatGptAccessToken: options.chatGptAccessToken } : {}),
       env: options.env,
     });
   };

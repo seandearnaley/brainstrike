@@ -19,6 +19,8 @@ export const PROVIDER_COLOR_MAP: Record<string, ProviderColorPair> = {
   // anthropic's 25°/70% so the two orange dots stay distinguishable at
   // swatch size.
   bedrock: { dark: 'hsl(36, 95%, 55%)', light: 'hsl(36, 95%, 38%)' },
+  // The OpenAI green turned toward teal: the same maker on another route.
+  chatgpt: { dark: 'hsl(186, 60%, 52%)', light: 'hsl(186, 65%, 32%)' },
   google: { dark: 'hsl(210, 70%, 55%)', light: 'hsl(210, 70%, 45%)' },
   openai: { dark: 'hsl(160, 60%, 50%)', light: 'hsl(160, 60%, 35%)' },
   openrouter: { dark: 'hsl(280, 60%, 55%)', light: 'hsl(280, 60%, 45%)' },

@@ -80,6 +80,16 @@ export type ProviderAuthInput =
        * silently into runtime data.
        */
       credentialProvider?: AwsCredentialIdentityProvider;
+    }
+  | {
+      kind: 'access_token';
+      /**
+       * A bearer token that expires within a run (Sign in with ChatGPT,
+       * ADR-0038). The host's closure answers with a currently valid token and
+       * renews it first when needed; the SDK calls it before each request.
+       * A closure, so it rides the same direct-parameter rule as the AWS chain.
+       */
+      accessToken: () => Promise<string>;
     };
 
 /**
@@ -95,6 +105,7 @@ export function assertValidProviderAuthInput(auth: ProviderAuthInput | undefined
   }
   switch (auth.kind) {
     case 'api_key':
+    case 'access_token':
       return;
     case 'aws':
       if (!auth.region.trim()) {
@@ -173,6 +184,8 @@ export function providerFetchOptions(
         context: { authKind: 'aws', provider },
         detail: `Only aws-authType providers consume aws auth input (BST-1350); provider "${provider}" cannot.`,
       });
+    case 'access_token':
+      throw accessTokenMisuse(provider);
     default:
       return assertNeverAuthInput(auth);
   }
@@ -200,6 +213,8 @@ export function bearerApiKeyOnly(
         context: { authKind: 'aws', provider },
         detail: `Provider "${provider}" is not an aws-authType provider and cannot consume aws auth input (BST-1350).`,
       });
+    case 'access_token':
+      throw accessTokenMisuse(provider);
     default:
       return assertNeverAuthInput(auth);
   }
@@ -229,9 +244,38 @@ export function requireAwsAuthInput(
         context: { authKind: 'api_key', provider },
         detail: MISSING_AWS_REGION_DETAIL,
       });
+    case 'access_token':
+      throw accessTokenMisuse(provider);
     default:
       return assertNeverAuthInput(auth);
   }
+}
+
+/** A sign-in's token is spent only by the provider that issued it. */
+function accessTokenMisuse(provider: string): Error {
+  return createMastraAgentError('mastra_agent_runtime_init_failed', {
+    context: { authKind: 'access_token', provider },
+    detail: `Provider "${provider}" does not authenticate with a sign-in access token.`,
+  });
+}
+
+/**
+ * Narrow an auth input to a sign-in's access token, for the provider whose
+ * requests are paid by the signed-in account (`chatgpt`, ADR-0038). An API key
+ * here would bill a metered account for requests the user sent to their plan,
+ * so every other kind refuses.
+ */
+export function requireAccessTokenAuthInput(
+  auth: ProviderAuthInput | undefined,
+  provider: string
+): Extract<ProviderAuthInput, { kind: 'access_token' }> {
+  if (auth?.kind === 'access_token') {
+    return auth;
+  }
+  throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+    context: { ...(auth ? { authKind: auth.kind } : {}), provider },
+    detail: `Provider "${provider}" needs a signed-in account. Sign in from Settings.`,
+  });
 }
 
 /**

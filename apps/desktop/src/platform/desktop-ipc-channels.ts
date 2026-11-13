@@ -61,6 +61,14 @@ export const DESKTOP_IPC_CHANNELS = {
     showTab: 'browser:showTab',
     tabsChanged: 'browser:tabsChanged',
   },
+  // Settings › Providers: Sign in with ChatGPT (ADR-0038). The host runs the
+  // browser flow and holds the tokens; these carry a state and an email only.
+  chatGptSignIn: {
+    cancel: 'chatgpt-sign-in:cancel',
+    signIn: 'chatgpt-sign-in:sign-in',
+    signOut: 'chatgpt-sign-in:sign-out',
+    status: 'chatgpt-sign-in:status',
+  },
   clipboard: {
     writeImage: 'clipboard:write-image',
     writeText: 'clipboard:write-text',

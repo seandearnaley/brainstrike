@@ -8,7 +8,9 @@ import { getProviderDefinition, listProviders } from '../provider-registry.js';
 describe('provider auth metadata', () => {
   it('every provider declares an authType', () => {
     for (const provider of listProviders()) {
-      expect(['api_key', 'aws'], `${provider.id} authType`).toContain(provider.authType);
+      expect(['api_key', 'aws', 'chatgpt_sign_in'], `${provider.id} authType`).toContain(
+        provider.authType
+      );
     }
   });
 
@@ -18,6 +20,12 @@ describe('provider auth metadata', () => {
       .map((provider) => provider.id)
       .sort();
     expect(apiKeyProviders).toEqual(['anthropic', 'google', 'openai', 'openrouter']);
+  });
+
+  it('only the ChatGPT route signs in, and no environment variable authenticates it', () => {
+    const signIn = listProviders().filter((provider) => provider.authType === 'chatgpt_sign_in');
+    expect(signIn.map((provider) => provider.id)).toEqual(['chatgpt']);
+    expect(getProviderDefinition('chatgpt').envKeys).toEqual([]);
   });
 
   it('every api_key provider carries an https docsUrl to its key page', () => {
