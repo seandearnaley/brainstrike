@@ -758,8 +758,11 @@ work may revisit them:
   progress. The host refuses too (`workspace.scratch-project-running`) while
   the thread or one of its workers has a run in progress, before the picker is
   shown and again once the person has chosen, since this checkout change moves
-  the folder a run works in. A refusal is said under the row and in a toast,
-  in the host's words.
+  the folder a run works in. That second check, the move and the binding
+  update share one slot of Core's admission queue, which every run admission
+  takes: a run asked for meanwhile is admitted after the move, at the folder's
+  new place. A refusal is said under the row and in a toast, in the host's
+  words.
 - **Destination.** Main's native folder picker chooses a parent folder, through
   the host's `platform/workspace/pick-folder`, the route Open Folder, Add
   Folder and the open-folder list already use. The project folder is

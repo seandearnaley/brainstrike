@@ -176,6 +176,33 @@ test("it waits for the thread's run to end: refused while one is in progress, be
   });
 });
 
+// The last check, the move and the binding share one slot of Core's admission queue, so a run
+// asked for once the move has begun is admitted after it, at the folder's new place.
+test('a run asked for while the folder moves is admitted once it has moved, where it now is', async () => {
+  const hosted = await host();
+  const { projects, root, threadId } = await scratchThread(hosted);
+  const place = join(projects, 'quiet-otter-1');
+  hosted.harness.picks.push(projects);
+  const hold = Promise.withResolvers<void>();
+  const moving = Promise.withResolvers<void>();
+  hosted.harness.holdMove = hold.promise;
+  hosted.harness.moveStarted = moving.resolve;
+
+  const turned = turnIntoProject(hosted, threadId);
+  await moving.promise;
+  const asked = hosted.requests.length;
+  const run = hosted.run(threadId, 'S: write notes.txt again.');
+  hold.resolve();
+
+  await expect(turned).resolves.toEqual({ root: expect.objectContaining({ path: place }) });
+  await run;
+  await finishedTurn(hosted, threadId);
+  expect(hosted.requests.slice(asked).map((request) => request.workspaceBinding)).toEqual([
+    expect.objectContaining({ operatingRootId: root?.rootId, operatingRootPath: place }),
+  ]);
+  expect(await readFile(join(place, 'notes.txt'), 'utf8')).toBe('notes.txt content');
+});
+
 test('a thread that does not work in a scratch folder has nothing to turn into a project', async () => {
   const hosted = await host();
   await hosted.open();

@@ -56,6 +56,10 @@ export async function scratchThreadHost(
   const harness: {
     /** Set to make the next folder move fail with this cause, as a move to another disk does. */
     failMove?: Error;
+    /** Holds every folder move until it resolves, as a slow disk does. */
+    holdMove?: Promise<void>;
+    /** Told as a folder move begins. */
+    moveStarted?: () => void;
     /** Set to make the next move to the Trash fail with this cause, as a Trash that is missing does. */
     failTrash?: Error;
     /** What Main's folder picker answers, in turn: a folder, or null for a cancel. */
@@ -211,6 +215,8 @@ export async function scratchThreadHost(
         return harness.picks.shift() ?? null;
       },
       rename: async (from, to) => {
+        harness.moveStarted?.();
+        await harness.holdMove;
         if (harness.failMove) {
           throw harness.failMove;
         }

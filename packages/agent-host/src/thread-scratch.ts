@@ -18,7 +18,9 @@
  * command. Like every checkout change it waits for the thread's run to end: a
  * run keeps the folder it was admitted with, and this one moves. While the
  * thread or one of its workers has a run in progress it is refused, before the
- * picker is shown and again once the person has chosen.
+ * picker is shown and again once the person has chosen. That second check, the
+ * move and the binding share one slot of Core's admission queue, so no run of
+ * the thread or its workers is admitted between them.
  */
 import { BoundaryFailureError, fault, refusalError } from '@brainstrike/assistant-contract';
 import type { HostCore } from './core.ts';
@@ -29,6 +31,11 @@ import type { HostParams, HostResults } from './protocol.ts';
 
 type Scratch = HostResults['thread/workspace/scratch'];
 type Project = HostResults['thread/workspace/scratch/project'];
+/**
+ * Runs `move` in one slot of Core's admission queue, which every run admission takes, so no run
+ * is admitted while it runs. Its binding update says it holds the slot (`held`).
+ */
+export type HostScratchAdmission = <T>(move: () => Promise<T>) => Promise<T>;
 type HostScratchCore = Pick<
   HostCore,
   'assertAdmissible' | 'readWorkspaceBinding' | 'updateWorkspaceBinding'
@@ -143,7 +150,8 @@ export async function turnHostScratchIntoProject(
   core: HostScratchCore,
   children: Pick<HostChildRuns, 'isChild' | 'subtree'>,
   runs: ReadonlyMap<string, HostRunState>,
-  platform: Pick<HostPlatform, 'scratchFolders'>
+  platform: Pick<HostPlatform, 'scratchFolders'>,
+  admitted: HostScratchAdmission
 ): Promise<Project> {
   const { threadId } = params;
   const scratch = scratchFoldersFor(threadId, core, children, platform);
@@ -152,30 +160,32 @@ export async function turnHostScratchIntoProject(
   if (parent === null) {
     return { root: null };
   }
-  // The picker may have been open a while: a run started, or the thread moved, meanwhile.
-  await readyScratch(threadId, scratch, core, children, runs);
-  const root = await scratch.turnIntoProject({ parent, threadId });
-  try {
-    await core.updateWorkspaceBinding({
-      commandId: `${params.commandId}-binding`,
-      patch: {
+  // The picker may have been open a while: a run started, or the thread moved, meanwhile. The
+  // check, the move and the binding then share one admission slot: a run of the thread or its
+  // workers asked for meanwhile is admitted after it, at the folder's new place.
+  return await admitted(async () => {
+    await readyScratch(threadId, scratch, core, children, runs);
+    const root = await scratch.turnIntoProject({ parent, threadId });
+    try {
+      const patch = {
         operatingRootDisplayName: root.displayName,
         operatingRootId: root.rootId,
         operatingRootPath: root.path,
-      },
-      threadId,
-    });
-  } catch (cause) {
-    // The folder is a project now, while the thread's binding still names its old place.
-    throw new BoundaryFailureError(
-      fault({
-        category: 'internal',
-        code: 'workspace.scratch-project-unbound',
-        message: `The folder is now a project at ${root.path}, but this thread still names its old place, so its next run is refused.`,
-        remedy: 'Choose that folder for this thread again in the where-control.',
-      }),
-      { cause }
-    );
-  }
-  return { root };
+      };
+      const commandId = `${params.commandId}-binding`;
+      await core.updateWorkspaceBinding({ commandId, patch, threadId }, undefined, true);
+    } catch (cause) {
+      // The folder is a project now, while the thread's binding still names its old place.
+      throw new BoundaryFailureError(
+        fault({
+          category: 'internal',
+          code: 'workspace.scratch-project-unbound',
+          message: `The folder is now a project at ${root.path}, but this thread still names its old place, so its next run is refused.`,
+          remedy: 'Choose that folder for this thread again in the where-control.',
+        }),
+        { cause }
+      );
+    }
+    return { root };
+  });
 }
