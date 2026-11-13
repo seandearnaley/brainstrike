@@ -64,6 +64,21 @@ export type WorkspaceRootRequest =
   | { readonly operation: 'scratch-of-thread'; readonly threadId: string }
   /** Deletes the thread's scratch folder's root and record together; answers what it deleted. */
   | { readonly operation: 'forget-scratch'; readonly threadId: string }
+  /**
+   * ADR-0034: the scratch folder `rootId`, which the host has moved to `root`, becomes a folder of
+   * the person's there, in one commit: same id, kind `path`, open at the end of the open folders,
+   * its scratch record deleted and its project given as `register` gives one. Refused for a root
+   * the store does not have, one that is not a scratch folder, and a place another record has.
+   */
+  | {
+      readonly operation: 'scratch-to-project';
+      readonly root: {
+        readonly canonicalPath: string;
+        readonly displayName: string;
+        readonly path: string;
+      };
+      readonly rootId: string;
+    }
   | {
       readonly operation: 'disconnect-except';
       readonly mountedPaths: readonly string[];

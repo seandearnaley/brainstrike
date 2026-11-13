@@ -364,6 +364,130 @@ describe('host root registry', () => {
     await expect(restarted.scratch.read('thread-1')).resolves.toBeNull();
   });
 
+  it("turns a thread's scratch folder into a folder of the person's at its new place: same root id, open, recent, and mounted again after a restart", async () => {
+    mkdirSync(path.join(base, 'scratch'));
+    const made = path.join(base, 'scratch', 'quiet-otter');
+    const signal = new AbortController().signal;
+    const { owner, publishRootsChanged } = registry();
+    const root = await owner.scratch.add({
+      make: async () => {
+        mkdirSync(made);
+        return made;
+      },
+      signal,
+      threadId: 'thread-1',
+    });
+    const rootId = root?.rootId ?? '';
+    writeFileSync(path.join(made, 'notes.txt'), 'work');
+    const place = path.join(folder('Projects'), 'quiet-otter');
+
+    // The platform's scratch folders move it; the registry unmounts it first and mounts it after.
+    const moved: string[] = [];
+    await expect(
+      owner.scratch.promote({
+        move: async (scratchFolder) => {
+          moved.push(scratchFolder);
+          expect(owner.registry.mountedRoots()).toEqual([]);
+          renameSync(scratchFolder, place);
+          return place;
+        },
+        threadId: 'thread-1',
+      })
+    ).resolves.toEqual({ displayName: 'quiet-otter', path: place, rootId });
+
+    expect(moved).toEqual([made]);
+    expect(owner.registry.mountedRoots()).toEqual([{ canonicalPath: place, path: place, rootId }]);
+    const projectRoot = { available: true, path: place, rootId, scratch: false, worktree: false };
+    await expect(owner.service['workspace/roots/restore']({})).resolves.toEqual({
+      roots: [projectRoot],
+    });
+    expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([
+      expect.objectContaining({ id: rootId, kind: 'path', projectId: expect.any(String) }),
+    ]);
+    await expect(owner.scratch.read('thread-1')).resolves.toBeNull();
+    // Like a folder the person adds, it joins Recents and Main hears of it.
+    await expect(owner.service['workspace/roots/recent']({})).resolves.toMatchObject({
+      roots: [{ path: place }],
+    });
+    expect(publishRootsChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ grantedPath: place })
+    );
+    // A window shows it by its path, as the person's folder now.
+    await expect(owner.service['workspace/roots/add']({ path: place })).resolves.toEqual(
+      projectRoot
+    );
+
+    await owner.close();
+    owners.splice(owners.indexOf(owner), 1);
+    const restarted = registry().owner;
+    await restarted.start();
+    expect(restarted.registry.mountedRoots()).toEqual([
+      { canonicalPath: place, path: place, rootId },
+    ]);
+  });
+
+  it('a move that fails leaves the scratch folder mounted where it was, and a record that fails after the move says where the folder is', async () => {
+    mkdirSync(path.join(base, 'scratch'));
+    const made = path.join(base, 'scratch', 'quiet-otter');
+    const place = path.join(folder('Projects'), 'quiet-otter');
+    let failRecord = false;
+    const failing: HostRootRegistryStore = {
+      deleteSetting: (key) => store.deleteSetting(key),
+      getSetting: (key) => store.getSetting(key),
+      setSetting: (key, value) => store.setSetting(key, value),
+      stateDamage: null,
+      workspaceRoots: async (request: WorkspaceRootRequest) => {
+        if (failRecord && request.operation === 'scratch-to-project') {
+          throw new Error('fixture: the state DB refused the write');
+        }
+        return await store.workspaceRoots(request);
+      },
+    };
+    const { owner } = registry({ rootsStore: failing });
+    const root = await owner.scratch.add({
+      make: async () => {
+        mkdirSync(made);
+        return made;
+      },
+      signal: new AbortController().signal,
+      threadId: 'thread-1',
+    });
+    const rootId = root?.rootId ?? '';
+    const refused = new Error('fixture: another disk');
+
+    await expect(
+      owner.scratch.promote({
+        move: async () => {
+          throw refused;
+        },
+        threadId: 'thread-1',
+      })
+    ).rejects.toBe(refused);
+    expect(owner.registry.mountedRoots()).toEqual([{ canonicalPath: made, path: made, rootId }]);
+    await expect(owner.scratch.read('thread-1')).resolves.toEqual(root);
+
+    failRecord = true;
+    await expect(
+      owner.scratch.promote({
+        move: async (scratchFolder) => {
+          renameSync(scratchFolder, place);
+          return place;
+        },
+        threadId: 'thread-1',
+      })
+    ).rejects.toMatchObject({
+      failure: {
+        code: 'workspace.scratch-project-unrecorded',
+        message: expect.stringContaining(place),
+      },
+    });
+    // Nothing is mounted at a place its record does not name; the record still says scratch.
+    expect(owner.registry.mountedRoots()).toEqual([]);
+    expect((await store.workspaceRoots({ operation: 'list' })).roots).toEqual([
+      expect.objectContaining({ id: rootId, kind: 'scratch', path: made }),
+    ]);
+  });
+
   it('seeds folders only in a desktop E2E session', async () => {
     const workspace = folder('workspace');
     const seed = { recentPaths: [], roots: [{ path: workspace, rootId: crypto.randomUUID() }] };

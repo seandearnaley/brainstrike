@@ -35,6 +35,7 @@ import {
   resolveReadAgainstMountedRoot,
 } from './workspace-root-read.ts';
 import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.ts';
+import { turnScratchRootIntoProject } from './workspace-root-scratch-project.ts';
 import { createNativeSecureRoot, resolveValidatedReadPath } from './workspace-root-seams.ts';
 import {
   createWorkspaceRootSourceLease,
@@ -940,6 +941,32 @@ export class WorkspaceRootRegistry {
       );
     }
     throw cause;
+  }
+
+  /**
+   * ADR-0034 build decisions: the thread's scratch folder becomes a folder of the person's where
+   * `move` puts it, under the same root id (`workspace-root-scratch-project.ts`).
+   */
+  turnScratchIntoProject(request: {
+    readonly move: (folder: string) => Promise<string>;
+    readonly threadId: string;
+  }): Promise<ScratchWorkspaceRoot> {
+    return this.serializeWrite(() =>
+      turnScratchRootIntoProject(request, {
+        catalog: this.getRootsCatalog,
+        createSecureRoot: this.createSecureRoot,
+        install: (entry, probe) => this.installSourceRoot(entry, probe),
+        mount: (entry) => this.mount(entry),
+        recordRecent: async (folder) => {
+          await recordRecentRoot(this.recents, folder);
+          this.onRootGranted?.(folder);
+        },
+        retire: async (rootId) => {
+          await this.retireMount(rootId);
+          this.availability.forget(rootId);
+        },
+      })
+    );
   }
 
   /** The thread's scratch folder as recorded, or null (ADR-0034). */

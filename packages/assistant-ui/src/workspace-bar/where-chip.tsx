@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Folder,
   FolderGit2,
+  FolderOutput,
   FolderX,
   GitBranchPlus,
   Home,
@@ -41,6 +42,7 @@ import type {
   WorkspaceBarCheckout,
   WorkspaceBarMode,
   WorkspaceBarRoot,
+  WorkspaceBarScratchProject,
   WorkspaceBarThreadCheckout,
   WorkspaceBarWorktreeSummary,
 } from './workspace-bar';
@@ -54,6 +56,8 @@ export type WhereChipProps = FolderMenuProps & {
   readonly mode?: WorkspaceBarMode | undefined;
   /** See `WorkspaceBarProps.openRequest`. */
   readonly openRequest?: number | undefined;
+  /** See `WorkspaceBarProps.scratchProject`. */
+  readonly scratchProject?: WorkspaceBarScratchProject | undefined;
   readonly threadCheckout?: WorkspaceBarThreadCheckout | undefined;
 };
 
@@ -465,6 +469,37 @@ const WorktreeActions = ({
   );
 };
 
+/**
+ * "Turn into a project…" while the thread works in a scratch folder (ADR-0034): it waits for the
+ * thread's run to end, as the checkout rows do, and the last refusal stays under it.
+ */
+const ScratchProjectRow = ({
+  scratch,
+}: {
+  readonly scratch: WorkspaceBarScratchProject;
+}): ReactElement => (
+  <>
+    <DropdownMenuItem
+      className={scratch.disabledReason ? 'items-start' : undefined}
+      data-testid="workspace-bar-scratch-project"
+      disabled={scratch.pending || scratch.disabledReason !== null}
+      onSelect={scratch.onTurnIntoProject}
+    >
+      <FolderOutput aria-hidden="true" className="size-3.5" />
+      <RowLabel
+        label="Turn into a project…"
+        reason={scratch.disabledReason}
+        reasonTestId="workspace-bar-scratch-project-disabled-reason"
+      />
+    </DropdownMenuItem>
+    {scratch.refusal ? (
+      <RowNote testId="workspace-bar-scratch-project-refusal" tone="warning">
+        {scratch.refusal}
+      </RowNote>
+    ) : null}
+  </>
+);
+
 /** "Folders: brainstrike +1": the thread's folders and the ways to add one, a level down. */
 const FoldersSubmenu = ({
   folders,
@@ -511,7 +546,7 @@ const WhereMenuBody = ({
   readonly onOpenCreate: () => void;
   readonly props: WhereChipProps;
 }): ReactElement => {
-  const { branchMenu, checkout, mode, ...folders } = props;
+  const { branchMenu, checkout, mode, scratchProject, ...folders } = props;
   const { primaryRoot, secondaryRoots } = folders;
   const localRoot = secondaryRoots.find((root) => root.local);
   const inWorktree = Boolean(mode?.worktree) || localRoot !== undefined;
@@ -549,6 +584,7 @@ const WhereMenuBody = ({
           projectRoot={projectRoot}
         />
       ) : null}
+      {scratchProject ? <ScratchProjectRow scratch={scratchProject} /> : null}
       {closed.map((root) => (
         <RootRow
           hasOtherLiveFolder
@@ -558,7 +594,7 @@ const WhereMenuBody = ({
           {...rootHandlers}
         />
       ))}
-      {mode || closed.length > 0 ? <DropdownMenuSeparator /> : null}
+      {mode || scratchProject || closed.length > 0 ? <DropdownMenuSeparator /> : null}
       {primaryLive ? (
         <>
           {checkout ? (

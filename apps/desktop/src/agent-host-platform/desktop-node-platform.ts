@@ -238,6 +238,14 @@ export async function createDesktopHostConfiguration(
   if (!userDataDir) {
     throw new Error('The desktop agent host needs its app paths for MCP settings');
   }
+  // Main's native folder picker: the folder chosen, or null when the person cancelled.
+  const pickFolder = async (): Promise<string | null> => {
+    const picked = wireDecoder(PlatformPickFolderResultSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await request('platform/workspace/pick-folder', {}));
+    return 'path' in picked ? picked.path : null;
+  };
   // ADR-0029 stage 4: the workspace's open folders. The registry writes their records and the
   // recent-folders ledger; Main keeps only the picker.
   const rootRegistry = createHostRootRegistry({
@@ -247,13 +255,7 @@ export async function createDesktopHostConfiguration(
     managedWorktreeAuthorizer: async (candidate) =>
       (await gitWorkspace.service['worktrees/classify-path']({ path: candidate }, startup.signal))
         .classification,
-    pickFolder: async () => {
-      const picked = wireDecoder(PlatformPickFolderResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/workspace/pick-folder', {}));
-      return 'path' in picked ? picked.path : null;
-    },
+    pickFolder,
     publishRootsChanged: async (change) => {
       wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
         await request('platform/workspace/roots-changed', change)
@@ -292,10 +294,11 @@ export async function createDesktopHostConfiguration(
   await startup.register(() => gitWorkspace.close());
   // ADR-0034 scratch threads: a thread sent with no folder while none is open works in a folder
   // made here, under userData, which a factory reset deletes. Main moves a deleted thread's to
-  // the system Trash.
+  // the system Trash; one turned into a project moves where the person picks.
   const scratchFolders = hostScratchFolders({
     directory: path.join(userDataDir, 'scratch'),
     name: generateWorktreeName,
+    pickFolder,
     roots: rootRegistry.scratch,
     store: startup.store,
     trash: async (folder) => {

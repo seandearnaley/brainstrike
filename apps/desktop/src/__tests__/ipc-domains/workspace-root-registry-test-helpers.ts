@@ -52,6 +52,7 @@ export function createRegistryCatalogRequest(
       case 'scratch-of-thread':
       case 'register-scratch':
       case 'forget-scratch':
+      case 'scratch-to-project':
         throw new Error(`This catalog makes no scratch folders (${request.operation})`);
       case 'register': {
         const previous = roots.get(request.root.path);

@@ -136,4 +136,9 @@
 // the parameter and the required field are why this is a version bump. Additive since:
 // `worktrees/list-archived` (the archived managed worktrees of a root's repository, newest archive
 // first, which the where-control's picker restores; ADR-0034 decision 7), a new method.
-export const AGENT_HOST_PROTOCOL_VERSION = 27;
+// v28 (2026-11-12): a scratch thread's folder becomes a project (ADR-0034 build decisions).
+// `thread/workspace/scratch/project`, for the desktop's private client, asks Main's folder picker
+// where, moves the scratch folder there and turns its root into a folder of the person's with a
+// project of its own under the same root id; a new method. Its refusals are typed
+// (`workspace.scratch-*`).
+export const AGENT_HOST_PROTOCOL_VERSION = 28;

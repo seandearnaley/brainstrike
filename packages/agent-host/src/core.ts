@@ -95,7 +95,7 @@ import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
 import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
 import { HostThreadRewinds } from './thread-rewind.ts';
-import { bindHostScratch } from './thread-scratch.ts';
+import { bindHostScratch, turnHostScratchIntoProject } from './thread-scratch.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
 import { HostThreadTrees } from './thread-summary.ts';
 import { HostToolRecords } from './tool-records.ts';
@@ -404,12 +404,12 @@ export class HostCore {
     );
   }
 
-  /** ADR-0034 scratch threads: made outside the admission queue (`thread-scratch.ts`). */
-  scratchWorkspace(params: HostParams<'thread/workspace/scratch'>) {
-    this.assertAdmissible(params.threadId);
-    return bindHostScratch(params, this, this.children, this.pendingAdmissions, this.platform);
-  }
-  private assertAdmissible(threadId: string | undefined): void {
+  /** ADR-0034 scratch threads, outside the admission queue (`thread-scratch.ts`). */
+  readonly scratchWorkspace = (params: HostParams<'thread/workspace/scratch'>) =>
+    bindHostScratch(params, this, this.children, this.pendingAdmissions, this.platform);
+  readonly scratchProject = (params: HostParams<'thread/workspace/scratch/project'>) =>
+    turnHostScratchIntoProject(params, this, this.children, this.runs, this.platform);
+  assertAdmissible(threadId: string | undefined): void {
     const { closing, deletions, failedAdmissions, threads } = this;
     assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);
   }

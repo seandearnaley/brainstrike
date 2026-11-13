@@ -14,6 +14,8 @@
     in a scratch folder the host makes for it.
   - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
     to the host, so a worktree the host makes runs the script too.
+  - 2026-11-12 (build decisions, under scratch threads below): a scratch thread's folder can be
+    turned into a project; built. Starting one from a thread that ran with no folder is not.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -680,13 +682,92 @@ revisit:
   - The section offers no New thread here: a new scratch thread starts from
     the ordinary New thread with no folder open.
 
+### Turning a scratch thread into a project
+
+Built: the first half of "Turn into a project", a scratch thread's folder
+becoming a project. These are build decisions, not Sean's answers, and later
+work may revisit them:
+
+- **Where.** The where-control (`workspace-bar-where-chip`) shows Turn into a
+  project… while the thread works in a scratch folder, read from its folder's
+  descriptor (`scratch`). Like every checkout change it waits for the thread's
+  run to end: the row is disabled with the reason while the run is in
+  progress. The host refuses too (`workspace.scratch-project-running`) while
+  the thread or one of its workers has a run in progress, before the picker is
+  shown and again once the person has chosen, since this checkout change moves
+  the folder a run works in. A refusal is said under the row and in a toast,
+  in the host's words.
+- **Destination.** Main's native folder picker chooses a parent folder, through
+  the host's `platform/workspace/pick-folder`, the route Open Folder, Add
+  Folder and the open-folder list already use. The project folder is
+  `<parent>/<scratch folder name>`. Refused, with nothing moved: a path that
+  already holds anything (`workspace.scratch-project-exists`), a parent that is
+  gone, and a parent among the scratch folders themselves.
+- **Move.** One rename, by the host's scratch platform (`hostScratchFolders`
+  in `scratch-folders.ts`), the folder's maker. It moves only a folder directly
+  inside `<userData>/scratch`, both compared at their canonical paths, the
+  guard Main's Trash uses (`scratch-folder-trash.ts`). A destination on another
+  disk (`EXDEV`) is refused with the reason (`workspace.scratch-project-other-disk`:
+  pick a folder on the same disk); nothing is copied instead. The root
+  registry unmounts the folder first, once its borrows end (its terminals and
+  language servers go, as a removed folder's do), and mounts it again at the
+  new place under the same root id.
+- **Record.** One new roots-domain operation, `scratch-to-project`, in one
+  commit: the root keeps its id, its kind becomes `path`, its path, canonical
+  path and name are the new ones, its `scratch_folders` row is deleted, and it
+  gets the project recorded for its new place, or a new one, as `register`
+  gives a folder its project. It is refused, changing nothing, for a root the
+  store does not have, one that is not a scratch folder, and a place another
+  record has. No schema change (state DB version 17).
+- **It is an open folder now, and in Recents.** The operation opens it at the
+  end of the open folders, as a folder the person adds is, and the registry
+  records it in Recents and tells Main. A folder of the person's that is not
+  open is not mounted at the next launch, so the thread's next run would be
+  refused as for a removed folder.
+- **The thread follows.** The root id is kept, so the thread's threads list,
+  its Explorer mount and its binding's root stay. The binding's own command
+  then rewrites its path and name (`operatingRootPath`,
+  `operatingRootDisplayName`), because run admission checks that path against
+  the mount. The window shows the folder at its new place by its path, as it
+  shows a scratch folder the host made, and the Threads panel reads the root
+  records again, so the thread leaves Scratch for its project's section.
+- **Trust is asked at the new place.** The person chose that place, and the
+  ruling that an app-made folder is trusted covered the scratch place only. No
+  trust or hook record is written. The answer the app wrote for the scratch
+  place stays with that path, as any folder's old answer does; nothing reads
+  it unless a scratch folder is made there again, which the app trusts anyway.
+- **Deleting the thread later leaves the project.** A deleted thread's scratch
+  folder goes to the Trash by its scratch record, and this folder has none now.
+- **Order and what a failure leaves.** Move first, then the record, then the
+  binding. The host logs where it moves the folder before the rename.
+  - A move that fails changes nothing: the folder is mounted again where it
+    was, still the thread's scratch folder.
+  - A record that fails after the move says where the folder now is
+    (`workspace.scratch-project-unrecorded`); nothing is mounted there. The
+    scratch record still names the old place, which is gone, so the thread's
+    next run is refused, and the person adds the folder from where it is.
+  - A record that commits but whose mount fails says so
+    (`workspace.scratch-project-unmounted`); the folder is open, and mounts at
+    the next launch or from Recents.
+  - A binding that does not commit after the record says where the folder is
+    (`workspace.scratch-project-unbound`). The binding still names the old
+    path, so the thread's next run is refused until the folder is chosen for
+    it again.
+  - A host that stops between the rename and the record's commit leaves the
+    first case without its message: the folder is at its new place, named in
+    the host's log, and the scratch record names a place that is gone. One that
+    stops between the record and the binding leaves the last case. Both windows
+    are a few milliseconds; nothing retries or repairs them.
+- **The host method** is `thread/workspace/scratch/project`, for the desktop's
+  private client only (host protocol version 28), answering the folder where
+  it now is, or null when the person cancelled the picker.
+
 Not built:
 
 - Cleaning up scratch folders on Clear Database. Their rows go with the
   roots; the folders stay in the profile until Factory Reset, as worktrees do.
-- Turning a scratch thread into a project ("Turn into a project"): moving its
-  work into a project, and starting one from a thread that already ran with
-  no folder.
+- Starting a project from a thread that already ran with no folder, the second
+  half of "Turn into a project". Such a thread has no folder to move.
 - Mounting only the scratch folders of open threads. Every one mounts at
   launch, as every managed worktree does, each with its own handle.
 

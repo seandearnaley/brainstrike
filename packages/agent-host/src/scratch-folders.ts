@@ -12,9 +12,12 @@
  *   has is reused and never trusted again.
  * - A deleted thread's folder leaves the workspace, then its trust answer goes
  *   and it moves to the system Trash.
+ * - A folder the person turns into a project moves out to the place they
+ *   chose (ADR-0034 build decisions), and is no longer a scratch folder.
  */
-import { mkdir, readdir, realpath, rmdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { lstat, mkdir, readdir, realpath, rename, rmdir } from 'node:fs/promises';
+import { basename, dirname, join, sep } from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { HostScratchFolder, HostScratchFolders } from './ports.ts';
 import {
@@ -41,6 +44,16 @@ export interface HostScratchFolderRoots {
   }): Promise<HostScratchFolder | null>;
   /** Unmounts the thread's scratch folder and deletes its root and record; what it deleted. */
   forget(threadId: string): Promise<{ readonly path: string } | null>;
+  /**
+   * ADR-0034 build decisions: the thread's scratch folder leaves its mount, `move` moves it and
+   * resolves where it now is, and its root becomes a folder of the person's there under the same
+   * id, mounted again. A move that fails leaves the folder mounted where it was, and a record
+   * that fails after the move says where the folder now is. One change among the registry's.
+   */
+  promote(request: {
+    readonly move: (folder: string) => Promise<string>;
+    readonly threadId: string;
+  }): Promise<HostScratchFolder>;
   /** The thread's scratch folder as recorded; reads only. */
   read(threadId: string): Promise<HostScratchFolder | null>;
 }
@@ -50,6 +63,10 @@ export interface HostScratchFolderOptions {
   readonly directory: string;
   /** An unused folder name, as managed worktrees are named (`generateWorktreeName`). */
   readonly name: (taken: ReadonlySet<string>) => string;
+  /** Main's native folder picker: the folder chosen, or null when the person cancelled. */
+  readonly pickFolder: () => Promise<string | null>;
+  /** Test seam; production moves a folder with `fs.promises.rename`. */
+  readonly rename?: (from: string, to: string) => Promise<void>;
   readonly roots: HostScratchFolderRoots;
   readonly store: HostWorkspaceTrustStore;
   /** Moves the folder at `path` to the system Trash. */
@@ -108,6 +125,103 @@ async function undoFolder(
   throw cause;
 }
 
+/** The canonical path at `target`, or undefined when nothing is there. */
+async function canonical(target: string): Promise<string | undefined> {
+  try {
+    return await realpath(target);
+  } catch (cause) {
+    if (isCode(cause, 'ENOENT')) {
+      return;
+    }
+    throw cause;
+  }
+}
+
+/** Whether anything, a dangling link included, is at `target`. */
+async function occupied(target: string): Promise<boolean> {
+  try {
+    await lstat(target);
+    return true;
+  } catch (cause) {
+    if (isCode(cause, 'ENOENT')) {
+      return false;
+    }
+    throw cause;
+  }
+}
+
+const placeTaken = (destination: string) =>
+  refusalError(
+    'conflict',
+    'workspace.scratch-project-exists',
+    `${destination} already exists, so the scratch folder was not moved there.`,
+    'Choose another folder, or move or rename what is there.'
+  );
+
+/**
+ * ADR-0034 build decisions: moves a thread's scratch folder into `parent`, under its own name,
+ * and resolves where it now is. Only a folder directly inside the scratch directory moves, both
+ * compared at their canonical paths, as Main moves only such a folder to the Trash. It is one
+ * rename: a place already taken is refused, and so is another disk, where a rename cannot go,
+ * with no copy made instead. A folder inside the scratch directory is no place for a project.
+ */
+async function moveIntoProject(
+  options: HostScratchFolderOptions,
+  folder: string,
+  parent: string
+): Promise<string> {
+  const [directory, resolved, chosen] = await Promise.all([
+    realpath(options.directory),
+    canonical(folder),
+    canonical(parent),
+  ]);
+  if (resolved === undefined || dirname(resolved) !== directory) {
+    throw refusalError(
+      'authorization',
+      'workspace.scratch-outside',
+      `${folder} is not a scratch folder, so it was not moved.`
+    );
+  }
+  if (chosen === undefined) {
+    throw refusalError(
+      'input',
+      'workspace.scratch-project-parent-missing',
+      `${parent} is no longer there, so the scratch folder was not moved.`
+    );
+  }
+  if (chosen === directory || chosen.startsWith(`${directory}${sep}`)) {
+    throw refusalError(
+      'input',
+      'workspace.scratch-project-inside',
+      `${parent} is among Brainstrike's scratch folders, so the folder was not moved there.`,
+      'Choose a folder of your own.'
+    );
+  }
+  const destination = join(parent, basename(resolved));
+  if (await occupied(destination)) {
+    throw placeTaken(destination);
+  }
+  // Said before the move, so a host that stops before the record commits leaves a trace of where.
+  logger.info('Moving a scratch folder into a project', { destination, folder: resolved });
+  try {
+    await (options.rename ?? rename)(resolved, destination);
+  } catch (cause) {
+    if (isCode(cause, 'EXDEV')) {
+      throw refusalError(
+        'input',
+        'workspace.scratch-project-other-disk',
+        `${parent} is on another disk from the scratch folder, so it was not moved: a folder moves only within one disk, and nothing was copied.`,
+        "Choose a folder on the same disk as Brainstrike's data."
+      );
+    }
+    if (isCode(cause, 'EEXIST') || isCode(cause, 'ENOTEMPTY')) {
+      throw placeTaken(destination);
+    }
+    throw cause;
+  }
+  return destination;
+}
+
 export function hostScratchFolders(options: HostScratchFolderOptions): HostScratchFolders {
   return {
     create: async ({ signal, threadId }) => {
@@ -129,6 +243,7 @@ export function hostScratchFolders(options: HostScratchFolderOptions): HostScrat
         return await undoFolder(options, made, cause);
       }
     },
+    pickParentFolder: () => options.pickFolder(),
     read: ({ threadId }) => options.roots.read(threadId),
     retire: async ({ threadId }) => {
       const forgotten = await options.roots.forget(threadId);
@@ -145,5 +260,10 @@ export function hostScratchFolders(options: HostScratchFolderOptions): HostScrat
       }
       await options.trash(forgotten.path);
     },
+    turnIntoProject: ({ parent, threadId }) =>
+      options.roots.promote({
+        move: (folder) => moveIntoProject(options, folder, parent),
+        threadId,
+      }),
   };
 }
