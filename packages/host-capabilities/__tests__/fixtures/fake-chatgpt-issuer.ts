@@ -20,9 +20,16 @@ export interface FakeChatGptIssuer {
   next: {
     /** Answer the redirect with this OAuth error instead of a code. */
     error?: string;
+    /** The sign-in page opens and the person never finishes it: no redirect comes. */
+    unanswered?: boolean;
     /** Leave the plan scope out of the grant, as a person who declines it does. */
     withoutPlanScope?: boolean;
   };
+  /**
+   * Holds the token endpoint's next answer. `reached` settles once the host's
+   * request has arrived; `release` lets the answer go.
+   */
+  pauseTokens(): { readonly reached: Promise<void>; release(): void };
   /** Refresh tokens the host revoked. */
   readonly revoked: string[];
   /** The form bodies of the token-endpoint requests, in order. */
@@ -70,6 +77,7 @@ export async function startFakeChatGptIssuer(): Promise<FakeChatGptIssuer> {
     }
   >();
   const sessions = new Map<string, { clientId: string; scope: string }>();
+  let tokenPause: { reached(): void; released: Promise<void> } | undefined;
   const fake: FakeChatGptIssuer = {
     authorizations: [],
     browser: async (href) => {
@@ -79,8 +87,11 @@ export async function startFakeChatGptIssuer(): Promise<FakeChatGptIssuer> {
       const redirect = new URL(query.get('redirect_uri') ?? '');
       redirect.searchParams.set('state', query.get('state') ?? '');
       const requested = query.get('client_id') ?? '';
-      const { error, withoutPlanScope } = fake.next;
+      const { error, unanswered, withoutPlanScope } = fake.next;
       fake.next = {};
+      if (unanswered) {
+        return;
+      }
       if (error) {
         redirect.searchParams.set('error', error);
       } else {
@@ -115,6 +126,12 @@ export async function startFakeChatGptIssuer(): Promise<FakeChatGptIssuer> {
     },
     issuer: '',
     next: {},
+    pauseTokens: () => {
+      const reached = Promise.withResolvers<void>();
+      const released = Promise.withResolvers<void>();
+      tokenPause = { reached: reached.resolve, released: released.promise };
+      return { reached: reached.promise, release: released.resolve };
+    },
     revoked: [],
     tokenRequests: [],
     user: { email: 'ada@example.com', sub: 'user-ada' },
@@ -186,6 +203,12 @@ export async function startFakeChatGptIssuer(): Promise<FakeChatGptIssuer> {
       }
       const form = await readForm(request);
       fake.tokenRequests.push(form);
+      if (tokenPause) {
+        const pause = tokenPause;
+        tokenPause = undefined;
+        pause.reached();
+        await pause.released;
+      }
       const clientId = form.get('client_id') ?? '';
       if (form.get('grant_type') === 'refresh_token') {
         const session = sessions.get(form.get('refresh_token') ?? '');

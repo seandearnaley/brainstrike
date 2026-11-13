@@ -35,7 +35,7 @@ function installHost(options: {
       },
       signOut: () => {
         host.calls.push('sign-out');
-        host.status = { email: 'ada@example.com', state: 'signed_out' };
+        host.status = { email: 'ada@example.com', registered: true, state: 'signed_out' };
         return ok({ revoked: options.revokes ?? true });
       },
       status: () => ok(host.status),
@@ -115,6 +115,28 @@ describe('ChatGptSignInSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'Use a different account' }));
     await waitFor(() => expect(host.calls).toEqual(['sign-out', 'sign-in:new-account']));
+  });
+
+  it('offers a different account for a registration whose email was never learned', async () => {
+    // A first sign-in registered a client and then granted no plan use: the
+    // host keeps that client, bound to that account, and knows no email for it.
+    const user = userEvent.setup();
+    const host = installHost({ status: { registered: true, state: 'signed_out' } });
+    render(<ChatGptSignInSection providerId="chatgpt" />);
+
+    expect(await screen.findByText(/Continues as the account you registered/u)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Use a different account' }));
+    await waitFor(() => expect(host.calls).toEqual(['sign-in:new-account']));
+  });
+
+  it('offers no other account before anything is registered', async () => {
+    installHost({ status: { state: 'signed_out' } });
+    render(<ChatGptSignInSection providerId="chatgpt" />);
+
+    expect(await screen.findByRole('button', { name: 'Continue with ChatGPT' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Use a different account' })
+    ).not.toBeInTheDocument();
   });
 
   it('says where to sign in when this window has no host to sign in through', () => {

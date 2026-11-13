@@ -58,7 +58,10 @@ published to npm, so none of its code is used.
 8. **A plan refusal is never retried.** OpenAI's `subscription_sharing_*` and `chatpass_v2_*`
    errors become refusals with their remedy; a usage limit points at
    `https://chatgpt.com/settings/usage`.
-9. **Desktop only.** A host is lent a browser opener or it has none. The CLI host has none, so
+9. **Cancel ends a sign-in wherever it is.** Cancel in Settings, or the requesting client being
+   retired (a quit, a reset), stops the callback wait and any request to OpenAI in flight, and
+   nothing after it is kept: a redirect that already arrived signs nobody in.
+10. **Desktop only.** A host is lent a browser opener or it has none. The CLI host has none, so
    sign-in refuses there with "Sign in from the Brainstrike desktop app."
 
 ## Consequences

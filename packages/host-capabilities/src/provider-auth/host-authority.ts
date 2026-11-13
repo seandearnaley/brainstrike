@@ -84,7 +84,7 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
   });
   return {
     chatGptCancel: () => chatGpt.cancel(),
-    chatGptSignIn: (newAccount) => chatGpt.signIn(newAccount),
+    chatGptSignIn: (newAccount, signal) => chatGpt.signIn(newAccount, signal),
     chatGptSignOut: () => chatGpt.signOut(),
     chatGptStatus: (settled) => chatGpt.status(settled),
     deleteCredential: async (account) => {

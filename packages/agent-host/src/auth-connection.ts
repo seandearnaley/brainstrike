@@ -31,7 +31,10 @@ export function bindHostAuthMethods(
     return { stored: true };
   });
   // A browser sign-in is a person's act: only the desktop's own client starts or ends one.
-  handle('auth/chatgpt/sign-in', ({ newAccount }) => desktop().chatGptSignIn(newAccount === true));
+  // Retiring the client cancels a sign-in still waiting for the browser, so it never holds the host open.
+  handle('auth/chatgpt/sign-in', ({ newAccount }, signal) =>
+    desktop().chatGptSignIn(newAccount === true, signal)
+  );
   handle('auth/chatgpt/cancel', async () => {
     await desktop().chatGptCancel();
     return { cancelled: true };

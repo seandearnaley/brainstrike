@@ -186,9 +186,11 @@ export function ChatGptSignInSection({ providerId }: { readonly providerId: stri
               <ProviderIcon providerId={providerId} />
               Continue with ChatGPT
             </Button>
-            {status.email ? (
+            {status.registered ? (
               <span className="text-muted-foreground flex flex-wrap items-center gap-x-2">
-                Continues as {status.email}.
+                {status.email
+                  ? `Continues as ${status.email}.`
+                  : 'Continues as the account you registered.'}
                 <Button
                   className="h-auto p-0 text-xs"
                   data-testid={`provider-sign-in-new-account-${providerId}`}

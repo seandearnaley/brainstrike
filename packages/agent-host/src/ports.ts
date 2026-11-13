@@ -498,8 +498,11 @@ export interface HostRunAdmission {
 export interface HostAuthService {
   /** Ends a ChatGPT sign-in that is waiting for the browser. */
   chatGptCancel(): Promise<void>;
-  /** Sign in with ChatGPT (ADR-0038); resolves once the browser flow finishes. */
-  chatGptSignIn(newAccount: boolean): Promise<ChatGptSignInStatus>;
+  /**
+   * Sign in with ChatGPT (ADR-0038); resolves once the browser flow finishes.
+   * `signal` cancels it when the requesting client is retired.
+   */
+  chatGptSignIn(newAccount: boolean, signal: AbortSignal): Promise<ChatGptSignInStatus>;
   chatGptSignOut(): Promise<{ readonly revoked: boolean }>;
   /** `settled` answers once no sign-in is waiting for the browser. */
   chatGptStatus(settled: boolean): Promise<ChatGptSignInStatus>;

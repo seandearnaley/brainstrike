@@ -68,8 +68,9 @@ export interface ChatGptSignIn {
   /**
    * Signs in through the browser. `newAccount` registers again, for another
    * ChatGPT account or workspace: OpenAI binds a registered client to both.
+   * `signal` ends the sign-in as Cancel does, when its caller goes away.
    */
-  signIn(newAccount?: boolean): Promise<ChatGptSignInStatus>;
+  signIn(newAccount: boolean, signal?: AbortSignal): Promise<ChatGptSignInStatus>;
   /** Ends the session at OpenAI and forgets its tokens; the registration stays for the next sign-in. */
   signOut(): Promise<{ readonly revoked: boolean }>;
   /** `settled` answers once no sign-in is waiting for the browser. */
@@ -79,6 +80,9 @@ export interface ChatGptSignIn {
 function signedOut(code: string, message: string, remedy: string): Error {
   return refusalError('authorization', `auth.${code}`, message, remedy);
 }
+
+const cancelled = (): Error =>
+  refusalError('conflict', 'auth.chatgpt-sign-in-cancelled', 'Sign-in was cancelled.');
 
 const notSignedIn = (): Error =>
   signedOut(
@@ -94,12 +98,14 @@ function oauthErrorCode(cause: unknown): string | undefined {
     : undefined;
 }
 
-/** One sign-in waiting for the browser. */
+/** One sign-in, from the browser opening to its session being kept. */
 interface ActiveSignIn {
   cancel(): void;
   cancelled: boolean;
   /** Settles once the sign-in has succeeded, been refused or been cancelled. */
   readonly ended: Promise<void>;
+  /** Aborts with the sign-in: its requests to OpenAI stop where they are. */
+  readonly stopped: AbortSignal;
 }
 
 /** The secrets of one authorization attempt, never reused by another. */
@@ -132,7 +138,7 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
   const write = async (record: ChatGptSignInCredential): Promise<void> => {
     await options.secrets().setCredential(CHATGPT_PROVIDER_ID, record);
   };
-  const client = async (clientId: string): Promise<oidc.Configuration> => {
+  const client = async (clientId: string, stopped?: AbortSignal): Promise<oidc.Configuration> => {
     metadata ??= oidc
       .discovery(issuer, REGISTRATION_CLIENT_ID, undefined, oidc.None(), { execute })
       .then((discovered) => discovered.serverMetadata());
@@ -146,6 +152,16 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
     const configuration = new oidc.Configuration(server, clientId, undefined, oidc.None());
     for (const apply of execute) {
       apply(configuration);
+    }
+    if (stopped) {
+      // A cancelled sign-in stops its request in flight instead of finishing it.
+      configuration[oidc.customFetch] = (url, { body, signal, ...init }) =>
+        fetch(url, {
+          ...init,
+          // The library's body type admits a shared-buffer view the DOM's `BodyInit` omits.
+          ...(body === undefined ? {} : { body: body as BodyInit | null }),
+          signal: signal ? AbortSignal.any([signal, stopped]) : stopped,
+        });
     }
     return configuration;
   };
@@ -253,7 +269,7 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
       return await redirect;
     } catch (cause) {
       if (flow.cancelled) {
-        throw refusalError('conflict', 'auth.chatgpt-sign-in-cancelled', 'Sign-in was cancelled.');
+        throw cancelled();
       }
       logger.warn('ChatGPT sign-in received no browser callback', { cause });
       throw refusalError(
@@ -299,11 +315,12 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
   const exchange = async (
     clientId: string | undefined,
     redirect: URL,
-    attempt: SignInAttempt
+    attempt: SignInAttempt,
+    stopped: AbortSignal
   ): Promise<Awaited<ReturnType<typeof oidc.authorizationCodeGrant>>> => {
     try {
       return await oidc.authorizationCodeGrant(
-        await client(clientId ?? REGISTRATION_CLIENT_ID),
+        await client(clientId ?? REGISTRATION_CLIENT_ID, stopped),
         redirect,
         {
           expectedNonce: attempt.nonce,
@@ -341,11 +358,19 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
     flow: ActiveSignIn
   ): Promise<ChatGptSignInStatus> => {
     const callback = await startLoopbackCallback(CALLBACK_PATH, undefined);
+    const cancelFlow = flow.cancel;
     flow.cancel = () => {
-      flow.cancelled = true;
+      cancelFlow();
       callback.cancel();
     };
+    // Cancel ends the sign-in wherever it is: nothing below is kept once it is cancelled.
+    const stillWanted = (): void => {
+      if (flow.cancelled) {
+        throw cancelled();
+      }
+    };
     try {
+      stillWanted();
       const attempt: SignInAttempt = {
         nonce: oidc.randomNonce(),
         state: oidc.randomState(),
@@ -356,8 +381,10 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
       // Listening before the browser opens: the redirect may arrive at once.
       const redirect = callback.wait();
       redirect.catch(() => undefined);
+      stillWanted();
       await openExternal(authorization.href);
       const returned = await redirected(redirect, flow);
+      stillWanted();
       const clientId = issuedClientId(record, returned);
       const registered: ChatGptSignInCredential =
         clientId === undefined ? record : { ...record, clientId };
@@ -368,8 +395,10 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
       const tokens = await exchange(
         clientId,
         new URL(`${callback.redirectUrl}?${returned.toString()}`),
-        attempt
+        attempt,
+        flow.stopped
       );
+      stillWanted();
       const claims = tokens.claims();
       if (!claims) {
         throw new Error('ChatGPT sign-in returned no ID token');
@@ -390,13 +419,16 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
         // This sign-in registered the account: the client confirms plan use once.
         ...(record.clientId === undefined ? { firstSignIn: true } : {}),
       };
+    } catch (cause) {
+      // A request the cancel stopped fails as an abort: the person sees the cancel.
+      throw flow.cancelled ? cancelled() : cause;
     } finally {
       await callback.close();
     }
   };
 
   /** Ends the session at OpenAI and forgets its tokens; the registration stays. */
-  const endSession = (): Promise<{ readonly revoked: boolean }> =>
+  const endSession = (stopped?: AbortSignal): Promise<{ readonly revoked: boolean }> =>
     alone(async () => {
       const record = await read();
       if (!record?.session) {
@@ -408,7 +440,7 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
           throw new Error('The ChatGPT session has no registered client');
         }
         await oidc.tokenRevocation(
-          await client(record.clientId),
+          await client(record.clientId, stopped),
           record.session.refreshToken,
           new URLSearchParams([['token_type_hint', 'refresh_token']])
         );
@@ -441,7 +473,7 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
       active?.cancel();
       await active?.ended;
     },
-    signIn: async (newAccount = false) => {
+    signIn: async (newAccount, signal) => {
       const { openExternal } = options;
       if (!openExternal) {
         throw refusalError(
@@ -460,16 +492,27 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
         );
       }
       const ended = Promise.withResolvers<void>();
+      const stop = new AbortController();
       const flow: ActiveSignIn = {
-        cancel: (): void => undefined,
+        cancel: (): void => {
+          flow.cancelled = true;
+          stop.abort();
+        },
         cancelled: false,
         ended: ended.promise,
+        stopped: stop.signal,
       };
       active = flow;
+      // The caller going away (the app quitting, a reset) cancels as the person would.
+      const callerLeft = (): void => flow.cancel();
+      signal?.addEventListener('abort', callerLeft, { once: true });
       try {
+        if (signal?.aborted) {
+          flow.cancel();
+        }
         if (newAccount) {
           // Another account replaces this registration: its session ends first.
-          await endSession();
+          await endSession(flow.stopped);
         }
         // OpenAI needs the same host ID on every attempt, so it is kept before the first.
         const record = await alone(async () => {
@@ -486,6 +529,7 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
         });
         return await authorize(record, openExternal, flow);
       } finally {
+        signal?.removeEventListener('abort', callerLeft);
         active = undefined;
         ended.resolve();
       }
@@ -504,9 +548,15 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
       }
       const record = await read();
       const email = record?.email === undefined ? {} : { email: record.email };
-      return record && isSignedInChatGptCredential(record)
-        ? { state: 'signed_in', ...email }
-        : { state: 'signed_out', ...email };
+      if (record && isSignedInChatGptCredential(record)) {
+        return { state: 'signed_in', ...email };
+      }
+      // A registered client is bound to one account, whether or not its email was ever learned.
+      return {
+        state: 'signed_out',
+        ...email,
+        ...(record?.clientId === undefined ? {} : { registered: true }),
+      };
     },
   };
 }

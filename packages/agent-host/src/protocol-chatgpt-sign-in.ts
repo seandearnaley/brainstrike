@@ -4,7 +4,11 @@ import { Schema } from 'effect';
 const ChatGptSignInStatusSchema = Schema.Union(
   [
     Schema.Struct({ state: Schema.Literal('signing_in') }),
-    Schema.Struct({ email: Schema.optional(Schema.String), state: Schema.Literal('signed_out') }),
+    Schema.Struct({
+      email: Schema.optional(Schema.String),
+      registered: Schema.optional(Schema.Boolean),
+      state: Schema.Literal('signed_out'),
+    }),
     Schema.Struct({
       email: Schema.optional(Schema.String),
       firstSignIn: Schema.optional(Schema.Boolean),

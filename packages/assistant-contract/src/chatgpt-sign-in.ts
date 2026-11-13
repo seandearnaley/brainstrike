@@ -7,8 +7,13 @@ import { type BoundaryTransport, createBoundaryCapability } from './boundary-res
 export type ChatGptSignInStatus =
   | { readonly state: 'signing_in' }
   | {
-      /** The registered account a sign-in would continue as. */
+      /** The registered account a sign-in would continue as, when its email is known. */
       readonly email?: string | undefined;
+      /**
+       * This installation holds a client registered for one account and
+       * workspace: the next sign-in continues as it unless it registers anew.
+       */
+      readonly registered?: boolean | undefined;
       readonly state: 'signed_out';
     }
   | {
