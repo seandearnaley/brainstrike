@@ -14,9 +14,12 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, within } from '@testing-library/react';
 import React from 'react';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-
-let RootLayoutContent: React.ComponentType;
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// Imported while the file is collected, which no timeout bounds (BST-2494).
+// Loaded in a beforeAll, its module graph took 5 to 10 s of the 20 s hook
+// budget on a busy machine, and past 20 s beside four other suites, which
+// skipped all 15 tests.
+import RootLayoutContent from '../../../renderer/components/root-layout-content';
 
 const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
@@ -221,10 +224,6 @@ describe('RootLayoutContent', () => {
     document,
     'visibilityState'
   );
-
-  beforeAll(async () => {
-    RootLayoutContent = (await import('../../../renderer/components/root-layout-content')).default;
-  });
 
   beforeEach(() => {
     settingsMountCount = 0;
