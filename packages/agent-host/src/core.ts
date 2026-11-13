@@ -95,7 +95,7 @@ import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
 import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
 import { HostThreadRewinds } from './thread-rewind.ts';
-import { bindHostScratch } from './thread-scratch.ts';
+import { bindHostScratch, turnHostScratchIntoProject } from './thread-scratch.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
 import { HostThreadTrees } from './thread-summary.ts';
 import { HostToolRecords } from './tool-records.ts';
@@ -340,14 +340,12 @@ export class HostCore {
     });
   }
 
-  onCommitted(listener: HostRowListener): () => void {
-    return this.published.subscribe(listener);
-  }
+  readonly onCommitted = (listener: HostRowListener): (() => void) =>
+    this.published.subscribe(listener);
 
   /** A running tool's live telemetry, published to listeners and never committed. */
-  onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void {
-    return this.liveTelemetry.subscribe(listener);
-  }
+  readonly onTelemetry = (listener: (telemetry: HostRunTelemetry) => void): (() => void) =>
+    this.liveTelemetry.subscribe(listener);
 
   /** Top-level threads with the facts Core already holds: presentation, store dates, damage, binding, latest run. */
   listThreads(): HostResults['thread/list']['threads'] {
@@ -359,31 +357,26 @@ export class HostCore {
   }
 
   /** Every thread's runs and costed provider calls, folded from its committed log. */
-  readLedger(): HostResults['ledger/read'] {
-    return this.projections.ledger.read();
-  }
+  readonly readLedger = (): HostResults['ledger/read'] => this.projections.ledger.read();
 
   /** BST-1880: the state store's damage and the threads hydration could not read, for the damaged-store notice. */
-  readStateHealth(): HostResults['state/health/read'] {
-    return this.catalog.stateHealth(this.store);
-  }
+  readonly readStateHealth = (): HostResults['state/health/read'] =>
+    this.catalog.stateHealth(this.store);
 
   /** BST-1939: a thread's first and latest stored append and any damage, child threads included. */
-  catalogEntry(threadId: string): ReturnType<HostThreadCatalog['entry']> {
-    return this.catalog.entry(threadId);
-  }
+  readonly catalogEntry = (threadId: string): ReturnType<HostThreadCatalog['entry']> =>
+    this.catalog.entry(threadId);
 
-  updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
-    return this.command('thread/update', params, () => this.presentations.update(params));
-  }
+  readonly updateThread = (params: HostParams<'thread/update'>): Promise<{ accepted: true }> =>
+    this.command('thread/update', params, () => this.presentations.update(params));
 
-  read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
-    return this.catalog.readHistory(nodeHostRowReader(this.store), this.threads, threadId, fromSeq);
-  }
+  readonly read = (threadId: string, fromSeq: number): Promise<HostLogRow[]> =>
+    this.catalog.readHistory(nodeHostRowReader(this.store), this.threads, threadId, fromSeq);
 
-  readWorkspace(threadId: string): ReturnType<HostThreadWorkspaceState['readSnapshot']> {
-    return this.workspaces.readSnapshot(this.threads, threadId);
-  }
+  readonly readWorkspace = (
+    threadId: string
+  ): ReturnType<HostThreadWorkspaceState['readSnapshot']> =>
+    this.workspaces.readSnapshot(this.threads, threadId);
 
   setWorkspace(params: HostParams<'thread/workspace/set'>): Promise<{ accepted: true }> {
     return this.command('thread/workspace/set', params, () =>
@@ -391,25 +384,31 @@ export class HostCore {
     );
   }
 
-  readWorkspaceBinding(threadId: string): ReturnType<HostThreadWorkspaceState['readBinding']> {
-    return this.workspaces.readBinding(this.threads, threadId);
-  }
+  readonly readWorkspaceBinding = (
+    threadId: string
+  ): ReturnType<HostThreadWorkspaceState['readBinding']> =>
+    this.workspaces.readBinding(this.threads, threadId);
 
   updateWorkspaceBinding(
     params: HostParams<'thread/workspace/binding/update'>,
-    enteredBy?: HostWorktreeEntry
+    enteredBy?: HostWorktreeEntry,
+    /** Set by Core's own caller already holding an admission slot (`thread-scratch.ts`). */
+    held?: true
   ): Promise<{ accepted: true }> {
-    return this.command('thread/workspace/binding/update', params, () =>
-      this.workspaces.setBinding(params, this.platform, this.pendingAdmissions, enteredBy)
+    const bind = () =>
+      this.commands.perform('thread/workspace/binding/update', params, () =>
+        this.workspaces.setBinding(params, this.platform, this.pendingAdmissions, enteredBy)
+      );
+    return held ? bind() : this.admit(params.threadId, bind);
+  }
+  /** ADR-0034 scratch threads (`thread-scratch.ts`); a folder's move holds one admission slot. */
+  readonly scratchWorkspace = (params: HostParams<'thread/workspace/scratch'>) =>
+    bindHostScratch(params, this, this.children, this.pendingAdmissions, this.platform);
+  readonly scratchProject = (params: HostParams<'thread/workspace/scratch/project'>) =>
+    turnHostScratchIntoProject(params, this, this.children, this.runs, this.platform, (move) =>
+      this.admit(params.threadId, move)
     );
-  }
-
-  /** ADR-0034 scratch threads: made outside the admission queue (`thread-scratch.ts`). */
-  scratchWorkspace(params: HostParams<'thread/workspace/scratch'>) {
-    this.assertAdmissible(params.threadId);
-    return bindHostScratch(params, this, this.children, this.pendingAdmissions, this.platform);
-  }
-  private assertAdmissible(threadId: string | undefined): void {
+  assertAdmissible(threadId: string | undefined): void {
     const { closing, deletions, failedAdmissions, threads } = this;
     assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);
   }

@@ -182,6 +182,8 @@ export interface HostScratchFolders {
     readonly signal: AbortSignal;
     readonly threadId: string;
   }): Promise<HostScratchFolder | null>;
+  /** Main's folder picker, for where a scratch folder becomes a project; null when cancelled. */
+  pickParentFolder(): Promise<string | null>;
   /** The thread's scratch folder as recorded, or null when it has none. Reads only. */
   read(request: { readonly threadId: string }): Promise<HostScratchFolder | null>;
   /**
@@ -190,6 +192,18 @@ export interface HostScratchFolders {
    * for a thread that has none. Rejects with the reason it could not.
    */
   retire(request: { readonly threadId: string }): Promise<void>;
+  /**
+   * ADR-0034 build decisions: the thread's scratch folder moves into `parent`
+   * under its own name, by one rename on the same disk, and its root becomes
+   * a folder of the person's there, open, with a project of its own, under
+   * the same root id. Its new place's trust is not written: it is asked there.
+   * Resolves the folder where it now is; rejects with a typed refusal when it
+   * did not move, and with where it is when it moved but was not recorded.
+   */
+  turnIntoProject(request: {
+    readonly parent: string;
+    readonly threadId: string;
+  }): Promise<HostScratchFolder>;
 }
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */

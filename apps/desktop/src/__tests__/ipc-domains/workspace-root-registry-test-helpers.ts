@@ -53,6 +53,7 @@ export function createRegistryCatalogRequest(
       case 'scratch-of-thread':
       case 'register-scratch':
       case 'forget-scratch':
+      case 'scratch-to-project':
         throw new Error(`This catalog makes no scratch folders (${request.operation})`);
       // The registry never names or joins projects (ADR-0034); the host's store does.
       case 'rename-project':

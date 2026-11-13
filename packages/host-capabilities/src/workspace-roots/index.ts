@@ -341,6 +341,12 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     scratch: {
       add: (request) => registry.addScratchRoot(request),
       forget: (threadId) => registry.forgetScratchRoot(threadId),
+      // ADR-0034: a folder of the person's now, open and in Recents, so Main hears of it.
+      promote: async (request) => {
+        const promoted = await registry.turnScratchIntoProject(request);
+        await publish();
+        return promoted;
+      },
       read: (threadId) => registry.readScratchRoot(threadId),
     },
     service,

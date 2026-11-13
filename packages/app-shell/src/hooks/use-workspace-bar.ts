@@ -28,6 +28,7 @@ import { useAssistantThreadRootBinding } from './use-assistant-thread-root-bindi
 import { useFollowPrimaryRecord } from './use-follow-primary-record';
 import { useLeaveWorktreeBetweenRuns } from './use-leave-worktree-between-runs';
 import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
+import { useScratchProject } from './use-scratch-project';
 import { type ThreadCheckoutState, useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import { useThreadFolderScope } from './use-thread-folder-scope';
@@ -1037,6 +1038,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onUseFolder,
     threadState,
   });
+  // ADR-0034: a thread in a scratch folder the host made can turn it into a project.
+  const scratchProject = useScratchProject({
+    scratch: Boolean(primaryAdapterRootId && rootDescriptors?.[primaryAdapterRootId]?.scratch),
+    threadId: selectedMemoryThreadId,
+    threadState,
+  });
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
   const folderRequests = fileSystem.folderRequests;
   const shownSecondaryRoots = useMemo(
@@ -1063,6 +1070,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...(primaryRoot ? { primaryRoot: withFolderRequest(primaryRoot, folderRequests) } : {}),
     recentRoots,
     ...(reveal ? { reveal } : {}),
+    ...(scratchProject ? { scratchProject } : {}),
     secondaryRoots: shownSecondaryRoots,
     ...threadCheckoutEntry(hasWorktrees, worktreeCheckout),
     workspaceFolders,
