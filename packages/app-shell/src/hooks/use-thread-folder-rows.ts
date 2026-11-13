@@ -53,6 +53,10 @@ export interface ThreadFolderRowsState {
    * Keyed by RAW `roots.id`, and each row's `path` is the RAW `roots.path`:
    * the path the folder was mounted through, which git may report under
    * another spelling. Join on the id, never on this path.
+   *
+   * While `loading`, the rows the previous read resolved for the ids still
+   * asked for, so a thread joining a folder leaves the other sections drawn
+   * (BST-2493); empty when there are none.
    */
   readonly rowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
 }
@@ -181,11 +185,41 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
 
   const isEmptyRequest = distinctRootIds.length === 0;
   const currentResolution = resolved?.key === rootIdsKey ? resolved : null;
-  const rowsByRootId =
-    isEmptyRequest || !currentResolution ? NO_FOLDER_ROWS : currentResolution.rowsByRootId;
   // An empty request is RESOLVED whatever the handle is — there was nothing to
   // ask. Anything else stays loading until ITS id set has come back.
   const loading = isEmptyRequest ? false : currentResolution === null;
+  if (isEmptyRequest) {
+    return { error: null, loading, rowsByRootId: NO_FOLDER_ROWS };
+  }
+  if (currentResolution) {
+    return {
+      error: currentResolution.error,
+      loading,
+      rowsByRootId: currentResolution.rowsByRootId,
+    };
+  }
+  return { error: null, loading, rowsByRootId: rowsStillAskedFor(resolved, distinctRootIds) };
+}
 
-  return { error: currentResolution?.error ?? null, loading, rowsByRootId };
+/**
+ * While a changed id set is read, the rows the previous read resolved for the
+ * ids still asked for (none after a failed read, whose map is empty). A row is
+ * the same `roots` record whichever set asked for it, so no folder is named
+ * wrongly; an id no longer asked for keeps no row.
+ */
+function rowsStillAskedFor(
+  previous: { readonly rowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow> } | null,
+  rootIds: readonly string[]
+): ReadonlyMap<string, ThreadFolderGroupingRow> {
+  if (!previous) {
+    return NO_FOLDER_ROWS;
+  }
+  const kept = new Map<string, ThreadFolderGroupingRow>();
+  for (const rootId of rootIds) {
+    const row = previous.rowsByRootId.get(rootId);
+    if (row) {
+      kept.set(rootId, row);
+    }
+  }
+  return kept.size === 0 ? NO_FOLDER_ROWS : kept;
 }
