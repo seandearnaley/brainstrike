@@ -20,6 +20,12 @@ const folder = {
   path: '/disposable/Alpha',
   preferredId: 'ae303e9c-29a4-4ec4-a1cc-835d655dcb70',
 };
+/** A refusal the store declined with a typed code, as the host passes it on. */
+const refused = (code: string, message: RegExp) => ({
+  code,
+  message: expect.stringMatching(message),
+  name: 'StateStoreRefusalError',
+});
 const moved = {
   canonicalPath: '/private/disposable/Projects/quiet-otter',
   displayName: 'quiet-otter',
@@ -106,14 +112,14 @@ test('only a scratch folder the store has turns into a project, and only to a pl
         root: moved,
         rootId: 'no-such-root',
       })
-    ).rejects.toThrow(/no folder with this id/u);
+    ).rejects.toMatchObject(refused('project.folder-unknown', /no folder with this id/u));
     await expect(
       store.workspaceRoots({
         operation: 'scratch-to-project',
         root: moved,
         rootId: folder.preferredId,
       })
-    ).rejects.toThrow(/not a scratch folder/u);
+    ).rejects.toMatchObject(refused('project.not-scratch', /not a scratch folder/u));
     // Another record already has that place, by its path or by its identity.
     for (const place of [
       { ...moved, path: folder.path },
@@ -125,7 +131,7 @@ test('only a scratch folder the store has turns into a project, and only to a pl
           root: place,
           rootId: scratch.preferredId,
         })
-      ).rejects.toThrow(/already recorded/u);
+      ).rejects.toMatchObject(refused('project.folder-recorded', /already recorded/u));
     }
 
     // Each refusal changed nothing.

@@ -1,14 +1,17 @@
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import path from 'node:path';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalRoot } from '@brainstrike/state-store';
+import type { WorktreeResetArchive, WorktreeResetOutcome } from '@brainstrike/types';
 import {
   recordDesktopResetCompleted,
   recordDesktopResetFailed,
   recordDesktopResetStarted,
 } from './desktop-reset-diagnostics';
 import { purgeCrashReports } from './diagnostics/crash-dumps';
+import { archiveManagedWorktreesForReset } from './reset-managed-folders';
 
 const logger = createLogger('DesktopFactoryReset');
 
@@ -16,6 +19,13 @@ const PRESERVED_USER_DATA_ENTRY_NAMES = ['logs'] as const;
 let resetTrashPathNonce = 0;
 
 export interface ResetDesktopApplicationDataOptions {
+  /**
+   * ADR-0034: the host's archive of every managed worktree into its repository. The worktrees
+   * live outside userData and their ledger is in the state DB, so this runs while the host
+   * still serves, before `resetDatabaseProfile`. Optional so callers/tests that don't exercise
+   * it can omit it; Clear Database runs the same archive itself (`desktop-reset-platform.ts`).
+   */
+  archiveManagedWorktrees?: () => Promise<BoundaryResult<WorktreeResetArchive>>;
   /** Crashpad's live database (`app.getPath('crashDumps')`, BST-2351). It stays
    * in place so crashes after the reset still leave a minidump, and its
    * reports are deleted file by file instead. */
@@ -39,6 +49,8 @@ export interface ResetDesktopApplicationDataOptions {
 
 export interface ResetDesktopApplicationDataResult {
   deletedPaths: string[];
+  /** What became of the managed worktrees; present when the reset was given their archive. */
+  managedWorktrees?: WorktreeResetOutcome;
   pendingDeletionPaths: string[];
   preservedPaths: string[];
 }
@@ -156,6 +168,7 @@ async function purgeErrorLogFiles(
 }
 
 export async function resetDesktopApplicationData({
+  archiveManagedWorktrees,
   crashDumpsPath,
   errorLogFilePaths,
   getProtectedPaths,
@@ -175,6 +188,10 @@ export async function resetDesktopApplicationData({
 
   try {
     await stopBackgroundRuntimes();
+    const managedWorktrees =
+      archiveManagedWorktrees === undefined
+        ? undefined
+        : await archiveManagedWorktreesForReset(archiveManagedWorktrees);
     await resetDatabaseProfile();
 
     const deletedPaths: string[] = [];
@@ -310,6 +327,7 @@ export async function resetDesktopApplicationData({
 
     logger.warn('Desktop application data reset completed', {
       deletedPaths,
+      ...(managedWorktrees === undefined ? {} : { managedWorktrees }),
       pendingDeletionPaths,
       preservedPaths,
       preservedUserDataEntries: [...PRESERVED_USER_DATA_ENTRY_NAMES],
@@ -321,7 +339,12 @@ export async function resetDesktopApplicationData({
       preservedPathCount: preservedPaths.length,
       userDataPath,
     });
-    return { deletedPaths, pendingDeletionPaths, preservedPaths };
+    return {
+      deletedPaths,
+      ...(managedWorktrees === undefined ? {} : { managedWorktrees }),
+      pendingDeletionPaths,
+      preservedPaths,
+    };
   } catch (error) {
     recordDesktopResetFailed({ error, userDataPath });
     throw error;

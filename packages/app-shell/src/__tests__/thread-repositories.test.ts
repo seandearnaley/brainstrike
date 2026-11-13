@@ -56,7 +56,10 @@ const repoFolder: ThreadFolderGroupingRow = {
   displayName: 'brainstrike',
   path: '/code/brainstrike',
   projectId: 'project-brainstrike',
+  // The repository's section reads the name the person gave its project (ADR-0034).
+  projectName: 'Brainstrike app',
   rootId: 'root-repo',
+  status: 'live',
 };
 const folderRows: ReadonlyMap<string, ThreadFolderGroupingRow> = new Map([
   ['root-repo', repoFolder],
@@ -101,6 +104,7 @@ describe('projectThreadRepositories', () => {
       key: COMMON_DIR,
       path: '/code/brainstrike',
       projectId: 'project-brainstrike',
+      projectName: 'Brainstrike app',
     });
     // The same repository, so the two threads share one section.
     expect(resolveThreadRepository(inWorktree, lookup)).toBe(repository);
@@ -164,6 +168,7 @@ describe('projectThreadRepositories', () => {
       key: COMMON_DIR,
       path: '/code/brainstrike',
       projectId: null,
+      projectName: null,
     });
   });
 

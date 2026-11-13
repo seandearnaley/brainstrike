@@ -14,6 +14,7 @@ import type {
 } from '@brainstrike/agent-host';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
+  locateUnknownRefusal,
   type ManagedWorktreeAuthorizer,
   type SecureWorkspaceRoot,
   WorkspaceRootRegistry,
@@ -101,6 +102,22 @@ async function pathExists(rootPath: string): Promise<boolean> {
   }
 }
 
+/** Whether a recorded folder is still where its record says: its path leads to its identity. */
+async function stillRecordedPlace(record: {
+  readonly canonicalPath: string;
+  readonly path: string;
+}): Promise<boolean> {
+  try {
+    return (await realpath(record.path)) === record.canonicalPath;
+  } catch (cause) {
+    const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : undefined;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return false;
+    }
+    throw cause;
+  }
+}
+
 function directoryHandle(folder: string) {
   return {
     kind: 'directory' as const,
@@ -116,6 +133,12 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   // refuses every change with the store's own refusal, which crosses as a typed refusal.
   const readOnlyRefusal = (): Error | null =>
     store.stateDamage === null ? null : new StateStoreReadOnlyError(store.stateDamage);
+  const refuseWhenReadOnly = (): void => {
+    const refused = readOnlyRefusal();
+    if (refused) {
+      throw refused;
+    }
+  };
   const recents: WorkspaceRootStorage = {
     getItem: async (key) => (await store.getSetting(`${SETTING_PREFIX}${key}`)) ?? null,
     removeItem: async (key) => {
@@ -170,10 +193,47 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   };
 
   const service: HostRootRegistry = {
+    // ADR-0034: a project's name and folders are written by the store's roots domain, whose
+    // refusals (a name too long, an unknown project or folder, a thread's own folder) are typed.
+    'projects/join': async ({ projectId, rootId }) => {
+      refuseWhenReadOnly();
+      await store.workspaceRoots({ operation: 'join-project', projectId, rootId });
+      return null;
+    },
+    'projects/rename': async ({ name, projectId }) => {
+      refuseWhenReadOnly();
+      await store.workspaceRoots({ name, operation: 'rename-project', projectId });
+      return null;
+    },
     'workspace/roots/add': async ({ path: folder }) => {
       const added = await registry.addRootByPath(folder);
       await publish();
       return wireRoot(added);
+    },
+    // ADR-0034 relink. A read-only store, a thread's own folder and a folder still at its place
+    // refuse before the person chooses one.
+    'workspace/roots/locate': async ({ rootId }) => {
+      refuseWhenReadOnly();
+      const { roots: recorded } = await store.workspaceRoots({ operation: 'list' });
+      const record = recorded.find((root) => root.id === rootId);
+      if (record?.kind !== 'path') {
+        throw locateUnknownRefusal();
+      }
+      if (await stillRecordedPlace(record)) {
+        throw refusalError(
+          'conflict',
+          'workspace.locate-present',
+          `The folder is still at ${record.path}, so there is nothing to locate.`,
+          'Open it from Recents.'
+        );
+      }
+      const picked = await options.pickFolder();
+      if (picked === null) {
+        return { root: null };
+      }
+      const located = await registry.locateRoot(rootId, directoryHandle(picked));
+      await publish();
+      return { root: wireRoot(located) };
     },
     'workspace/roots/open': async ({ path: folder }) => {
       let opened: RootDescriptor;

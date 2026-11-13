@@ -3,7 +3,11 @@ import {
   refusal,
   STATE_STORE_READ_ONLY_CODE,
 } from '@brainstrike/assistant-contract';
-import { StateStoreReadOnlyError, ThreadReadOnlyError } from '@brainstrike/state-store';
+import {
+  StateStoreReadOnlyError,
+  StateStoreRefusalError,
+  ThreadReadOnlyError,
+} from '@brainstrike/state-store';
 
 /**
  * BST-2144: a damaged state DB opens read-only and keeps every file
@@ -28,11 +32,19 @@ const THREAD_READ_ONLY = refusal({
 });
 
 /**
- * The state store's read-only refusals as typed refusals; any other cause
- * unchanged. A thread refusing because the whole store opened damaged is the
- * store's refusal, so it says so rather than blaming one conversation.
+ * The state store's refusals as typed refusals; any other cause unchanged. A
+ * thread refusing because the whole store opened damaged is the store's
+ * refusal, so it says so rather than blaming one conversation. A request the
+ * store declined for a reason the person can act on (ADR-0034: a project name
+ * too long, a project or folder it does not have) keeps its code and message.
  */
 export function storeRefusal(cause: unknown): unknown {
+  if (cause instanceof StateStoreRefusalError) {
+    return new BoundaryFailureError(
+      refusal({ category: 'input', code: cause.code, message: cause.message }),
+      { cause }
+    );
+  }
   if (
     cause instanceof StateStoreReadOnlyError ||
     (cause instanceof ThreadReadOnlyError && cause.storeDamage !== null)

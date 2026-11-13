@@ -32,26 +32,44 @@ const quietOtter: ThreadFolderGroupingRow = {
   displayName: 'quiet-otter',
   path: '/profile/scratch/quiet-otter',
   projectId: null,
+  projectName: null,
   rootId: 'root-quiet-otter',
   scratch: true,
+  status: 'live',
 };
 const amberFox: ThreadFolderGroupingRow = {
   displayName: 'amber-fox',
   path: '/profile/scratch/amber-fox',
   projectId: null,
+  projectName: null,
   rootId: 'root-amber-fox',
   scratch: true,
+  status: 'live',
 };
 const rows: ReadonlyMap<string, ThreadFolderGroupingRow> = new Map([
   [quietOtter.rootId, quietOtter],
   [amberFox.rootId, amberFox],
   [
     'root-zeta',
-    { displayName: 'zeta', path: '/ws/zeta', projectId: 'project-zeta', rootId: 'root-zeta' },
+    {
+      displayName: 'zeta',
+      path: '/ws/zeta',
+      projectId: 'project-zeta',
+      projectName: null,
+      rootId: 'root-zeta',
+      status: 'live',
+    },
   ],
   [
     'root-zz',
-    { displayName: 'zz-notes', path: '/ws/zz-notes', projectId: null, rootId: 'root-zz' },
+    {
+      displayName: 'zz-notes',
+      path: '/ws/zz-notes',
+      projectId: null,
+      projectName: null,
+      rootId: 'root-zz',
+      status: 'live',
+    },
   ],
 ]);
 
@@ -137,6 +155,7 @@ describe('the Scratch section in folder grouping', () => {
       key: '/profile/scratch/amber-fox/.git',
       path: '/profile/scratch/amber-fox',
       projectId: null,
+      projectName: null,
     };
     const view = folderView(
       [thread('in-quiet-otter', quietOtter.rootId), thread('in-amber-fox', amberFox.rootId)],

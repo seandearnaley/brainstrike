@@ -14,6 +14,12 @@
     in a scratch folder the host makes for it.
   - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
     to the host, so a worktree the host makes runs the script too.
+  - 2026-11-12 (build decisions, under the project record below): a project can be named, a
+    folder joined to another project, and a moved folder located; built.
+  - 2026-11-12 (build decisions, below): Factory Reset archives every managed worktree before
+    it deletes their ledger.
+  - 2026-11-12 (build decisions, below): Clear Database archives every managed worktree too,
+    and moves every scratch folder to the system Trash once it has cleared.
   - 2026-11-12 (build decisions, under scratch threads below): a scratch thread's folder can be
     turned into a project; built. Starting one from a thread that ran with no folder is not.
 - **Date:** 2026-11-01
@@ -162,9 +168,10 @@ supersede the decisions above where they differ.
       folder's. The worktree listing decides which repository a checkout
       belongs to, as before, so a folder adopted as a worktree goes under its
       repository's project, not the project it kept.
-    - Every folder of one project lists in one section: today a folder
-      picked again at a new place while a record still leads to the old one,
-      and a second clone once joining is built. The section is named by a
+    - Every folder of one project lists in one section: a folder picked again
+      at a new place while a record still leads to the old one, and a folder
+      the person moved into the project (Move to project…, below). The section
+      is named by its project's name once the person gave one; otherwise by a
       repository before a folder, then by name, whichever thread comes first.
     - A repository whose own checkout is not an open folder has no project to
       read and keeps its common-dir section, and a folder recorded before
@@ -173,8 +180,62 @@ supersede the decisions above where they differ.
     - Collapse state under a project is kept, not pruned, as for a
       repository. Saved collapse state of sections from before (keyed on the
       common dir or the root id) does not carry over.
-  - Not built: relinking a moved folder, joining a second clone and naming a
-    project.
+  - Built: naming a project, joining a folder to another project and relinking
+    a moved folder. How each is built was not part of Sean's answers; these are
+    build decisions, and later work may revisit them:
+    - **A project has a name the person gives it.** State DB version 18 adds
+      `projects.name`, NULL while it has none; every project keeps its row and
+      starts unnamed. The roots domain is its one writer (`rename-project`):
+      it trims the name, an empty one clears it, and one longer than 80
+      characters is refused and changes nothing. A root record carries
+      `projectName` beside `projectId`, which Main decodes strictly (host
+      protocol version 28, `projects/rename`). A project section in the
+      Threads panel reads and sorts by the name when there is one, and is
+      named as before when there is none. Its header's menu has Rename
+      project…, an inline form like a group's rename; an empty name names the
+      project by its folder again. Clear Database deletes the name with its
+      project.
+    - **Joining is something the person does.** Move to project… in a project
+      section's menu lists the other projects the panel shows, and moves the
+      folder that names the section into the one chosen (`join-project`,
+      `projects/join`). Its folder row then names that project, and the
+      project it left is deleted in the same commit once no folder is in it.
+      A managed worktree and a scratch folder are refused, having no project
+      of their own, and so is a folder or project the store does not have.
+      Nothing joins folders by a remote URL or a commit.
+    - **Joining writes nothing to trust or hook approvals.** Both stay keyed
+      by each folder's own canonical path (ADR-0032), so a joined folder keeps
+      its own answers and takes none of its new project's folders'. Being in
+      one project is not proof that two folders are the same folder.
+    - **Relinking was not reachable, so it is built as Locate folder….** A
+      folder moved outside the app and picked again at its new place got a
+      new root id and a new project: the registry matches a picked folder to
+      a record by its canonical path, which the move changed, and the store's
+      re-pin (`repin`) reached only a record whose own path now led
+      elsewhere. A project section whose folder is not mounted now offers
+      Locate folder… (`workspace/roots/locate`): the person picks where the
+      folder is now, and the registry re-pins that record to it through the
+      store's `repin`, so it keeps its root id, and with it its threads and
+      its project. It is refused for a managed worktree or a scratch folder,
+      for a folder still at its recorded place (it opens from Recents), and
+      for a folder another record has. The Explorer then shows the folder by
+      its path, as it shows a reopened one.
+    - **A managed worktree's record never moves to another folder.** A folder
+      opened before it was adopted as a managed worktree keeps kind `path`,
+      so the store's re-pin itself refuses, in its own commit, to point a
+      record the worktree ledger names (or a thread's own folder) at another
+      folder; moved, it would part from the checkout the ledger records.
+    - **A relink that committed is read again even when the Explorer cannot
+      show the folder.** The panel re-reads the folder rows after every
+      project action, whatever its outcome, and a refusal it shows goes with
+      the rename form and with Project grouping.
+    - **Trust does not follow a relink.** The person's pick is not proof that
+      it is the same folder, so it is asked again at its new place, as any
+      folder is. Its old place's answer stays with that path.
+    - **A store refusal is typed.** The roots domain declines these requests
+      with a `project.*` code and a message the person can act on
+      (`StateStoreRefusalError`), the host passes them on as typed refusals,
+      and the panel shows them.
 - **The interface word is "Project".** Labels that say workspace or folder for
   this are renamed as each screen is touched.
 - **Built so far: the Threads panel lists threads by project** (#5329, #5337).
@@ -244,7 +305,9 @@ revisit:
     made in place, where its parent works, and never moves its parent. The
     person's own thread shows the note for it, at the run and the call that
     dispatched the worker, through any workers between; the worker's thread
-    shows none.
+    shows none. Every worker under that call notes at it, so each folder is
+    noted once there, however many of them edit it (a build decision: the
+    dispatching run keeps the call and folder pairs it has noted).
   - A thread whose workers are still working stays with them (ADR-0028
     rule 5) and shares the folder, with the note. That includes a worker
     dispatched in the same step as the edit, which begins while the worktree
@@ -718,7 +781,7 @@ work may revisit them:
   gets the project recorded for its new place, or a new one, as `register`
   gives a folder its project. It is refused, changing nothing, for a root the
   store does not have, one that is not a scratch folder, and a place another
-  record has. No schema change (state DB version 17).
+  record has, each a typed store refusal (`project.*`). No schema change.
 - **It is an open folder now, and in Recents.** The operation opens it at the
   end of the open folders, as a folder the person adds is, and the registry
   records it in Recents and tells Main. A folder of the person's that is not
@@ -733,11 +796,14 @@ work may revisit them:
   records again, so the thread leaves Scratch for its project's section.
 - **Trust is asked at the new place.** The person chose that place, and the
   ruling that an app-made folder is trusted covered the scratch place only. No
-  trust or hook record is written. The answer the app wrote for the scratch
-  place stays with that path, as any folder's old answer does; nothing reads
-  it unless a scratch folder is made there again, which the app trusts anyway.
-- **Deleting the thread later leaves the project.** A deleted thread's scratch
-  folder goes to the Trash by its scratch record, and this folder has none now.
+  trust or hook record is written, as Locate folder… writes none. The answer
+  the app wrote for the scratch place stays with that path, as a located
+  folder's old place's does; nothing reads it unless a scratch folder is made
+  there again, which the app trusts anyway.
+- **Deleting the thread later leaves the project, and so does Clear
+  Database.** A deleted thread's scratch folder goes to the Trash by its
+  scratch record, which this folder no longer has, and Clear Database moves
+  only folders inside `<userData>/scratch`.
 - **Order and what a failure leaves.** Move first, then the record, then the
   binding. The host logs where it moves the folder before the rename.
   - A move that fails changes nothing: the folder is mounted again where it
@@ -759,13 +825,15 @@ work may revisit them:
     stops between the record and the binding leaves the last case. Both windows
     are a few milliseconds; nothing retries or repairs them.
 - **The host method** is `thread/workspace/scratch/project`, for the desktop's
-  private client only (host protocol version 28), answering the folder where
+  private client only (host protocol version 29), answering the folder where
   it now is, or null when the person cancelled the picker.
 
 Not built:
 
 - Cleaning up scratch folders on Clear Database. Their rows go with the
   roots; the folders stay in the profile until Factory Reset, as worktrees do.
+  Built since (Clear Database retires the worktrees and scratch folders,
+  below).
 - Starting a project from a thread that already ran with no folder, the second
   half of "Turn into a project". Such a thread has no folder to move.
 - Mounting only the scratch folders of open threads. Every one mounts at
@@ -853,6 +921,125 @@ Not built: telling apart scripts that differ between a repository's
 checkouts. The script is read from the checkout the worktree is made from,
 and one answer per repository holds one hash, so approving one checkout's
 script makes another checkout's different script ask again.
+
+## Factory Reset archives the managed worktrees, 2026-11-12
+
+Build decisions, not Sean's, which later work may revisit. Managed worktrees
+live in `~/.brainstrike/worktrees` or the folder chosen in Settings, outside
+userData, and their ledger is in the state DB. Factory Reset deleted the
+ledger with the state DB and purged userData, but nothing removed the folders:
+they stayed on disk, unknown to the app, still in each repository's
+`git worktree list`, and possibly holding the person's uncommitted work.
+
+- **Before the state DB goes, every active managed worktree is archived**
+  through the worktree service's own archive, the one a person's Archive
+  worktree… and the cap use. Its snapshot ref
+  (`refs/brainstrike/worktree-archive/<id>`) keeps its uncommitted changes in
+  its repository, the branch stays, and the folder and git's registration go,
+  so the person's work survives the reset in their own repository.
+- **It forces as the cap does**, with the archive preview's own confirmation
+  of ignored files, which are deleted. Every thread goes with the reset, so a
+  worktree a thread is bound to is archived too. A locked worktree, one with
+  nested repositories and one a run is active in are never forced; they stay
+  in place, as does one whose archive fails (`worktree-reset-archive.ts`).
+- **The person is told before they confirm** (from review of the build).
+  Sean's answer that archiving deletes ignored files covered the idle cap.
+  The build extends it to the reset, and the Factory Reset dialog says so up
+  front: managed worktrees are archived into their repositories, uncommitted
+  work kept as a snapshot ref and branches kept, and their ignored files, such
+  as `.env` files and installed dependencies, deleted. Confirming is then an
+  informed choice. The option not taken was to leave every worktree with
+  ignored files in place.
+- **What stays is named, and never stops the reset.** Each worktree left on
+  disk is named with its path and why in the reset's result
+  (`managedWorktrees`) and in Main's log. When the archive cannot run at all
+  (no host, or a store it cannot open) the outcome says why, and the reset
+  still completes: the person chose it, and Factory Reset is how a damaged
+  store is recovered. Nothing deletes a worktree folder outside the archive.
+- **The window shows it** (from review of the build). The window that asked
+  for the reset is replaced before the reset answers it, so no result reached
+  the person. Main keeps the outcome, and the replacement window takes it
+  once as it starts (`db:takeResetOutcome`, renamed below) and shows a notice: each
+  worktree left on disk with its path and why, or why none could be archived,
+  with a line that archived work is in each repository's
+  `refs/brainstrike/worktree-archive/*` and its branch. A clean archive shows
+  only how many were archived. A reset that fails after the archive does not
+  keep the outcome; the log has it.
+- **Where it runs.** Main owns the reset (ADR-0015). After the reset's
+  background runtimes stop and before it retires the profile, the last moment
+  the host still serves the ledger, Main asks the host it launched, starting
+  it first if it is gone. The archives take one turn of the worktree
+  service's queue, and the service makes and restores no worktree after it, so
+  a run still in progress cannot make one the reset would leave unnamed; the
+  host closes next.
+- **Only Main can ask** (from the commit security review). The request
+  (`reset/worktrees/archive`, renamed below) travels on Main's private platform
+  connection to the host, where Main's MCP retire for the reset already goes,
+  and Main sends it once the host has confirmed Main ready. It is not a client
+  method: the desktop's client connection, which every window and Main's own
+  client share as `desktop-ui`, has no such method, so a window cannot force
+  every worktree's archive or stop the service making worktrees. The option
+  not taken was a client origin of Main's own, which every desktop-only
+  method would then have had to admit.
+- **What it does not cover.**
+  - A run in progress when the reset starts keeps its worktree, named as
+    above: the host ends runs only when it closes, after this step.
+  - A worktree a run's shell command makes after this step is not seen: the
+    service did not make it.
+  - A reset that fails after this step leaves the worktrees archived: the
+    ledger says so, and their snapshot refs and branches hold the work.
+  - Clear Database keeps settings and deletes the ledger rows, and still
+    leaves the folders. It is out of scope. Built since (below).
+
+## Clear Database retires the worktrees and scratch folders, 2026-11-12
+
+Build decisions, not Sean's, which later work may revisit. Clear Database
+keeps settings and deletes content, and with it the worktree ledger
+(`brainstrike_worktrees`) and every scratch thread's rows (`threads`,
+`roots`, `scratch_folders`). The folders stayed: the managed worktrees
+outside userData, still in each repository's `git worktree list` and
+possibly holding uncommitted work, and the scratch folders in
+`<userData>/scratch`, which Clear Database keeps. Factory Reset covers the
+first (above) and deletes userData, the second with it; Clear Database
+covered neither.
+
+- **The worktrees are archived as Factory Reset archives them.** After the
+  clear's runtimes stop and before Main asks the host to clear content, Main
+  asks the host for the same archive, on the same private platform
+  connection, with the same rules: forced past ignored files with the
+  preview's confirmation, as the idle cap is, and never past an active run, a
+  lock or nested repositories. Both resets delete every thread, so none
+  counts as bound. The host closes after the clear, so the service making no
+  worktree after the archive lasts until then. The request is renamed
+  `reset/worktrees/archive`, since both resets send it; it is still not a
+  client method.
+- **The scratch folders go to the Trash only once the clear succeeded.**
+  Main lists `<userData>/scratch` and moves each folder directly inside it to
+  the system Trash through the guard a deleted thread's folder goes through
+  (`trashEveryScratchFolder` in `scratch-folder-trash.ts`), as Sean ruled
+  for deleting a scratch thread. Never before the clear: a failed clear keeps
+  the threads those folders belong to. A file or a link there is left alone,
+  and a missing `scratch` folder is nothing to move.
+- **What stays is named, and never fails the clear.** Each worktree left on
+  disk is named with its path and why, each scratch folder the Trash refused
+  with why, and so is a step that could not run at all (no host, or a
+  `scratch` folder that cannot be read). The person chose the clear, and it
+  completes.
+- **One outcome path.** The reset's outcome now carries which reset ran,
+  its worktrees and, for Clear Database, its scratch folders. Main keeps it
+  and the replacement window takes it once (`db:takeResetOutcome`, renamed
+  from `db:takeResetWorktreeOutcome`, `takeResetOutcome` on the bridge), and
+  shows a notice for each: what stayed with why, or how many were archived
+  or moved.
+- **The person is told before they confirm.** The Clear content dialog says
+  that managed worktrees are archived into their repositories, uncommitted
+  work kept as a snapshot ref and branches kept, their ignored files deleted,
+  and that scratch folders are moved to the Trash.
+- **What it does not cover.** The same gaps as Factory Reset's archive
+  (above). No host makes a scratch folder while they are moved: the clear
+  closed the host, and the next one starts after the window is replaced.
+  A clear that fails after the archive leaves the worktrees archived and
+  every scratch folder in place.
 
 ## Consequences
 

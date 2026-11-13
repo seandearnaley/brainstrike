@@ -1,5 +1,5 @@
 {
-  "version": 28,
+  "version": 29,
   "methods": [
     "auth/credential/delete",
     "auth/credential/set",
@@ -70,6 +70,8 @@
     "permissions/origins/remove",
     "permissions/policy/read",
     "permissions/policy/write",
+    "projects/join",
+    "projects/rename",
     "providers/openrouter-model",
     "providers/verify",
     "run/input",
@@ -114,6 +116,7 @@
     "workspace/git/subscribe",
     "workspace/personas",
     "workspace/roots/add",
+    "workspace/roots/locate",
     "workspace/roots/open",
     "workspace/roots/pick",
     "workspace/roots/recent",

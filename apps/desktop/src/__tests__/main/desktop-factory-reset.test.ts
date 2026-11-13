@@ -394,6 +394,107 @@ describe('resetDesktopApplicationData', () => {
     );
   });
 
+  // ADR-0034: managed worktrees live outside userData and their ledger is in the state DB, so
+  // they are archived into their repositories while the host still serves, before the DB goes.
+  it('archives the managed worktrees before it deletes the state DB, and names each one it left', async () => {
+    const order: string[] = [];
+    const stopBackgroundRuntimes = vi.fn(async () => {
+      order.push('stop-runtimes');
+    });
+    const archiveManagedWorktrees = vi.fn(async () => {
+      order.push('archive-worktrees');
+      return {
+        ok: true as const,
+        value: {
+          archived: [
+            {
+              path: '/home/tester/.brainstrike/worktrees/app/swift-badger',
+              snapshotRef: 'refs/brainstrike/worktree-archive/wt-1',
+              worktreeId: 'wt-1',
+            },
+          ],
+          retained: [
+            {
+              code: 'worktree.locked',
+              path: '/home/tester/.brainstrike/worktrees/app/calm-otter',
+              reason: 'This worktree is locked.',
+              worktreeId: 'wt-2',
+            },
+          ],
+        },
+      };
+    });
+    const resetDatabaseProfile = vi.fn(async () => {
+      order.push('delete-state-db');
+    });
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const result = await resetDesktopApplicationData({
+      archiveManagedWorktrees,
+      resetDatabaseProfile,
+      stopBackgroundRuntimes,
+      userDataPath: '/mock/userData',
+    });
+
+    expect(order).toEqual(['stop-runtimes', 'archive-worktrees', 'delete-state-db']);
+    expect(result.managedWorktrees).toEqual({
+      archived: [
+        {
+          path: '/home/tester/.brainstrike/worktrees/app/swift-badger',
+          snapshotRef: 'refs/brainstrike/worktree-archive/wt-1',
+          worktreeId: 'wt-1',
+        },
+      ],
+      retained: [
+        {
+          code: 'worktree.locked',
+          path: '/home/tester/.brainstrike/worktrees/app/calm-otter',
+          reason: 'This worktree is locked.',
+          worktreeId: 'wt-2',
+        },
+      ],
+      status: 'archived',
+    });
+  });
+
+  it('completes the reset and says why when the managed worktrees could not be archived', async () => {
+    const resetDatabaseProfile = vi.fn(async () => undefined);
+    const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
+
+    const unreachable = await resetDesktopApplicationData({
+      archiveManagedWorktrees: async () => {
+        throw new Error('The agent host is not running.');
+      },
+      resetDatabaseProfile,
+      stopBackgroundRuntimes: vi.fn(async () => undefined),
+      userDataPath: '/mock/userData',
+    });
+    const refused = await resetDesktopApplicationData({
+      archiveManagedWorktrees: async () => ({
+        error: {
+          category: 'availability' as const,
+          code: 'worktree.service-closing',
+          kind: 'refusal' as const,
+          message: 'The worktree service is closing.',
+        },
+        ok: false as const,
+      }),
+      resetDatabaseProfile,
+      stopBackgroundRuntimes: vi.fn(async () => undefined),
+      userDataPath: '/mock/userData',
+    });
+
+    expect(resetDatabaseProfile).toHaveBeenCalledTimes(2);
+    expect(unreachable.managedWorktrees).toEqual({
+      reason: 'The agent host is not running.',
+      status: 'failed',
+    });
+    expect(refused.managedWorktrees).toEqual({
+      reason: 'The worktree service is closing.',
+      status: 'failed',
+    });
+  });
+
   it('uses unique trash paths for same-millisecond reset calls', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => undefined);
     const resetDatabaseProfile = vi.fn(async () => undefined);

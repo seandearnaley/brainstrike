@@ -70,6 +70,7 @@ import {
 } from './desktop-run-admission';
 import { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
 import { desktopManagedWorktreeDirectory } from './desktop-worktree-directory';
+import { serveWorktreeResetToMain } from './factory-reset-worktrees';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import { lentCredentialCipher } from './lent-credential-cipher';
 import {
@@ -292,9 +293,14 @@ export async function createDesktopHostConfiguration(
     store: startup.store,
   });
   await startup.register(() => gitWorkspace.close());
+  // ADR-0015, ADR-0034: Main's Factory Reset and Clear Database archive every managed worktree,
+  // asked on this connection only; no client connection serves it.
+  const worktreeReset = serveWorktreeResetToMain(connection, () => gitWorkspace.archiveForReset());
+  await startup.register(async () => worktreeReset.close());
   // ADR-0034 scratch threads: a thread sent with no folder while none is open works in a folder
   // made here, under userData, which a factory reset deletes. Main moves a deleted thread's to
-  // the system Trash; one turned into a project moves where the person picks.
+  // the system Trash, and every one to it once Clear Database has deleted their rows. One turned
+  // into a project moves where the person picks, and is no longer among them.
   const scratchFolders = hostScratchFolders({
     directory: path.join(userDataDir, 'scratch'),
     name: generateWorktreeName,

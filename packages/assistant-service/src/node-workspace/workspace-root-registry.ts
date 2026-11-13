@@ -16,6 +16,7 @@ import {
 } from './workspace-recent-roots.ts';
 import { WorkspaceRootAvailability } from './workspace-root-availability.ts';
 import {
+  assertRelinkTarget,
   findRecordedWorkspaceRoot,
   markRootsDisconnectedExcept,
   recordedRoot,
@@ -66,6 +67,8 @@ interface AddRootOptions {
    */
   readonly grantedAfresh?: boolean;
   readonly recordInRecentRoots?: boolean;
+  /** ADR-0034 relink: the record the chosen folder stands in for, keeping its id and project. */
+  readonly relinkRootId?: string;
 }
 
 /** A managed worktree's descriptor: a thread's checkout, never an open folder (ADR-0034). */
@@ -167,9 +170,20 @@ export class WorkspaceRootRegistry {
     );
   }
 
+  /**
+   * ADR-0034 relink: points the record `rootId`, one of the person's folders that is no longer
+   * where it was, at the folder they chose in the picker. The record keeps its id, so its threads
+   * and its project follow it. Refused when another record has that folder.
+   */
+  locateRoot(rootId: string, handle: DirectoryHandle): Promise<RootDescriptor> {
+    return this.serializeWrite(() =>
+      this.addRootOwned(handle, { grantedAfresh: true, relinkRootId: rootId })
+    );
+  }
+
   private async addRootOwned(
     handle: DirectoryHandle,
-    { grantedAfresh = false, recordInRecentRoots = true }: AddRootOptions
+    { grantedAfresh = false, recordInRecentRoots = true, relinkRootId }: AddRootOptions
   ): Promise<RootDescriptor> {
     const presentationPath = path.normalize(handle.path);
     // Read the catalog before opening the probe so a failed read cannot leak it.
@@ -201,6 +215,9 @@ export class WorkspaceRootRegistry {
       const existing = this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
       const db = await this.getRootsCatalog();
+      if (relinkRootId !== undefined) {
+        await assertRelinkTarget(db, relinkRootId, { canonicalPath, path: presentationPath });
+      }
       // Reuse the retained folder identity after disconnect, including path aliases (BST-1990).
       const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
         this.findExistingStoredRoot(records, undefined, canonicalPath)
@@ -214,7 +231,8 @@ export class WorkspaceRootRegistry {
         {
           canonicalPath,
           path: entryPath,
-          preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
+          preferredId:
+            recorded?.rootId ?? mountedMatch?.rootId ?? relinkRootId ?? crypto.randomUUID(),
         },
         // Without the picker, the store refuses a recorded path that now resolves elsewhere.
         grantedAfresh
