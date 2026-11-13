@@ -593,11 +593,12 @@ export function buildProviderOptionsWhenReady(
  * alone: there is no ladder to judge against.
  */
 function reconcileOpenAiSettingsForModel(
+  providerId: 'chatgpt' | 'openai',
   modelName: string,
   settings: AssistantProviderSettings
 ): AssistantProviderSettings {
   const effort = settings.reasoningEffort;
-  const ladder = effort ? findLlmModelDefinition('openai', modelName)?.reasoning : undefined;
+  const ladder = effort ? findLlmModelDefinition(providerId, modelName)?.reasoning : undefined;
   if (!(effort && ladder) || ladder.supportedEfforts.includes(effort)) {
     return settings;
   }
@@ -683,8 +684,8 @@ export function reconcileProviderSettingsForModel(
   if (providerId === 'bedrock' && settings) {
     return reconcileBedrockSettingsForModel(modelName, settings);
   }
-  if (providerId === 'openai' && settings) {
-    return reconcileOpenAiSettingsForModel(modelName, settings);
+  if ((providerId === 'openai' || providerId === 'chatgpt') && settings) {
+    return reconcileOpenAiSettingsForModel(providerId, modelName, settings);
   }
   if (!(providerId === 'openrouter' && settings)) {
     return settings;

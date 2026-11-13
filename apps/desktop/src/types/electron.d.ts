@@ -12,6 +12,7 @@ import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
 import type { appLifetimeContract } from '../ipc-domains/app-lifetime.contract';
 import type { appUpdatesContract } from '../ipc-domains/app-updates.contract';
+import type { chatGptSignInContract } from '../ipc-domains/chatgpt-sign-in.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
@@ -66,6 +67,8 @@ declare global {
       /** One-way main→renderer tab-state pushes. Returns unsubscribe. */
       onTabsChanged: (listener: (tabs: readonly BrowserTabState[]) => void) => () => void;
     };
+    /** Desktop-only: Sign in with ChatGPT in Settings › Providers (ADR-0038). Token-free. */
+    chatGptSignIn?: TransportBridge<typeof chatGptSignInContract>;
     /** Desktop-only clipboard write bridge, derived from its contract (BST-1648). */
     clipboard?: TransportBridge<typeof clipboardContract>;
     commandPalette?: {

@@ -12,6 +12,7 @@ import {
   createOpenRouterModelMetadataService,
   requireOpenRouterModelId,
 } from './openrouter-model-metadata.ts';
+import { CHATGPT_PROVIDER_ID } from './provider-auth/chatgpt-sign-in.ts';
 import type { HostAuthority } from './provider-auth/host-authority.ts';
 import { createProviderCredentialReader } from './provider-credentials.ts';
 import { readProviderStatus } from './provider-status.ts';
@@ -23,6 +24,8 @@ import { leaveOnAbort } from './shared-flight.ts';
 
 export interface HostProviderServicesOptions {
   readonly auth: Pick<HostAuthority, 'secrets'>;
+  /** The host's ChatGPT session token, for the probe of the signed-in account. */
+  readonly chatGptAccessToken?: () => Promise<string>;
   readonly env: Readonly<NodeJS.ProcessEnv>;
   /** Env files the launching shell rejected. */
   readonly envFileFailures: readonly HostEnvFileFailure[];
@@ -51,6 +54,14 @@ export function createHostProviderServices(
     ...fetchImpl,
     env: options.env,
     readCredential: async (providerId) => {
+      if (providerId === CHATGPT_PROVIDER_ID) {
+        // The probe is sent with the token a request would use, renewed first when due.
+        const signedIn = await readCredential(providerId);
+        // Without the session's token the stored record reaches the probe, which refuses it.
+        return signedIn && options.chatGptAccessToken
+          ? { key: await options.chatGptAccessToken(), type: 'api_key' }
+          : signedIn;
+      }
       if (providerId !== TAVILY_SECRET_PROVIDER) {
         return await readCredential(providerId);
       }

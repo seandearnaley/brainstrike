@@ -62,7 +62,15 @@ function toProviderSlot(definition: ProviderDefinition): CredentialSlot {
   };
 }
 
-/** All inventory slots in registry order, Tavily last. */
+/**
+ * All inventory slots in registry order, Tavily last. A provider the user
+ * signs in to holds no key to type or name in an environment, so it has no slot.
+ */
 export function listCredentialSlots(): readonly CredentialSlot[] {
-  return [...listProviders().map(toProviderSlot), TAVILY_SLOT];
+  return [
+    ...listProviders()
+      .filter((definition) => definition.authType !== 'chatgpt_sign_in')
+      .map(toProviderSlot),
+    TAVILY_SLOT,
+  ];
 }

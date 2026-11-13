@@ -141,7 +141,10 @@
 // its project, or null; Main decodes the record strictly, so it cannot read an older host's
 // records and an older Main cannot read these. The required field is why this is a version bump.
 // `projects/rename`, `projects/join` and `workspace/roots/locate` are new methods, and a project
-// request the state store declines crosses as a typed `project.*` refusal.
+// request the state store declines crosses as a typed `project.*` refusal. Additions since: Sign
+// in with ChatGPT (ADR-0038) for the desktop's private client (`auth/chatgpt/sign-in`,
+// `auth/chatgpt/cancel`, `auth/chatgpt/sign-out`, `auth/chatgpt/status`), new methods; a login
+// credential may not be a ChatGPT sign-in, which only that flow writes.
 // v29 (2026-11-12): a scratch thread's folder becomes a project (ADR-0034 build decisions).
 // `thread/workspace/scratch/project`, for the desktop's private client, asks Main's folder picker
 // where, moves the scratch folder there and turns its root into a folder of the person's with a

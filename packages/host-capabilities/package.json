@@ -74,6 +74,7 @@
     "jsonc-parser": "catalog:",
     "minimatch": "catalog:",
     "node-pty": "catalog:",
+    "openid-client": "catalog:",
     "strip-ansi": "catalog:",
     "tree-kill": "catalog:",
     "typescript": "catalog:",

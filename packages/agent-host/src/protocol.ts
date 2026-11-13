@@ -26,6 +26,10 @@ import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
 import { HOST_APPROVAL_FACT_FIELDS } from './protocol-approval-facts.ts';
 import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
 import {
+  CHATGPT_SIGN_IN_METHOD_SCHEMAS,
+  CHATGPT_SIGN_IN_RESULT_SCHEMAS,
+} from './protocol-chatgpt-sign-in.ts';
+import {
   HostChildDeliverySchema,
   HostNoticeSchema,
   HostStepDeliverySchema,
@@ -317,6 +321,7 @@ const LoginCredential = Schema.declare<ProviderCredential>(isProviderCredential)
 const Provider = { provider: Id };
 export const HOST_METHOD_SCHEMAS = {
   ...CANVAS_METHOD_SCHEMAS,
+  ...CHATGPT_SIGN_IN_METHOD_SCHEMAS,
   ...GIT_WORKSPACE_METHOD_SCHEMAS,
   ...HOOK_TRUST_METHOD_SCHEMAS,
   ...MCP_CONTENT_METHOD_SCHEMAS,
@@ -938,6 +943,7 @@ export const HostLogRowSchema = Schema.Struct({
 export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
   ...CANVAS_RESULT_SCHEMAS,
+  ...CHATGPT_SIGN_IN_RESULT_SCHEMAS,
   ...GIT_WORKSPACE_RESULT_SCHEMAS,
   ...HOOK_TRUST_RESULT_SCHEMAS,
   ...MCP_CONTENT_RESULT_SCHEMAS,

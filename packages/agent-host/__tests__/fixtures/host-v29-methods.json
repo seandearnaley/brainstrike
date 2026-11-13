@@ -1,6 +1,10 @@
 {
   "version": 29,
   "methods": [
+    "auth/chatgpt/cancel",
+    "auth/chatgpt/sign-in",
+    "auth/chatgpt/sign-out",
+    "auth/chatgpt/status",
     "auth/credential/delete",
     "auth/credential/set",
     "auth/login",

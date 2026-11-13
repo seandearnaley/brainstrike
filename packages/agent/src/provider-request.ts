@@ -21,6 +21,7 @@ import { denormalizeNativeToolName } from '@brainstrike/assistant-contract/tool-
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { cleanBedrockPrompt } from './providers/bedrock-message-hygiene.ts';
+import { classifyChatGptPlanError } from './providers/chatgpt-plan-errors.ts';
 import {
   collectProviderCallProvenance,
   type ProviderCallProvenance,
@@ -29,6 +30,7 @@ import {
 import { buildModelSettingsOption } from './providers/generation-settings.ts';
 import { canonicalizeOpenAIDuplicateItems } from './providers/openai-duplicate-item-compat.ts';
 import { classifyOpenAIStoredItemError } from './providers/openai-expired-item.ts';
+import { keepOwnOpenAIRouteItems } from './providers/openai-route-items.ts';
 import { canonicalizeOpenAIToolSearchHistory } from './providers/openai-tool-search-history-compat.ts';
 import { ProjectionSafeToolCallFilter } from './providers/projection-safe-tool-call-filter.ts';
 import { applyProviderHistoryCompat } from './providers/provider-history-compat.ts';
@@ -261,8 +263,9 @@ export class ProviderRequestContextOverflowError extends BoundaryFailureError {
   }
 }
 
+/** The routes that speak the OpenAI Responses API: its own API and Sign in with ChatGPT. */
 function isOpenAI(provider: SupportedProvider): boolean {
-  return provider === 'openai';
+  return provider === 'openai' || provider === 'chatgpt';
 }
 
 /**
@@ -280,8 +283,10 @@ function compatiblePrompt(
     stripForeignExecutedToolPairs(input, provider, provenance),
     { ...(history ? { history } : {}), model, provider }
   );
-  if (isOpenAI(provider)) {
-    prompt = canonicalizeOpenAIDuplicateItems(canonicalizeOpenAIToolSearchHistory(prompt));
+  if (provider === 'openai' || provider === 'chatgpt') {
+    prompt = canonicalizeOpenAIDuplicateItems(
+      canonicalizeOpenAIToolSearchHistory(keepOwnOpenAIRouteItems(prompt, provider))
+    );
   }
   return provider === 'bedrock' ? cleanBedrockPrompt(prompt) : prompt;
 }
@@ -457,8 +462,14 @@ export function createProviderRequestMiddleware(options: {
   readonly onPrepared?: (prepared: PreparedProviderRequest) => void | Promise<void>;
 }): LanguageModelV4Middleware {
   // Below the SDK request retry: a typed non-retryable error is never re-sent.
-  const classify = (error: unknown, context: ProviderRequestContext): unknown =>
-    isOpenAI(context.provider) ? classifyOpenAIStoredItemError(error) : error;
+  const classify = (error: unknown, context: ProviderRequestContext): unknown => {
+    if (!isOpenAI(context.provider)) {
+      return error;
+    }
+    return classifyOpenAIStoredItemError(
+      context.provider === 'chatgpt' ? classifyChatGptPlanError(error) : error
+    );
+  };
   return {
     specificationVersion: 'v4',
     transformParams: async ({ params, model }) => {

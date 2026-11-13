@@ -21,6 +21,7 @@ import type {
   ToolRiskCategory,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
+import type { ChatGptSignInStatus } from '@brainstrike/assistant-contract/chatgpt-sign-in';
 import type { ChildEffort, ChildModelTarget } from '@brainstrike/assistant-contract/child-model';
 import type {
   AssistantContextBreakdown,
@@ -509,6 +510,16 @@ export interface HostRunAdmission {
 
 /** The host's single credential writer and token holder. */
 export interface HostAuthService {
+  /** Ends a ChatGPT sign-in that is waiting for the browser. */
+  chatGptCancel(): Promise<void>;
+  /**
+   * Sign in with ChatGPT (ADR-0038); resolves once the browser flow finishes.
+   * `signal` cancels it when the requesting client is retired.
+   */
+  chatGptSignIn(newAccount: boolean, signal: AbortSignal): Promise<ChatGptSignInStatus>;
+  chatGptSignOut(): Promise<{ readonly revoked: boolean }>;
+  /** `settled` answers once no sign-in is waiting for the browser. */
+  chatGptStatus(settled: boolean): Promise<ChatGptSignInStatus>;
   deleteCredential(account: string): Promise<boolean>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
   setCredential(account: string, credential: ProviderCredential): Promise<void>;
