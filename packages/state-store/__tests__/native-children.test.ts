@@ -17,6 +17,10 @@ import { cleanupDirs, freshDir } from './helpers/fs.js';
 
 // stdin is the sleeper's lifeline: it exits once this test process lets the pipe go or dies.
 const SLEEPER = ['-e', "process.on('SIGTERM', () => {}); process.stdin.resume();"];
+// A program a launcher starts runs until its tree is ended. It has no stdin lifeline: started with
+// stdin ignored, a sleeper would read its end at once and leave by itself (BST-2494), and would
+// leave once its launcher died, whether or not ending the tree ended it.
+const PROGRAM = ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"];
 const held: RootLock[] = [];
 const children: ChildProcess[] = [];
 const unsubscribe: (() => void)[] = [];
@@ -87,7 +91,7 @@ test("ending a launcher's tree ends the program it started", async () => {
     [
       '-e',
       `const { spawn } = require('node:child_process');
-const program = spawn(process.execPath, ${JSON.stringify(SLEEPER)}, { stdio: 'ignore' });
+const program = spawn(process.execPath, ${JSON.stringify(PROGRAM)}, { stdio: 'ignore' });
 process.stdout.write(program.pid + '\\n');
 setInterval(() => {}, 1000);`,
     ],
