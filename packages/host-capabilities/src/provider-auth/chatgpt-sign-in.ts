@@ -352,6 +352,53 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
     }
   };
 
+  /** Ends, at OpenAI, a session whose tokens were issued and are not being kept. */
+  const discard = async (
+    tokens: oidc.TokenEndpointResponse,
+    clientId: string | undefined
+  ): Promise<void> => {
+    if (!(tokens.refresh_token && clientId)) {
+      return;
+    }
+    try {
+      await oidc.tokenRevocation(
+        await client(clientId),
+        tokens.refresh_token,
+        new URLSearchParams([['token_type_hint', 'refresh_token']])
+      );
+    } catch (cause) {
+      logger.warn('ChatGPT did not confirm ending a session that was not kept', { cause });
+    }
+  };
+
+  /** Keeps the session of a validated sign-in, or refuses the one that may not be kept. */
+  const keep = async (
+    record: ChatGptSignInCredential,
+    registered: ChatGptSignInCredential,
+    tokens: Awaited<ReturnType<typeof oidc.authorizationCodeGrant>>
+  ): Promise<ChatGptSignInStatus> => {
+    const claims = tokens.claims();
+    if (!claims) {
+      throw new Error('ChatGPT sign-in returned no ID token');
+    }
+    if (record.subject !== undefined && record.subject !== claims.sub) {
+      throw signedOut(
+        'chatgpt-account-mismatch',
+        'That is a different ChatGPT account from the one registered here.',
+        'Sign in with the original account, or choose Use a different account.'
+      );
+    }
+    const email = typeof claims['email'] === 'string' ? { email: claims['email'] } : {};
+    const session = sessionFrom(tokens);
+    await alone(() => write({ ...registered, ...email, session, subject: claims.sub }));
+    return {
+      state: 'signed_in',
+      ...email,
+      // This sign-in registered the account: the client confirms plan use once.
+      ...(record.clientId === undefined ? { firstSignIn: true } : {}),
+    };
+  };
+
   const authorize = async (
     record: ChatGptSignInCredential,
     openExternal: (url: string) => Promise<void>,
@@ -398,27 +445,14 @@ export function createChatGptSignIn(options: ChatGptSignInOptions): ChatGptSignI
         attempt,
         flow.stopped
       );
-      stillWanted();
-      const claims = tokens.claims();
-      if (!claims) {
-        throw new Error('ChatGPT sign-in returned no ID token');
+      try {
+        stillWanted();
+        return await keep(record, registered, tokens);
+      } catch (cause) {
+        // Tokens this sign-in will not keep are ended at OpenAI, not left live.
+        await discard(tokens, clientId);
+        throw cause;
       }
-      if (record.subject !== undefined && record.subject !== claims.sub) {
-        throw signedOut(
-          'chatgpt-account-mismatch',
-          'That is a different ChatGPT account from the one registered here.',
-          'Sign in with the original account, or choose Use a different account.'
-        );
-      }
-      const email = typeof claims['email'] === 'string' ? { email: claims['email'] } : {};
-      const session = sessionFrom(tokens);
-      await alone(() => write({ ...registered, ...email, session, subject: claims.sub }));
-      return {
-        state: 'signed_in',
-        ...email,
-        // This sign-in registered the account: the client confirms plan use once.
-        ...(record.clientId === undefined ? { firstSignIn: true } : {}),
-      };
     } catch (cause) {
       // A request the cancel stopped fails as an abort: the person sees the cancel.
       throw flow.cancelled ? cancelled() : cause;

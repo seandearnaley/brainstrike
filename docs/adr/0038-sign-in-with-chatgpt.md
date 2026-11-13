@@ -55,13 +55,19 @@ published to npm, so none of its code is used.
    call sets `store: false` and sends system text as developer messages, and drops
    `maxOutputTokens`, `temperature` and `topP`
    ([`chatgpt-plan-call.ts`](../../packages/agent/src/providers/chatgpt-plan-call.ts)).
-8. **A plan refusal is never retried.** OpenAI's `subscription_sharing_*` and `chatpass_v2_*`
+8. **Items stay with their route.** The API-key route stores responses and replays items by
+   reference; the plan route stores nothing. The plan route marks each item it produces, and a
+   request replays only its own route's items: the other route's reasoning is dropped and its
+   text and tool calls are sent as plain content
+   ([`openai-route-items.ts`](../../packages/agent/src/providers/openai-route-items.ts)).
+9. **A plan refusal is never retried.** OpenAI's `subscription_sharing_*` and `chatpass_v2_*`
    errors become refusals with their remedy; a usage limit points at
    `https://chatgpt.com/settings/usage`.
-9. **Cancel ends a sign-in wherever it is.** Cancel in Settings, or the requesting client being
+10. **Cancel ends a sign-in wherever it is.** Cancel in Settings, or the requesting client being
    retired (a quit, a reset), stops the callback wait and any request to OpenAI in flight, and
-   nothing after it is kept: a redirect that already arrived signs nobody in.
-10. **Desktop only.** A host is lent a browser opener or it has none. The CLI host has none, so
+   nothing after it is kept: a redirect that already arrived signs nobody in. Tokens a sign-in
+   was issued and does not keep (wrong account, no plan permission) are revoked.
+11. **Desktop only.** A host is lent a browser opener or it has none. The CLI host has none, so
    sign-in refuses there with "Sign in from the Brainstrike desktop app."
 
 ## Consequences

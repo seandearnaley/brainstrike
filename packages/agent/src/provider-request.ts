@@ -30,6 +30,7 @@ import {
 import { buildModelSettingsOption } from './providers/generation-settings.ts';
 import { canonicalizeOpenAIDuplicateItems } from './providers/openai-duplicate-item-compat.ts';
 import { classifyOpenAIStoredItemError } from './providers/openai-expired-item.ts';
+import { keepOwnOpenAIRouteItems } from './providers/openai-route-items.ts';
 import { canonicalizeOpenAIToolSearchHistory } from './providers/openai-tool-search-history-compat.ts';
 import { ProjectionSafeToolCallFilter } from './providers/projection-safe-tool-call-filter.ts';
 import { applyProviderHistoryCompat } from './providers/provider-history-compat.ts';
@@ -282,8 +283,10 @@ function compatiblePrompt(
     stripForeignExecutedToolPairs(input, provider, provenance),
     { ...(history ? { history } : {}), model, provider }
   );
-  if (isOpenAI(provider)) {
-    prompt = canonicalizeOpenAIDuplicateItems(canonicalizeOpenAIToolSearchHistory(prompt));
+  if (provider === 'openai' || provider === 'chatgpt') {
+    prompt = canonicalizeOpenAIDuplicateItems(
+      canonicalizeOpenAIToolSearchHistory(keepOwnOpenAIRouteItems(prompt, provider))
+    );
   }
   return provider === 'bedrock' ? cleanBedrockPrompt(prompt) : prompt;
 }

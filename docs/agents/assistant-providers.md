@@ -34,6 +34,7 @@ Decision: [ADR-0014](../adr/0014-provider-credentials-and-openai-storage.md). Ow
   - The host's [sign-in](../../packages/host-capabilities/src/provider-auth/chatgpt-sign-in.ts) is the only reader and writer of its record. A client sees a state and an email; no secrets channel returns the tokens.
   - A request gets its token from the host's closure, which renews it first when due. The base URL is pinned to `https://api.openai.com/v1`.
   - Its requests set `store: false` and carry no output limit, temperature or top-p. OpenAI's plan refusals are never retried.
+  - An OpenAI item is replayed only to the route that produced it ([`openai-route-items.ts`](../../packages/agent/src/providers/openai-route-items.ts)). The plan route marks its items; the other route's reasoning is dropped and its text and tool calls go out as plain content, so a thread can move between `openai` and `chatgpt`.
   - No other provider authenticates through a subscription sign-in.
 - Environment diagnostics hold names, paths and loader messages, never secret values or fingerprints.
 

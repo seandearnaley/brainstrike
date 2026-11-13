@@ -176,8 +176,11 @@ test('another account signs in only as a new registration', async () => {
     await auth.chatGptSignOut();
 
     openai.user = { email: 'grace@example.com', sub: 'user-grace' };
+    const revokedBefore = openai.revoked.length;
     expect(await refusal(auth.chatGptSignIn(false, open))).toBe('auth.chatgpt-account-mismatch');
     expect(stored().session).toBeUndefined();
+    // The other account's tokens were issued and refused: they are ended at OpenAI.
+    expect(openai.revoked).toHaveLength(revokedBefore + 1);
 
     await expect(auth.chatGptSignIn(true, open)).resolves.toEqual({
       email: 'grace@example.com',
@@ -198,6 +201,8 @@ test('a sign-in that grants no plan use, or is declined, stores no session', asy
     openai.next = { withoutPlanScope: true };
     expect(await refusal(auth.chatGptSignIn(false, open))).toBe('auth.chatgpt-plan-not-granted');
     expect(stored().session).toBeUndefined();
+    // OpenAI did issue tokens for that sign-in: they are ended there, not left live.
+    expect(openai.revoked).toHaveLength(1);
     // The client OpenAI registered is kept, so the retry does not register a second one.
     const registered = stored().clientId;
     expect(registered).toMatch(/^oaiapp_/u);

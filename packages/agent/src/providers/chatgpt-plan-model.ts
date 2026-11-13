@@ -19,6 +19,7 @@ import type {
   LanguageModelV4StreamResult,
 } from '@ai-sdk/provider';
 import { wrapLanguageModel } from 'ai';
+import { markChatGptPlanItem } from './openai-route-items.ts';
 
 export function chatGptPlanCall(params: LanguageModelV4CallOptions): LanguageModelV4CallOptions {
   const {
@@ -148,6 +149,18 @@ const chatGptPlanMiddleware: LanguageModelV4Middleware = {
   specificationVersion: 'v4',
   transformParams: async ({ params }) => chatGptPlanCall(params),
   wrapGenerate: async ({ doStream }) => await wholeAnswer(await doStream()),
+  // Every item a turn keeps says which route produced it, so the other never replays it.
+  wrapStream: async ({ doStream }) => {
+    const streamed = await doStream();
+    return {
+      ...streamed,
+      stream: streamed.stream.pipeThrough(
+        new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({
+          transform: (part, controller) => controller.enqueue(markChatGptPlanItem(part)),
+        })
+      ),
+    };
+  },
 };
 
 const CATALOG_ID_PREFIX = 'chatgpt/';
