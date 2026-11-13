@@ -338,6 +338,11 @@ export interface WorkspaceBarProps {
   readonly recentRoots: readonly WorkspaceBarRecentRoot[];
   /** Present only when the platform can reveal a path in its file manager. */
   readonly reveal?: WorkspaceBarReveal | undefined;
+  /**
+   * ADR-0034: present only while the thread works in a scratch folder the host made for it,
+   * which "Turn into a project…" moves to a folder the person chooses.
+   */
+  readonly scratchProject?: WorkspaceBarScratchProject | undefined;
   readonly secondaryRoots: readonly WorkspaceBarRoot[];
   /**
    * Where the thread works, from its binding (ADR-0034). Desktop only, like
@@ -353,6 +358,21 @@ export interface WorkspaceBarProps {
   readonly trust?: WorkspaceBarTrust | undefined;
   /** The workspace's mounted folders that are not this thread's. */
   readonly workspaceFolders: readonly WorkspaceBarRecentRoot[];
+}
+
+/**
+ * "Turn into a project…" (ADR-0034 build decisions): the host asks where with the folder picker,
+ * moves the thread's scratch folder there and makes it a project the thread keeps working in.
+ */
+export interface WorkspaceBarScratchProject {
+  /** Why it waits, or null: a run keeps the folder it was admitted with. */
+  readonly disabledReason: string | null;
+  /** Starts it; app-shell shows the outcome, a refusal included. */
+  readonly onTurnIntoProject: () => void;
+  /** The folder is being moved. */
+  readonly pending: boolean;
+  /** Why the last one did not finish, as the host said, or null. */
+  readonly refusal: string | null;
 }
 
 /** The thread's checkout as its binding records it. */

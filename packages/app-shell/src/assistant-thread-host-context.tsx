@@ -284,6 +284,15 @@ export interface AssistantThreadHostCapability {
    */
   subscribeEntryChanges?(listener: () => void): () => void;
   /**
+   * ADR-0034: the thread's scratch folder becomes a project. The host asks where with the folder
+   * picker, moves the folder there, records it as a folder of the person's under the same root id
+   * and binds the thread to it. Resolves where the folder now is, or null when the person
+   * cancelled; rejects with the host's typed refusal. A host without scratch folders omits it.
+   */
+  turnScratchIntoProject?(
+    threadId: string
+  ): Promise<{ readonly path: string; readonly rootId: string } | null>;
+  /**
    * Commits an owned thread's workspace binding keys through the host. Any key
    * the host does not own rejects before a request, never reaching history.
    */

@@ -1,5 +1,5 @@
 {
-  "version": 28,
+  "version": 29,
   "methods": [
     "auth/chatgpt/cancel",
     "auth/chatgpt/sign-in",
@@ -106,6 +106,7 @@
     "thread/workspace/binding/update",
     "thread/workspace/read",
     "thread/workspace/scratch",
+    "thread/workspace/scratch/project",
     "thread/workspace/set",
     "workspace/commands",
     "workspace/context-files",

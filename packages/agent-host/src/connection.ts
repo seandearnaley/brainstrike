@@ -376,6 +376,17 @@ export function bindHostConnection(
   );
   handleCore('thread/workspace/binding/update', (params) => core.updateWorkspaceBinding(params));
   handleCore('thread/workspace/scratch', (params) => core.scratchWorkspace(params));
+  // ADR-0034: the scratch folder moves where Main's picker says, so only the desktop's client asks.
+  handleCore('thread/workspace/scratch/project', (params) => {
+    if (origin !== 'desktop-ui') {
+      throw refusalError(
+        'authorization',
+        'workspace.scratch-project-desktop-only',
+        "Turning a scratch thread into a project is available only to the desktop's private client"
+      );
+    }
+    return core.scratchProject(params);
+  });
   handleCore('run/start', (params) => core.startRun(params, origin));
   handleCore('run/regenerate', (params) => core.regenerateRun(params, origin));
   handleCore('run/input', (params) => core.input(params));

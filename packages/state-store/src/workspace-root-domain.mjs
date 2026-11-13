@@ -511,6 +511,85 @@ function joinProject(db, projection, { projectId, rootId }) {
   })();
 }
 
+/**
+ * Turns the scratch folder `rootId`, which the host has already moved to `root`, into a folder of
+ * the person's (ADR-0034 build decisions), in one commit: the root keeps its id, its kind becomes
+ * `path`, its place and name are the new ones, it joins the end of the open folders, its scratch
+ * record is deleted, and it gets the project recorded for its new place, or a new one, as
+ * `register` gives a folder its project. Refused, changing nothing, for a root the store does not
+ * have, one that is not a scratch folder, and a place another record already has.
+ * @param {import('better-sqlite3').Database} db
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'scratch-to-project'}} request
+ * @param {RootPaths} paths
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function scratchToProject(db, request, paths) {
+  const { root, rootId } = request;
+  if (
+    !(
+      rootId.trim() &&
+      root.displayName.trim() &&
+      root.canonicalPath.trim() &&
+      paths.isGranted({ path: root.path, preferredId: rootId })
+    )
+  ) {
+    throw new Error('A scratch folder becomes a project at an absolute path, under its identity');
+  }
+  const projection = rootProjection(db);
+  return db.transaction(
+    /** @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */ () => {
+      const scratch =
+        /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord | undefined} */ (
+          db.prepare(`SELECT ${projection} FROM roots WHERE id = ?`).get(rootId)
+        );
+      if (!scratch) {
+        throw new WorkspaceRootRefusal(
+          'project.folder-unknown',
+          'There is no folder with this id, so nothing became a project.'
+        );
+      }
+      if (scratch.kind !== 'scratch') {
+        throw new WorkspaceRootRefusal(
+          'project.not-scratch',
+          'This folder is not a scratch folder, so it did not become a project.'
+        );
+      }
+      const taken = db
+        .prepare('SELECT 1 FROM roots WHERE id <> ? AND (path = ? OR canonical_path = ?)')
+        .get(rootId, root.path, root.canonicalPath);
+      if (taken) {
+        throw new WorkspaceRootRefusal(
+          'project.folder-recorded',
+          'Another folder is already recorded at this place, so nothing became a project.'
+        );
+      }
+      const now = Date.now();
+      db.prepare(`UPDATE roots SET kind = 'path', path = ?, canonical_path = ?, display_name = ?,
+        status = 'live', last_verified_at = ?,
+        open_position = (SELECT COALESCE(MAX(open_position) + 1, 0) FROM roots)
+        WHERE id = ?`).run(root.path, root.canonicalPath, root.displayName, now, rootId);
+      db.prepare('DELETE FROM scratch_folders WHERE path = ?').run(scratch.path);
+      return {
+        roots: [
+          inProject(
+            db,
+            {
+              ...scratch,
+              canonicalPath: root.canonicalPath,
+              displayName: root.displayName,
+              kind: /** @type {const} */ ('path'),
+              lastVerifiedAt: now,
+              path: root.path,
+              status: /** @type {const} */ ('live'),
+            },
+            folderProject(db, root.canonicalPath, now)
+          ),
+        ],
+      };
+    }
+  )();
+}
+
 /** @param {import('better-sqlite3').Database} db
  * @param {import('./workspace-root-types.ts').WorkspaceRootRequest} request
  * @param {RootPaths} paths
@@ -521,6 +600,9 @@ export function executeWorkspaceRootRequest(db, request, paths) {
   }
   if (request.operation === 'register-scratch') {
     return registerScratch(db, request, paths);
+  }
+  if (request.operation === 'scratch-to-project') {
+    return scratchToProject(db, request, paths);
   }
   const projection = rootProjection(db);
   switch (request.operation) {

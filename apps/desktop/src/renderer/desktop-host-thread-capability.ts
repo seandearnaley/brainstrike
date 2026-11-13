@@ -427,6 +427,18 @@ export function createWindowThreadCapability(
       entryListeners.add(listener);
       return () => entryListeners.delete(listener);
     },
+    // ADR-0034: the host asks Main's picker where, moves the scratch folder and binds the thread.
+    turnScratchIntoProject: async (threadId) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      const { root } = await host.request('thread/workspace/scratch/project', {
+        commandId: crypto.randomUUID(),
+        threadId,
+      });
+      return root;
+    },
     updateThreadBinding: async (threadId, metadata) => {
       const { color, icon, ...binding } = metadata;
       const patch = Object.keys(binding).length > 0 ? bindingPatch(binding) : undefined;

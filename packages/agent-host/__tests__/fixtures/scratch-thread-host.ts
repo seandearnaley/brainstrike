@@ -53,8 +53,20 @@ export async function scratchThreadHost(
   // The folders each root id names, as a registry's mounts resolve them.
   const folders = new Map<string, string>();
   const trashed: string[] = [];
-  /** Set to make the next move to the Trash fail with this cause, as a Trash that is missing does. */
-  const harness: { failTrash?: Error } = {};
+  const harness: {
+    /** Set to make the next folder move fail with this cause, as a move to another disk does. */
+    failMove?: Error;
+    /** Holds every folder move until it resolves, as a slow disk does. */
+    holdMove?: Promise<void>;
+    /** Told as a folder move begins. */
+    moveStarted?: () => void;
+    /** Set to make the next move to the Trash fail with this cause, as a Trash that is missing does. */
+    failTrash?: Error;
+    /** What Main's folder picker answers, in turn: a folder, or null for a cancel. */
+    picks: (string | null)[];
+    /** How many times the picker was shown. */
+    picked: number;
+  } = { picked: 0, picks: [] };
   const requests: HostRunAdmissionRequest[] = [];
   /** The file tools of a run that works in `bound`, as the desktop admits them per run. */
   const fileTools = (bound: string): Record<string, HostTool> => ({
@@ -137,6 +149,27 @@ export async function scratchThreadHost(
         folders.delete(root.id);
         return { path: root.path };
       }),
+    // As the registry does, without its mounts: the folder moves, then its record turns.
+    promote: ({ move, threadId }) =>
+      serially(async () => {
+        const own = await recorded(threadId);
+        if (!own) {
+          throw new Error('The thread has no scratch folder');
+        }
+        const path = await move(own.path);
+        const [root] = (
+          await store.workspaceRoots({
+            operation: 'scratch-to-project',
+            root: { canonicalPath: await realpath(path), displayName: basename(path), path },
+            rootId: own.rootId,
+          })
+        ).roots;
+        if (!root) {
+          throw new Error('The store turned no root');
+        }
+        folders.set(root.id, root.path);
+        return asFolder(root);
+      }),
     read: recorded,
   };
   let names = 0;
@@ -177,6 +210,18 @@ export async function scratchThreadHost(
         } while (taken.has(name));
         return name;
       },
+      pickFolder: async () => {
+        harness.picked += 1;
+        return harness.picks.shift() ?? null;
+      },
+      rename: async (from, to) => {
+        harness.moveStarted?.();
+        await harness.holdMove;
+        if (harness.failMove) {
+          throw harness.failMove;
+        }
+        await rename(from, to);
+      },
       roots,
       store,
       trash: async (path) => {
@@ -197,6 +242,8 @@ export async function scratchThreadHost(
     await rm(base, { force: true, recursive: true });
   });
   return {
+    /** The test's own folder, outside `<userData>`: where a person keeps projects. */
+    base,
     core,
     harness,
     /** Opens a folder in the workspace, as the person does. */

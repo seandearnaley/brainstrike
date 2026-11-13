@@ -207,6 +207,7 @@ export {
   type WorkspaceBarRepositorySetupConsent,
   type WorkspaceBarReveal,
   type WorkspaceBarRoot,
+  type WorkspaceBarScratchProject,
   type WorkspaceBarThreadCheckout,
   type WorkspaceBarTrust,
   type WorkspaceBarTrustAsk,

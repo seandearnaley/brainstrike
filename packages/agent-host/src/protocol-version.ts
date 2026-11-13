@@ -145,4 +145,9 @@
 // in with ChatGPT (ADR-0038) for the desktop's private client (`auth/chatgpt/sign-in`,
 // `auth/chatgpt/cancel`, `auth/chatgpt/sign-out`, `auth/chatgpt/status`), new methods; a login
 // credential may not be a ChatGPT sign-in, which only that flow writes.
-export const AGENT_HOST_PROTOCOL_VERSION = 28;
+// v29 (2026-11-12): a scratch thread's folder becomes a project (ADR-0034 build decisions).
+// `thread/workspace/scratch/project`, for the desktop's private client, asks Main's folder picker
+// where, moves the scratch folder there and turns its root into a folder of the person's with a
+// project of its own under the same root id; a new method. Its refusals are typed
+// (`workspace.scratch-*`).
+export const AGENT_HOST_PROTOCOL_VERSION = 29;
