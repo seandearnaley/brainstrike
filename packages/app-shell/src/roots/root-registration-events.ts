@@ -103,6 +103,17 @@ export function notifyRootRegistered(keys: readonly string[]): void {
   }
 }
 
+/**
+ * A root record changed without a registration: the person named a project or moved a folder
+ * into another (ADR-0034). Every reader of the records reads them again; no key's generation
+ * moves, since nothing was registered.
+ */
+export function notifyRootRecordsChanged(): void {
+  for (const read of subscribers) {
+    read();
+  }
+}
+
 export interface AwaitRootRegistrationOptions {
   /**
    * The generation observed (via `rootRegistrationSeq`) BEFORE the caller's

@@ -23,3 +23,15 @@ CREATE TABLE project_folders (
   project_id TEXT NOT NULL REFERENCES projects (id)
 ) STRICT;
 `;
+
+/** The longest name a project takes, in characters (code points, as SQLite's `length` counts). */
+export const PROJECT_NAME_MAX_LENGTH = 80;
+
+/**
+ * Version 18: a project's name, which the person gives it (ADR-0034). NULL while it has none, and
+ * the Threads panel then names it by its folder. The roots domain is its only writer
+ * (`rename-project`), which trims it and refuses one longer than `PROJECT_NAME_MAX_LENGTH`.
+ */
+export const PROJECT_NAME_UPGRADE = `
+ALTER TABLE projects ADD COLUMN name TEXT CHECK (name IS NULL OR length(name) > 0);
+`;

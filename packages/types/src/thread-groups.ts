@@ -73,6 +73,8 @@ export interface ThreadCatalogRoot {
    * null for a managed worktree's root, a scratch folder and a folder recorded before projects.
    */
   readonly projectId: string | null;
+  /** The name the person gave that project (ADR-0034); null while it has none. */
+  readonly projectName: string | null;
   /**
    * The root is a scratch folder: its record's kind is `scratch`, a folder the host made for a
    * thread sent with no folder while none was open (ADR-0034). Read from the record, so it holds

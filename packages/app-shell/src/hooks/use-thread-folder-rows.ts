@@ -4,10 +4,11 @@
  * `folderRowsByRootId` from its caller; this hook is that caller's resolver.
  *
  * ONE batched `roots` query per distinct id set, read again whenever a root
- * registration commits. A registration can change a recorded folder's row
- * under the same id: a folder picked again at a new place takes that path and
- * name, and joins the project already there, and a folder recorded before
- * projects gets one when it is next opened. A newly connected folder reaches
+ * registration commits, or the person names a project or moves a folder into
+ * another (`notifyRootRecordsChanged`). A registration can change a recorded
+ * folder's row under the same id: a folder picked again at a new place takes
+ * that path and name, and joins the project already there, and a folder
+ * recorded before projects gets one when it is next opened. A newly connected folder reaches
  * the panel through the INPUT: a thread only lands in a folder section once its
  * `metadata.operatingRootId` names that root, and that write changes the thread
  * row, hence the distinct id set, hence this query.
@@ -141,8 +142,10 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
                 displayName: row.displayName,
                 path: row.path,
                 projectId: row.projectId,
+                projectName: row.projectName,
                 rootId: row.id,
                 ...(row.scratch ? { scratch: true as const } : {}),
+                status: row.status,
               },
             ])
           );
