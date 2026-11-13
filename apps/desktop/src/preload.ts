@@ -13,6 +13,7 @@ import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
 import { appLifetimeContract } from './ipc-domains/app-lifetime.contract';
 import { appUpdatesContract } from './ipc-domains/app-updates.contract';
+import { chatGptSignInContract } from './ipc-domains/chatgpt-sign-in.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
@@ -355,6 +356,11 @@ if (shouldExposeBridge('appLifetime')) {
 // Settings › Updates (BST-2367, desktop-only): whether update checks offer betas.
 if (shouldExposeBridge('appUpdates')) {
   exposeBridge('appUpdates', appUpdatesContract);
+}
+
+// Settings › Providers (ADR-0038, desktop-only): Sign in with ChatGPT. Token-free.
+if (shouldExposeBridge('chatGptSignIn')) {
+  exposeBridge('chatGptSignIn', chatGptSignInContract);
 }
 
 // File-export save bridge (desktop-only): writes export bytes into the OS

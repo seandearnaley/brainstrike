@@ -447,3 +447,55 @@ describe('host provider services: a caller cancels only its own wait (BST-2174)'
     expect(held.fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe('host provider services: Sign in with ChatGPT (ADR-0038)', () => {
+  const registration = {
+    clientId: 'oaiapp_fixture',
+    email: 'ada@example.com',
+    hostId: 'urn:uuid:3f1f4d6e-58a6-4b7b-9d0e-6c1a2b3c4d5e',
+    subject: 'user-ada',
+    type: 'chatgpt_sign_in',
+  } as const;
+  const session = {
+    accessToken: 'stored-access-token',
+    expiresAt: 1_800_000_000_000,
+    refreshToken: 'stored-refresh-token',
+    scopes: ['chatgpt.tokens.use.direct'],
+  };
+
+  it('is configured while signed in, and not by the registration kept through sign-out', async () => {
+    for (const [stored, providers] of [
+      [{ ...registration, session }, ['chatgpt']],
+      [registration, []],
+    ] as const) {
+      const { credentials } = credentialsWith({ chatgpt: stored });
+      const services = createHostProviderServices({
+        auth: { secrets: credentials.secrets },
+        env: {},
+        envFileFailures: [],
+      });
+      await expect(services.status()).resolves.toMatchObject({ enabled: true, providers });
+    }
+  });
+
+  it("tests the connection against the account's own model list with the session's current token", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ models: [] }));
+    const { credentials } = credentialsWith({ chatgpt: { ...registration, session } });
+    const services = createHostProviderServices({
+      auth: { secrets: credentials.secrets },
+      chatGptAccessToken: async () => 'renewed-access-token',
+      env: { OPENAI_BASE_URL: 'https://proxy.example/v1' },
+      envFileFailures: [],
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(services.verify('chatgpt', open)).resolves.toMatchObject({
+      result: { status: 'verified' },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    // The token goes to OpenAI's own API, whatever base URL the environment names.
+    expect(url).toBe('https://api.openai.com/v1/models');
+    expect(new Headers(init.headers).get('authorization')).toBe('Bearer renewed-access-token');
+  });
+});

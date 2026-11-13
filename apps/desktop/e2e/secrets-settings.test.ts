@@ -183,6 +183,28 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
   });
 
+  test('offers Continue with ChatGPT on the ChatGPT card, which has no key to type', async ({
+    window,
+    homePage,
+  }) => {
+    await homePage.openSettings();
+    await openProvidersCategory(window);
+
+    await expect(window.getByTestId('provider-connection-chatgpt')).toHaveAttribute(
+      'data-connection',
+      'disconnected'
+    );
+    await expect(window.getByTestId('provider-key-source-chatgpt')).toHaveText('Not signed in');
+
+    // The agent host answers the sign-in status through Main: signed out on a fresh profile.
+    await window.getByTestId('provider-card-toggle-chatgpt').click();
+    await expect(window.getByRole('button', { name: 'Continue with ChatGPT' })).toBeVisible();
+    await expect(window.getByText('Use your ChatGPT plan')).toBeVisible();
+    // A sign-in has no key row, and nothing to test until someone signs in.
+    await expect(window.getByTestId('credential-row-chatgpt')).toHaveCount(0);
+    await expect(window.getByTestId('provider-test-connection-chatgpt')).toBeDisabled();
+  });
+
   test('cross-links an environment variable chip to the credential inside its provider card', async ({
     window,
     homePage,

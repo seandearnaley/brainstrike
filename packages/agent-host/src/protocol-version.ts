@@ -141,5 +141,8 @@
 // its project, or null; Main decodes the record strictly, so it cannot read an older host's
 // records and an older Main cannot read these. The required field is why this is a version bump.
 // `projects/rename`, `projects/join` and `workspace/roots/locate` are new methods, and a project
-// request the state store declines crosses as a typed `project.*` refusal.
+// request the state store declines crosses as a typed `project.*` refusal. Additions since: Sign
+// in with ChatGPT (ADR-0038) for the desktop's private client (`auth/chatgpt/sign-in`,
+// `auth/chatgpt/cancel`, `auth/chatgpt/sign-out`, `auth/chatgpt/status`), new methods; a login
+// credential may not be a ChatGPT sign-in, which only that flow writes.
 export const AGENT_HOST_PROTOCOL_VERSION = 28;
