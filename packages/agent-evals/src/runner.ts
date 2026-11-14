@@ -1,7 +1,8 @@
 /**
  * One eval task, end to end: a fresh sandbox, the real standalone CLI host,
- * the run (approved through the CLI), the committed log's metrics, the hidden
- * verifier, and one scored result. Every failure becomes the result's reason.
+ * the task's turns on one thread (approved through the CLI), the committed
+ * log's metrics, the hidden verifier, and one scored result. Every failure
+ * becomes the result's reason.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -20,12 +21,22 @@ import type { EvalMode, EvalResult } from './results.ts';
 import { createEvalSandbox, type EvalSandbox, runVerifier } from './sandbox.ts';
 import {
   type EvalAttempt,
-  type EvalRunSummary,
-  readRunFromLog,
+  type EvalThreadSummary,
+  gradeProbe,
+  readThreadFromLog,
   scoreEvalAttempt,
+  threadMetrics,
 } from './scoring.ts';
-import { scriptedModelId } from './scripted-platform.ts';
-import type { LoadedEvalTask } from './task.ts';
+import { type ScriptedEvalModel, scriptedModelId } from './scripted-platform.ts';
+import {
+  addThreadSpend,
+  type EvalSpendCap,
+  type MeasuredSpend,
+  measuredUsd,
+  NOTHING_SPENT,
+  spendCapCheck,
+} from './spend-cap.ts';
+import { type LoadedEvalTask, scriptTurns } from './task.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -52,6 +63,26 @@ export interface EvalRunOptions {
     substitutions: readonly ProviderCassetteSubstitution[]
   ) => Promise<ProviderEgress | undefined>;
   readonly mode: EvalMode;
+  /** The `provider::model` a replay or live run uses; the task's own when absent. */
+  readonly model?: string;
+  /**
+   * A live run's hard cap and what its batch measured before this run: no turn
+   * after the first starts once the two reach it (`spend-cap.ts`).
+   */
+  readonly spendCap?: EvalSpendCap;
+  /** Which run of the task this is within its batch, from 1; 1 when the task runs once. */
+  readonly trial?: number;
+}
+
+/** The model a run's turns name: the script's own when scripted, else `options.model` or the task's. */
+function runModelId(loaded: LoadedEvalTask, options: EvalRunOptions): string {
+  if (options.mode === 'scripted') {
+    if (options.model !== undefined) {
+      throw new Error('A scripted run plays its script as its own model; it takes no other');
+    }
+    return scriptedModelId(loaded.task.id);
+  }
+  return options.model ?? loaded.task.model;
 }
 
 /** The env names the provider's key may be read from, in precedence order. */
@@ -72,18 +103,56 @@ function tail(text: string): string {
   return trimmed.length > OUTPUT_TAIL ? `…${trimmed.slice(-OUTPUT_TAIL)}` : trimmed;
 }
 
-/** Scripted mode's trusted platform module, composed for this one task. */
-async function writeScriptedPlatform(root: string, loaded: LoadedEvalTask): Promise<string> {
-  if (!loaded.script) {
-    throw new Error(`${loaded.task.id} has no scripted-mode script.json`);
+/** The task's prompts in turn order: its own, then each follow-up's. */
+function turnPrompts({ task }: LoadedEvalTask): string[] {
+  return [task.prompt, ...(task.followUps ?? []).map((followUp) => followUp.prompt)];
+}
+
+/** Scripted mode's trusted model for this one task: its script, turn by turn. */
+function scriptedModel(loaded: LoadedEvalTask): ScriptedEvalModel {
+  const { script, task } = loaded;
+  if (!script) {
+    throw new Error(`${task.id} has no scripted-mode script.json`);
+  }
+  const prompts = turnPrompts(loaded);
+  return {
+    budgets: task.model,
+    ...(task.inputTokenLimit === undefined ? {} : { inputTokenLimit: task.inputTokenLimit }),
+    ...(script.summary === undefined ? {} : { summary: script.summary }),
+    taskId: task.id,
+    turns: scriptTurns(script).map((turn, index) => {
+      const prompt = prompts[index];
+      if (prompt === undefined) {
+        throw new Error(`${task.id}'s script has a turn the task does not`);
+      }
+      return { ...turn, prompt };
+    }),
+  };
+}
+
+/**
+ * The trusted platform module this attempt's host loads, when it needs one:
+ * scripted mode's model, or (replay and live) the task's pinned input budget.
+ */
+async function writeEvalPlatform(
+  root: string,
+  loaded: LoadedEvalTask,
+  mode: EvalMode
+): Promise<string | undefined> {
+  const pin = loaded.task.inputTokenLimit;
+  if (mode !== 'scripted' && pin === undefined) {
+    return;
   }
   // The emitted module, which the host process loads with Node itself.
   const factory = pathToFileURL(require.resolve('@brainstrike/agent-evals/scripted-platform')).href;
-  const model = { budgets: loaded.task.model, script: loaded.script, taskId: loaded.task.id };
-  const file = join(root, 'scripted-platform.mjs');
+  const composed =
+    mode === 'scripted'
+      ? `scriptedEvalPlatform(${JSON.stringify(scriptedModel(loaded))})`
+      : `pinnedEvalPlatform(${JSON.stringify(pin)})`;
+  const file = join(root, 'eval-platform.mjs');
   await writeFile(
     file,
-    `import { scriptedEvalPlatform } from ${JSON.stringify(factory)};\nexport const createHostPlatform = scriptedEvalPlatform(${JSON.stringify(model)});\n`
+    `import { pinnedEvalPlatform, scriptedEvalPlatform } from ${JSON.stringify(factory)};\nexport const createHostPlatform = ${composed};\n`
   );
   return file;
 }
@@ -122,9 +191,10 @@ function credentialEnv(loaded: LoadedEvalTask, options: EvalRunOptions): Record<
     case 'scripted':
       return {};
     case 'replay': {
-      const [name] = providerCredentialEnvNames(loaded.task.model);
+      const model = runModelId(loaded, options);
+      const [name] = providerCredentialEnvNames(model);
       if (!name) {
-        throw new Error(`${loaded.task.model} has no credential env name`);
+        throw new Error(`${model} has no credential env name`);
       }
       return { [name]: REPLAY_KEY };
     }
@@ -152,29 +222,104 @@ export async function runEvalTask(
 interface HostStage {
   readonly boundary?: EvalAttempt['boundary'];
   readonly failures: readonly string[];
-  readonly summary?: EvalRunSummary;
+  readonly spendCapped?: string;
+  /** Every turn that started, from the thread's committed log. */
+  readonly thread?: EvalThreadSummary;
   readonly timedOut?: number;
 }
 
-/** Egress, host, run and its committed log; the host and the egress are always released. */
+/**
+ * Why the spend cap starts no `turn` (from 2) on this thread, if it does: what
+ * the batch measured before the thread plus the thread's own ledger so far.
+ */
+function turnSpendCapStop(
+  cap: EvalSpendCap | undefined,
+  turn: number,
+  thread: EvalThreadSummary | undefined
+): string | undefined {
+  if (!cap || turn === 1) {
+    return;
+  }
+  const checked = spendCapCheck(
+    cap.capUsd,
+    addThreadSpend({ usd: cap.spentUsd }, thread?.spend, 'this thread')
+  );
+  return 'stop' in checked
+    ? `The spend cap stopped the thread before turn ${turn}: ${checked.stop}`
+    : undefined;
+}
+
+/**
+ * The task's turns on one thread, each after the one before completed. A turn
+ * that errors, times out or does not complete ends the thread there, and under
+ * a spend cap no turn starts once the measured spend reaches it.
+ */
+async function driveTurns(
+  host: EvalHost,
+  loaded: LoadedEvalTask,
+  options: EvalRunOptions
+): Promise<
+  Pick<HostStage, 'failures' | 'spendCapped' | 'timedOut'> & {
+    readonly thread: EvalThreadSummary | undefined;
+  }
+> {
+  const { task } = loaded;
+  const modelId = runModelId(loaded, options);
+  const runIds: string[] = [];
+  let threadId: string | undefined;
+  let thread: EvalThreadSummary | undefined;
+  const read = async () => {
+    if (threadId !== undefined && runIds.length > 0) {
+      thread = readThreadFromLog(await host.rows(threadId), runIds);
+    }
+  };
+  for (const [index, prompt] of turnPrompts(loaded).entries()) {
+    const spendCapped = turnSpendCapStop(options.spendCap, index + 1, thread);
+    if (spendCapped !== undefined) {
+      return { failures: [], spendCapped, thread };
+    }
+    const driven = await driveEvalRun(host, {
+      modelId,
+      prompt,
+      ...(threadId === undefined ? {} : { threadId }),
+      timeoutMs: task.timeoutMs,
+    });
+    threadId ??= driven.threadId;
+    if (driven.runId !== undefined) {
+      runIds.push(driven.runId);
+    }
+    await read();
+    if (driven.status === 'error') {
+      return { failures: [driven.error], thread };
+    }
+    if (driven.status === 'timed-out') {
+      return { failures: [], thread, timedOut: task.timeoutMs };
+    }
+    if (thread?.runs.at(-1)?.verdict.outcome !== 'completed') {
+      break;
+    }
+  }
+  return { failures: [], thread };
+}
+
+/** Egress, host, turns and their committed log; the host and the egress are always released. */
 async function runOnHost(
   loaded: LoadedEvalTask,
   options: EvalRunOptions,
   sandbox: EvalSandbox
 ): Promise<HostStage> {
-  const { task } = loaded;
   const failures: string[] = [];
   let egress: ProviderEgress | undefined;
   let host: EvalHost | undefined;
-  let summary: EvalRunSummary | undefined;
+  let spendCapped: string | undefined;
+  let thread: EvalThreadSummary | undefined;
   let timedOut: number | undefined;
   try {
     const substitutions = [{ from: sandbox.workspace, to: WORKSPACE_PLACEHOLDER }];
     egress = options.egress
       ? await options.egress(substitutions)
       : await defaultEgress(loaded, options.mode, substitutions);
-    const platformModule =
-      options.mode === 'scripted' ? await writeScriptedPlatform(sandbox.root, loaded) : undefined;
+    const platformModule = await writeEvalPlatform(sandbox.root, loaded, options.mode);
     host = await startEvalHost({
       dataRoot: sandbox.dataRoot,
       env: {
@@ -186,18 +331,11 @@ async function runOnHost(
       ...(platformModule ? { platformModule } : {}),
       workspace: sandbox.workspace,
     });
-    const driven = await driveEvalRun(host, {
-      modelId: options.mode === 'scripted' ? scriptedModelId(task.id) : task.model,
-      prompt: task.prompt,
-      timeoutMs: task.timeoutMs,
-    });
-    if (driven.status === 'error') {
-      failures.push(driven.error);
-    }
-    timedOut = driven.status === 'timed-out' ? task.timeoutMs : undefined;
-    if (driven.threadId !== undefined && driven.runId !== undefined) {
-      summary = readRunFromLog(await host.rows(driven.threadId), driven.runId);
-    }
+    const driven = await driveTurns(host, loaded, options);
+    failures.push(...driven.failures);
+    spendCapped = driven.spendCapped;
+    thread = driven.thread;
+    timedOut = driven.timedOut;
   } catch (cause) {
     failures.push(message(cause));
   }
@@ -215,9 +353,35 @@ async function runOnHost(
   return {
     ...(boundary ? { boundary } : {}),
     failures,
-    ...(summary ? { summary } : {}),
+    ...(spendCapped === undefined ? {} : { spendCapped }),
+    ...(thread ? { thread } : {}),
     ...(timedOut === undefined ? {} : { timedOut }),
   };
+}
+
+/** The thread's metrics as one, when it has a run. */
+function threadWide(runs: EvalThreadSummary['runs']): {
+  metrics?: NonNullable<EvalResult['metrics']>;
+} {
+  const metrics = threadMetrics(runs);
+  return metrics ? { metrics } : {};
+}
+
+/** How many of the task's probes the thread's answers satisfied. */
+function probeCounts(
+  loaded: LoadedEvalTask,
+  thread: EvalThreadSummary
+): { passed: number; total: number } {
+  let passed = 0;
+  let total = 0;
+  for (const [index, followUp] of (loaded.task.followUps ?? []).entries()) {
+    if (followUp.probe) {
+      total += 1;
+      const answer = thread.answers[index + 1] ?? '';
+      passed += gradeProbe(answer, followUp.probe).missing.length === 0 ? 1 : 0;
+    }
+  }
+  return { passed, total };
 }
 
 /** The hidden verifier over the finished workspace; its own failure to run is a reason. */
@@ -245,21 +409,40 @@ export async function attemptEvalTask(
   options: EvalRunOptions
 ): Promise<EvalTaskOutcome> {
   const startedAt = new Date().toISOString();
-  const outcome = (attempt: EvalAttempt, summary?: EvalRunSummary): EvalTaskOutcome => {
+  const outcome = (attempt: EvalAttempt, thread?: EvalThreadSummary): EvalTaskOutcome => {
     const score = scoreEvalAttempt(attempt);
     return {
       attempt,
       result: {
         batch: options.batch,
         finishedAt: new Date().toISOString(),
-        metrics: summary?.metrics ?? null,
+        metrics: (thread && threadMetrics(thread.runs)) ?? null,
         mode: options.mode,
-        modelId: summary?.modelId ?? null,
+        modelId: thread?.runs[0]?.modelId ?? null,
         pass: score.pass,
         reason: score.pass ? null : score.reason,
+        spendCap: options.spendCap
+          ? {
+              capUsd: options.spendCap.capUsd,
+              cutShort: attempt.spendCapped !== undefined,
+              spentUsd: measuredUsd(
+                addThreadSpend({ usd: options.spendCap.spentUsd }, thread?.spend, loaded.task.id)
+              ),
+            }
+          : null,
         startedAt,
         task: loaded.task.id,
-        verdict: summary?.verdict.outcome ?? null,
+        thread: thread
+          ? {
+              compactions: thread.compactions,
+              probes: probeCounts(loaded, thread),
+              spend: thread.spend,
+              turns: thread.runs.length,
+            }
+          : null,
+        trial: options.trial ?? 1,
+        // The turn the thread ended on: its last when every turn completed.
+        verdict: thread?.runs.at(-1)?.verdict.outcome ?? null,
         verifierExitCode: attempt.verifier?.exitCode ?? null,
       },
     };
@@ -272,10 +455,12 @@ export async function attemptEvalTask(
   }
   const stage = await runOnHost(loaded, options, sandbox);
   const failures = [...stage.failures];
-  const verified =
-    failures.length === 0 && stage.summary?.verdict.outcome === 'completed'
-      ? await verifyStage(loaded, sandbox)
-      : {};
+  const runs = stage.thread?.runs ?? [];
+  // The verifier reads the workspace every turn left: all of them, completed.
+  const finished =
+    runs.length === turnPrompts(loaded).length &&
+    runs.every((run) => run.verdict.outcome === 'completed');
+  const verified = failures.length === 0 && finished ? await verifyStage(loaded, sandbox) : {};
   if (verified.failure) {
     failures.push(verified.failure);
   }
@@ -288,11 +473,81 @@ export async function attemptEvalTask(
     {
       ...(stage.boundary ? { boundary: stage.boundary } : {}),
       ...(loaded.task.expect ? { expect: loaded.task.expect } : {}),
+      ...(loaded.task.followUps ? { followUps: loaded.task.followUps } : {}),
       ...(failures.length > 0 ? { hostError: failures.join('; ') } : {}),
-      ...(stage.summary ? { run: stage.summary } : {}),
+      ...(runs[0] ? { run: runs[0] } : {}),
+      ...(stage.spendCapped === undefined ? {} : { spendCapped: stage.spendCapped }),
+      ...(stage.thread ? { thread: { ...stage.thread, ...threadWide(runs) } } : {}),
       ...(stage.timedOut === undefined ? {} : { timedOut: stage.timedOut }),
       ...(verified.verifier ? { verifier: verified.verifier } : {}),
     },
-    stage.summary
+    stage.thread
   );
+}
+
+export interface EvalBatchOptions extends Omit<EvalRunOptions, 'spendCap' | 'trial'> {
+  /** A live run's hard cap in US dollars: no turn, trial or task starts once the measured spend reaches it. */
+  readonly spendCapUsd?: number;
+  /** How many times each task runs, each in a fresh sandbox. */
+  readonly trials: number;
+}
+
+/** A trial the spend cap never started: a failed line saying why. */
+function notRunResult(
+  loaded: LoadedEvalTask,
+  options: Pick<EvalRunOptions, 'batch' | 'mode'>,
+  trial: number,
+  cap: { readonly capUsd: number; readonly spent: MeasuredSpend; readonly stop: string }
+): EvalResult {
+  const at = new Date().toISOString();
+  return {
+    batch: options.batch,
+    finishedAt: at,
+    metrics: null,
+    mode: options.mode,
+    modelId: null,
+    pass: false,
+    reason: `Not run: the spend cap stopped the batch: ${cap.stop}`,
+    spendCap: { capUsd: cap.capUsd, cutShort: true, spentUsd: measuredUsd(cap.spent) },
+    startedAt: at,
+    task: loaded.task.id,
+    thread: null,
+    trial,
+    verdict: null,
+    verifierExitCode: null,
+  };
+}
+
+/**
+ * Each task `trials` times, in order. Under a spend cap the batch adds up each
+ * thread's measured spend and starts no trial or task once it reaches the cap
+ * (or is unknown); each one it did not start is a failed line saying so.
+ */
+export async function runEvalBatch(
+  tasks: readonly LoadedEvalTask[],
+  options: EvalBatchOptions
+): Promise<EvalResult[]> {
+  const { spendCapUsd, trials, ...run } = options;
+  const results: EvalResult[] = [];
+  let spent = NOTHING_SPENT;
+  for (const loaded of tasks) {
+    for (let trial = 1; trial <= trials; trial += 1) {
+      const cap = spendCapUsd === undefined ? undefined : spendCapCheck(spendCapUsd, spent);
+      if (cap && 'stop' in cap) {
+        results.push(notRunResult(loaded, run, trial, { ...cap, spent }));
+        continue;
+      }
+      process.stderr.write(
+        `${loaded.task.id} (${run.mode}${trials > 1 ? `, trial ${trial}/${trials}` : ''})…\n`
+      );
+      const result = await runEvalTask(loaded, {
+        ...run,
+        ...(cap ? { spendCap: cap } : {}),
+        trial,
+      });
+      results.push(result);
+      spent = addThreadSpend(spent, result.thread?.spend, `${loaded.task.id} trial ${trial}`);
+    }
+  }
+  return results;
 }

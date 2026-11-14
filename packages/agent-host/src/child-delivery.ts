@@ -10,8 +10,8 @@
  * Every ledger is a new message that stays in the thread, so re-sending each
  * earlier outcome in full grew a turn's wakes with the square of its workers
  * (debug pack 2026-11-04). A later ledger lists a delivered invocation by its
- * outcome's opening instead: that earlier message can leave Memory's window
- * too, and the opening still tells the model what the worker concluded.
+ * outcome's opening instead: a compaction can replace that earlier message,
+ * and the opening still tells the model what the worker concluded.
  */
 import type { UserModelMessage } from 'ai';
 import type { HostChildDelivery, HostChildDeliveryEntry } from './protocol.ts';
@@ -53,14 +53,19 @@ const FENCE_TAG = /<(?=\/?(?:brainstrike_notice|subagent_outcome|child_continuat
  * subagent output that imitates its own), so quoted text cannot close its
  * fence and speak as Brainstrike.
  */
-function quoted(text: string): string {
+export function quoted(text: string): string {
   return text.replace(FENCE_TAG, '<\\');
+}
+
+/** A notice the host writes into a run's messages, fenced: its authority line, then each part. */
+export function hostNotice(authority: string, parts: readonly (string | undefined)[]): string {
+  const body = [authority, ...parts.filter(Boolean)].join('\n\n');
+  return `<brainstrike_notice>\n${body}\n</brainstrike_notice>`;
 }
 
 /** One delivery, fenced: its authority line, then each part it carries. */
 export function describeHostDelivery(parts: readonly (string | undefined)[]): string {
-  const body = [DELIVERY_AUTHORITY, ...parts.filter(Boolean)].join('\n\n');
-  return `<brainstrike_notice>\n${body}\n</brainstrike_notice>`;
+  return hostNotice(DELIVERY_AUTHORITY, parts);
 }
 
 /** About a paragraph: enough for a worker's conclusion, small enough to list on every wake. */

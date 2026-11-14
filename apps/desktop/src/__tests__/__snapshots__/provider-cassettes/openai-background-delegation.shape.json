@@ -20,10 +20,10 @@
       "message": "complete:stop",
       "outcome": "completed",
       "rows": [
-        "Updated memory done",
+        "Used updateWorkingMemory failed",
         "Delegated to Explorer done",
         "Delegated to Explorer done",
-        "Updated memory done"
+        "Used updateWorkingMemory failed"
       ],
       "steps": [
         {
@@ -57,7 +57,7 @@
       "message": "complete:stop",
       "outcome": "completed",
       "rows": [
-        "Updated memory done"
+        "Used updateWorkingMemory failed"
       ],
       "steps": [
         {

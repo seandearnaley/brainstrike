@@ -33,21 +33,12 @@ import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import { clearContentRows } from './clear-content.mjs';
 import {
-  allIntentMemoryResources,
   deleteDeletionIntent,
-  deleteThreadTruth,
   deletionIntents,
-  intentMemoryResources,
   okThreads,
-  purgeEvent,
   recordDeletionIntent,
 } from './deletion-domain.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
-import {
-  executeMemoryRequest,
-  sharedObservations,
-  threadMemoryResources,
-} from './memory-domain.mjs';
 import { executeModelChoiceRequest } from './model-choice-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
@@ -296,34 +287,6 @@ function handle(m) {
         // The agent host's root registry grants absolute OS paths.
         { isGranted: (root) => isAbsolute(root.path) }
       );
-    // Mastra's memory calculation runs on the memory calculator worker, never here (BST-2398): this writer reads
-    // its inputs and commits its delta against the revision they were read at.
-    case 'memory':
-      return {
-        snapshot: executeMemoryRequest(
-          db,
-          /** @type {import('./memory-types.ts').MemoryWriterRequest} */ (m['request']),
-          /** @type {import('./memory-types.ts').MemorySharedObservations | undefined} */ (
-            m['detached']
-          )
-        ),
-      };
-    case 'memory-resources':
-      return {
-        resources:
-          typeof m['threadId'] === 'string'
-            ? threadMemoryResources(db, m['threadId'])
-            : allIntentMemoryResources(db),
-      };
-    case 'memory-shared-observations':
-      return {
-        shared: sharedObservations(
-          db,
-          typeof m['resourceId'] === 'string'
-            ? [m['resourceId']]
-            : intentMemoryResources(db, String(m['threadId']), 0)
-        ),
-      };
     case 'mcp-tasks':
       return executeMcpTaskRequest(
         db,
@@ -394,16 +357,11 @@ function handle(m) {
               throw new Error('unreachable: SIGKILL was sent');
             }
           : undefined;
-      purgeEvent(db, log, String(m['threadId']), Number(m['seq']), String(m['tombstone']), kill);
+      log.purge(String(m['threadId']), Number(m['seq']), String(m['tombstone']), kill);
       return {};
     }
     case 'deleteThread':
-      deleteThreadTruth(
-        db,
-        log,
-        String(m['threadId']),
-        /** @type {import('./memory-types.ts').MemorySharedObservations[]} */ (m['detached'])
-      );
+      log.deleteThread(String(m['threadId']));
       return {};
     case 'intentRecord':
       return {

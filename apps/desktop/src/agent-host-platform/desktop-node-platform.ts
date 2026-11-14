@@ -11,7 +11,6 @@ import {
   hostPermissionGate,
   hostScratchFolders,
   type ProductionHostPlatformOptions,
-  type ProductionHostRunConfiguration,
   readHostPermissionPolicy,
   trustedHostWorkspaceRoots,
 } from '@brainstrike/agent-host';
@@ -46,6 +45,10 @@ import {
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
+import {
+  hostProjectMemory,
+  readRunProjectMemory,
+} from '@brainstrike/host-capabilities/project-memory';
 import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace-context';
 import {
@@ -74,16 +77,10 @@ import { desktopManagedWorktreeDirectory } from './desktop-worktree-directory';
 import { serveWorktreeResetToMain } from './factory-reset-worktrees';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import { lentCredentialCipher } from './lent-credential-cipher';
-import {
-  createDesktopHostMemoryConfiguration,
-  desktopMemoryModels,
-} from './memory-model-configuration';
-import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
-  PlatformObserverCandidatesResultSchema,
   PlatformPickFolderResultSchema,
 } from './platform-wire';
 
@@ -146,11 +143,6 @@ function mainAdmissionReads(
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/catalog-model', target, signal)),
-    enabledObservers: async (candidates, signal) =>
-      Schema.decodeUnknownSync(PlatformObserverCandidatesResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/admission/observers', { candidates }, signal)),
     liveWorkspaceRoots: async (signal) =>
       Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
         errors: 'all',
@@ -377,7 +369,9 @@ export async function createDesktopHostConfiguration(
       return saved ? hostPermissionGate(saved) : undefined;
     },
     // ADR-0032: the roots whose instructions, skills and personas a run may load.
-    (roots) => trustedHostWorkspaceRoots(startup.store, roots)
+    (roots) => trustedHostWorkspaceRoots(startup.store, roots),
+    // ADR-0040: a run in a trusted project loads that project's memory.
+    (input) => readRunProjectMemory({ ...input, store: startup.store })
   );
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
@@ -445,6 +439,8 @@ export async function createDesktopHostConfiguration(
     mcpContent: mcpHost.content,
     mcpPresentation: mcpHost.presentation,
     mcpSettings: mcpHost.settings,
+    // ADR-0040: Undo of a memory write, in this host's data root.
+    projectMemory: hostProjectMemory(startup.store.root),
     providers: host.providers,
     readConfiguration: async (admission) => {
       const selected = await runAdmission.readConfiguration(admission);
@@ -474,22 +470,12 @@ export async function createDesktopHostConfiguration(
           }
           await selected.close();
         })());
-      let memory: ProductionHostRunConfiguration['memory'];
-      try {
-        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth);
-      } catch (cause) {
-        try {
-          await closeSelection();
-        } catch (cleanup) {
-          throw new AggregateError([cause, cleanup], 'Memory model admission and cleanup failed');
-        }
-        throw cause;
-      }
       // Every admitted tool runs here; Main executes none of them.
       const tools = desktopHostSharedTools({
         appPaths: platformOptions?.appPaths,
         freshRoots: () => selected.freshWorkspaceRoots(),
         gitWorkspace: gitWorkspace.tools,
+        ...(selected.projectMemory ? { projectMemory: selected.projectMemory } : {}),
         readFileCursorRegistry,
         request,
         resolveTavilyApiKey: host.resolveTavilyApiKey,
@@ -525,6 +511,7 @@ export async function createDesktopHostConfiguration(
           }),
         childSystem: selected.childSystem,
         close: closeSelection,
+        compactionTokenCap: selected.compactionTokenCap,
         configuration,
         delegation: selected.delegation,
         durableConfiguration: selected.durableConfiguration,
@@ -535,7 +522,6 @@ export async function createDesktopHostConfiguration(
         referencedFileFailures: selected.referencedFileFailures,
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
-        memory,
         providerRequestContext: {
           inputTokenLimit: selected.inputTokenLimit,
           provider,
@@ -546,20 +532,6 @@ export async function createDesktopHostConfiguration(
         tools,
         toolTimeoutMs: selected.toolTimeoutMs,
       };
-    },
-    // The admission's preconditions, then the memory credentials, nothing acquired;
-    // once they pass, the observer that admission would use.
-    readMemoryPreconditions: async (admission) => {
-      const readiness = await runAdmission.readMemoryReadiness(admission);
-      if (!readiness.ready) {
-        return readiness;
-      }
-      const preconditions = await desktopMemoryPreconditions(readiness, (provider) =>
-        host.auth.resolveProviderAuth(provider)
-      );
-      return preconditions.ready
-        ? { ...preconditions, models: desktopMemoryModels(readiness.memory) }
-        : preconditions;
     },
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),

@@ -15,6 +15,7 @@ import type {
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
+import type { ProjectMemoryPanelNotes } from '@brainstrike/assistant-ui';
 import type { ThreadContextRecord } from '@brainstrike/assistant-ui/thread-context-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { WorkspaceTrustCapability } from '@brainstrike/settings-ui/settings/system/workspace-trust';
@@ -84,22 +85,41 @@ export interface AssistantHostWorkspaceDiscovery extends WorkspaceTrustCapabilit
 }
 
 /**
+ * The folder a project's section is named by, which Move to project… moves: an open folder's
+ * root, or a repository found inside an open folder, which has no root, by its own checkout's
+ * path as the host's worktree listing names it (ADR-0034 build decisions, BST-2511).
+ */
+export type ThreadProjectFolder = { readonly rootId: string } | { readonly repositoryPath: string };
+
+/**
+ * The project Rename project… names: one the store has, or the project of a repository found
+ * inside an open folder that has none yet, by its own checkout's path, which its first name makes
+ * (ADR-0034 build decisions, BST-2520).
+ */
+export type ThreadProjectRef = { readonly projectId: string } | { readonly repositoryPath: string };
+
+/**
  * ADR-0034: the person's projects, which the host's root registry writes. Each call resolves once
  * its change committed and rejects with the host's refusal, which the caller shows.
  */
 export interface AssistantHostProjects {
   /**
-   * Moves the folder of `rootId` into the project `projectId`, so its threads list there. The
-   * folder's trust and approved hooks stay its own.
+   * Moves `folder` into the project `projectId`, so its threads list there. The folder's trust
+   * and approved hooks stay its own.
    */
-  join(rootId: string, projectId: string): Promise<void>;
+  join(folder: ThreadProjectFolder, projectId: string): Promise<void>;
   /**
    * Points the record of a folder that moved at the folder the person picks; its threads and
    * project follow it. Resolves the folder as mounted, or null when the person cancelled.
    */
   locate(rootId: string): Promise<{ readonly path: string; readonly rootId: string } | null>;
-  /** Names the project; an empty name clears it, so it is named by its folder again. */
-  rename(projectId: string, name: string): Promise<void>;
+  /** ADR-0040, BST-2534: the project's memory notes, which the host's memory module writes. */
+  memory(projectId: string): ProjectMemoryPanelNotes;
+  /**
+   * Names the project; an empty name clears it, so it is named by its folder again. A
+   * repository's first name makes its project.
+   */
+  rename(project: ThreadProjectRef, name: string): Promise<void>;
 }
 
 /** One committed canvas version, in the canvas panel's read shape. */

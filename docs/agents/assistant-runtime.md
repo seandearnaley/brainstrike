@@ -1,6 +1,6 @@
 # Assistant runtime
 
-Covers run execution, stream recovery, approvals, hooks, plan mode and tracing. Desktop and CLI share the Electron-free agent host; each root or child run uses the host-owned AI SDK loop. Mastra supplies memory, not a second loop, permission engine or transcript writer. See [ADR-0012](../adr/0012-ai-sdk-loop-mastra-memory-library.md) and [ADR-0017](../adr/0017-cli-first-agent-host.md).
+Covers run execution, stream recovery, approvals, hooks, plan mode and tracing. Desktop and CLI share the Electron-free agent host; each root or child run uses the host-owned AI SDK loop. Core assembles each request from the committed log and the host's compaction is the only thing that replaces history; Mastra supplies narrow utilities, not a second loop, permission engine, transcript writer or memory. See [ADR-0012](../adr/0012-ai-sdk-loop-mastra-memory-library.md), [ADR-0017](../adr/0017-cli-first-agent-host.md) and [ADR-0039](../adr/0039-host-is-the-only-compactor.md).
 
 ## Execution and recovery
 
@@ -22,10 +22,50 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
 - Failed or abnormal finishes produce failed durable outcomes.
   - Recoverable attempts are recorded before retry, stay on the committed branch and never repeat a step that streamed tool input or a call.
   - Context-overflow recovery needs a committed compaction that actually shortens the request.
-- Pre-request compaction measures the request the provider will receive.
-  - With Memory, that is the request Memory builds (selected turns, rewritten tool outputs, system context), not the branch; only the earlier turns that request holds can be compacted.
-  - Memory then reassembles the request from the log without re-running its step preparation.
-  - When the summarizer fails, the deterministic fallback's `context.compacted` records the typed failure code and its cause's log reference.
+- Pre-request compaction measures the request the provider will receive, before every step of a run (BST-2531).
+  - Each step's request is built from the committed branch (`prepareRunContext`), so a compaction committed at any step, or before an approval pause, holds for every later step and leg.
+  - It triggers at 90% of the run's input budget or its compaction cap (200,000 tokens by default), whichever is less, and reclaims toward 7/9 of that trigger. `deriveContextCompactionThreshold` in `assistant-contract` is the one derivation; the admission carries the cap beside `inputTokenLimit`.
+  - A person sets the cap in the composer's Output & Limits ("Compact at", at least 64,000, no upper bound). It rides the desktop intent as `agentLoop.compactionTokenCap` only when set, so a recovered run keeps its captured cap; the standalone intent carries none.
+  - The production admission turns an unset cap into the default (`resolveContextCompactionTokenCap`), the same call Settings and the context meter use.
+  - The trigger is the context meter's one denominator: the composer derives it from the run's budget and cap, the ring is full when the thread compacts, and warning (75%) and critical (90%) read against it. The Context tab's bar shows the same figure.
+  - Past the trigger it summarizes only when what it can drop (kept steps are not droppable) reaches the target or holds at least one protect window (20,000 estimated tokens), `compactionReclaims`. Otherwise the request goes as it is; overflow recovery and the request trim stay the last resort.
+  - The size is what the provider last reported: the branch's latest `model.step` input tokens, else its latest `provider.request.prepared` `accounting.totalTokens`, plus the chars/4 estimate of what the branch committed after that request. A committed compaction voids every earlier report of its thread.
+  - With nothing reported, it is the chars/4 estimate of the request's messages plus the run's instructions and tool definitions. Turns and steps are always sized by the estimate when choosing which to drop.
+  - So what a compaction must reclaim, the request's excess over the target, is scaled to the estimate's tokens by the request's estimate, its note included, over its measured size (BST-2541); a size nothing reported is already the estimate. A provider may count a request as more tokens than chars/4 (Anthropic about 1.5 times read-heavy text); unscaled, the run went on past the trigger until what it could drop matched the provider's count.
+  - Every turn on the branch that no compaction covers is sent; there is no history window.
+- What one compaction replaces (`compaction-segments.ts`):
+  - Earlier turns whole, except the current turn, the one before it, the newest turns up to 20,000 estimated tokens and any turn that called a skill or plan tool.
+  - The current run's older steps, as `through: { runId, stepNumber }`: its steps up to that one leave the request and its user message stays. The newest steps up to 20,000 estimated tokens stay word for word, and the cut falls only where every tool call has its result.
+  - A step ends where the next begins (`HostRunState.stepEnds`), so it holds the approval results and notices committed after it; a run's newest step has not ended and is never replaced.
+  - Among the replaced steps, one that loaded a skill or holds an `askUser` or `submitPlan` result stays word for word, by the same predicate that protects a whole turn. It does not stop the cut: the steps around it are still replaced. The event records it in `through.kept`, so what a compaction replaced stays one committed fact.
+  - A row without `through` covers whole turns only. `compactedRunIds` is empty when its summary covers only steps.
+  - A compaction belongs to the run that made it and the runs that follow it. A sibling branch never reads it, even for turns they share: it keeps those in full until a run of its own compacts them.
+  - The overlay, the note, the request's provenance (`hostProviderHistory`), the fallback drop, the host's lists, the card's step count and the context fold all read `through` and its `kept` steps. Tool discovery reads the whole committed branch, so a tool loaded in a replaced step stays loaded.
+- What a compaction tells the model (BST-2527): a branch carries one current summary.
+  - The summary call is the run's own next request (BST-2532, `compaction-summary-call.ts`): built by the step's own builder (`hostStepRequest`) with the run's instructions, tool definitions and tool choice, the branch's context as that request carries it, through the run's provider request boundary, then one host message asking for the summary. It shares the prefix the run's last request cached, which a request cut at the compaction could not read: a cache entry is written only at a request's breakpoint and read from at most 20 blocks before another's.
+  - The tools go without their executors: an answer that calls a tool is a failed summary (`compaction.summary-tool-call`) and never runs. The call commits no `provider.request.prepared`; its usage, cache reads included, is the compaction's `usage`.
+  - The model writes `Goal`, `Constraints`, `Decisions`, `Errors and fixes`, `State` and `Next` (`hasCompactionSummarySchema`, which also reads bold headers) over the whole context it read: its note first, so the current summary is merged into one.
+  - The host writes three lists from the log for everything the summary covers (`compaction-ledger.ts`), derived again at each compaction. A kept step is still in the request, so they leave it out:
+    - `Files edited`: each path the covered calls edited (`workspace.edit.recorded`) and its count of edits.
+    - `Tools loaded`: what the run's own discovery reads as loaded in the covered messages.
+    - `Earlier requests`: each wholly covered turn's prompt, the person's own words only, cut at 1,000 characters with `[truncated]`, the newest kept within 4,000. A step-level compaction adds none: the run's user message is still sent.
+  - The event lists every turn it covers and the newest step cut, with every step of that run any compaction kept (`through`); no event is rewritten. Cuts are the union of the branch's compactions; the note reads one: the branch's newest, which merged the summaries before it.
+  - The note leads the request's history as the host's notice (a user message marked as the host's and fenced as `<brainstrike_notice>`), never the system text, so a compaction leaves the run's instructions, its project memory section and its tool definitions cached. A request the boundary trims keeps the note as it keeps the system text: the host names it (`leadingNote`), the trim keeps it and the newest messages that fit, and it is never counted as left out.
+  - A deterministic fallback (failed summary, overflow recovery, request trim) carries the host's lists, keeps the current summary as it was and adds its drop line.
+- Compact now (BST-2536, `thread-compaction.ts`): a person compacts a thread between runs from the context meter's popover or `threads compact`, optionally writing what to keep.
+  - The branch ends with `thread/compact`'s `parentMessageId` (the run the view ends with, as `run/start` names it), else the run the next message follows. The event commits under that run with reason `requested` and the person's `focus`, so the next run reads it, a sibling branch never does and the ledger prices the summary against that run.
+  - It replaces what an automatic compaction would, without waiting for the trigger. The summary is asked on the thread's next request, admitted as that run is (the thread's selection, ADR-0019). The focus follows the host's request as the person's own words, outside its fence; the host's lists are not the model's to change.
+  - Refused, committing nothing: on a delegated child thread (`compaction.child-thread`, before any admission: its runs are admitted for its root and narrowed), during a run (`compaction.run-active`) or another compaction (`compaction.in-progress`), while the thread is rewound (`compaction.rewound`: the turns the rewind left still follow its tip and would read it), with nothing droppable (`compaction.nothing-to-compact`), when the admission fails (a missing credential, as for a run) and when the summary fails (with its own code; no deterministic fallback).
+  - A refused summary the provider answered (a wrong format or a tool call) was billed: its receipt commits as the tip run's `model.usage` of kind `compaction-summary`, as a thread title's does, and no `context.compacted`. A provider error billed nothing and commits nothing.
+  - Admission is queued; the summary call is not, since the admission queue is the host's. The thread is compacting from the start of its admission, in the queue, to its commit, queued again, or its refusal or abort. A run, regenerate, rewind or redo the queue admits meanwhile is refused with `compaction.in-progress` (a run as not admitted, so the composer keeps the draft); one admitted before makes the compaction refuse with `compaction.run-active`. The composer's Send is disabled while it compacts.
+  - A wake meanwhile takes nothing, so a person's queued input and a child's results stay queued; the compaction wakes the thread when it ends, and they start from the summary.
+  - A deletion or host close aborts it with its admission, and its queued commit is withdrawn. An admission that does not close is the thread's failed admission cleanup, as a run's is: Core then refuses the thread's commands, its deletion and its own close with it.
+  - A rewind to before the tip's message leaves the compaction off the branch, so the turns come back.
+- Each request passes the provider request boundary (`run-provider-request.ts`), which filters, measures and limits the prompt against the run's provenance (`run-history.ts`) and commits a `provider.request.prepared` receipt.
+  - When it still has to drop the oldest messages to fit, the same commit carries a deterministic `context.compacted` with reason `request-trim` naming the turns and steps it left out, so the thread shows a card. With the every-step check this should not happen in ordinary use.
+  - The SDK's retries of a step send the same request; its trim is named once, by the first attempt that trims, so one compaction commits beside every attempt's receipt.
+- When the summarizer fails, the deterministic fallback's `context.compacted` records the typed failure code and its cause's log reference, and drops only the oldest turns and steps that reach the target.
+- Context-overflow recovery measures the same way and drops toward the same target, at least one turn or step.
 
 ## Consent and suspension
 
@@ -89,7 +129,6 @@ Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
   - Desktop and the CLI host read the same variables; any local OTLP/HTTP collector (e.g. Jaeger on port 4318) works.
 - Each call names itself in `gen_ai.agent.name` (`brainstrike.host-run`, `brainstrike.thread-title`, `brainstrike.context-compaction`) and carries `ai.settings.context.runId` and `ai.settings.context.threadId`. A new host-owned `streamText`/`generateText` call spreads `hostTelemetry(...)`.
 - Prompts, responses and tool payloads are excluded unless `BRAINSTRIKE_OTEL_RECORD_CONTENT=1`. Error messages are still recorded.
-- Memory observer and reflector calls run inside Mastra and are not traced.
 
 ## Clients and retirement
 
@@ -106,7 +145,7 @@ Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
 - Retirement keeps reads open while dispatched work joins, so new requests still get closing refusals, and it answers every request it read.
   - A socket then pauses reads and joins complete-frame decoding and response writes before destroying the transport.
   - An empty dispatch queue alone doesn't prove the reader has finished its received frames.
-- Stop, deletion and host close fence admission and join provider, tool and memory work before releasing storage or Root.
+- Stop, deletion and host close fence admission and join provider and tool work and the run's admission before releasing storage or Root.
   - Stop commits its intent in the host's one admission queue and joins the stopped work outside it, so a tree slow to die holds only its own Stop's reply and that thread's next run, never another thread's command.
   - A terminal outcome doesn't prove physical retirement; failed joins stay visible and keep ownership.
 - Live/replay details: [persistence](assistant-persistence.md).

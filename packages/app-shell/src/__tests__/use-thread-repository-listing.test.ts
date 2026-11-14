@@ -24,6 +24,8 @@ const OWN_CHECKOUT: WorktreeListEntry = {
   name: 'brainstrike',
   path: '/code/brainstrike',
   primary: true,
+  projectId: null,
+  projectName: null,
   provenance: 'scanned',
   remedy: null,
   repoCommonDir: '/code/brainstrike/.git',

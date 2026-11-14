@@ -21,6 +21,7 @@ import {
 } from './file-watch-connection.ts';
 import { bindHostGitWorkspaceMethods } from './git-workspace-connection.ts';
 import { bindHostHookTrustMethods } from './hook-trust.ts';
+import { rebindLocatedRoot } from './locate-rebinding.ts';
 import { bindHostMcpContentMethods } from './mcp-content-connection.ts';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.ts';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.ts';
@@ -341,7 +342,9 @@ export function bindHostConnection(
   disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
   disposables.push(bindHostTerminalMethods(handle, connection, terminals, origin));
   bindHostFileReadMethods(handle, fileReads, origin);
-  bindHostRootRegistryMethods(handle, rootRegistry, origin);
+  bindHostRootRegistryMethods(handle, rootRegistry, origin, (root) =>
+    rebindLocatedRoot(core, root)
+  );
   disposables.push(bindHostFileWatchMethods(handle, connection, fileWatches, origin));
   bindHostFileSearchMethods(handle, connection, fileSearch, origin);
   bindHostHookTrustMethods(handle, core.store);
@@ -359,7 +362,6 @@ export function bindHostConnection(
   handleCore('thread/tree', (params) => core.trees.read(params.threadId));
   handleCore('thread/delete', (params) => core.deleteThread(params));
   handleCore('thread/update', (params) => core.updateThread(params));
-  handleCore('thread/memory/read', (params) => core.readThreadMemory(params, origin));
   handleCore('thread/read', async (params) => ({
     rows: await core.published.read(params.threadId, params.fromSeq),
   }));
@@ -392,6 +394,8 @@ export function bindHostConnection(
   handleCore('run/input', (params) => core.input(params));
   handleCore('run/stop', (params) => core.stop(params));
   handleCore('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handleCore('memory/undo', (params) => core.undoMemoryChange(params));
+  handleCore('thread/compact', (params) => core.compactNow.compact(params, origin));
   handleCore('thread/rewind/preview', (params) => core.rewinds.preview(params));
   handleCore('thread/rewind', (params) => core.rewinds.rewind(params));
   handleCore('thread/rewind/redo', (params) => core.rewinds.redo(params));

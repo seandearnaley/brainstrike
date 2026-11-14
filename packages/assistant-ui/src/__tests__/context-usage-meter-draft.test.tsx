@@ -14,8 +14,8 @@ vi.mock('@assistant-ui/react', () => ({
 }));
 
 const meterProps = {
+  compactionTrigger: 113_400,
   contextWindow: 200_000,
-  effectiveInputBudget: 126_000,
   threadKey: 'draft-thread',
 };
 
@@ -54,7 +54,7 @@ describe('ThreadContextMeter with an unsent draft', () => {
     rerender(<ThreadContextMeter {...meterProps} />);
 
     expect(screen.getByTestId('context-usage-critical-notice')).toHaveTextContent(
-      /Sending this draft approaches the input budget/u
+      'Sending this draft approaches compaction; older messages will be summarized.'
     );
   });
 });

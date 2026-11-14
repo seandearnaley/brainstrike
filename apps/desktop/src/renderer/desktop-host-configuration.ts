@@ -1,9 +1,4 @@
-import {
-  buildAgentLoopSettings,
-  buildAssistantMemoryOptions,
-  buildDraftRuntimeForProvider,
-} from '@brainstrike/app-shell';
-import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { buildAgentLoopSettings, buildDraftRuntimeForProvider } from '@brainstrike/app-shell';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
@@ -68,8 +63,6 @@ export function readDesktopHostConfiguration(
     enabledNativeToolIds: DESKTOP_NATIVE_TOOL_IDS.filter((id) =>
       useNativeToolPreferencesStore.getState().isToolEnabled(id)
     ),
-    memoryOptions: buildAssistantMemoryOptions(providerSettings[provider]),
-    memorySettings: useAssistantMemoryPreferencesStore.getState().getRuntimeMemorySettings(),
     modelConfiguration,
     permission,
     projection,

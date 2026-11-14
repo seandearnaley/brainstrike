@@ -21,7 +21,8 @@ export interface ScriptedToolCall {
   readonly toolId: string;
 }
 
-type ScriptedPrompts = Parameters<MockLanguageModelV4['doStream']>[0]['prompt'][];
+type Prompt = Parameters<MockLanguageModelV4['doStream']>[0]['prompt'];
+type ScriptedPrompts = Prompt[];
 
 /** One tool call per model step, then a final answer. */
 export function scriptedToolSequence(
@@ -91,6 +92,118 @@ export function scriptedToolSteps(
   });
 }
 
+export interface ScriptedTurn {
+  /** The turn's final text. */
+  readonly answer: string;
+  /** The user message that opens the turn; the latest one in a request selects it. */
+  readonly prompt: string;
+  readonly steps: readonly (readonly ScriptedToolCall[])[];
+}
+
+/** The text of a prompt message's parts. */
+function messageText(message: Prompt[number] | undefined): string {
+  return message && Array.isArray(message.content)
+    ? message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+    : '';
+}
+
+/** What a provider would report for a request: its serialized size at four characters a token. */
+function reportedUsage(request: {
+  readonly prompt: Prompt;
+  readonly tools?: unknown;
+}): typeof usage {
+  const total = Math.ceil(JSON.stringify([request.prompt, request.tools ?? []]).length / 4);
+  return { ...usage, inputTokens: { ...usage.inputTokens, noCache: total, total } };
+}
+
+/**
+ * A thread of several turns. A request whose latest user message holds a
+ * turn's prompt plays that turn's steps, then its answer; call ids are the
+ * turn's own (`turn-T-call-N`), so no two turns share one. A non-streaming
+ * call (the host's compaction summarizer) answers `summary`. Each response
+ * reports its request's size as input tokens, as a provider does, so the host
+ * sizes the thread from it.
+ */
+export function scriptedTurns(
+  turns: readonly ScriptedTurn[],
+  summary?: string
+): MockLanguageModelV4 {
+  const scripted = turns.map((turn, turnIndex) => {
+    let issued = 0;
+    return {
+      ...turn,
+      steps: turn.steps.map((step) =>
+        step.map((call) => ({ call, id: `turn-${turnIndex + 1}-call-${++issued}` }))
+      ),
+    };
+  });
+  return new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (summary === undefined) {
+        throw new Error('The scripted thread has no summary for a non-streaming call');
+      }
+      return {
+        content: [{ text: summary, type: 'text' }],
+        finishReason: { raw: 'stop', unified: 'stop' },
+        usage: reportedUsage(options),
+        warnings: [],
+      };
+    },
+    doStream: async (options) => {
+      const usage = reportedUsage(options);
+      const latestUser = options.prompt.findLastIndex((message) => message.role === 'user');
+      const asked = messageText(options.prompt[latestUser]);
+      // The longest prompt the message holds: one turn's prompt may open another's.
+      const turn = scripted
+        .filter((candidate) => asked.includes(candidate.prompt))
+        .sort((a, b) => b.prompt.length - a.prompt.length)[0];
+      if (!turn) {
+        throw new Error(`No scripted turn opens with the latest user message: ${asked}`);
+      }
+      const completed = new Set(
+        options.prompt
+          .slice(latestUser)
+          .flatMap((message) =>
+            message.role === 'tool'
+              ? message.content
+                  .filter((part) => part.type === 'tool-result')
+                  .map((part) => part.toolCallId)
+              : []
+          )
+      );
+      // The step after the newest one the request holds every result of: a
+      // compaction may have replaced the turn's older steps (BST-2531).
+      const next =
+        turn.steps[
+          turn.steps.findLastIndex((step) => step.every(({ id }) => completed.has(id))) + 1
+        ];
+      const chunks: Chunk[] = next
+        ? [
+            { type: 'stream-start', warnings: [] },
+            ...next.map(
+              ({ call, id }): Chunk => ({
+                input: JSON.stringify(call.input),
+                toolCallId: id,
+                toolName: call.toolId,
+                type: 'tool-call',
+              })
+            ),
+            { finishReason: { raw: 'tool_calls', unified: 'tool-calls' }, type: 'finish', usage },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            { id: 'text-1', type: 'text-start' },
+            { delta: turn.answer, id: 'text-1', type: 'text-delta' },
+            { id: 'text-1', type: 'text-end' },
+            { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage },
+          ];
+      return {
+        stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
+      };
+    },
+  });
+}
+
 export function parallelToolModel(toolId: string): MockLanguageModelV4 {
   const finished = scriptedModel();
   return new MockLanguageModelV4({
@@ -121,8 +234,6 @@ export function parallelToolModel(toolId: string): MockLanguageModelV4 {
     },
   });
 }
-
-type Prompt = Parameters<MockLanguageModelV4['doStream']>[0]['prompt'];
 
 /** The latest result the model received for `toolCallId`. */
 export function scriptedToolResult(prompt: Prompt, toolCallId: string): unknown {

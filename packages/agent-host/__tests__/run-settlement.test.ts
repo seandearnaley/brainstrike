@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { joinHostThreadSettlements, settleHostRunOwner } from '../src/core-run-lifecycle.js';
+import { joinHostThreadSettlements, settleHostRunResources } from '../src/core-run-lifecycle.js';
 import { createHostRunState, type HostRunState } from '../src/core-state.js';
 import { assertHostRunStartAvailable } from '../src/run-branch.js';
 
@@ -14,14 +14,14 @@ const run = (threadId: string, runId: string): HostRunState => ({
   terminal: true,
 });
 
-describe("a finished run's memory settlement", () => {
-  test('releases the run only once its owner joined, then clears', async () => {
+describe("a finished run's settlement", () => {
+  test('releases the run only once its resources joined, then clears', async () => {
     const finished = run('a', 'a1');
     const release = vi.fn();
     finished.release = release;
     const close = Promise.withResolvers<void>();
-    const settlement = settleHostRunOwner(finished, () => close.promise);
-    // A CLI host stays retained while its run's memory is still settling.
+    const settlement = settleHostRunResources(finished, () => close.promise);
+    // A CLI host stays retained while its run is still settling.
     await Promise.resolve();
     expect(release).not.toHaveBeenCalled();
     expect(finished.settlement).toBe(settlement);
@@ -36,12 +36,12 @@ describe("a finished run's memory settlement", () => {
     expect(() => assertHostRunStartAvailable([finished], 'a')).not.toThrow();
   });
 
-  test('an owner that never joined keeps the thread refused with its cleanup failure', async () => {
+  test('a resource that never joined keeps the thread refused with its cleanup failure', async () => {
     const finished = run('a', 'a1');
     const release = vi.fn();
     finished.release = release;
-    const unjoined = new Error('Observational memory still owns native work');
-    await expect(settleHostRunOwner(finished, () => Promise.reject(unjoined))).rejects.toBe(
+    const unjoined = new Error('The admission still owns its MCP lease');
+    await expect(settleHostRunResources(finished, () => Promise.reject(unjoined))).rejects.toBe(
       unjoined
     );
     expect(release).not.toHaveBeenCalled();
@@ -53,7 +53,10 @@ describe("a finished run's memory settlement", () => {
 
   test("another thread's settlement never holds an admission", async () => {
     const settling = run('b', 'b1');
-    const otherSettlement = settleHostRunOwner(settling, () => new Promise<void>(() => undefined));
+    const otherSettlement = settleHostRunResources(
+      settling,
+      () => new Promise<void>(() => undefined)
+    );
     expect(otherSettlement).toBe(settling.settlement);
     await expect(joinHostThreadSettlements([settling], 'a')).resolves.toBeUndefined();
     expect(() => assertHostRunStartAvailable([settling], 'a')).not.toThrow();

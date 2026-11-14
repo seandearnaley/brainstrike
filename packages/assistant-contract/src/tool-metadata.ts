@@ -68,6 +68,7 @@ export {
   type PermissionToolGateSnapshot,
   type PerToolPermissionOverrides,
   resolvePermissionDecision,
+  resolveQuickModelTarget,
 } from './permission-policy.ts';
 export {
   buildNativeToolRiskMap,

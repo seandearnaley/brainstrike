@@ -1,6 +1,7 @@
 # ADR-0013: Observational memory: provider, billing and rewind
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0039](0039-host-is-the-only-compactor.md) (2026-11-13).
+  BST-2533 removed observational memory.
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914
 

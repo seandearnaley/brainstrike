@@ -1,6 +1,7 @@
 import type { ContextRun } from '@brainstrike/assistant-ui/thread-context-fold';
 import { cn } from '@brainstrike/ui';
 import { Fragment, type ReactElement } from 'react';
+import { STATE_LABEL } from './context-map-kinds';
 
 const BAR_MAX_PX = 28;
 
@@ -33,11 +34,15 @@ export function TurnScrubber({
         const added = addedTokens[index] ?? 0;
         return (
           <Fragment key={run.runId}>
-            {run.compactedRunIds.length > 0 && (
+            {run.compactions > 0 && (
               <span
                 className="border-muted-foreground/60 self-stretch border-l-2 border-dotted"
                 data-testid="context-map-compaction-marker"
-                title={`Before turn ${turn}, a compaction summarized ${run.compactedRunIds.length} earlier turn(s)`}
+                title={
+                  run.compactedRunIds.length > 0
+                    ? `Before turn ${turn}, a compaction summarized ${run.compactedRunIds.length} earlier turn(s)`
+                    : STATE_LABEL.compacted
+                }
               />
             )}
             <button

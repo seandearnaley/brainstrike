@@ -218,6 +218,8 @@ export const PARENT_ONLY_TOOL_IDS: ReadonlyMap<string, string> = new Map([
   [NATIVE_TOOL_ID.manageTaskList, 'task-list state belongs to the parent'],
   [NATIVE_TOOL_ID.askUser, 'questions go to the parent'],
   [NATIVE_TOOL_ID.submitPlan, 'plans go to the parent'],
+  // ADR-0040: a subagent reads the project's memory index and never writes it.
+  [NATIVE_TOOL_ID.memory, 'project memory is written by the parent'],
 ]);
 
 /** Validate explicit capability declarations; runtime selection still intersects the host catalog. */

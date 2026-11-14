@@ -6,7 +6,7 @@ import { HostThreadSummaries } from './thread-summary.ts';
 
 /** Core's projections of every committed row, applied at hydration and at commit. */
 export class HostLogProjections {
-  /** Each thread's committed rows, which a run's Memory reads as its resource's history. */
+  /** Each thread's committed rows, which a run's provider request reads as its history. */
   readonly committed = new HostCommittedRows();
   /** Every thread's runs and costed provider calls. */
   readonly ledger = new HostLedgerProjection();
@@ -20,9 +20,9 @@ export class HostLogProjections {
   }
 
   /**
-   * The threads' committed rows for a run's Memory. A damaged thread's history
-   * was never decoded, so a run on it is refused, never shortened. Another
-   * thread of the run's resource that cannot be read is left out, as a search
+   * The threads' committed rows for a run's provider request. A damaged
+   * thread's history was never decoded, so a run on it is refused, never
+   * shortened. Another thread that cannot be read is left out, as a search
    * answers around one (`thread-search.ts`): it lists as damaged, and it must
    * not stop every thread beside it from running.
    */

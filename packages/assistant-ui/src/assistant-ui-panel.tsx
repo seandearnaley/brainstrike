@@ -58,11 +58,7 @@ import { type ComposerAttachmentsAvailability, ComposerInputWithTriggers } from 
 import { ComposerModelPicker } from './composer-model-picker';
 import { modelIdFromCompositeKey } from './composer-picker-sections';
 import { ComposerTriggerPopover } from './composer-trigger-popover';
-import {
-  type CumulativeUsageDisplay,
-  type OmMeterState,
-  ThreadContextMeter,
-} from './context-usage-meter';
+import { type CumulativeUsageDisplay, ThreadContextMeter } from './context-usage-meter';
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { EditComposer } from './edit-composer';
 import { FollowUpQueueChips, QueuedDecisionPruner } from './follow-up-queue';
@@ -172,26 +168,6 @@ export type {
 export type { ComposerDraftCommand } from './composer-draft-command';
 
 /**
- * A capability this turn runs WITHOUT — never a reason it cannot run. Lives in
- * the composer shell (a non-scrolling sibling of the viewport) so it stays
- * beside the control it qualifies, instead of scrolling away up the transcript
- * the way `disabledReason` would on a long thread.
- *
- * Its own component rather than an inline conditional: `ChatThreadUI` sits at
- * the cognitive-complexity ceiling, and one more branch there trips the gate.
- */
-const CapabilityNotice = ({ text }: { text: string | undefined }) =>
-  text ? (
-    <p
-      aria-live="polite"
-      className="text-muted-foreground px-1 pb-2 text-xs"
-      data-testid="assistant-capability-notice"
-    >
-      {text}
-    </p>
-  ) : null;
-
-/**
  * The active thread's id (assistant-ui's own `ThreadState` carries no id —
  * see `@assistant-ui/core`'s `store/scopes/thread.ts` — so it is not
  * reachable from `useAuiState` inside a message). `ChatThreadUI` already
@@ -208,11 +184,10 @@ export const ChatThreadUI = ({
   accessMode,
   approvalStrip,
   isVisible = true,
+  compactionTrigger,
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,
-  omSegment,
-  effectiveInputBudget,
   providerGroups,
   hasGroupedProviders,
   pickerModels,
@@ -233,7 +208,6 @@ export const ChatThreadUI = ({
   hideDefaultCancel,
   disabledAction,
   disabledReason,
-  capabilityNotice,
   onManageModels,
   slashCommands,
   onComposerDraftCommandApplied,
@@ -254,11 +228,11 @@ export const ChatThreadUI = ({
    */
   approvalStrip?: ReactNode | undefined;
   isVisible?: boolean;
+  /** The request size at which the thread compacts; the context meter fills toward it. */
+  compactionTrigger?: number | undefined;
   composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  omSegment?: OmMeterState | undefined;
-  effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   canSteer?: boolean | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
@@ -285,7 +259,6 @@ export const ChatThreadUI = ({
   /** The fix for `disabledReason` (e.g. open Settings → Providers), offered on the welcome. */
   disabledAction?: ComposerDisabledAction | undefined;
   disabledReason: string | undefined;
-  capabilityNotice: string | undefined;
   /** Opens the host's model settings from the model picker; absent, the picker offers none. */
   onManageModels?: (() => void) | undefined;
   slashCommands: readonly SlashCommand[];
@@ -399,19 +372,6 @@ export const ChatThreadUI = ({
                       attachmentsAvailability={attachmentsAvailability}
                       disabled={composerDisabled}
                     >
-                      {/* A capability the turn will run WITHOUT (e.g. no durable
-            memory), as opposed to `disabledReason`, which explains why there
-            is no turn at all. It is a SEPARATE prop on purpose: a caller can
-            set `disabledReason` without setting `disabled` and still mean
-            "blocked" (committed-assistant-conversation.tsx does exactly that
-            for host-unavailable, refusing at dispatch), so blocking-ness
-            cannot be inferred from `isComposerDisabled`.
-
-            It renders in the composer shell, a sibling of the viewport that
-            never scrolls, so it stays beside the control it qualifies.
-            `disabledReason` keeps its place above the transcript, where
-            native scroll anchoring holds a parked reader still. */}
-                      <CapabilityNotice text={capabilityNotice} />
                       {/* The composer toolbar: one line of workspace orientation
             (folder · branch · worktree, an app-shell-rendered slot so
             assistant-ui stays store-free) balanced by the context ring on
@@ -419,10 +379,9 @@ export const ChatThreadUI = ({
                       <div className="bs-composer-toolbar" data-testid="assistant-composer-toolbar">
                         {workspaceBar ?? null}
                         <ThreadContextMeter
+                          compactionTrigger={compactionTrigger}
                           contextWindow={contextWindow}
                           cumulativeUsage={cumulativeUsage}
-                          effectiveInputBudget={effectiveInputBudget}
-                          omSegment={omSegment}
                           threadKey={threadKey}
                         />
                       </div>

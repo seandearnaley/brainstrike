@@ -155,4 +155,30 @@
 // branch the worktrees' branches add nothing to) and no `limit`, told to the thread that made
 // each worktree. A row a v25 to v29 host committed has no `reason` and reads as `idle-cap`. The
 // `merged` shape, which an older client cannot read, is why this is a version bump.
-export const AGENT_HOST_PROTOCOL_VERSION = 30;
+// v31 (2026-11-13): a repository found inside an open folder has a project of its own (ADR-0034
+// build decisions, BST-2511). Each `worktrees/list` entry carries `projectId` and `projectName`,
+// set on the own checkout of a repository whose checkout an open folder contains without being
+// it, and null on every other entry. `projects/join` also takes `repositoryPath`, that checkout's
+// path, in place of `rootId`, since such a repository has no root. The required fields are why
+// this is a version bump. Additive since (BST-2520): `projects/rename` also takes
+// `repositoryPath` in place of `projectId`. A repository's first rename or move makes its project,
+// and the listing only reads one, on the own checkout of any repository that is not an open
+// folder, whether or not an open folder holds it now.
+// v32 (2026-11-14): Mastra memory is retired (ADR-0039, BST-2533). `thread/memory/read` and the
+// `memory.usage`, `memory.cycle`, `memory.observation.withheld` and `memory.settlement.failed`
+// events are removed. Removing a method is why this is a version bump. Additive since (ADR-0040,
+// BST-2530): project memory's `memory.changed`, `memory.refused` and `memory.undone` events and
+// the `memory/undo` method, new variants and a new method.
+// v33 (2026-11-14): a thread carries one current compaction summary (BST-2527). Each
+// `context.compacted` covers everything its branch's earlier summary covered as well:
+// `compactedRunIds` lists every whole turn it covers and `through` the newest step cut. It
+// carries what the host wrote from the log, `filesEdited`, `toolsLoaded` and `earlierRequests`,
+// required. The required fields are why this is a version bump. Additive since (BST-2534): a
+// project's Memory panel's `projects/memory/list`, `projects/memory/write` and
+// `projects/memory/delete`, new methods.
+// v34 (2026-11-14): a person compacts a thread between runs (BST-2536). `thread/compact` is a new
+// method; the `context.compacted` it commits has reason `requested`, which an older client cannot
+// read, and carries the person's `focus`. A refused summary the provider billed commits its usage
+// as the run's `model.usage` of kind `compaction-summary`. The new reason and kind are why this is
+// a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 34;

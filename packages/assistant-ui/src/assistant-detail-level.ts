@@ -28,7 +28,7 @@ export const ASSISTANT_DETAIL_LEVEL_META: Record<
 > = {
   compact: { description: 'Tool calls only', label: 'Compact' },
   developer: {
-    description: 'Memory/context activity + raw tool I/O',
+    description: 'Context activity + raw tool I/O',
     label: 'Developer',
   },
   standard: { description: 'Tool calls + result summaries', label: 'Standard' },
@@ -48,7 +48,7 @@ export interface ToolDisplayPolicy {
 /**
  * Map the Detail level to concrete tool-card rendering decisions. Pure verbosity
  * axis — it never depends on the tool's origin (every tool call is something the
- * user may care about; "internal" noise is the memory/context background
+ * user may care about; "internal" noise is the context background
  * activity, handled by `shouldShowBackgroundActivity`, not the tool cards).
  */
 export function resolveToolDisplayPolicy(level: AssistantDetailLevel): ToolDisplayPolicy {
@@ -81,8 +81,8 @@ export function resolveToolDisplayPolicy(level: AssistantDetailLevel): ToolDispl
 }
 
 /**
- * Whether the thread shows the memory/context "background activity" run-event
- * rows (observational memory, context prep, run steps). Hidden
+ * Whether the thread shows the context "background activity" run-event
+ * rows (context prep, run steps). Hidden
  * everywhere except Developer — by default the thread is just the grouped tool
  * calls + the answer, not a flood of internal bookkeeping.
  */

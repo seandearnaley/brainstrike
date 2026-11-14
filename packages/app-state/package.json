@@ -34,7 +34,6 @@
     "./notifications/should-notify": "./src/notifications/should-notify.ts",
     "./stores/assistant-budget-preferences-store": "./src/stores/assistant-budget-preferences-store.ts",
     "./stores/assistant-subagent-preferences-store": "./src/stores/assistant-subagent-preferences-store.ts",
-    "./stores/assistant-memory-preferences-store": "./src/stores/assistant-memory-preferences-store.ts",
     "./stores/assistant-preferences-store": "./src/stores/assistant-preferences-store.ts",
     "./stores/assistant-preferences-store-version": "./src/stores/assistant-preferences-store-version.ts",
     "./stores/context-explorer-layout-store": "./src/stores/context-explorer-layout-store.ts",

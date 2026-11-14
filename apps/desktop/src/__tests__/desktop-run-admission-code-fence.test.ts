@@ -37,7 +37,9 @@ async function offered(): Promise<{
   const selected = await createDesktopRunAdmission(
     mainReads({ liveWorkspaceRoots: async () => [alpha] }),
     async () => undefined,
-    everyRootTrusted
+    everyRootTrusted,
+    // ADR-0040: these folders have no project, so no project memory.
+    async () => undefined
   ).readConfiguration(send());
   try {
     return {

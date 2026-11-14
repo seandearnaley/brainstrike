@@ -21,8 +21,11 @@ import {
   DebugBundleProvider,
   EditCheckpointProvider,
   GenerationDetailsProvider,
+  type ProjectMemoryUndo,
+  ProjectMemoryUndoProvider,
   RunVerdictProvider,
   SubagentChildRunContext,
+  type ThreadCompaction,
   useRewindContext,
 } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -41,7 +44,6 @@ import type { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import {
   type CommittedHostConversation,
   createCommittedHostConversation,
-  hostRunSettings,
 } from './committed-host-conversation';
 import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
@@ -68,7 +70,6 @@ import {
   useDesktopHostPresentation,
 } from './use-desktop-host-presentation';
 import { useHostLastTurn } from './use-host-last-turn';
-import { useHostMemorySegment, withMemoryGate } from './use-host-memory-segment';
 import { useHostThreadSelection } from './use-host-thread-selection';
 import { useHostThreadUsage } from './use-host-thread-usage';
 import { withFoldersGate } from './with-folders-gate';
@@ -254,7 +255,7 @@ function HostThread({
   // ADR-0034: a run names the Explorer's focus only while this thread can see that folder.
   const readSelectionFolderId = () =>
     threadSelectionFolderId(explorer.getState(), listedThreadFolders(threadId));
-  const { catalogKey, readConfiguration, readModelId, readPlanMode, ...presentation } =
+  const { readConfiguration, readModelId, readPlanMode, ...presentation } =
     useDesktopHostPresentation(threadId, selection, readSelectionFolderId, providerReadErrors);
   const configuration = useRef(readConfiguration);
   const modelId = useRef(readModelId);
@@ -289,26 +290,7 @@ function HostThread({
   // A root thread's "Restore to before this message" goes to its owner (the
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();
-  // The meter's memory segment and the memory send gate: what admission would
-  // answer for the run the next send starts.
-  const planModeEnabled = presentation.planMode?.enabled === true;
-  const readMemoryRequest = () => ({
-    ...hostRunSettings({
-      modelId: '',
-      readConfiguration: () => readConfiguration(readSelectionFolderId()),
-      readModelId,
-      readPlanMode: () => planModeEnabled,
-    }),
-    threadId,
-  });
   const reopening = useThreadFoldersReopening(threadId);
-  const memory = useHostMemorySegment({
-    blocked: presentation.isComposerDisabled === true,
-    catalog: catalogKey,
-    client,
-    readRequest: readMemoryRequest,
-    source: conversation?.source,
-  });
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
   const effects = useCommittedEffectCount(conversation);
@@ -347,6 +329,32 @@ function HostThread({
     }
     return createHostDebugBundleBinding(client, threadId, diagnostics);
   }, [client, threadId]);
+  // ADR-0040: a memory card's Undo asks the host, which restores what the write replaced.
+  const undoMemory = useMemo<ProjectMemoryUndo>(
+    () =>
+      async ({ runId, toolCallId }) => {
+        await client.request('memory/undo', {
+          commandId: crypto.randomUUID(),
+          runId,
+          threadId,
+          toolCallId,
+        });
+      },
+    [client, threadId]
+  );
+  // BST-2536: Compact now asks the host to compact the branch the view ends with.
+  const compact = useMemo<ThreadCompaction>(
+    () =>
+      async ({ focus, parentMessageId }) => {
+        await client.request('thread/compact', {
+          commandId: crypto.randomUUID(),
+          ...(focus === undefined ? {} : { focus }),
+          parentMessageId,
+          threadId,
+        });
+      },
+    [client, threadId]
+  );
   // A waiting file approval's card reads the change from the host (ADR-0036).
   const readApprovalChange = useMemo(
     () => (conversation ? hostApprovalChange(client, conversation) : null),
@@ -357,52 +365,51 @@ function HostThread({
       <div className="flex h-full min-h-0 flex-col">
         {child ? <HostChildDetails key={threadId} source={conversation.source} /> : null}
         <div className="min-h-0 flex-1">
-          <CommittedCheckpoints checkpoints={conversation.checkpoints}>
-            <CommittedVerdicts verdicts={conversation.verdicts}>
-              <GenerationDetailsProvider value={generations}>
-                <BudgetGuardrailProvider value={budgetGuardrail}>
-                  <DebugBundleProvider value={debugBundle}>
-                    <HostApprovalHistoryProvider tree={conversation.approvals}>
-                      {/* Each delegation card reads its child's run from the tree's own follow of the child's log. */}
-                      <SubagentChildRunContext value={conversation.approvals}>
-                        <ApprovalChangeProvider value={readApprovalChange}>
-                          <HostChildConversations revision={effects} threadId={threadId}>
-                            <ChildChangesGate child={child}>
-                              <CommittedAssistantConversation
-                                {...withFoldersGate(
-                                  withMemoryGate(presentation, memory),
-                                  reopening
-                                )}
-                                {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
-                                agentColor={conversationColor}
-                                approvalStrip={
-                                  <HostApprovalStrip
-                                    client={client}
-                                    self={child ? label : undefined}
-                                    tree={conversation.approvals}
-                                  />
-                                }
-                                commands={conversation.commands}
-                                {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                                label={label}
-                                onRunningChange={onRunningChange}
-                                onSendActiveInput={child ? conversation.sendInput : undefined}
-                                onSteer={conversation.steer}
-                                {...(reconnect === undefined ? {} : { reconnect })}
-                                rewind={child ? null : rewind}
-                                store={conversation.store}
-                                workspaceBar={workspaceBar(child, threadId)}
-                              />
-                            </ChildChangesGate>
-                          </HostChildConversations>
-                        </ApprovalChangeProvider>
-                      </SubagentChildRunContext>
-                    </HostApprovalHistoryProvider>
-                  </DebugBundleProvider>
-                </BudgetGuardrailProvider>
-              </GenerationDetailsProvider>
-            </CommittedVerdicts>
-          </CommittedCheckpoints>
+          <ProjectMemoryUndoProvider undo={undoMemory}>
+            <CommittedCheckpoints checkpoints={conversation.checkpoints}>
+              <CommittedVerdicts verdicts={conversation.verdicts}>
+                <GenerationDetailsProvider value={generations}>
+                  <BudgetGuardrailProvider value={budgetGuardrail}>
+                    <DebugBundleProvider value={debugBundle}>
+                      <HostApprovalHistoryProvider tree={conversation.approvals}>
+                        {/* Each delegation card reads its child's run from the tree's own follow of the child's log. */}
+                        <SubagentChildRunContext value={conversation.approvals}>
+                          <ApprovalChangeProvider value={readApprovalChange}>
+                            <HostChildConversations revision={effects} threadId={threadId}>
+                              <ChildChangesGate child={child}>
+                                <CommittedAssistantConversation
+                                  {...withFoldersGate(presentation, reopening)}
+                                  agentColor={conversationColor}
+                                  approvalStrip={
+                                    <HostApprovalStrip
+                                      client={client}
+                                      self={child ? label : undefined}
+                                      tree={conversation.approvals}
+                                    />
+                                  }
+                                  commands={conversation.commands}
+                                  compact={child ? undefined : compact}
+                                  {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                                  label={label}
+                                  onRunningChange={onRunningChange}
+                                  onSendActiveInput={child ? conversation.sendInput : undefined}
+                                  onSteer={conversation.steer}
+                                  {...(reconnect === undefined ? {} : { reconnect })}
+                                  rewind={child ? null : rewind}
+                                  store={conversation.store}
+                                  workspaceBar={workspaceBar(child, threadId)}
+                                />
+                              </ChildChangesGate>
+                            </HostChildConversations>
+                          </ApprovalChangeProvider>
+                        </SubagentChildRunContext>
+                      </HostApprovalHistoryProvider>
+                    </DebugBundleProvider>
+                  </BudgetGuardrailProvider>
+                </GenerationDetailsProvider>
+              </CommittedVerdicts>
+            </CommittedCheckpoints>
+          </ProjectMemoryUndoProvider>
         </div>
         {/* Core-owned MCP input: the dialog portals; status and alerts sit under the conversation. */}
         <CommittedHostMcpInputView input={conversation.mcpInput} />

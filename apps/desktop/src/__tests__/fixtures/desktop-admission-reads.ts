@@ -1,29 +1,23 @@
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-} from '@brainstrike/assistant-contract';
+import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 import type {
   DesktopAdmissionReads,
   DesktopTrustedRoots,
 } from '../../agent-host-platform/desktop-run-admission';
 
-type MemorySettings = typeof DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS;
 const CapturedIntentSchema = z.record(z.string(), z.json());
 /** A run's captured intent, as JSON the host protocol carries. */
 export type CapturedIntent = z.output<typeof CapturedIntentSchema>;
 
 /**
  * The intent a composer captures for a run, as `run/start` carries it: the
- * model, no native tools, Skills and workspace instructions off, and memory
- * off unless a scenario turns part of it on.
+ * model, no native tools, and Skills and workspace instructions off.
  */
 export function capturedIntent(options: {
-  readonly agentLoop?: { readonly inputTokenLimit?: number; readonly maxSteps?: number };
-  readonly memorySettings?: {
-    readonly observationalMemory?: Partial<MemorySettings['observationalMemory']>;
+  readonly agentLoop?: {
+    readonly compactionTokenCap?: number;
+    readonly inputTokenLimit?: number;
+    readonly maxSteps?: number;
   };
   readonly model: string;
   readonly provider: string;
@@ -31,18 +25,6 @@ export function capturedIntent(options: {
   return CapturedIntentSchema.parse({
     ...(options.agentLoop ? { agentLoop: options.agentLoop } : {}),
     enabledNativeToolIds: [],
-    memoryOptions: {
-      lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-      workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-    },
-    memorySettings: {
-      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-      observationalMemory: {
-        ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-        enabled: false,
-        ...options.memorySettings?.observationalMemory,
-      },
-    },
     modelConfiguration: { model: options.model, provider: options.provider },
     permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
     skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
@@ -52,14 +34,13 @@ export function capturedIntent(options: {
 
 /**
  * Main's reads for a scenario's profile (BST-1930 stage e): every catalog
- * model enabled, no observer candidates, no roots and no worktree service,
- * unless the scenario says otherwise.
+ * model enabled, no roots and no worktree service, unless the scenario says
+ * otherwise.
  */
 export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): DesktopAdmissionReads {
   return {
     acquireWorkspace: () => Promise.reject(new Error('This scenario binds no workspace')),
     catalogModel: async ({ provider }) => ({ isEnabled: true, providerId: provider, type: 'llm' }),
-    enabledObservers: async () => [],
     liveWorkspaceRoots: async () => [],
     ...overrides,
   };

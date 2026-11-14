@@ -45,8 +45,8 @@ export function CostAggregationPanelView({ state }: CostAggregationPanelViewProp
       <CardHeader>
         <CardTitle>Cost by workspace</CardTitle>
         <CardDescription>
-          Every recorded model call, memory and subagents included, grouped by the folder its thread
-          worked in. A worktree is named after its repository and branch.
+          Every recorded model call, subagents included, grouped by the folder its thread worked in.
+          A worktree is named after its repository and branch.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4" data-testid="cost-aggregation-panel">

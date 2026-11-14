@@ -177,7 +177,7 @@ test.each(
           },
           tool(request.toolCallId, request.toolName, { ok: true }),
           { text: 'Canvas created.', type: 'text' as const },
-          tool('working-memory', 'updateWorkingMemory', { ok: true }),
+          tool('search-tools', 'search_tools', { ok: true }),
           { text: 'Continue independent work.', type: 'text' as const },
           tool('running-sibling', 'brainstrike.readWorkspaceFile'),
         ],

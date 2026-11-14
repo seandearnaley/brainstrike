@@ -1,6 +1,7 @@
 /**
  * What a project section of the Threads panel can do (ADR-0034 build decisions): name its
- * project, move its folder into another project the panel lists, and locate a folder that moved.
+ * project, move its folder into another project the panel lists, locate a folder that moved, and
+ * open the project's Memory (BST-2534).
  * Each change goes to the host's root registry, the one writer, and the panel reads the folder
  * rows again once it committed (`notifyRootRecordsChanged`), so the sections regroup.
  *
@@ -12,8 +13,13 @@ import {
   isBoundaryFailureError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { type ThreadListView, threadFolderSectionLabel } from '@brainstrike/assistant-data';
+import type { ProjectMemoryPanelNotes } from '@brainstrike/assistant-ui';
 import { createContext, useContext, useState } from 'react';
-import type { AssistantHostProjects } from './assistant-thread-host-context';
+import type {
+  AssistantHostProjects,
+  ThreadProjectFolder,
+  ThreadProjectRef,
+} from './assistant-thread-host-context';
 import { notifyRootRecordsChanged } from './roots/root-registration-events';
 
 /** A project the panel lists, by the name its section shows. */
@@ -26,12 +32,34 @@ export interface ThreadProjectChoice {
 export interface ThreadProjectActions {
   /** Clears the refusal shown, once the form it answered is closed. */
   readonly dismiss: () => void;
-  readonly join: (rootId: string, projectId: string) => Promise<boolean>;
+  readonly join: (folder: ThreadProjectFolder, projectId: string) => Promise<boolean>;
   /** Every project the panel lists now, in its order. */
   readonly listed: readonly ThreadProjectChoice[];
   /** Null where a located folder could not be shown in the Explorer (no mount by path). */
   readonly locate: ((rootId: string) => Promise<boolean>) | null;
-  readonly rename: (projectId: string, name: string) => Promise<boolean>;
+  /** BST-2534: opens the project's Memory panel. */
+  readonly openMemory: (project: ThreadProjectMemoryTarget) => void;
+  readonly rename: (project: ThreadProjectRef, name: string) => Promise<boolean>;
+}
+
+/** The project whose Memory panel opens, and the control focus goes back to when it closes. */
+export interface ThreadProjectMemoryTarget {
+  readonly label: string;
+  readonly projectId: string;
+  readonly trigger: HTMLElement | null;
+}
+
+/**
+ * The Threads panel's one Memory panel: the project it shows, whether it is open, and that
+ * project's notes. Each opening is counted, so the panel mounts afresh and reads the notes; it
+ * stays mounted once closed, so it closes as any dialog does.
+ */
+export interface ThreadProjectMemory {
+  readonly notes: ProjectMemoryPanelNotes;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly open: boolean;
+  readonly opening: number;
+  readonly project: ThreadProjectMemoryTarget;
 }
 
 export const ThreadProjectActionsContext = createContext<ThreadProjectActions | null>(null);
@@ -80,14 +108,22 @@ export function usePanelProjectActions({
   readonly projects: AssistantHostProjects | undefined;
   readonly showFolder: ((path: string) => Promise<unknown>) | undefined;
   readonly view: ThreadListView;
-}): { readonly actions: ThreadProjectActions | null; readonly error: string | null } {
+}): {
+  readonly actions: ThreadProjectActions | null;
+  readonly error: string | null;
+  readonly memory: ThreadProjectMemory | null;
+} {
   const [error, setError] = useState<string | null>(null);
+  const [memory, setMemory] = useState<Pick<
+    ThreadProjectMemory,
+    'open' | 'opening' | 'project'
+  > | null>(null);
   if (!projects || view.kind !== 'folders') {
     // A refusal answered a project action: it goes with Project grouping, and does not come back.
     if (error !== null) {
       setError(null);
     }
-    return { actions: null, error: null };
+    return { actions: null, error: null, memory: null };
   }
   const settle = async (change: () => Promise<void>): Promise<boolean> => {
     setError(null);
@@ -106,7 +142,7 @@ export function usePanelProjectActions({
   return {
     actions: {
       dismiss: () => setError(null),
-      join: (rootId, projectId) => settle(() => projects.join(rootId, projectId)),
+      join: (folder, projectId) => settle(() => projects.join(folder, projectId)),
       listed: listedProjects(view),
       locate: showFolder
         ? (rootId) =>
@@ -117,8 +153,15 @@ export function usePanelProjectActions({
               }
             })
         : null,
-      rename: (projectId, name) => settle(() => projects.rename(projectId, name)),
+      openMemory: (project) =>
+        setMemory((shown) => ({ open: true, opening: (shown?.opening ?? 0) + 1, project })),
+      rename: (project, name) => settle(() => projects.rename(project, name)),
     },
     error,
+    memory: memory && {
+      ...memory,
+      notes: projects.memory(memory.project.projectId),
+      onOpenChange: (open) => setMemory({ ...memory, open }),
+    },
   };
 }

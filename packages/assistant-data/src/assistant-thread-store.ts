@@ -804,10 +804,10 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         repository: AssistantThreadCatalogRepository,
         resourceId: string
       ): Promise<void> => {
-        // Re-list already-loaded threads so titles set out-of-band (the
-        // observational-memory thread-title extractor names threads as a run's
-        // observations run) become visible. Only refreshes a resource that has
-        // finished its initial load — ensureResourceThreads owns first load and
+        // Re-list already-loaded threads so titles set out-of-band (the host's
+        // title model names a thread from its prompt) become visible. Only
+        // refreshes a resource that has finished its initial load —
+        // ensureResourceThreads owns first load and
         // the empty-resource default-thread seed. Selection/open state is keyed
         // by id, which the merge preserves, so it is untouched here. Concurrent
         // refreshes apply in latest-successful-start order per resource: empty or

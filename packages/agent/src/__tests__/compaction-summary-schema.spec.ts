@@ -1,19 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import { hasCompactionSummarySchema } from '../compaction-summary-schema';
 
+const SECTIONS = [
+  'Goal: Ship X',
+  'Constraints: Keep the public API; no new dependencies',
+  'Decisions: Keep it small',
+  'Errors and fixes: The build failed on a missing import; added it',
+  'State: Ready',
+  'Next: Test',
+];
+
 describe('compaction summary section schema', () => {
   it.each([
-    {
-      name: 'inline',
-      text: 'Goal: Ship X\nState: Ready\nDecisions: Keep it small\nNext: Test\nFiles touched: src/a.ts',
-    },
+    { name: 'inline', text: SECTIONS.join('\n') },
     {
       name: 'newline',
-      text: 'Goal:\nShip X\nState:\nReady\nDecisions:\nKeep it small\nNext:\nTest\nFiles touched:\nsrc/a.ts',
+      text: SECTIONS.map((section) => section.replace(': ', ':\n')).join('\n'),
     },
     {
-      name: 'mixed',
-      text: 'Goal: Ship X\nState:\nReady\nDecisions: Keep it small\nNext:\nTest\nFiles touched: src/a.ts',
+      name: 'markdown headers',
+      text: SECTIONS.map((section) => `## ${section.replace(': ', '\n')}`).join('\n'),
+    },
+    // BST-2532: the run's own persona writes the summary, in its own style.
+    {
+      name: 'bold headers after a preamble, as the run’s persona writes them',
+      text: [
+        'Here is the summary of the conversation so far.',
+        '',
+        ...SECTIONS.map((section, index) =>
+          index % 2 === 0
+            ? `**${section.replace(': ', ':** ')}`
+            : `**${section.replace(': ', '**: ')}`
+        ),
+      ].join('\n'),
     },
   ])('accepts $name section content', ({ text }) => {
     expect(hasCompactionSummarySchema(text)).toBe(true);
@@ -22,15 +41,37 @@ describe('compaction summary section schema', () => {
   it('ignores an incidental duplicate header-shaped line in section prose', () => {
     expect(
       hasCompactionSummarySchema(
-        'Goal: Ship X\nState: Ready\nDecisions:\nNext: was also discussed here.\nNext: Test\nFiles touched: src/a.ts'
+        [
+          ...SECTIONS.slice(0, 4),
+          'State:\nNext: was also discussed here.',
+          ...SECTIONS.slice(5),
+        ].join('\n')
       )
     ).toBe(true);
   });
 
-  it.each([
-    'Goal: Ship X\nState: Ready\nDecisions: Keep it small\nNext: Test',
-    'Goal: Ship X\nNext: Test\nState: Ready\nDecisions: Keep it small\nFiles touched: src/a.ts',
-  ])('rejects a missing or out-of-order section', (text) => {
+  it.each(
+    SECTIONS.map((section, index) => ({
+      header: section.split(':')[0],
+      text: SECTIONS.filter((_, at) => at !== index).join('\n'),
+    }))
+  )('refuses a summary without $header', ({ text }) => {
     expect(hasCompactionSummarySchema(text)).toBe(false);
+  });
+
+  it('refuses sections out of order', () => {
+    expect(
+      hasCompactionSummarySchema(
+        [SECTIONS[0], SECTIONS[4], ...SECTIONS.slice(1, 4), SECTIONS[5]].join('\n')
+      )
+    ).toBe(false);
+  });
+
+  it('refuses the old five sections', () => {
+    expect(
+      hasCompactionSummarySchema(
+        'Goal: Ship X\nState: Ready\nDecisions: Keep it small\nNext: Test\nFiles touched: src/a.ts'
+      )
+    ).toBe(false);
   });
 });

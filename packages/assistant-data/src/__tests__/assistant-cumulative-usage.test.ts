@@ -64,7 +64,7 @@ describe('resolveCumulativeUsageDisplay', () => {
     });
   });
 
-  it('breaks the thread total down by source, flagging OM rows as estimates', () => {
+  it('breaks the thread total down by source, in kind order', () => {
     const display = resolveCumulativeUsageDisplay(
       usageOf(
         entry({
@@ -88,14 +88,14 @@ describe('resolveCumulativeUsageDisplay', () => {
           model: 'google/gemini-2.5-flash',
           outputTokens: 900,
           provider: 'openrouter',
-          runKind: 'om-observation',
+          runKind: 'thread-title',
         })
       )
     );
     expect(display?.bySource).toMatchObject([
-      { estimated: false, inputTokens: 1000, kind: 'chat', outputTokens: 200 },
-      { estimated: false, inputTokens: 300, kind: 'subagent', outputTokens: 40 },
-      { estimated: true, inputTokens: 24_000, kind: 'om-observation', outputTokens: 900 },
+      { inputTokens: 1000, kind: 'chat', outputTokens: 200 },
+      { inputTokens: 300, kind: 'subagent', outputTokens: 40 },
+      { inputTokens: 24_000, kind: 'thread-title', outputTokens: 900 },
     ]);
   });
 

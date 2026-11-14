@@ -29,7 +29,6 @@ describe('classifyToolName', () => {
 
 describe('classifyRunEvent', () => {
   it('classifies by kind and tool metadata', () => {
-    expect(classifyRunEvent('memory.working.loaded')).toBe('memory');
     expect(classifyRunEvent('tool.started', 'brainstrike.readWorkspaceFile')).toBe('internal');
     expect(classifyRunEvent('tool.completed', 'searchDocs')).toBe('mcp');
     expect(classifyRunEvent('run.step.started')).toBe('lifecycle');
@@ -42,7 +41,7 @@ describe('classifyRunEvent', () => {
 
 describe('categoryTintClasses', () => {
   it('returns distinct, non-empty class strings per category', () => {
-    const cats = ['memory', 'internal', 'mcp', 'lifecycle'] as const;
+    const cats = ['internal', 'mcp', 'lifecycle'] as const;
     const rails = cats.map((c) => categoryTintClasses(c).rail);
     expect(new Set(rails).size).toBe(cats.length);
     for (const c of cats) {

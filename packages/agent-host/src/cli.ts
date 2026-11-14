@@ -45,6 +45,7 @@ type CliStringOption =
   | 'credential-store'
   | 'data-root'
   | 'decision'
+  | 'focus'
   | 'from-seq'
   | 'content'
   | 'interaction'
@@ -120,6 +121,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'credential-store': { type: 'string' },
       'data-root': { type: 'string' },
       decision: { type: 'string' },
+      focus: { type: 'string' },
       'from-seq': { type: 'string' },
       help: { type: 'boolean' },
       interaction: { type: 'string' },
@@ -167,6 +169,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'threads list',
       'threads show',
       'threads search',
+      'threads compact',
       'workspace trust',
       'run',
       'attach',
@@ -391,6 +394,23 @@ function cliThreadSearch(
 ): HostParams<'thread/search'> | undefined {
   return command === 'threads search' ? threadSearchParams(values) : undefined;
 }
+/**
+ * BST-2536: `threads compact` compacts the thread now, between runs: its
+ * summary, or with `--json` the committed event, as the line to print.
+ */
+async function compactCliThread(
+  client: SocketHostClient,
+  commandId: string,
+  values: HostCliArguments['values'],
+  threadId: string
+): Promise<string> {
+  const compacted = await client.request('thread/compact', {
+    commandId,
+    ...(values.focus === undefined ? {} : { focus: values.focus }),
+    threadId,
+  });
+  return `${values.json ? JSON.stringify(compacted) : compacted.summary}\n`;
+}
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
@@ -407,6 +427,7 @@ attach --thread <id> [--run <id>] [--json] [--interactive]
 threads list
 threads show --thread <id> [--from-seq <n>]
 threads search --query <text> [--scope-root <id>] [--since <iso>] [--until <iso>] [--limit <n>]
+threads compact --thread <id> [--focus <text>] [--json]
 host start | host status | host stop
 thread start | thread read --thread <id>
 run start --thread <id> --model <id> --prompt <text>
@@ -440,6 +461,10 @@ from the composer or Settings > Workspace Trust.
 threads search is lexical: words in committed messages and thread titles, fused into one
 ranked list; with no thread holding every word, it matches any word and says so. --scope-root
 keeps threads bound to that workspace root; --since/--until bound message times.
+threads compact summarizes the thread's earlier turns and steps now, between runs; its next run
+starts from the summary. --focus says what the summary should keep (up to 500 characters). It
+prints the summary, or with --json the committed context.compacted event. A delegated child thread
+is refused; a refusal commits nothing.
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
 Standalone hosts use an explicit --model provider::model from the canonical catalog.
@@ -556,6 +581,9 @@ Run signals stop and join its execution; attach signals detach.
         break;
       case 'threads list':
         print(await client.request('thread/list', {}));
+        break;
+      case 'threads compact':
+        output.write(await compactCliThread(client, commandId, values, threadId()));
         break;
       case 'thread read':
       case 'threads show':

@@ -41,12 +41,20 @@ test('startup cancellation fences an authenticated pending decision before publi
       await acknowledged.promise;
     }
   };
+  const writeTool = {
+    description: 'Real write after a committed approval',
+    execute: async () => {
+      await writeFile(join(root, 'must-not-execute'), 'unfenced startup');
+      return { wrote: true };
+    },
+    identity: 'native',
+    inputSchema: z.object({ text: z.string() }),
+    risk: 'edit' as const,
+  };
   const opening = startAgentHost(
     { lifetime: 'persistent', root },
     {
-      close: () => joined.promise,
-      maxSteps: 3,
-      openRun: async ({ signal }) => {
+      admitRun: async ({ signal }) => {
         signal.addEventListener(
           'abort',
           () => {
@@ -54,22 +62,18 @@ test('startup cancellation fences an authenticated pending decision before publi
           },
           { once: true }
         );
-        return { close: async () => undefined };
+        return {
+          configuration: {},
+          model: scriptedModel('write_file'),
+          snapshot: { configuration: {}, maxSteps: 3, toolIdentities: { write_file: 'native' } },
+          tools: { write_file: writeTool },
+        };
       },
+      close: () => joined.promise,
+      maxSteps: 3,
       readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
       resolveModel: async () => scriptedModel('write_file'),
-      tools: {
-        write_file: {
-          description: 'Real write after a committed approval',
-          execute: async () => {
-            await writeFile(join(root, 'must-not-execute'), 'unfenced startup');
-            return { wrote: true };
-          },
-          identity: 'native',
-          inputSchema: z.object({ text: z.string() }),
-          risk: 'edit',
-        },
-      },
+      tools: { write_file: writeTool },
     },
     controller.signal
   );

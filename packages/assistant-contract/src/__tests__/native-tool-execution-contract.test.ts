@@ -42,6 +42,11 @@ const examples: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
     tasks: [{ activeForm: 'Checking', content: 'Check', status: 'pending' }],
   },
   'brainstrike.manageWorktree': { action: 'create', branch: 'codex/fixture' },
+  'brainstrike.memory': {
+    command: 'create',
+    file_text: '# Test runtime\nThe tests need Node 26.\n',
+    path: '/memories/test-runtime.md',
+  },
   'brainstrike.queryDiagnostics': { mode: 'events' },
   'brainstrike.readToolOutputArtifact': { cursor },
   'brainstrike.readWorkspaceContext': { filePaths: ['src/a.ts'] },

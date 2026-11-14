@@ -16,6 +16,7 @@ import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   AUTO_REVIEW_MODEL_AUTO,
   type PermissionToolGateSnapshot,
+  resolveContextCompactionTokenCap,
   resolveQuickModelTarget,
 } from '@brainstrike/assistant-contract';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
@@ -23,18 +24,6 @@ import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.ts';
 import { createMcpHostToolAdapter } from './adapters/mcp.ts';
-import type { HostMemory } from './adapters/memory.ts';
-import { hostMemoryTools } from './adapters/memory-tools.ts';
-import {
-  admittedMemoryModels,
-  type HostObservationSource,
-  nativeObservationSource,
-  readHostObservation,
-} from './adapters/observation-state.ts';
-import {
-  StateStoreHostMemory,
-  type StateStoreHostMemoryOptions,
-} from './adapters/state-store-host-memory.ts';
 import { withHostDelegationTools } from './child-runs.ts';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.ts';
 import { catalogModel } from './ledger-projection.ts';
@@ -46,12 +35,10 @@ import type {
   HostReviewModel,
   HostRunAdmission,
   HostRunAdmissionRequest,
-  HostRunContext,
   HostRunHooks,
-  HostRunIntentRequest,
   HostTool,
 } from './ports.ts';
-import type { HostMemoryModels, HostObserverAwaitingReason, HostRunSnapshot } from './protocol.ts';
+import type { HostRunSnapshot } from './protocol.ts';
 import { prepareHostProviderTools } from './provider-schema-selection.ts';
 import type { HostStartupContext } from './runtime.ts';
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
@@ -62,6 +49,11 @@ export interface ProductionHostRunConfiguration {
   readonly childSystem?: string | undefined;
   /** Borrowed platform capabilities remain owned until every run tail joins. */
   readonly close?: () => Promise<void>;
+  /**
+   * BST-2539: the compaction cap the person set (desktop's
+   * `agentLoop.compactionTokenCap`); absent, the admission uses the default.
+   */
+  readonly compactionTokenCap?: number | undefined;
   readonly configuration: RuntimeData;
   /** BST-1932: the personas and subagent limits this admission may delegate with. */
   readonly delegation?: HostDelegation | undefined;
@@ -71,10 +63,6 @@ export interface ProductionHostRunConfiguration {
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
   readonly maxSteps: number;
-  readonly memory: Omit<StateStoreHostMemoryOptions, 'store' | 'providerRequestContext'> & {
-    /** Observational memory is on but waits for an observer this admission can run. */
-    readonly observerAwaiting?: HostObserverAwaitingReason;
-  };
   readonly providerRequestContext: ProviderRequestContext;
   readonly readPromptContext?: HostRunAdmission['readPromptContext'];
   readonly referencedFileFailures?: HostRunAdmission['referencedFileFailures'];
@@ -86,30 +74,6 @@ export interface ProductionHostRunConfiguration {
   readonly tools: Readonly<Record<string, HostTool>>;
   readonly toolTimeoutMs: number;
 }
-/**
- * The admission's pure preconditions for a request: the selection, observer
- * resolution and memory credentials `readConfiguration`
- * itself checks first, with no acquisition. A failure is the reason
- * `run/start` would fail with.
- */
-export type HostMemoryPreconditions =
-  | {
-      readonly ready: false;
-      readonly reason: string;
-    }
-  | {
-      readonly observation: HostObservationSource;
-      readonly ready: true;
-    };
-/**
- * thread/memory/read's platform answer: the preconditions, and once they pass,
- * the observer the run they admit would use (BST-2201).
- */
-export type HostMemoryReadiness =
-  | Extract<HostMemoryPreconditions, { readonly ready: false }>
-  | (Extract<HostMemoryPreconditions, { readonly ready: true }> & {
-      readonly models: HostMemoryModels;
-    });
 export interface ProductionHostPlatformOptions {
   /** Core's thread reads, for the platform services that ask which runs are live. */
   readonly attachThreadReads?: HostPlatform['attachThreadReads'];
@@ -142,13 +106,11 @@ export interface ProductionHostPlatformOptions {
   readonly mcpPresentation?: HostPlatform['mcpPresentation'];
   /** The desktop's MCP settings authority (BST-1930 c5a). */
   readonly mcpSettings?: HostPlatform['mcpSettings'];
+  /** ADR-0040: the project memory files, for Undo. */
+  readonly projectMemory?: HostPlatform['projectMemory'];
   /** Provider reads from the same credential store. */
   readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
-  /** thread/memory/read's preconditions; absent where the host has no composer. */
-  readonly readMemoryPreconditions?: (
-    request: HostRunIntentRequest
-  ) => Promise<HostMemoryReadiness>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -288,7 +250,7 @@ async function closeMcpAdmission(
     throw new AggregateError(failures, 'Production MCP admission cleanup failed');
   }
 }
-/** Native catalog, MCP and native Memory tools share one identity namespace. */
+/** Native catalog and MCP tools share one identity namespace. */
 function mergeToolCatalogs(
   ...catalogs: readonly Readonly<Record<string, HostTool>>[]
 ): Record<string, HostTool> {
@@ -303,25 +265,6 @@ function mergeToolCatalogs(
   }
   return merged;
 }
-/**
- * BST-1932: the shipped child Memory. A run that withholds working memory
- * (a read-only persona's child) keeps every other Memory option.
- */
-export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOptions, 'native'>>(
-  memory: Memory,
-  context: Pick<HostRunContext, 'workingMemory'>
-): Memory {
-  if (context.workingMemory !== false) {
-    return memory;
-  }
-  return {
-    ...memory,
-    native: {
-      ...memory.native,
-      options: { ...memory.native.options, workingMemory: { enabled: false } },
-    },
-  };
-}
 type ProductionClientService =
   | 'auth'
   | 'fileReads'
@@ -335,6 +278,12 @@ type ProductionClientService =
   | 'providers'
   | 'terminals'
   | 'workspaceDiscovery';
+/** ADR-0040: the memory files Undo restores through, where the platform keeps project memory. */
+function productionProjectMemory(
+  options: Pick<ProductionHostPlatformOptions, 'projectMemory'>
+): Pick<HostPlatform, 'projectMemory'> {
+  return options.projectMemory ? { projectMemory: options.projectMemory } : {};
+}
 /** The services clients call on the host directly; each is absent where the platform has none. */
 function productionClientServices(
   options: Pick<ProductionHostPlatformOptions, ProductionClientService>
@@ -355,12 +304,10 @@ function productionClientServices(
   };
 }
 /**
- * The host learns a thread's model from the composer's memory read, sent when
- * the thread opens and when its model changes, and at the latest from the run's
- * admission. A model measured with a local tokenizer starts the token counter
- * worker then, so the worker's start and encoder load run beside the person's
- * typing or the admission, not inside the first provider request (BST-2437,
- * BST-2438).
+ * The host learns a thread's model from the run's admission. A model measured
+ * with a local tokenizer starts the token counter worker then, so the worker's
+ * start and encoder load run beside the admission, not inside the first
+ * provider request (BST-2437, BST-2438).
  */
 function startModelTokenCounter(modelId: string): void {
   const selected = catalogModel(modelId);
@@ -371,33 +318,6 @@ function startModelTokenCounter(modelId: string): void {
   ) {
     startTokenCounter();
   }
-}
-/** thread/memory/read: the preconditions, then the observation record they locate. */
-function productionMemoryReadiness(
-  options: Pick<ProductionHostPlatformOptions, 'readMemoryPreconditions' | 'startup'>
-): Pick<HostPlatform, 'readMemoryReadiness'> {
-  const { readMemoryPreconditions: read } = options;
-  if (!read) {
-    return {};
-  }
-  return {
-    readMemoryReadiness: async (request, threadId) => {
-      startModelTokenCounter(request.modelId);
-      const preconditions = await read(request);
-      if (!preconditions.ready) {
-        return { admission: { ready: false, reason: preconditions.reason } };
-      }
-      return {
-        admission: { ready: true },
-        models: preconditions.models,
-        observational: await readHostObservation(
-          options.startup.store,
-          preconditions.observation,
-          threadId
-        ),
-      };
-    },
-  };
 }
 type ProductionConfiguration = Omit<ProductionHostPlatformOptions, 'startup'>;
 interface StagedProductionOptions<Configuration extends ProductionConfiguration> {
@@ -490,7 +410,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       throw cause;
     }
   };
-  // Register ownership before the first provider, Memory, MCP or index side effect.
+  // Register ownership before the first provider, MCP or index side effect.
   await input.startup.register(close);
   // The same owner starts the worker before evaluating desktop configuration.
   stateIndex = openHostStateIndex(input.startup.store.root, input.startup);
@@ -587,30 +507,13 @@ export async function createProductionHostPlatform<Configuration extends Product
         const model = await admittedModel(options, selected, auth);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
-        // BST-1932: a delegated child opens its own run on this admission, so
-        // each run's Memory owner is kept by its run ID.
-        const opened = new Map<string, Promise<StateStoreHostMemory>>();
-        const runMemory = async (runId: string): Promise<HostMemory> => {
-          const owner = await opened.get(runId);
-          if (owner?.memory.identity.runId !== runId) {
-            throw new Error('Memory tool call has no Memory owner for its run');
-          }
-          return owner.memory;
-        };
-        const { observerAwaiting, ...memory } = selected.memory;
-        const observation = nativeObservationSource(memory, observerAwaiting);
-        const authoredTools = mergeToolCatalogs(
-          selected.tools,
-          acquired?.mcp.tools ?? {},
-          hostMemoryTools(memory.native, runMemory)
-        );
+        const authoredTools = mergeToolCatalogs(selected.tools, acquired?.mcp.tools ?? {});
         const admittedTools = withHostDelegationTools(authoredTools, selected.delegation);
         // Hosted providers defer tools behind the legacy catalog search, over this run's committed steps.
         const discovery = await createHostToolDiscovery({
           modelId: request.modelId,
           provider: selected.providerRequestContext.provider,
-          readRunMessages: (run) =>
-            committedRunMessages(options.startup.store, selected.memory.resourceId, run),
+          readRunMessages: (run) => committedRunMessages(options.startup.store, run),
           tools: admittedTools,
         });
         // One run-bound registry supplies SDK declarations and approval/restart
@@ -626,31 +529,20 @@ export async function createProductionHostPlatform<Configuration extends Product
             : {}),
           childSystem: selected.childSystem,
           close: release,
+          // The person's cap, else the default, beside the input budget (BST-2526, BST-2539).
+          compactionTokenCap: resolveContextCompactionTokenCap(selected.compactionTokenCap),
           configuration: selected.configuration,
           delegation: selected.delegation,
           ...(discovery ? { discovery: discovery.discovery } : {}),
-          // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hookSkips: selected.hookSkips,
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
-          memoryModels: admittedMemoryModels(observation, memory.observerModelId),
           model,
           ...admittedPromptFields(selected),
           resolvedToolResultBudget: selected.resolvedToolResultBudget,
           reviewModel: admittedReviewModel(options, selected, provider),
           ...admittedNativeWebSearch(provider, auth),
-          openRun: (context) => {
-            const owner = StateStoreHostMemory.open(context, {
-              ...hostRunMemoryOptions(memory, context),
-              providerRequestContext: () => selected.providerRequestContext,
-              // Core keeps every run and its admission; a closed owner leaves this map.
-              released: () => opened.delete(context.runId),
-              store: options.startup.store,
-            });
-            opened.set(context.runId, owner);
-            return owner;
-          },
           provider: {
             prepare: async ({ configuration, messages, signal }) => {
               signal.throwIfAborted();
@@ -674,8 +566,7 @@ export async function createProductionHostPlatform<Configuration extends Product
               };
             },
           },
-          readObservation: (threadId) =>
-            readHostObservation(options.startup.store, observation, threadId),
+          providerRequest: selected.providerRequestContext,
           snapshot: {
             configuration: selected.durableConfiguration,
             maxSteps: selected.maxSteps,
@@ -709,11 +600,11 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...(options.childConfiguration ? { childConfiguration: options.childConfiguration } : {}),
     ...(options.commandSessionExits ? { commandSessionExits: options.commandSessionExits } : {}),
     ...(options.idleWorktreeArchives ? { idleWorktreeArchives: options.idleWorktreeArchives } : {}),
-    ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.mcp ? { mcp: options.mcp } : {}),
     searchState: (request) => index.search(request),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
+    ...productionProjectMemory(options),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),
     ...(options.selectProjectionRewrites

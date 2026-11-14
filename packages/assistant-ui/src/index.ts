@@ -80,14 +80,6 @@ export {
   type ContextMapLinkValue,
   useContextMapLink,
 } from './context-map-link-context';
-export type {
-  MemoryCycleDisplay,
-  MemoryCyclesDisplay,
-  MemoryModelsDisplay,
-  OmAwaitingObserverReason,
-  OmMeterState,
-  OmRecordLifecycle,
-} from './context-usage-meter';
 export { CumulativeUsageSection, type CumulativeUsageSectionProps } from './context-usage-popover';
 export {
   resetContextUsageStore,
@@ -132,6 +124,20 @@ export {
   selectRewindComposerText,
 } from './message-rewind-action';
 export {
+  PROJECT_MEMORY_NOTE_DATA_NAME,
+  type ProjectMemoryNote,
+} from './project-memory-note';
+export {
+  ProjectMemoryNoteCard,
+  type ProjectMemoryUndo,
+  ProjectMemoryUndoProvider,
+} from './project-memory-note-card';
+export {
+  ProjectMemoryPanel,
+  type ProjectMemoryPanelNote,
+  type ProjectMemoryPanelNotes,
+} from './project-memory-panel';
+export {
   type RewindComposerState,
   useRewindComposerStore,
 } from './rewind-composer-store';
@@ -164,6 +170,7 @@ export {
 } from './subagent-conversation-navigation';
 export { personaLabelForToolName } from './subagent-persona-label';
 export { SubagentsRunningStrip } from './subagents-running-strip';
+export type { ThreadCompaction } from './thread-compaction-context';
 export { ThreadContextReader } from './thread-context-reader';
 export {
   type ThreadMessageNavigation,

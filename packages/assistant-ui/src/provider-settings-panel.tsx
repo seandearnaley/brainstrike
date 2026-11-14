@@ -1,10 +1,12 @@
 import {
+  CONTEXT_COMPACTION_MIN_TOKEN_CAP,
   deriveEffectiveInputBudget,
   deriveMaxOutputTokensWithinBudget,
   getProviderDefinition,
   mergeOpenRouterAutoProfileModel,
   type OpenRouterAutoProfileModel,
   type OpenRouterModelMetadataLookup,
+  resolveContextCompactionTokenCap,
   resolveOpenRouterCodingMaxOutputTokens,
   resolveOpenRouterOutputWindow,
   resolveOpenRouterReasoningActive,
@@ -60,9 +62,6 @@ const AGENT_MAX_STEPS_MAX = SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max;
 const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
 const INPUT_TOKEN_LIMIT_MIN = 4096;
 const INPUT_TOKEN_LIMIT_MAX = 256_000;
-const MEMORY_LAST_MESSAGES_DEFAULT = 40;
-const MEMORY_LAST_MESSAGES_MIN = 0;
-const MEMORY_LAST_MESSAGES_MAX = 200;
 
 const OPENAI_SUMMARY_OPTIONS: Array<{
   value: OpenAiReasoningSummary | 'off';
@@ -235,7 +234,7 @@ function resolveOpenRouterModelLimits(
 
 function FieldRefusal({ id, message }: { id: string; message: string | undefined }) {
   return message ? (
-    <p className="text-destructive text-xs" id={id} role="alert">
+    <p className="text-destructive col-span-full text-xs" id={id} role="alert">
       {message}
     </p>
   ) : null;
@@ -244,17 +243,12 @@ function FieldRefusal({ id, message }: { id: string; message: string | undefined
 const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
   const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
   const inputTokenLimitEnabled = typeof settings.agentInputTokenLimit === 'number';
-  const memoryLastMessages = settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT;
-  const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
   const maxStepsErrorId = useId();
   const maxStepsHelpId = useId();
   const maxStepsInputId = useId();
   const inputTokenLimitErrorId = useId();
   const inputTokenLimitHelpId = useId();
   const inputTokenLimitInputId = useId();
-  const memoryErrorId = useId();
-  const memoryHelpId = useId();
-  const memoryInputId = useId();
   const maxSteps = useIntegerSettingField(
     maxStepsEnabled ? String(settings.agentMaxSteps) : '',
     { max: AGENT_MAX_STEPS_MAX, min: AGENT_MAX_STEPS_MIN, noun: 'steps' },
@@ -265,10 +259,13 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
     { max: INPUT_TOKEN_LIMIT_MAX, min: INPUT_TOKEN_LIMIT_MIN, noun: 'input tokens' },
     (value) => onUpdate({ agentInputTokenLimit: value })
   );
-  const memory = useIntegerSettingField(
-    String(memoryLastMessages),
-    { max: MEMORY_LAST_MESSAGES_MAX, min: MEMORY_LAST_MESSAGES_MIN, noun: 'messages' },
-    (value) => onUpdate({ memoryLastMessages: value })
+  const compactionCapErrorId = useId();
+  const compactionCapInputId = useId();
+  // Cleared, the cap returns to its default.
+  const compactionCap = useIntegerSettingField(
+    String(resolveContextCompactionTokenCap(settings.agentCompactionTokenCap)),
+    { min: CONTEXT_COMPACTION_MIN_TOKEN_CAP, noun: 'tokens' },
+    (value) => onUpdate({ agentCompactionTokenCap: value })
   );
 
   return (
@@ -277,112 +274,89 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
         <h3 className="text-foreground text-xs font-semibold">Agent context</h3>
         <p className="text-muted-foreground text-xs">Bounds for each agent run.</p>
       </div>
-      <div className="space-y-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="min-w-[160px] flex-1">
-            <Label className="text-foreground text-xs font-medium" htmlFor={maxStepsInputId}>
-              Max steps
-            </Label>
-            <p className="text-muted-foreground text-xs" id={maxStepsHelpId}>
-              Model steps per run. Without a custom limit, the default is 100.
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <Input
-              aria-describedby={`${maxStepsHelpId}${maxSteps.error ? ` ${maxStepsErrorId}` : ''}`}
-              aria-invalid={Boolean(maxSteps.error)}
-              className="h-9 w-28 min-w-0 shrink-0 text-sm"
-              disabled={disabled || !maxStepsEnabled}
-              id={maxStepsInputId}
-              inputMode="numeric"
-              max={AGENT_MAX_STEPS_MAX}
-              min={AGENT_MAX_STEPS_MIN}
-              placeholder="Default · 100"
-              type="number"
-              {...maxSteps.inputProps}
-            />
-            <Switch
-              aria-label="Limit agent steps"
-              checked={maxStepsEnabled}
-              disabled={disabled}
-              onCheckedChange={(checked) => {
-                maxSteps.revert();
-                onUpdate({ agentMaxSteps: checked ? AGENT_MAX_STEPS_DEFAULT : undefined });
-              }}
-            />
-          </div>
+      {/* One grid: every number field sits in one column, whether or not its row has a switch. */}
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-4">
+        <div className="min-w-0">
+          <Label className="text-foreground text-xs font-medium" htmlFor={maxStepsInputId}>
+            Max steps
+          </Label>
+          <p className="text-muted-foreground text-xs" id={maxStepsHelpId}>
+            Model steps per run. Without a custom limit, the default is 100.
+          </p>
         </div>
+        <Input
+          aria-describedby={`${maxStepsHelpId}${maxSteps.error ? ` ${maxStepsErrorId}` : ''}`}
+          aria-invalid={Boolean(maxSteps.error)}
+          className="h-9 w-28 min-w-0 text-sm"
+          disabled={disabled || !maxStepsEnabled}
+          id={maxStepsInputId}
+          inputMode="numeric"
+          max={AGENT_MAX_STEPS_MAX}
+          min={AGENT_MAX_STEPS_MIN}
+          placeholder="Default · 100"
+          type="number"
+          {...maxSteps.inputProps}
+        />
+        <Switch
+          aria-label="Limit agent steps"
+          checked={maxStepsEnabled}
+          disabled={disabled}
+          onCheckedChange={(checked) => {
+            maxSteps.revert();
+            onUpdate({ agentMaxSteps: checked ? AGENT_MAX_STEPS_DEFAULT : undefined });
+          }}
+        />
         <FieldRefusal id={maxStepsErrorId} message={maxSteps.error} />
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="min-w-[160px] flex-1">
-            <Label className="text-foreground text-xs font-medium" htmlFor={inputTokenLimitInputId}>
-              Input tokens
-            </Label>
-            <p className="text-muted-foreground text-xs" id={inputTokenLimitHelpId}>
-              Caps input tokens available to each model step.
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <Input
-              aria-describedby={`${inputTokenLimitHelpId}${inputTokenLimit.error ? ` ${inputTokenLimitErrorId}` : ''}`}
-              aria-invalid={Boolean(inputTokenLimit.error)}
-              className="h-9 w-28 min-w-0 shrink-0 text-sm"
-              disabled={disabled || !inputTokenLimitEnabled}
-              id={inputTokenLimitInputId}
-              inputMode="numeric"
-              max={INPUT_TOKEN_LIMIT_MAX}
-              min={INPUT_TOKEN_LIMIT_MIN}
-              placeholder="Off"
-              type="number"
-              {...inputTokenLimit.inputProps}
-            />
-            <Switch
-              aria-label="Limit input tokens"
-              checked={inputTokenLimitEnabled}
-              disabled={disabled}
-              onCheckedChange={(checked) => {
-                inputTokenLimit.revert();
-                onUpdate({ agentInputTokenLimit: checked ? INPUT_TOKEN_LIMIT_DEFAULT : undefined });
-              }}
-            />
-          </div>
+        <div className="min-w-0">
+          <Label className="text-foreground text-xs font-medium" htmlFor={inputTokenLimitInputId}>
+            Input tokens
+          </Label>
+          <p className="text-muted-foreground text-xs" id={inputTokenLimitHelpId}>
+            Caps input tokens available to each model step.
+          </p>
         </div>
+        <Input
+          aria-describedby={`${inputTokenLimitHelpId}${inputTokenLimit.error ? ` ${inputTokenLimitErrorId}` : ''}`}
+          aria-invalid={Boolean(inputTokenLimit.error)}
+          className="h-9 w-28 min-w-0 text-sm"
+          disabled={disabled || !inputTokenLimitEnabled}
+          id={inputTokenLimitInputId}
+          inputMode="numeric"
+          max={INPUT_TOKEN_LIMIT_MAX}
+          min={INPUT_TOKEN_LIMIT_MIN}
+          placeholder="Off"
+          type="number"
+          {...inputTokenLimit.inputProps}
+        />
+        <Switch
+          aria-label="Limit input tokens"
+          checked={inputTokenLimitEnabled}
+          disabled={disabled}
+          onCheckedChange={(checked) => {
+            inputTokenLimit.revert();
+            onUpdate({ agentInputTokenLimit: checked ? INPUT_TOKEN_LIMIT_DEFAULT : undefined });
+          }}
+        />
         <FieldRefusal id={inputTokenLimitErrorId} message={inputTokenLimit.error} />
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="min-w-[160px] flex-1">
-            <Label className="text-foreground text-xs font-medium" htmlFor={memoryInputId}>
-              Recent messages
-            </Label>
-            <p className="text-muted-foreground text-xs" id={memoryHelpId}>
-              Recent messages retained for context. Set 0 to turn this off.
-            </p>
-          </div>
-          <Input
-            aria-describedby={`${memoryHelpId}${memory.error ? ` ${memoryErrorId}` : ''}`}
-            aria-invalid={Boolean(memory.error)}
-            className="h-9 w-28 min-w-0 shrink-0 text-sm"
-            disabled={disabled}
-            id={memoryInputId}
-            inputMode="numeric"
-            max={MEMORY_LAST_MESSAGES_MAX}
-            min={MEMORY_LAST_MESSAGES_MIN}
-            type="number"
-            {...memory.inputProps}
-          />
-        </div>
-        <FieldRefusal id={memoryErrorId} message={memory.error} />
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-foreground text-xs font-medium">Working memory</p>
-            <p className="text-muted-foreground text-xs">Keep useful context between steps.</p>
-          </div>
-          <Switch
-            aria-label="Enable working memory"
-            checked={workingMemoryEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) => onUpdate({ workingMemoryEnabled: checked })}
-          />
-        </div>
+        {/* Last, so its empty switch cell shifts no later row. */}
+        <Label
+          className="text-foreground min-w-0 text-xs font-medium"
+          htmlFor={compactionCapInputId}
+        >
+          Compact at
+        </Label>
+        <Input
+          aria-describedby={compactionCap.error ? compactionCapErrorId : undefined}
+          aria-invalid={Boolean(compactionCap.error)}
+          className="h-9 w-28 min-w-0 text-sm"
+          disabled={disabled}
+          id={compactionCapInputId}
+          inputMode="numeric"
+          min={CONTEXT_COMPACTION_MIN_TOKEN_CAP}
+          type="number"
+          {...compactionCap.inputProps}
+        />
+        <FieldRefusal id={compactionCapErrorId} message={compactionCap.error} />
       </div>
     </section>
   );

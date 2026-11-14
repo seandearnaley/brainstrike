@@ -8,8 +8,16 @@ import { Predicate } from 'effect';
 /** A host thread's committed `context.compacted`, as a data part of the run that made it. */
 export const HOST_CONTEXT_COMPACTED_DATA_NAME = 'brainstrike.context-compacted';
 
-/** Why the host compacted: before a request over its budget, or after a provider overflow. */
-type HostContextCompactionReason = 'pre-request' | 'context-overflow';
+/**
+ * Why the host compacted: before a request over its budget, after a provider
+ * overflow, because the provider request still left messages out (BST-2531),
+ * or because a person asked for it (BST-2536).
+ */
+type HostContextCompactionReason =
+  | 'pre-request'
+  | 'context-overflow'
+  | 'request-trim'
+  | 'requested';
 
 /** A summarizer side call's provider-reported tokens. */
 interface HostContextCompactionUsage {
@@ -25,20 +33,49 @@ interface HostContextSummarizerFailure {
   readonly correlationId?: string;
 }
 
-export interface HostContextCompaction {
+/** A file the covered calls edited, and how many edits they made to it. */
+interface HostContextCompactionFile {
+  readonly edits: number;
+  readonly path: string;
+}
+
+/**
+ * The lists the host wrote from the log for everything the summary covers
+ * (BST-2527): the person's requests, the files edited and the tools loaded.
+ */
+export interface HostContextCompactionLists {
+  readonly earlierRequests: readonly string[];
+  readonly filesEdited: readonly HostContextCompactionFile[];
+  readonly toolsLoaded: readonly string[];
+}
+
+export interface HostContextCompaction extends HostContextCompactionLists {
+  /** What the person who asked for the compaction wanted it to keep, in their words (BST-2536). */
+  readonly focus?: string;
   readonly kind: CompactionSummaryPayload['fallbackKind'];
   /** The summarizer's catalog model, when one ran. */
   readonly modelId?: string;
   readonly reason: HostContextCompactionReason;
+  /**
+   * The steps of a running turn the summary covers (its `through`, less the
+   * steps kept word for word).
+   */
+  readonly stepsCompacted?: number;
   readonly summarizerFailure?: HostContextSummarizerFailure;
+  /** The model's sections, or a fallback's line. */
   readonly summary: string;
-  /** The earlier turns the compaction replaced (its `compactedRunIds`). */
+  /** The earlier turns the summary covers (its `compactedRunIds`). */
   readonly turnsCompacted: number;
   readonly usage?: HostContextCompactionUsage;
 }
 
 function isReason(value: unknown): value is HostContextCompactionReason {
-  return value === 'pre-request' || value === 'context-overflow';
+  return (
+    value === 'pre-request' ||
+    value === 'context-overflow' ||
+    value === 'request-trim' ||
+    value === 'requested'
+  );
 }
 
 function isCount(value: unknown): value is number {
@@ -47,6 +84,17 @@ function isCount(value: unknown): value is number {
 
 function isText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/** A requested compaction's focus as committed, or why it cannot be read. */
+function readFocus(value: unknown): Pick<HostContextCompaction, 'focus'> {
+  if (value === undefined) {
+    return {};
+  }
+  if (isText(value)) {
+    return { focus: value };
+  }
+  throw new Error('Committed compaction has an unreadable focus.');
 }
 
 /** A recorded summarizer failure, or why it cannot be read. */
@@ -77,13 +125,64 @@ function readHostCompactionUsage(usage: unknown): HostContextCompactionUsage {
 }
 
 /**
+ * How many steps of a running turn a compaction's summary covers, from its
+ * `through`: up to its step, less every step its run kept word for word
+ * (BST-2527). Or why that cannot be read. The one reader of `through` here.
+ */
+function readStepsCovered(value: unknown): number {
+  const kept = Predicate.isObject(value) ? (value['kept'] ?? []) : undefined;
+  if (
+    Predicate.isObject(value) &&
+    isText(value['runId']) &&
+    isCount(value['stepNumber']) &&
+    Array.isArray(kept) &&
+    kept.every(isCount)
+  ) {
+    return value['stepNumber'] + 1 - kept.length;
+  }
+  throw new Error('Committed compaction has an unreadable step.');
+}
+
+function isFile(value: unknown): value is HostContextCompactionFile {
+  return (
+    Predicate.isObject(value) &&
+    isText(value['path']) &&
+    isCount(value['edits']) &&
+    value['edits'] > 0
+  );
+}
+
+/** The host-written lists, as committed and as the part carries them, or why they cannot be read. */
+function readLists(value: Readonly<Record<string, unknown>>): HostContextCompactionLists {
+  const { earlierRequests, filesEdited, toolsLoaded } = value;
+  if (
+    Array.isArray(earlierRequests) &&
+    earlierRequests.every((request) => typeof request === 'string') &&
+    Array.isArray(filesEdited) &&
+    filesEdited.every(isFile) &&
+    Array.isArray(toolsLoaded) &&
+    toolsLoaded.every(isText)
+  ) {
+    return {
+      earlierRequests,
+      filesEdited: filesEdited.map(({ edits, path }) => ({ edits, path })),
+      toolsLoaded,
+    };
+  }
+  throw new Error('Committed compaction has unreadable lists.');
+}
+
+/**
  * A committed `context.compacted` event as its card part: the reason, the
- * turns it replaced, and the summarizer's model and usage when one ran.
+ * turns and steps its summary covers, the host's lists, and the summarizer's
+ * model and usage when one ran. A thread carries one current summary, so each
+ * card counts all it covers (BST-2527).
  */
 export function committedHostCompaction(
   event: Readonly<Record<string, unknown>>
 ): HostContextCompaction {
-  const { compactedRunIds, kind, modelId, reason, summarizerFailure, summary, usage } = event;
+  const { compactedRunIds, focus, kind, modelId, reason, summarizerFailure, summary, usage } =
+    event;
   if (kind !== 'agentic' && kind !== 'deterministic') {
     throw new Error('Committed compaction has an unsupported kind.');
   }
@@ -93,9 +192,10 @@ export function committedHostCompaction(
   if (typeof summary !== 'string' || !summary) {
     throw new Error('Committed compaction is missing summary.');
   }
+  const steps = event['through'] === undefined ? undefined : readStepsCovered(event['through']);
   if (
     !Array.isArray(compactedRunIds) ||
-    compactedRunIds.length === 0 ||
+    (compactedRunIds.length === 0 && steps === undefined) ||
     !compactedRunIds.every((runId) => typeof runId === 'string' && runId)
   ) {
     throw new Error('Committed compaction names no compacted runs.');
@@ -104,9 +204,12 @@ export function committedHostCompaction(
     throw new Error('Committed compaction has an unreadable summarizer model.');
   }
   return {
+    ...readLists(event),
+    ...readFocus(focus),
     kind,
     ...(modelId === undefined ? {} : { modelId }),
     reason,
+    ...(steps === undefined ? {} : { stepsCompacted: steps }),
     ...(summarizerFailure === undefined
       ? {}
       : { summarizerFailure: readSummarizerFailure(summarizerFailure) }),
@@ -118,19 +221,24 @@ export function committedHostCompaction(
 
 /** The committed projection writes this part; any other shape is a projection defect. */
 export function readHostContextCompaction(data: unknown): HostContextCompaction {
+  const steps = Predicate.isObject(data) ? data['stepsCompacted'] : undefined;
   if (
     Predicate.isObject(data) &&
     (data['kind'] === 'agentic' || data['kind'] === 'deterministic') &&
     typeof data['summary'] === 'string' &&
     isReason(data['reason']) &&
     isCount(data['turnsCompacted']) &&
-    data['turnsCompacted'] > 0 &&
+    (steps === undefined || isCount(steps)) &&
+    data['turnsCompacted'] + (steps ?? 0) > 0 &&
     (data['modelId'] === undefined || (typeof data['modelId'] === 'string' && data['modelId']))
   ) {
     return {
+      ...readLists(data),
+      ...readFocus(data['focus']),
       kind: data['kind'],
       ...(data['modelId'] === undefined ? {} : { modelId: data['modelId'] }),
       reason: data['reason'],
+      ...(steps === undefined ? {} : { stepsCompacted: steps }),
       ...(data['summarizerFailure'] === undefined
         ? {}
         : { summarizerFailure: readSummarizerFailure(data['summarizerFailure']) }),

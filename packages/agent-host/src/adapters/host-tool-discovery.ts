@@ -14,10 +14,10 @@ import { RequestContext } from '@mastra/core/request-context';
 import { createTool, noopObserve, type ToolExecutionContext } from '@mastra/core/tools';
 import { asSchema, type FlexibleSchema } from 'ai';
 import { committedRowAddress, committedRunAncestors } from '../committed-identities.ts';
+import { committedTranscript } from '../committed-transcript.ts';
 import { readHostRow } from '../event-storage.ts';
 import { executableInputSchema } from '../executable-input-schema.ts';
 import type { HostTool, HostToolDiscovery } from '../ports.ts';
-import { committedMemoryTranscript } from './committed-memory-transcript.ts';
 
 /** Mastra's fixed meta-tool ids, beside Brainstrike's catalog tool. */
 const SEARCH_TOOLS_ID = HOST_META_TOOL_ID.searchTools;
@@ -30,14 +30,13 @@ type DiscoveryTools = Awaited<
 
 /**
  * The committed conversation of a run's branch (its ancestor runs, then the run)
- * in Mastra's stored form (the Memory transcript's own conversion). Discovery
- * reads loads from the same history the model receives: a load an earlier run
- * committed stays loaded, so a model that sees "Already loaded" is offered the
- * tool. A sibling branch never saw that load and starts unloaded.
+ * in Mastra's stored form. Discovery reads loads from the same history the
+ * model receives: a load an earlier run committed stays loaded, so a model that
+ * sees "Already loaded" is offered the tool. A sibling branch never saw that
+ * load and starts unloaded.
  */
 export async function committedRunMessages(
   store: Pick<StateStore, 'read' | 'root'>,
-  resourceId: string,
   run: HostRunKey
 ): Promise<MastraDBMessage[]> {
   const rows = await Promise.all(
@@ -49,7 +48,7 @@ export async function committedRunMessages(
       'runId' in row.event && branch.has(row.event.runId) ? [committedRowAddress(row)] : []
     )
   );
-  return committedMemoryTranscript(rows, resourceId).filter((message) => own.has(message.id));
+  return committedTranscript(rows).filter((message) => own.has(message.id));
 }
 
 /** A discovery tool as Mastra's processor prepares it for one step. */
@@ -170,20 +169,18 @@ export async function createHostToolDiscovery(
     model,
     toolNameMap,
   });
-  const step = async (run: HostRunKey): Promise<DiscoveryTools> =>
+  // The tools a step offers after `messages`: Mastra's context store reads their loads.
+  const over = async (messages: readonly MastraDBMessage[]): Promise<DiscoveryTools> =>
     (
       await processor.processInputStep({
-        ...createPersistedStepArgs(await options.readRunMessages(run), model, undefined),
+        ...createPersistedStepArgs(messages, model, undefined),
         tools: surface.coreTools,
       })
     ).tools;
+  const step = async (run: HostRunKey): Promise<DiscoveryTools> =>
+    over(await options.readRunMessages(run));
   // The declarations (descriptions, schemas) of a run that loaded nothing yet.
-  const initial = (
-    await processor.processInputStep({
-      ...createPersistedStepArgs([], model, undefined),
-      tools: surface.coreTools,
-    })
-  ).tools;
+  const initial = await over([]);
   const tools: Record<string, HostTool> = {
     [LIST_AVAILABLE_TOOLS_ID]: discoveryHostTool(
       initial[LIST_AVAILABLE_TOOLS_ID],
@@ -201,6 +198,8 @@ export async function createHostToolDiscovery(
   return {
     discovery: {
       activeTools: async (run) => Object.keys(await step(run)),
+      loadedTools: async (messages) =>
+        Object.keys(await over(messages)).filter((id) => !(id in initial)),
       toolIds: new Set(Object.keys(tools)),
     },
     tools,

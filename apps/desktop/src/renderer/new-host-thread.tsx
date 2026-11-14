@@ -124,13 +124,8 @@ export function NewHostThread({
       ),
     [explorer, resourceId]
   );
-  const {
-    catalogKey: _catalogKey,
-    readConfiguration,
-    readModelId,
-    readPlanMode,
-    ...presentation
-  } = useDesktopHostPresentation(threadId, selection, readSelectionFolderId, providerReadErrors);
+  const { readConfiguration, readModelId, readPlanMode, ...presentation } =
+    useDesktopHostPresentation(threadId, selection, readSelectionFolderId, providerReadErrors);
   const settings = useRef({ readConfiguration, readModelId, readPlanMode, selection });
   useLayoutEffect(() => {
     settings.current = { readConfiguration, readModelId, readPlanMode, selection };

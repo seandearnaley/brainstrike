@@ -9,7 +9,6 @@ export {
 export {
   type AssistantProviderNotice,
   buildAgentLoopSettings,
-  buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
   buildProviderOptionsWhenReady,
   getProviderLlmModelDefinitions,

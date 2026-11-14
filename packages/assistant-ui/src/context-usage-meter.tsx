@@ -1,17 +1,19 @@
 /**
  * ContextUsageMeter — compact context gauge shown above the composer.
  *
- * One row: an SVG donut ring (context-ring.tsx) + a "used / budget" fraction.
+ * One row: an SVG donut ring (context-ring.tsx) + a "used / trigger" fraction.
  * The row is a popover trigger that opens, on explicit activation only (click,
  * Enter or Space), the "Context Usage" detail panel (context-usage-popover.tsx)
- * holding the breakdown list, OM stats, and cumulative tokens + cost. Sources
+ * holding the breakdown list and cumulative tokens + cost. Sources
  * usage from the zustand store (exact, post-turn) and falls back to a heuristic
  * estimate when no exact value has been recorded yet.
  *
- * Threshold states (fraction of effectiveInputBudget):
+ * The ring, the fraction and the states all read against compactionTrigger,
+ * the request size at which the thread compacts (BST-2539): a full ring means
+ * it compacts now. Threshold states:
  *   ok      < 75%
  *   warning ≥ 75%
- *   critical ≥ 90% → shows the trimming-risk notice INLINE (a warning must not
+ *   critical ≥ 90% → shows the compaction notice INLINE (a warning must not
  *   hide inside the popover)
  */
 import { useAuiState } from '@assistant-ui/react';
@@ -34,6 +36,7 @@ import { ContextRing, type ContextRingState } from './context-ring';
 import { ContextUsagePopoverContent } from './context-usage-popover';
 import { useContextUsageStore } from './context-usage-store';
 import { formatCompact } from './format-compact-token-count';
+import { CompactNowControl } from './thread-compaction';
 import { fileWindowTokens, threadContextAt } from './thread-context-fold';
 import { useThreadContextStore } from './thread-context-store';
 
@@ -46,10 +49,9 @@ interface CumulativeModelUsage {
   readonly provider: string;
 }
 
-/** One source's share of the thread total (BST-953). OM figures are local estimates. */
+/** One source's share of the thread total (BST-953). */
 interface CumulativeSourceUsage {
   readonly costUsd: number | null;
-  readonly estimated: boolean;
   readonly inputTokens: number;
   readonly kind: AssistantRunUsageKind;
   /** Its models, costliest first. */
@@ -61,8 +63,8 @@ interface CumulativeSourceUsage {
  * Durable thread-total usage, resolved upstream (structural mirror of the
  * app-shell resolver's shape — dependency direction app-shell → ui). Distinct
  * from the one-turn-lag context gauge: this is the running captured billing
- * total persisted across reloads, broken down by source (chat / subagents /
- * OM) with cache-class totals and the net caching savings. `cost` is never $0
+ * total persisted across reloads, broken down by source (chat, subagents,
+ * compaction summaries, …) with cache-class totals and the net caching savings. `cost` is never $0
  * for an unavailable price, and captured-only totals are visibly qualified as
  * estimates.
  */
@@ -77,121 +79,13 @@ export interface CumulativeUsageDisplay {
   readonly totalTokens: number;
 }
 
-/**
- * Resolved observational-memory (OM) state for the active thread. Produced by the
- * app-shell resolver (assistant-om-segment.ts) and rendered as INFORMATIONAL
- * stats inside the context popover — the observation is NOT a budget segment
- * (it is retrievalMode-dependent and, when injected, already counted in chat
- * usage, so summing it into the budget would double-count / false-trip
- * over-budget; see the resolver doc). Each variant is an HONEST state — never a
- * fabricated 0:
- *   chat-only → web (no durable OM persistence); OM stats hidden.
- *   inactive  → OM disabled in settings.
- *   loading   → live query fetching (initial / thread switch); stays quiet.
- *   empty     → no OM row yet (first turn).
- *   error     → malformed OM row / live-query error (strict parse failed upstream).
- *   stats     → active/buffered OM, activation progress, and compaction saved.
- */
-/**
- * Why the Auto observer could not resolve (mirrors the app-shell resolver's
- * unresolved reasons; duplicated literals keep the dependency direction
- * app-shell → ui). Drives ACTIONABLE popover copy — a paused observer must
- * say why and what would unpause it.
- */
-export type OmAwaitingObserverReason =
-  | 'keys-unknown'
-  | 'model-not-eligible'
-  | 'no-backend'
-  | 'no-chat-provider';
-
-/**
- * The OM record's own lifecycle, as the desktop host reports it (BST-2201):
- * Mastra's live flags, when it last observed and buffered (epoch ms, null
- * before the first), its reflection generation and the reflection threshold.
- */
-export interface OmRecordLifecycle {
-  readonly generationCount: number;
-  readonly isBufferingObservation: boolean;
-  readonly isBufferingReflection: boolean;
-  readonly isObserving: boolean;
-  readonly isReflecting: boolean;
-  readonly lastBufferedAtTime: number | null;
-  readonly lastObservedAt: number | null;
-  readonly originType: 'initial' | 'reflection';
-  /** Observation tokens at which the reflector condenses them. */
-  readonly reflectionTokenThreshold: number;
-}
-
-/**
- * The models memory uses (structural mirror of the host's `HostMemoryModels`):
- * the resolved observer's catalog id. Absent: none.
- */
-export interface MemoryModelsDisplay {
-  readonly observer?: string;
-}
-
-/**
- * One committed observation or reflection cycle (structural mirror of the
- * host's `memory.cycle`, BST-2224), with when it committed.
- */
-export interface MemoryCycleDisplay {
-  /** When the cycle committed (epoch ms), where the host reported it. */
-  readonly at?: number;
-  /** Absent when the host did not see the cycle start. */
-  readonly durationMs?: number;
-  readonly failure?: { readonly code: string; readonly correlationId?: string };
-  readonly outcome: 'completed' | 'failed' | 'cancelled';
-  /** What started it: `manual`, `turn-sync` or `async-buffer`. */
-  readonly trigger?: string;
-  readonly usage?: {
-    readonly inputTokens?: number;
-    readonly outputTokens?: number;
-    readonly totalTokens?: number;
-  };
-}
-
-/** The thread's last committed cycle of each kind; absent before its first. */
-export interface MemoryCyclesDisplay {
-  readonly observation?: MemoryCycleDisplay;
-  readonly reflection?: MemoryCycleDisplay;
-}
-
-export type OmMeterState = (
-  | { readonly kind: 'chat-only' }
-  | { readonly kind: 'inactive' }
-  /** OM is on (Auto) but no eligible observer model resolved — waiting, not off. */
-  | { readonly kind: 'awaiting-observer'; readonly reason: OmAwaitingObserverReason }
-  /** A committed host run received no OM, and why (its observations would mix branches). */
-  | { readonly kind: 'withheld'; readonly reason: 'branched-thread' }
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'empty' }
-  /** The read failed: its validated reason, and its boundary code where one was sent. */
-  | { readonly code?: string; readonly kind: 'error'; readonly reason: string }
-  | {
-      readonly kind: 'stats';
-      /** Summaries generated in the async buffer but not activated yet. */
-      readonly bufferedObservationTokens: number;
-      /** observationTokenCount — what OM is currently holding for this thread. */
-      readonly observationTokens: number;
-      /** totalTokensObserved − observationTokenCount, clamped ≥ 0 (compacted away). */
-      readonly compactionSavedTokens: number;
-      /** Absent where the host does not report the record's lifecycle. */
-      readonly lifecycle?: OmRecordLifecycle;
-      /** Raw-message threshold that activates buffered observations. */
-      readonly messageTokenThreshold: number;
-      /** Raw message tokens currently progressing toward activation. */
-      readonly pendingMessageTokens: number;
-    }
-) & {
-  /** The thread's last observation and reflection cycles (Developer panel). */
-  readonly cycles?: MemoryCyclesDisplay;
-  /** The models the read named, where the host reports them (Developer panel). */
-  readonly models?: MemoryModelsDisplay;
-  /** When the host read this state (epoch ms): the record's flags hold as of then. */
-  readonly readAt?: number;
-};
-
 export interface ContextUsageMeterProps {
+  /**
+   * The request size at which the thread compacts
+   * (`deriveContextCompactionThreshold`): the meter's one denominator, so a
+   * full ring means the thread compacts now. Meter is hidden when absent.
+   */
+  compactionTrigger: number | undefined;
   /** Full model context window size. Meter is hidden when absent. */
   contextWindow: number | undefined;
   /**
@@ -212,27 +106,16 @@ export interface ContextUsageMeterProps {
    * the ring and the recorded figure stay the conversation's own.
    */
   draftTokens?: number | undefined;
-  /** Effective input budget (contextWindow − output reservation). Meter is hidden when absent. */
-  effectiveInputBudget: number | undefined;
   /** Heuristic token estimate to display before exact usage is recorded. */
   estimatedTokens?: number | undefined;
   /** True while a run streams — the gauge shows the LIVE estimate (flagged). */
   isRunning?: boolean | undefined;
-  /**
-   * Resolved OM state for the active thread, rendered as INFORMATIONAL stats
-   * inside the popover (observed tokens + compaction saved) — NOT a budget
-   * segment. Absent → no OM line (before the first resolve). A host without
-   * memory supplies `{ kind: 'chat-only' }` so the stats are hidden honestly.
-   * Prop name kept as `omSegment` for call-site
-   * stability across the panel layers.
-   */
-  omSegment?: OmMeterState | undefined;
   /** Thread key — MUST match the key used by recordUsage writers (same as threadKey prop on AssistantUiPanel). Falls back to 'active'. */
   threadKey?: string | undefined;
 }
 
-function resolveUsageState(used: number, effectiveInputBudget: number): ContextRingState {
-  const ratio = used / effectiveInputBudget;
+function resolveUsageState(used: number, compactionTrigger: number): ContextRingState {
+  const ratio = used / compactionTrigger;
   if (ratio >= 0.9) {
     return 'critical';
   }
@@ -268,7 +151,7 @@ function DraftHint({
 }
 
 /**
- * Trimming-risk notice, INLINE next to the ring, never hidden inside the
+ * Compaction notice, INLINE next to the ring, never hidden inside the
  * popover (visibility rule). A draft that would cross the line warns before
  * it is sent.
  */
@@ -285,8 +168,8 @@ function BudgetNotice({
   return (
     <p className="bs-composer-context-notice" data-testid="context-usage-critical-notice">
       {state === 'critical'
-        ? 'Approaching input budget; older messages may be trimmed.'
-        : 'Sending this draft approaches the input budget; older messages may be trimmed.'}
+        ? 'Approaching compaction; older messages will be summarized.'
+        : 'Sending this draft approaches compaction; older messages will be summarized.'}
     </p>
   );
 }
@@ -303,29 +186,29 @@ interface TriggerDisplay {
  * Pure chip-content resolution (BST-953): with durable cumulative data the
  * chip leads with the overall thread total (+cost when priceable, 'live'
  * while the in-flight run's steps are included); without it (web / an
- * unhydrated thread) it falls back to the context used/budget fraction.
+ * unhydrated thread) it falls back to the context used/trigger fraction.
  * Kept OUTSIDE the component (module-level, like computeSegmentWidths).
  */
 function resolveTriggerDisplay(params: {
+  compactionTrigger: number;
   cumulativeUsage: CumulativeUsageDisplay | undefined;
-  effectiveInputBudget: number;
   isEstimated: boolean;
   liveTokens: number;
   percentage: number;
   usedTokens: number;
 }): TriggerDisplay {
-  const { cumulativeUsage, effectiveInputBudget, isEstimated, liveTokens, percentage, usedTokens } =
+  const { compactionTrigger, cumulativeUsage, isEstimated, liveTokens, percentage, usedTokens } =
     params;
   if (cumulativeUsage === undefined) {
     return {
-      ariaLabel: `Context usage: ${Math.round(percentage)}% of input budget${isEstimated ? ' (estimated)' : ''}`,
+      ariaLabel: `Context usage: ${Math.round(percentage)}% to compaction${isEstimated ? ' (estimated)' : ''}`,
       ...(isEstimated ? { badge: 'est.' as const } : {}),
-      primaryText: `${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)}`,
+      primaryText: `${formatCompact(usedTokens)} / ${formatCompact(compactionTrigger)}`,
     };
   }
   const threadTotalTokens = cumulativeUsage.totalTokens + liveTokens;
   return {
-    ariaLabel: `Thread usage: ${formatTokenCount(threadTotalTokens)}; context ${Math.round(percentage)}% of input budget`,
+    ariaLabel: `Thread usage: ${formatTokenCount(threadTotalTokens)}; context ${Math.round(percentage)}% to compaction`,
     ...(liveTokens > 0 ? { badge: 'live' as const } : {}),
     // The durable cost EXCLUDES the live tokens the total now includes —
     // pairing them would present a current token count beside a lagging price
@@ -340,14 +223,13 @@ function resolveTriggerDisplay(params: {
 
 export const ContextUsageMeter = ({
   threadKey,
+  compactionTrigger,
   contextWindow,
   conversationEstimate,
   cumulativeUsage,
   draftTokens = 0,
-  effectiveInputBudget,
   estimatedTokens,
   isRunning,
-  omSegment,
 }: ContextUsageMeterProps) => {
   const key = threadKey ?? 'active';
   const usage = useContextUsageStore((s) => s.usageByThread[key]);
@@ -388,24 +270,24 @@ export const ContextUsageMeter = ({
   const recordRing = useThreadContextStore((s) => s.recordRing);
   // biome-ignore lint/plugin: publishes a figure only this meter can compute to the shared store
   useEffect(() => {
-    if (contextWindow && effectiveInputBudget) {
-      recordRing(key, { budgetTokens: effectiveInputBudget, isEstimated, usedTokens });
+    if (contextWindow && compactionTrigger) {
+      recordRing(key, { isEstimated, triggerTokens: compactionTrigger, usedTokens });
     }
-  }, [contextWindow, effectiveInputBudget, isEstimated, key, recordRing, usedTokens]);
+  }, [compactionTrigger, contextWindow, isEstimated, key, recordRing, usedTokens]);
 
   // Render nothing when we have no denominator.
-  if (!(contextWindow && effectiveInputBudget)) {
+  if (!(contextWindow && compactionTrigger)) {
     return null;
   }
 
-  const state = resolveUsageState(usedTokens, effectiveInputBudget);
-  const percentage = Math.min(100, (usedTokens / effectiveInputBudget) * 100);
+  const state = resolveUsageState(usedTokens, compactionTrigger);
+  const percentage = Math.min(100, (usedTokens / compactionTrigger) * 100);
   // What sending the draft would bring the context to: it warns before the send.
-  const projectedState = resolveUsageState(usedTokens + draftTokens, effectiveInputBudget);
+  const projectedState = resolveUsageState(usedTokens + draftTokens, compactionTrigger);
   const draftText = draftTokens > 0 ? `+${formatTokenCount(draftTokens)}` : undefined;
 
   // Thread-total headline (BST-953): the overall billed figure — every
-  // captured source (chat, subagents, OM) plus the in-flight run's live step
+  // captured source plus the in-flight run's live step
   // usage — is what the chip leads with; context-window occupancy stays on
   // the ring and inside the popover. Absent cumulative data (web / an
   // unhydrated thread) falls back to the context fraction.
@@ -430,8 +312,8 @@ export const ContextUsageMeter = ({
   const liveRunUsage = isRunning === true || isSettlingRunUsage ? recordedLiveRunUsage : undefined;
   const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
   const trigger = resolveTriggerDisplay({
+    compactionTrigger,
     cumulativeUsage,
-    effectiveInputBudget,
     isEstimated,
     liveTokens,
     percentage,
@@ -449,13 +331,13 @@ export const ContextUsageMeter = ({
         <PopoverTrigger asChild>
           {/* The gauge row is a ONE-TURN-LAG estimate of the next prompt's
               size (prev input + prev output). The denominator is
-              effectiveInputBudget so the fraction and the ring fill tell the
+              compactionTrigger so the fraction and the ring fill tell the
               same story; the full model window lives in the popover + title. */}
           <button
             aria-label={draftText ? `${trigger.ariaLabel}; draft ${draftText}` : trigger.ariaLabel}
             className="bs-composer-chip bs-composer-context-trigger"
             data-testid="context-usage-trigger"
-            title={`context ${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)} · model window ${formatTokenCount(contextWindow)}`}
+            title={`context ${formatCompact(usedTokens)} / ${formatCompact(compactionTrigger)} · model window ${formatTokenCount(contextWindow)}`}
             type="button"
           >
             <ContextRing isEstimated={isEstimated} percentage={percentage} state={state} />
@@ -485,20 +367,20 @@ export const ContextUsageMeter = ({
         >
           <ContextUsagePopoverContent
             breakdownState={breakdownState}
+            compactionTrigger={compactionTrigger}
             contextWindow={contextWindow}
             conversationEstimate={conversationEstimate}
             cumulativeUsage={cumulativeUsage}
-            effectiveInputBudget={effectiveInputBudget}
             estimatedTokens={estimatedTokens}
             isEstimated={isEstimated}
             liveRunUsage={liveRunUsage}
-            omSegment={omSegment}
             onOpenContextMap={contextMapLink?.openContextMap}
             percentage={percentage}
             usage={usage}
             usedTokens={usedTokens}
             workspaceFileTokens={workspaceFileTokens}
           />
+          <CompactNowControl />
         </PopoverContent>
       </Popover>
 
@@ -518,18 +400,16 @@ ContextUsageMeter.displayName = 'ContextUsageMeter';
  * without an assistant-ui context.
  */
 export interface ThreadContextMeterProps {
+  compactionTrigger: number | undefined;
   contextWindow: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  effectiveInputBudget: number | undefined;
-  omSegment?: OmMeterState | undefined;
   threadKey: string | undefined;
 }
 
 export const ThreadContextMeter = ({
+  compactionTrigger,
   contextWindow,
   cumulativeUsage,
-  effectiveInputBudget,
-  omSegment,
   threadKey,
 }: ThreadContextMeterProps) => {
   // Access all messages to build the full-part conversation walk. The walk is
@@ -546,13 +426,12 @@ export const ThreadContextMeter = ({
 
   return (
     <ContextUsageMeter
+      compactionTrigger={compactionTrigger}
       contextWindow={contextWindow}
       conversationEstimate={conversationEstimate}
       {...(cumulativeUsage ? { cumulativeUsage } : {})}
       draftTokens={draftTokens}
-      effectiveInputBudget={effectiveInputBudget}
       isRunning={isRunning}
-      {...(omSegment ? { omSegment } : {})}
       threadKey={threadKey}
     />
   );

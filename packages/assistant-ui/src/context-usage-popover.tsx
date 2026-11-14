@@ -1,11 +1,11 @@
 /**
  * ContextUsagePopoverContent — the "Context Usage" detail panel opened from the
  * compact ring row (see context-usage-meter.tsx). Cursor-style anatomy
- * (BST-940): a "% full" header, a segmented capacity bar over the effective
- * input budget, and a color-keyed legend of category rows (System instructions,
+ * (BST-940): a "% full" header, a segmented capacity bar over the compaction
+ * trigger, and a color-keyed legend of category rows (System instructions,
  * Tool definitions, Task list, Conversation, Attachments, Unattributed) with
- * per-tool and conversation-split sub-rows, then the OM informational stats and
- * the cumulative tokens + cost row. The critical trimming-risk notice
+ * per-tool and conversation-split sub-rows, and the cumulative tokens + cost
+ * row. The critical compaction notice
  * deliberately does NOT live here — a warning must not hide inside a hover
  * surface (it stays inline next to the ring).
  */
@@ -18,14 +18,8 @@ import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-
 import { createLogger } from '@brainstrike/logging';
 import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { cn } from '@brainstrike/ui';
-import { useAssistantDetailLevel } from './assistant-detail-level-store.ts';
 import type { ConversationTokenEstimate } from './context-estimate';
-import { MemoryDeveloperPanel } from './context-usage-memory-panel';
-import type {
-  CumulativeUsageDisplay,
-  OmAwaitingObserverReason,
-  OmMeterState,
-} from './context-usage-meter';
+import type { CumulativeUsageDisplay } from './context-usage-meter';
 import type { ThreadTokenUsage } from './context-usage-store';
 import { formatCompact } from './format-compact-token-count';
 
@@ -46,13 +40,11 @@ function subtotalCostLabel(costUsd: number | null): string {
     : `$${Number(costUsd.toPrecision(2))}`;
 }
 
-/** Display label per usage source (BST-953). OM figures are local estimates. */
+/** Display label per usage source (BST-953). */
 const SOURCE_LABELS: Record<AssistantRunUsageKind, string> = {
   'auto-review': 'Auto-review',
   chat: 'Chat',
   'compaction-summary': 'Compaction summaries',
-  'om-observation': 'Memory observer (est.)',
-  'om-reflection': 'Memory reflection (est.)',
   subagent: 'Subagents',
   'thread-title': 'Thread titles',
 };
@@ -192,112 +184,6 @@ export const CumulativeUsageSection = ({
 
 CumulativeUsageSection.displayName = 'CumulativeUsageSection';
 
-/** Actionable copy per awaiting-observer reason — a pause must say why. */
-function awaitingObserverNote(reason: OmAwaitingObserverReason): string {
-  switch (reason) {
-    case 'model-not-eligible':
-      return 'Observations on (Auto) — no recommended observer model is enabled in your model catalog; enable one (e.g. Gemini 2.5 Flash) or pick an observer in Assistant Memory settings';
-    case 'no-chat-provider':
-      return 'Observations on (Auto) — needs a chat provider with a saved key';
-    case 'no-backend':
-      return 'Observations on (Auto) — the assistant isn’t connected';
-    case 'keys-unknown':
-      return 'Observations on (Auto) — waiting for provider credentials to load';
-    default: {
-      const exhaustive: never = reason;
-      return exhaustive;
-    }
-  }
-}
-
-/**
- * Short note + testid for the non-`stats` OM states (honest, never a 0). Returns
- * null for `loading` so the OM line stays quiet during the initial fetch / a
- * thread switch instead of flashing the empty state.
- */
-function omNote(state: OmMeterState): { text: string; tone: 'muted' | 'error' } | null {
-  switch (state.kind) {
-    case 'chat-only':
-      return { text: 'Observations aren’t available here', tone: 'muted' };
-    case 'inactive':
-      return { text: 'Observations off', tone: 'muted' };
-    case 'awaiting-observer':
-      return { text: awaitingObserverNote(state.reason), tone: 'muted' };
-    case 'empty':
-      return { text: 'No observations yet', tone: 'muted' };
-    case 'error':
-      return { text: `Observations unavailable: ${state.reason}`, tone: 'error' };
-    case 'withheld':
-      return {
-        text: 'Observations paused — this thread has branches, and its observations would mix them',
-        tone: 'muted',
-      };
-    default:
-      // 'loading' and 'stats' are handled by OmMeterSection, not as a note.
-      return null;
-  }
-}
-
-interface OmMeterSectionProps {
-  state: OmMeterState;
-}
-
-/**
- * Renders the OM portion of the panel as INFORMATIONAL active/buffered/progress
- * stats for the `stats` state, or an honest one-line note for every
- * other state (never zeros). The observation is deliberately NOT drawn as a
- * budget segment — it does not consume this turn's input budget (see OmMeterState
- * doc in context-usage-meter.tsx).
- */
-const OmMeterSection = ({ state }: OmMeterSectionProps) => {
-  if (state.kind === 'stats') {
-    return (
-      <div
-        className="text-muted-foreground text-2xs mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5"
-        data-testid="context-usage-om-stats"
-      >
-        {state.observationTokens > 0 && (
-          <span className="tabular-nums" data-testid="context-usage-om-active">
-            Active OM: ~{formatCompact(state.observationTokens)} tokens
-          </span>
-        )}
-        {state.bufferedObservationTokens > 0 && (
-          <span className="tabular-nums" data-testid="context-usage-om-buffered">
-            Buffered OM: ~{formatCompact(state.bufferedObservationTokens)} tokens
-          </span>
-        )}
-        <span className="tabular-nums" data-testid="context-usage-om-progress">
-          Messages: ~{formatCompact(state.pendingMessageTokens)} /{' '}
-          {formatCompact(state.messageTokenThreshold)} toward activation
-        </span>
-        {state.compactionSavedTokens > 0 && (
-          <span className="tabular-nums" data-testid="context-usage-om-compaction">
-            Reflection saved ~{formatCompact(state.compactionSavedTokens)} tokens
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  const note = omNote(state);
-  if (!note) {
-    return null;
-  }
-  return (
-    <p
-      className={cn(
-        'text-2xs mt-1.5',
-        note.tone === 'error' ? 'text-destructive' : 'text-muted-foreground'
-      )}
-      data-testid="context-usage-om-note"
-    >
-      {note.text}
-    </p>
-  );
-};
-
-OmMeterSection.displayName = 'OmMeterSection';
-
 /** Legend/segment color classes per category (shared by bar and swatches). */
 const CATEGORY_COLORS = {
   conversation: 'bg-emerald-500/80',
@@ -324,8 +210,8 @@ interface CategorySegment {
 }
 
 /**
- * The Conversation figure: prefers the server-measured wire figure (non-memory
- * transports), else the client full-part walk, else the legacy scalar estimate.
+ * The Conversation figure: prefers the server-measured wire figure where the
+ * host reports one, else the client full-part walk, else the scalar estimate.
  * Returns null when nothing measurable exists (the conversation then lands in
  * Unattributed once exact usage exists, rather than being zero-faked).
  */
@@ -580,8 +466,8 @@ function composeBreakdown(params: {
   // Same authority split as the Conversation row: when the wire IS the
   // conversation (historyMessagesTokens present), the server count is the
   // measurement — including an honest 0 that must not be overridden by stale
-  // UI history. Memory-backed runs measure only the current turn on the wire,
-  // so the client walk (whole thread) speaks for the conversation instead.
+  // UI history. Without that figure the client walk (whole thread) speaks for
+  // the conversation instead.
   const attachmentsCount =
     breakdown?.historyMessagesTokens === undefined
       ? (conversationEstimate?.attachmentsCount ?? breakdown?.attachmentsCount ?? 0)
@@ -622,27 +508,27 @@ function composeBreakdown(params: {
 }
 
 interface CapacityBarProps {
-  effectiveInputBudget: number;
+  compactionTrigger: number;
   segments: readonly CategorySegment[];
 }
 
 /**
  * Pure width math for the capacity bar: proportional widths clamped so an
- * over-budget estimate can never overflow 100%. Kept OUTSIDE the component —
- * the running `remaining` accumulator must not be a render-scope reassignment
- * (React Compiler immutability).
+ * estimate past the trigger can never overflow 100%. Kept OUTSIDE the
+ * component — the running `remaining` accumulator must not be a render-scope
+ * reassignment (React Compiler immutability).
  */
 function computeSegmentWidths(
   segments: readonly CategorySegment[],
-  effectiveInputBudget: number
+  compactionTrigger: number
 ): (CategorySegment & { width: number })[] {
   const widths: (CategorySegment & { width: number })[] = [];
   let remaining = 100;
   for (const segment of segments) {
-    const raw = (segment.tokens / effectiveInputBudget) * 100;
-    // Floor tiny segments to a visible sliver, but the remaining-budget clamp
-    // wins LAST so the widths can never sum past 100 (an over-budget thread is
-    // the inline critical notice's job, not the bar's).
+    const raw = (segment.tokens / compactionTrigger) * 100;
+    // Floor tiny segments to a visible sliver, but the remaining-width clamp
+    // wins LAST so the widths can never sum past 100 (a thread past its
+    // trigger is the inline critical notice's job, not the bar's).
     const width = Math.min(Math.max(raw, 0.75), remaining);
     remaining = Math.max(0, remaining - width);
     widths.push({ ...segment, width });
@@ -651,14 +537,14 @@ function computeSegmentWidths(
 }
 
 /**
- * Segmented capacity bar over the effective input budget. Segments render in
- * legend order; the unfilled remainder is the muted track (free space).
+ * Segmented capacity bar over the compaction trigger. Segments render in
+ * legend order; the unfilled remainder is the muted track (room before compaction).
  */
-const CapacityBar = ({ effectiveInputBudget, segments }: CapacityBarProps) => {
+const CapacityBar = ({ compactionTrigger, segments }: CapacityBarProps) => {
   if (segments.length === 0) {
     return null;
   }
-  const widths = computeSegmentWidths(segments, effectiveInputBudget);
+  const widths = computeSegmentWidths(segments, compactionTrigger);
   return (
     <div
       aria-hidden="true"
@@ -687,16 +573,16 @@ export interface ContextUsagePopoverContentProps {
    * run — the popover then falls back to the client conversation estimate.
    */
   breakdownState?: AssistantContextBreakdownState | undefined;
+  /** The request size at which the thread compacts: the header's and bar's denominator. */
+  compactionTrigger: number;
   contextWindow: number;
   /** Full-part client walk (per-tool + conversation split sub-rows). */
   conversationEstimate?: ConversationTokenEstimate | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  effectiveInputBudget: number;
   estimatedTokens?: number | undefined;
   isEstimated: boolean;
   /** In-flight run's billed step usage (BST-953 live tick). */
   liveRunUsage?: ThreadTokenUsage | undefined;
-  omSegment?: OmMeterState | undefined;
   /** Opens the Context tab; present only where that tab exists. */
   onOpenContextMap?: (() => void) | undefined;
   percentage: number;
@@ -743,21 +629,19 @@ const WorkspaceFilesRow = ({
 
 export const ContextUsagePopoverContent = ({
   breakdownState,
+  compactionTrigger,
   contextWindow,
   conversationEstimate,
   cumulativeUsage,
-  effectiveInputBudget,
   estimatedTokens,
   isEstimated,
   liveRunUsage,
-  omSegment,
   onOpenContextMap,
   percentage,
   usage,
   usedTokens,
   workspaceFileTokens,
 }: ContextUsagePopoverContentProps) => {
-  const { detailLevel } = useAssistantDetailLevel();
   const breakdownInvalid = breakdownState?.invalid === true;
   const { rows, segments, subRowsByTestId } = composeBreakdown({
     breakdown: breakdownState && !breakdownState.invalid ? breakdownState.breakdown : undefined,
@@ -778,22 +662,22 @@ export const ContextUsagePopoverContent = ({
         </>
       )}
 
-      {/* Context section: percent-full + used/budget fraction. The denominator
-          is the effective input budget (contextWindow − output reservation);
-          the full model window is on the line below so neither number is lost. */}
+      {/* Context section: percent-full + used/trigger fraction. The denominator
+          is the compaction trigger, so full means the thread compacts now; the
+          full model window is on the line below so neither number is lost. */}
       <p
         className={cn('tabular-nums', cumulativeUsage ? undefined : 'font-medium')}
         data-testid="context-usage-popover-header"
       >
         Context {Math.round(percentage)}% full · {formatCompact(usedTokens)}
-        {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(effectiveInputBudget)}
+        {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(compactionTrigger)}
       </p>
       <p className="text-muted-foreground text-2xs" data-testid="context-usage-popover-window">
         model window {formatTokenCount(contextWindow)}
       </p>
 
       {/* Segmented capacity bar — same figures as the legend rows below. */}
-      <CapacityBar effectiveInputBudget={effectiveInputBudget} segments={segments} />
+      <CapacityBar compactionTrigger={compactionTrigger} segments={segments} />
 
       {/* Malformed wire part → surfaced honestly, never coerced into rows. */}
       {breakdownInvalid && (
@@ -843,14 +727,6 @@ export const ContextUsagePopoverContent = ({
       {workspaceFileTokens !== undefined && (
         <WorkspaceFilesRow onOpenContextMap={onOpenContextMap} tokens={workspaceFileTokens} />
       )}
-
-      {/* OM informational stats (observed tokens + compaction saved), or an
-          honest note for the other states. NOT a budget segment — the
-          observation does not consume this turn's input budget. A host
-          without memory supplies { kind: 'chat-only' } so the stats are
-          hidden, never zeros. */}
-      {omSegment && <OmMeterSection state={omSegment} />}
-      {omSegment && detailLevel === 'developer' && <MemoryDeveloperPanel state={omSegment} />}
     </div>
   );
 };

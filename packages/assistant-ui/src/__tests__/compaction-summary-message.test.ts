@@ -7,7 +7,13 @@ import {
 } from '../compaction-summary-message';
 
 describe('readHostContextCompaction', () => {
+  const lists = {
+    earlierRequests: ['Move the port.'],
+    filesEdited: [{ edits: 2, path: 'src/server.ts' }],
+    toolsLoaded: ['brainstrike_lspInspect'],
+  };
   const part = {
+    ...lists,
     kind: 'agentic',
     modelId: 'openai::gpt-6-sol',
     reason: 'pre-request',
@@ -22,6 +28,7 @@ describe('readHostContextCompaction', () => {
 
   it('reads the summarizer failure a deterministic fallback recorded (BST-2204)', () => {
     const fallback = {
+      ...lists,
       kind: 'deterministic',
       reason: 'pre-request',
       summarizerFailure: {
@@ -34,12 +41,34 @@ describe('readHostContextCompaction', () => {
     expect(readHostContextCompaction(fallback)).toEqual(fallback);
   });
 
+  it('reads a compaction of a running turn’s steps, and a request trim (BST-2531)', () => {
+    const steps = { ...part, stepsCompacted: 7, turnsCompacted: 0 };
+    expect(readHostContextCompaction(steps)).toEqual(steps);
+    const trim = {
+      ...lists,
+      kind: 'deterministic',
+      reason: 'request-trim',
+      summary: 'Dropped.',
+      turnsCompacted: 1,
+    };
+    expect(readHostContextCompaction(trim)).toEqual(trim);
+  });
+
+  it('reads a compaction a person asked for, with what they asked it to keep (BST-2536)', () => {
+    const requested = { ...part, focus: 'Keep the parser decision.', reason: 'requested' };
+    expect(readHostContextCompaction(requested)).toEqual(requested);
+  });
+
   it.each([
+    ['with an empty focus', { ...part, focus: '' }],
     ['without its reason', { ...part, reason: undefined }],
     ['with no compacted turns', { ...part, turnsCompacted: 0 }],
+    ['with no compacted steps', { ...part, stepsCompacted: 0, turnsCompacted: 0 }],
     ['with an empty summarizer model', { ...part, modelId: '' }],
     ['with usage missing its tokens', { ...part, usage: { inputTokens: 10 } }],
     ['with a summarizer failure missing its code', { ...part, summarizerFailure: {} }],
+    ['without the host’s lists (BST-2527)', { ...part, toolsLoaded: undefined }],
+    ['with a file of no edits', { ...part, filesEdited: [{ edits: 0, path: 'src/a.ts' }] }],
   ])('refuses a part %s', (_label, data) => {
     expect(() => readHostContextCompaction(data)).toThrow(Error);
   });

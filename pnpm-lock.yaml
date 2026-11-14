@@ -6,6 +6,9 @@ importers:
   .:
     configDependencies: {}
     packageManagerDependencies:
+      '@pnpm/exe':
+        specifier: 12.16.1
+        version: 12.16.1
       pnpm:
         specifier: 12.16.1
         version: 12.16.1
@@ -89,6 +92,11 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@pnpm/exe@12.16.1':
+    resolution: {integrity: sha512-Opsh2R7IuFY3ekd0C282Tmzgr5hiSlKMOv05/3dJXUrrp5NbmjC1Cm5PCFsa8xsiXY7z4oSkI4Qof1LjTkgAJg==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   pnpm@12.16.1:
     resolution: {integrity: sha512-CR0d7nknV1Zhsl2rPCrjHK/BxU1rce1qZgDPDByxBDSkR+rhQBXxsj4ua+3u1535SpMuIWTSgyKA3OP7MvZW0Q==}
     engines: {node: '>=18'}
@@ -137,6 +145,23 @@ snapshots:
 
   '@pnpm/exe.win32-x64@12.16.1':
     optional: true
+
+  '@pnpm/exe@12.16.1':
+    optionalDependencies:
+      '@pnpm/exe.android-arm64': 12.16.1
+      '@pnpm/exe.android-x64': 12.16.1
+      '@pnpm/exe.darwin-arm64': 12.16.1
+      '@pnpm/exe.darwin-x64': 12.16.1
+      '@pnpm/exe.freebsd-x64': 12.16.1
+      '@pnpm/exe.linux-arm64': 12.16.1
+      '@pnpm/exe.linux-arm64-musl': 12.16.1
+      '@pnpm/exe.linux-ppc64': 12.16.1
+      '@pnpm/exe.linux-riscv64': 12.16.1
+      '@pnpm/exe.linux-s390x': 12.16.1
+      '@pnpm/exe.linux-x64': 12.16.1
+      '@pnpm/exe.linux-x64-musl': 12.16.1
+      '@pnpm/exe.win32-arm64': 12.16.1
+      '@pnpm/exe.win32-x64': 12.16.1
 
   pnpm@12.16.1:
     optionalDependencies:
@@ -236,9 +261,6 @@ catalogs:
     '@mastra/core':
       specifier: 1.82.0
       version: 1.82.0
-    '@mastra/memory':
-      specifier: 1.41.0
-      version: 1.41.0
     '@mastra/schema-compat':
       specifier: 1.3.17
       version: 1.3.17
@@ -542,8 +564,6 @@ overrides:
 
 patchedDependencies:
   '@assistant-ui/core@0.3.32': 10857408425b18776ee2271f3f41025da6ea93c91b7d98b4055a56d48f0c1a69
-  '@mastra/core@1.82.0': c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652
-  '@mastra/memory@1.41.0': b326410dc326231ce7e31af3332fcddf5cb48362d2369b9b948fa7e6996bfea7
   playwright-core@1.64.1: 79a90d62951819db9ce03cee5e288e1655267f14f9e7b324a7f2e31fd2b1469c
   vscode-jsonrpc@10.0.0: 2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4
 
@@ -769,10 +789,7 @@ importers:
         version: 5.3.0
       '@mastra/core':
         specifier: 'catalog:'
-        version: 1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
-      '@mastra/memory':
-        specifier: 'catalog:'
-        version: 1.41.0(patch_hash=b326410dc326231ce7e31af3332fcddf5cb48362d2369b9b948fa7e6996bfea7)(@mastra/core@1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
+        version: 1.82.0(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@mastra/schema-compat':
         specifier: 'catalog:'
         version: 1.3.17(zod@4.6.7)
@@ -1112,7 +1129,7 @@ importers:
         version: link:../utils
       '@mastra/core':
         specifier: 'catalog:'
-        version: 1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
+        version: 1.82.0(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@mastra/schema-compat':
         specifier: 'catalog:'
         version: 1.3.17(zod@4.6.7)
@@ -1261,10 +1278,7 @@ importers:
         version: link:../windows-job-native
       '@mastra/core':
         specifier: 'catalog:'
-        version: 1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
-      '@mastra/memory':
-        specifier: 'catalog:'
-        version: 1.41.0(patch_hash=b326410dc326231ce7e31af3332fcddf5cb48362d2369b9b948fa7e6996bfea7)(@mastra/core@1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
+        version: 1.82.0(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@mastra/schema-compat':
         specifier: 'catalog:'
         version: 1.3.17(zod@4.6.7)
@@ -2800,10 +2814,7 @@ importers:
     devDependencies:
       '@mastra/core':
         specifier: 'catalog:'
-        version: 1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
-      '@mastra/memory':
-        specifier: 'catalog:'
-        version: 1.41.0(patch_hash=b326410dc326231ce7e31af3332fcddf5cb48362d2369b9b948fa7e6996bfea7)(@mastra/core@1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)
+        version: 1.82.0(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.64.1
@@ -4447,12 +4458,6 @@ packages:
     engines: {node: '>=22.13.0'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
-
-  '@mastra/memory@1.41.0':
-    resolution: {integrity: sha512-g8SdfS88TdjdM9Yl3kzE+NB6iXnCavoZ7zrv8uFEBNcsVWJBQ6yBU6fknxRsnr7q9D9VnSU9D5oFAIGqfq3VvQ==}
-    engines: {node: '>=22.13.0'}
-    peerDependencies:
-      '@mastra/core': '>=1.80.0-0 <2.0.0-0'
 
   '@mastra/schema-compat@1.3.17':
     resolution: {integrity: sha512-8tuRZkVL7JE5A7pH2/GV3khYM+R8xHa+WPSjykq4OjKT2O4s9mNpPl8174dEN8TZUYetUAtxZM0HVM24ON0UQg==}
@@ -6599,9 +6604,6 @@ packages:
     resolution: {integrity: sha512-NW2cX8m1Q7KPA7a5M2ULQeZ2wR5qI5PAbw5L0UOMxdioVk9PMZ0h1TmyZEkPYrCvYjDlFICusOu1dlEKAAeXBw==}
     engines: {node: '>=0.12.0'}
 
-  async-mutex@0.5.0:
-    resolution: {integrity: sha512-1A94B18jkJ3DYq284ohPxoXbfTA5HsQ7/Mf4DEhcyLx3Bz27Rh59iScbB6EPiP+B+joue6YCxcMXSbFC1tZKwA==}
-
   async@3.2.6:
     resolution: {integrity: sha512-htCUDlxyyCLMgaM3xXg0C0LW2xqfuQ6p05pCEIsXuyQ+a1koYKTuBMzRNwmybfLgvJDMd0r1LTn4+E0Ti6C2AA==}
 
@@ -6981,14 +6983,6 @@ packages:
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
-    peerDependencies:
-      supports-color: '*'
-    peerDependenciesMeta:
-      supports-color:
-        optional: true
-
-  debug@3.2.7:
-    resolution: {integrity: sha512-CFjzYYAi4ThfiQvizrFQevTTXHtnCqWfe7x1AhgEscTz6ZbLbfoLRLPugTQyBth6f8ZERVUSyWHFD/7Wu4t1XQ==}
     peerDependencies:
       supports-color: '*'
     peerDependenciesMeta:
@@ -7681,10 +7675,6 @@ packages:
     resolution: {integrity: sha512-eKCa6bwnJhvxj14kZk5NCPc6Hb6BdsU9DZcOnmQKSnO1VKrfV0zCvtttPZUsBvjmNDn8rpcJfpwSYnHBjc95MQ==}
     engines: {node: '>=18.18.0'}
 
-  iconv-lite@0.4.24:
-    resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
-    engines: {node: '>=0.10.0'}
-
   iconv-lite@0.7.3:
     resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
     engines: {node: '>=0.10.0'}
@@ -8065,9 +8055,6 @@ packages:
     resolution: {integrity: sha512-pDo3lu8Jhfjqls6GkMgpahsF9kCyayhgykjyLMNFTKWrpVdAQtYyB4muAMWozBB4ig/dtWAmsMxLEI8wuz+DYQ==}
     deprecated: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
 
-  lodash.merge@4.6.2:
-    resolution: {integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==}
-
   lodash@4.18.1:
     resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
 
@@ -8375,11 +8362,6 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
-  needle@2.9.1:
-    resolution: {integrity: sha512-6R9fqJ5Zcmf+uYaFgdIHmLwNldn5HbK8L5ybn7Uz+ylX/rnOsSp1AHcvQSrCaFN+qNM1wpymHqD7mVasEOlHGQ==}
-    engines: {node: '>= 4.4.x'}
-    hasBin: true
-
   negotiator@1.0.0:
     resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
     engines: {node: '>= 0.6'}
@@ -8659,9 +8641,6 @@ packages:
   pretty-ms@9.3.1:
     resolution: {integrity: sha512-HzMy3Geq23nVALD/M2LliU+F+M+gVNsvkQWWqeBZ8HDiCgzo6YPJ/Omrmtq24EFrIsk0a3EkQGEd7bDOo+IhGA==}
     engines: {node: '>=18'}
-
-  probe-image-size@7.4.0:
-    resolution: {integrity: sha512-cdEprVtZxV+awMde9X+4jILBFYh4CARxVrQaMl4wY4YcPWbul9jntXrIW95NInBDyJwcVUP3U0T6yukN8rMBaQ==}
 
   proc-log@6.1.0:
     resolution: {integrity: sha512-iG+GYldRf2BQ0UDUAd6JQ/RwzaQy6mXmsk/IzlYyal4A4SNFw54MeH4/tLkF4I5WoWG9SQwuqWzS99jaFQHBuQ==}
@@ -9134,9 +9113,6 @@ packages:
 
   std-env@4.3.0:
     resolution: {integrity: sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==}
-
-  stream-parser@0.3.1:
-    resolution: {integrity: sha512-bJ/HgKq41nlKvlhccD5kaCr/P+Hu0wPNKPJOH7en+YrJu/9EgqUF+88w5Jb6KNcjOFMhfX4B2asfeAtIGuHObQ==}
 
   streamdown@2.7.1:
     resolution: {integrity: sha512-pIz4XOB+e7iyqSJABXC9PoyHifBZVQx/7U0Qo/vdOIERqGXfgEhJxkXENsuWMO8TGXkaQ5ewV9jnliK7q47T8w==}
@@ -9865,7 +9841,7 @@ snapshots:
 
   '@a2a-js/sdk@1.0.1(express@5.2.1(supports-color@10.2.2))':
     dependencies:
-      jose: 6.2.3
+      jose: 6.2.17
       uuid: 11.1.1
     optionalDependencies:
       express: 5.2.1(supports-color@10.2.2)
@@ -11340,7 +11316,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.3': {}
 
-  '@mastra/core@1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)':
+  '@mastra/core@1.82.0(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)':
     dependencies:
       '@a2a-js/sdk-v0_3': '@a2a-js/sdk@0.3.14(express@5.2.1(supports-color@10.2.2))'
       '@a2a-js/sdk-v1': '@a2a-js/sdk@1.0.1(express@5.2.1(supports-color@10.2.2))'
@@ -11392,20 +11368,6 @@ snapshots:
       - workflow
       - zod-openapi
       - zod-to-json-schema
-
-  '@mastra/memory@1.41.0(patch_hash=b326410dc326231ce7e31af3332fcddf5cb48362d2369b9b948fa7e6996bfea7)(@mastra/core@1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7))(supports-color@10.2.2)':
-    dependencies:
-      '@mastra/core': 1.82.0(patch_hash=c988c68d7e760b022b4fed5d9b2607d5d7c15d283f4e413e62a4fe6531b2a652)(@opentelemetry/api@1.9.1)(ai@7.0.160(zod@4.6.7))(effect@4.1.2)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)
-      '@mastra/schema-compat': 1.3.17(zod@4.6.7)
-      async-mutex: 0.5.0
-      diff: 9.0.0
-      json-schema: 0.4.0
-      lru-cache: 11.5.3
-      probe-image-size: 7.4.0(supports-color@10.2.2)
-      xxhash-wasm: 1.1.0
-      zod: 4.6.7
-    transitivePeerDependencies:
-      - supports-color
 
   '@mastra/schema-compat@1.3.17(zod@4.6.7)':
     dependencies:
@@ -13360,10 +13322,6 @@ snapshots:
 
   async-exit-hook@2.0.1: {}
 
-  async-mutex@0.5.0:
-    dependencies:
-      tslib: 2.8.1
-
   async@3.2.6: {}
 
   asynckit@0.4.0: {}
@@ -13758,12 +13716,6 @@ snapshots:
   debug@2.6.9(supports-color@10.2.2):
     dependencies:
       ms: 2.0.0
-    optionalDependencies:
-      supports-color: 10.2.2
-
-  debug@3.2.7(supports-color@10.2.2):
-    dependencies:
-      ms: 2.1.3
     optionalDependencies:
       supports-color: 10.2.2
 
@@ -14726,10 +14678,6 @@ snapshots:
 
   human-signals@8.0.1: {}
 
-  iconv-lite@0.4.24:
-    dependencies:
-      safer-buffer: 2.1.2
-
   iconv-lite@0.7.3:
     dependencies:
       safer-buffer: 2.1.2
@@ -15032,8 +14980,6 @@ snapshots:
   lodash.escaperegexp@4.1.2: {}
 
   lodash.isequal@4.5.0: {}
-
-  lodash.merge@4.6.2: {}
 
   lodash@4.18.1: {}
 
@@ -15540,14 +15486,6 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  needle@2.9.1(supports-color@10.2.2):
-    dependencies:
-      debug: 3.2.7(supports-color@10.2.2)
-      iconv-lite: 0.4.24
-      sax: 1.6.0
-    transitivePeerDependencies:
-      - supports-color
-
   negotiator@1.0.0:
     optional: true
 
@@ -15853,14 +15791,6 @@ snapshots:
   pretty-ms@9.3.1:
     dependencies:
       parse-ms: 4.0.0
-
-  probe-image-size@7.4.0(supports-color@10.2.2):
-    dependencies:
-      lodash.merge: 4.6.2
-      needle: 2.9.1(supports-color@10.2.2)
-      stream-parser: 0.3.1(supports-color@10.2.2)
-    transitivePeerDependencies:
-      - supports-color
 
   proc-log@6.1.0: {}
 
@@ -16298,7 +16228,8 @@ snapshots:
 
   safe-stable-stringify@2.5.0: {}
 
-  safer-buffer@2.1.2: {}
+  safer-buffer@2.1.2:
+    optional: true
 
   sanitize-filename@1.6.4:
     dependencies:
@@ -16454,12 +16385,6 @@ snapshots:
     optional: true
 
   std-env@4.3.0: {}
-
-  stream-parser@0.3.1(supports-color@10.2.2):
-    dependencies:
-      debug: 2.6.9(supports-color@10.2.2)
-    transitivePeerDependencies:
-      - supports-color
 
   streamdown@2.7.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2):
     dependencies:

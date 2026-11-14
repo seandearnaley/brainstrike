@@ -62,7 +62,11 @@ export interface ThreadRepositoryRow {
   readonly key: string;
   /** Its own checkout's path. */
   readonly path: string;
-  /** The project of its own checkout's folder; null while that folder is not open or has none. */
+  /**
+   * The project of its own checkout's folder: from that folder's record when it is an open
+   * folder, or from the host's listing for a repository found inside an open folder (ADR-0034
+   * build decisions, BST-2511). Null while neither names one.
+   */
   readonly projectId: string | null;
   /** That project's name; null while it has none. */
   readonly projectName: string | null;

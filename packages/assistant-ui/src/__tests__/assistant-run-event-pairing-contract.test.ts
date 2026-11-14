@@ -28,9 +28,7 @@ describe('getMatchingCompletedKind', () => {
     expect(getMatchingCompletedKind('tool.started')).toBe('tool.completed');
   });
   it('maps non-run *.started to *.completed', () => {
-    expect(getMatchingCompletedKind('memory.reflection.started')).toBe(
-      'memory.reflection.completed'
-    );
+    expect(getMatchingCompletedKind('subagent.tool.started')).toBe('subagent.tool.completed');
   });
 });
 
@@ -45,8 +43,6 @@ describe('run-event terminal pairing contract', () => {
   // `subagent.started` is the case that regressed: its terminals are
   // `.finished`/`.failed`, never the `.completed` a suffix rewrite invents.
   const PAIRINGS = [
-    ['memory.observation.started', 'memory.observation.completed', 'memory.observation.failed'],
-    ['memory.reflection.started', 'memory.reflection.completed', null],
     ['run.started', 'run.finished', 'run.failed'],
     ['run.step.started', 'run.step.finished', null],
     ['subagent.started', 'subagent.finished', 'subagent.failed'],
@@ -148,13 +144,6 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'hook.blocked',
     'hook.notice',
     'reference.unavailable',
-    'memory.configured',
-    'memory.history.loaded',
-    'memory.observation.completed',
-    'memory.observation.failed',
-    'memory.reflection.completed',
-    'memory.working.loaded',
-    'memory.working.updated',
     // BST-1602's MCP discovery skip. Emitted `status: 'failed'`
     // (`makeMcpDiscoverySkipChunks` in
     // packages/agent/src/mcp/mcp-discovery-diagnostics.ts), never

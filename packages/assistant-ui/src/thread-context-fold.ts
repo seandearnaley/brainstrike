@@ -61,8 +61,12 @@ export interface ContextCall {
   readonly unmapped?: string;
 }
 export interface ContextRun {
+  /** The tool calls of steps this run's committed compactions replaced with a summary (BST-2531). */
+  readonly compactedCallIds: readonly string[];
   /** Runs this run's committed compactions replaced with a summary. */
   readonly compactedRunIds: readonly string[];
+  /** How many compactions this run committed, of earlier turns or of its own steps. */
+  readonly compactions: number;
   /** False once any of the run's requests was committed without a tool-call window. */
   readonly measured: boolean;
   readonly prompt: string;
@@ -91,7 +95,9 @@ interface MutableCall {
   unmapped?: string | undefined;
 }
 interface MutableRun {
+  compactedCallIds: string[];
   compactedRunIds: string[];
+  compactions: number;
   /** The last snapshot's view of this run; cleared on any change. */
   frozen?: ContextRun | undefined;
   measured: boolean;
@@ -240,6 +246,10 @@ function modelOutputText(output: unknown): string | undefined {
 export class ThreadContextFold {
   private readonly calls = new Map<string, MutableCall>();
   private readonly runs = new Map<string, MutableRun>();
+  /** The run and step whose committed `model.step` made each tool call. */
+  private readonly callSteps = new Map<string, { readonly runId: string; readonly step: number }>();
+  /** Each run's steps its compactions kept word for word (`through.kept`). */
+  private readonly keptSteps = new Map<string, Set<number>>();
   private lastSeq = Number.NEGATIVE_INFINITY;
   private snapshot: ThreadContextSnapshot | undefined;
   accept(rows: readonly CommittedAssistantLogRow[]): ThreadContextSnapshot {
@@ -285,11 +295,12 @@ export class ThreadContextFold {
       case 'stream.chunk':
         return this.chunk(runId, record(event['chunk']));
       case 'model.step':
+        this.recordCallSteps(runId, event);
         return this.step(event['messages']);
       case 'provider.request.prepared':
         return this.prepared(runId, event);
       case 'context.compacted':
-        return this.compacted(runId, event['compactedRunIds']);
+        return this.compacted(runId, event);
       case 'references.unavailable':
         return this.failedPins(runId, event['files']);
       default:
@@ -317,21 +328,70 @@ export class ThreadContextFold {
     this.settle(call, event['output']);
     return true;
   }
-  private compacted(runId: string, compactedRunIds: unknown): boolean {
+  /** Each call a committed step made, by the step's run and number. */
+  private recordCallSteps(runId: string, event: Readonly<Record<string, unknown>>): void {
+    const step = event['stepNumber'];
+    if (typeof step !== 'number' || !Array.isArray(event['messages'])) {
+      return;
+    }
+    for (const message of event['messages']) {
+      const content = record(message)?.['content'];
+      for (const part of Array.isArray(content) ? content : []) {
+        const toolCallId = string(record(part)?.['toolCallId']);
+        if (
+          record(part)?.['type'] === 'tool-call' &&
+          toolCallId &&
+          !this.callSteps.has(toolCallId)
+        ) {
+          this.callSteps.set(toolCallId, { runId, step });
+        }
+      }
+    }
+  }
+  /**
+   * A compaction replaced earlier turns whole, and with `through` the steps of
+   * a run up to one but its kept ones (BST-2531): their calls read as
+   * compacted from this run on. A step any compaction kept stays sent.
+   */
+  private compacted(runId: string, event: Readonly<Record<string, unknown>>): boolean {
     const run = this.runs.get(runId);
+    const { compactedRunIds } = event;
     if (!(run && Array.isArray(compactedRunIds))) {
       return false;
     }
+    // A summary covers what the branch's earlier one did too (BST-2527): each turn counts once.
     run.compactedRunIds.push(
-      ...compactedRunIds.filter((id): id is string => typeof id === 'string')
+      ...compactedRunIds.filter(
+        (id): id is string => typeof id === 'string' && !run.compactedRunIds.includes(id)
+      )
     );
+    const through = record(event['through']);
+    const throughRun = string(through?.['runId']);
+    const throughStep = through?.['stepNumber'];
+    if (throughRun && typeof throughStep === 'number') {
+      const kept = this.keptSteps.get(throughRun) ?? new Set<number>();
+      for (const step of Array.isArray(through?.['kept']) ? through['kept'] : []) {
+        if (typeof step === 'number') {
+          kept.add(step);
+        }
+      }
+      this.keptSteps.set(throughRun, kept);
+      for (const [toolCallId, at] of this.callSteps) {
+        if (at.runId === throughRun && at.step <= throughStep && !kept.has(at.step)) {
+          run.compactedCallIds.push(toolCallId);
+        }
+      }
+    }
+    run.compactions += 1;
     run.frozen = undefined;
     return true;
   }
   private started(runId: string, event: Readonly<Record<string, unknown>>): boolean {
     const prompt = typeof event['prompt'] === 'string' ? event['prompt'] : '';
     const run: MutableRun = {
+      compactedCallIds: [],
       compactedRunIds: [],
+      compactions: 0,
       measured: true,
       pinIds: [],
       prompt,
@@ -486,7 +546,9 @@ export class ThreadContextFold {
     const runs = new Map<string, ContextRun>();
     for (const run of this.runs.values()) {
       run.frozen ??= {
+        compactedCallIds: [...run.compactedCallIds],
         compactedRunIds: [...run.compactedRunIds],
+        compactions: run.compactions,
         measured: run.measured,
         prompt: run.prompt,
         requests: run.requests,
@@ -570,7 +632,8 @@ function attachmentAt(call: ContextCall, callTurn: number, selected: number): Co
 function toolCallState(
   call: ContextCall,
   window: ReadonlyMap<string, PromptToolCall> | null,
-  compacted: ReadonlySet<string>
+  /** The runs, and the calls of steps, the branch's compactions replaced so far. */
+  compacted: { readonly calls: ReadonlySet<string>; readonly runs: ReadonlySet<string> }
 ): {
   readonly state: ContextCallState;
   readonly windowTokens: number | null;
@@ -585,7 +648,13 @@ function toolCallState(
       windowTokens: callTokens(entry),
     };
   }
-  return { state: compacted.has(call.runId) ? 'compacted' : 'dropped', windowTokens: 0 };
+  return {
+    state:
+      compacted.runs.has(call.runId) || compacted.calls.has(call.toolCallId)
+        ? 'compacted'
+        : 'dropped',
+    windowTokens: 0,
+  };
 }
 /**
  * Every call on the branch up to `turn` (default: the latest), with its state
@@ -606,7 +675,10 @@ export function threadContextAt(
   const current = upTo.at(-1);
   // A turn whose requests did not all record windows has an unknown window.
   const window = current?.measured ? current.window : null;
-  const compacted = new Set(upTo.flatMap((run) => run.compactedRunIds));
+  const compacted = {
+    calls: new Set(upTo.flatMap((run) => run.compactedCallIds)),
+    runs: new Set(upTo.flatMap((run) => run.compactedRunIds)),
+  };
   const delivered = firstDeliveredTokens(upTo);
   const calls: ContextCallAtTurn[] = [];
   for (const call of snapshot.calls.values()) {

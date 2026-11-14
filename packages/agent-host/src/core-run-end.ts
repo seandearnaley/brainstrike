@@ -5,7 +5,6 @@ import {
   awaitHostThreadsIdle,
   finishHostRun,
   joinHostThreadSettlements,
-  settleHostRunOwner,
 } from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
 import { hostRunTerminalEvents } from './hook-context.ts';
@@ -18,7 +17,6 @@ import {
 } from './notices.ts';
 import type { HostClientOrigin } from './ports.ts';
 import type { HostEvent, HostLogRow, HostNotice, HostParams } from './protocol.ts';
-import { endHostRunTurn } from './run-admission.ts';
 import {
   type HostRunPosition,
   type HostStartCommandRecord,
@@ -29,7 +27,7 @@ import type { HostThreadPresentationState } from './thread-presentation-state.ts
 
 type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 
-/** Core's writer, admission and run owners, lent to a run's end. */
+/** Core's writer, admission and run resources, lent to a run's end. */
 export interface HostRunEndPorts {
   /** Core's one admission queue. */
   readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
@@ -47,7 +45,7 @@ export interface HostRunEndPorts {
     beforePublish: (rows: readonly HostLogRow[]) => void
   ) => Promise<unknown>;
   readonly children: HostChildRuns;
-  readonly closeOwner: (run: HostRunState) => Promise<void>;
+  readonly closeResources: (run: HostRunState) => Promise<void>;
   readonly closing: () => boolean;
   /** Commit a run/start that could not start, with its failed run's events. */
   readonly commitStart: (
@@ -55,6 +53,8 @@ export interface HostRunEndPorts {
     runId: string,
     events: readonly HostEvent[]
   ) => Promise<unknown>;
+  /** BST-2536: the thread is compacting; a wake leaves what it would deliver queued. */
+  readonly compacting: (threadId: string) => boolean;
   readonly deletions: ReadonlyMap<string, unknown>;
   readonly foldRows: (rows: readonly HostLogRow[]) => void;
   /** Commit a notice on `threadId` and fold it. */
@@ -71,10 +71,9 @@ export interface HostRunEndPorts {
 }
 
 /**
- * A run's end. `run.finished` commits once the answer and the owner's
- * foreground memory joined; the owner's background memory (Mastra's buffered
- * observation, joined by `Memory.settled()`) settles after it. The thread's
- * next run, rewind or wake first joins that settlement.
+ * A run's end. `run.finished` commits once the answer and the run's resources
+ * joined; the run is released once that settlement is seen. The thread's next
+ * run, rewind or wake first joins that settlement.
  */
 export class HostRunEnds {
   private readonly ports: HostRunEndPorts;
@@ -143,10 +142,7 @@ export class HostRunEnds {
       outcome,
       detail,
       ports.closing,
-      {
-        end: (owned) => endHostRunTurn(owned, ports.closeOwner),
-        settle: (owned) => settleHostRunOwner(owned, ports.closeOwner),
-      },
+      ports.closeResources,
       async (event, commit) => {
         const own = (await hostRunTerminalEvents(run, event)).map((terminal) => ({
           event: terminal,
@@ -224,6 +220,10 @@ export class HostRunEnds {
       }
       const { admitWake, children, runs, selections, tip } = this.ports;
       await this.ports.admit(threadId, async () => {
+        // A compacting thread takes nothing yet, and its compaction wakes it when it ends.
+        if (this.ports.compacting(threadId)) {
+          return;
+        }
         // Read in the queue: a wake admitted ahead of this one may have delivered it all.
         const wake = children.wakeParams(threadId, runs(), selections, tip(threadId));
         if (wake?.input) {

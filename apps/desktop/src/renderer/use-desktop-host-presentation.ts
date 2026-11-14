@@ -25,8 +25,11 @@ import {
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
+  deriveContextCompactionThreshold,
   isSupportedProvider,
   type OpenRouterModelMetadataLookup,
+  type RuntimeAgentLoopSettings,
+  resolveContextCompactionTokenCap,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { buildModelSettings } from '@brainstrike/assistant-contract/generation-options';
@@ -73,14 +76,12 @@ type Presentation = Pick<
   | 'disabledReason'
   | 'onManageModels'
   | 'openRouterModelMetadataLookup'
-  | 'effectiveInputBudget'
+  | 'compactionTrigger'
   | 'planMode'
   | 'toolMenu'
 >;
 
 interface DesktopHostPresentation extends Presentation {
-  /** The enabled catalog models admission reads, as one comparable key. */
-  readonly catalogKey: string;
   readConfiguration(selectionFolderId: string | null): Record<string, unknown>;
   /** The composer's `provider::model`: a pick, else the thread's selection (ADR-0019). */
   readModelId(): string;
@@ -260,6 +261,21 @@ function noticeProps(
     return { disabledReason: gating, isComposerDisabled: true };
   }
   return advisory ? { disabledReason: advisory } : {};
+}
+
+/**
+ * The context meter's one denominator, from the agent loop the next send
+ * captures: the size at which its thread compacts (BST-2539).
+ */
+function contextMeterBounds(
+  agentLoop: RuntimeAgentLoopSettings | undefined
+): Pick<Presentation, 'compactionTrigger'> {
+  const budget = agentLoop?.inputTokenLimit;
+  if (!budget) {
+    return {};
+  }
+  const cap = resolveContextCompactionTokenCap(agentLoop.compactionTokenCap);
+  return { compactionTrigger: deriveContextCompactionThreshold(budget, cap).trigger };
 }
 
 /**
@@ -517,7 +533,6 @@ export function useDesktopHostPresentation(
   const contextWindow = metadata.modelDef?.contextWindow;
   return {
     ...picker,
-    catalogKey: catalog.state === 'ready' ? [...catalog.keys].sort().join('\n') : catalog.state,
     composerDraftCommand: composerDraft.command,
     onComposerDraftCommandApplied: composerDraft.onApplied,
     onComposerTextChange: composerDraft.onTextChange,
@@ -538,9 +553,7 @@ export function useDesktopHostPresentation(
     ),
     slashCommands,
     toolMenu,
-    ...(metadata.agentLoopSettings?.inputTokenLimit
-      ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
-      : {}),
+    ...contextMeterBounds(metadata.agentLoopSettings),
     ...noticeProps(disabledReason, providerNotice.advisory),
     ...(disabledAction ? { disabledAction } : {}),
     ...(selectedModel ? { selectedModel } : {}),
