@@ -3,7 +3,8 @@
  * other requests. The person lists, writes and deletes the project's notes through the one
  * writer, `ProjectMemoryNotes`, whether or not the project's folder is trusted: ADR-0032 decides
  * what a run loads, never what the person may read. A project the store no longer has is
- * refused, so its folder is never made again.
+ * refused, so its folder is never made again, and a read-only host refuses a write or a delete
+ * as it refuses the project's other changes.
  */
 import type { HostRootRegistry } from '@brainstrike/agent-host';
 import { refusalError, ToolInputError } from '@brainstrike/assistant-contract';
@@ -36,7 +37,9 @@ async function refusedAsTyped<T>(task: () => Promise<T>): Promise<T> {
 }
 
 export function projectMemoryPanel(
-  store: Pick<StateStore, 'root' | 'workspaceRoots'>
+  store: Pick<StateStore, 'root' | 'workspaceRoots'>,
+  /** The root registry's refusal of a change while its store is read-only (BST-2144). */
+  refuseWhenReadOnly: () => void
 ): ProjectMemoryPanel {
   const notesOf = async (projectId: string): Promise<ProjectMemoryNotes> => {
     const { projects = [] } = await store.workspaceRoots({
@@ -55,6 +58,7 @@ export function projectMemoryPanel(
   return {
     'projects/memory/delete': ({ path, projectId }) =>
       refusedAsTyped(async () => {
+        refuseWhenReadOnly();
         const notes = await notesOf(projectId);
         await notes.execute({ command: 'delete', path }, { untrusted: false });
         return null;
@@ -62,6 +66,9 @@ export function projectMemoryPanel(
     'projects/memory/list': ({ projectId }) =>
       refusedAsTyped(async () => ({ notes: await (await notesOf(projectId)).list() })),
     'projects/memory/write': ({ path, projectId, text }) =>
-      refusedAsTyped(async () => await (await notesOf(projectId)).save({ path, text })),
+      refusedAsTyped(async () => {
+        refuseWhenReadOnly();
+        return await (await notesOf(projectId)).save({ path, text });
+      }),
   };
 }

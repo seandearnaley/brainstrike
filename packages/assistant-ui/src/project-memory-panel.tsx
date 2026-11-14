@@ -2,8 +2,9 @@
  * BST-2534: a project's Memory panel, like Notes: the project's notes in a list
  * and the open note's Markdown in an editor. A note untrusted context wrote
  * sorts first with the card's mark; the rest follow, newest first. Leaving an
- * edited note, or the panel, saves it first, and a refused save keeps the text
- * and says why. Delete asks once, here. It explains nothing else.
+ * edited note, or the panel, saves it first, unless the text is what the host
+ * just said no to: the reason shows once, the text stays, and the person can
+ * always leave. Delete asks once, here. It explains nothing else.
  *
  * It reads the notes when it opens: mount one per opening (a new `key`), and
  * keep it mounted while it closes, so it closes as any dialog does.
@@ -49,6 +50,8 @@ interface PanelState {
   readonly notes: readonly ProjectMemoryPanelNote[];
   readonly opened: OpenNote;
   readonly pending: boolean;
+  /** The open note's text the host last said no to: leaving with it does not try again. */
+  readonly refused: string | null;
 }
 
 const UNREAD: PanelState = {
@@ -58,20 +61,51 @@ const UNREAD: PanelState = {
   notes: [],
   opened: null,
   pending: false,
+  refused: null,
 };
 
-/** The notes as the host listed them, untrusted first, then newest, with the first open. */
-function listed(
-  notes: readonly ProjectMemoryPanelNote[]
-): Pick<PanelState, 'draft' | 'notes' | 'opened'> {
-  const sorted = [...notes].sort(
+/** Untrusted notes first, then the newest. */
+function ordered(notes: readonly ProjectMemoryPanelNote[]): readonly ProjectMemoryPanelNote[] {
+  return [...notes].sort(
     (a, b) =>
       Number(b.untrusted) - Number(a.untrusted) ||
       b.modifiedAt - a.modifiedAt ||
       a.title.localeCompare(b.title)
   );
+}
+
+/** The notes in the panel's order, with the first one open. */
+function firstOpen(
+  notes: readonly ProjectMemoryPanelNote[]
+): Pick<PanelState, 'draft' | 'notes' | 'opened' | 'refused'> {
+  const sorted = ordered(notes);
   const first = sorted[0];
-  return { draft: first?.text ?? '', notes: sorted, opened: first ? { path: first.path } : null };
+  return {
+    draft: first?.text ?? '',
+    notes: sorted,
+    opened: first ? { path: first.path } : null,
+    refused: null,
+  };
+}
+
+/** Whether the open note's text differs from what the host holds. */
+function isEdited({ draft, notes, opened }: PanelState): boolean {
+  if (opened === null) {
+    return false;
+  }
+  if (opened === 'new') {
+    return draft.trim() !== '';
+  }
+  const held = notes.find((note) => note.path === opened.path)?.text;
+  return held !== undefined && draft !== held;
+}
+
+/**
+ * Whether leaving the open note saves it first: it was edited, and not to the text the host
+ * just said no to. So a refusal shows once, and the person can always leave.
+ */
+function leavesUnsaved(state: PanelState): boolean {
+  return isEdited(state) && state.draft !== state.refused;
 }
 
 /** The row a key moves to from row `at` of `0..last`; undefined for any other key. */
@@ -109,7 +143,13 @@ export function ProjectMemoryPanel({
   /** What takes focus back when the panel closes: the control that opened it. */
   readonly triggerRef: RefObject<HTMLElement | null>;
 }): ReactElement {
-  const [state, setState] = useState<PanelState>(UNREAD);
+  const [state, setRendered] = useState<PanelState>(UNREAD);
+  /** The state as of the last change: what a step reads once a request comes back. */
+  const latest = useRef(UNREAD);
+  const update = (change: (now: PanelState) => PanelState): void => {
+    latest.current = change(latest.current);
+    setRendered(latest.current);
+  };
   const newNoteButton = useRef<HTMLButtonElement>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
@@ -121,11 +161,14 @@ export function ProjectMemoryPanel({
     try {
       const found = await notes.list();
       if (current()) {
-        setState((now) => ({ ...now, ...listed(found) }));
+        // A note the person opened before the list came stays open; the list fills in beside it.
+        update((now) =>
+          now.opened === null ? { ...now, ...firstOpen(found) } : { ...now, notes: ordered(found) }
+        );
       }
     } catch (cause) {
       if (current()) {
-        setState((now) => ({ ...now, failure: messageOf(cause) }));
+        update((now) => ({ ...now, failure: messageOf(cause) }));
       }
     }
   });
@@ -142,13 +185,9 @@ export function ProjectMemoryPanel({
 
   const { opened } = state;
   const openPath = opened !== null && opened !== 'new' ? opened.path : null;
-  const stored = state.notes.find((note) => note.path === openPath);
-  const edited =
-    opened === 'new'
-      ? state.draft.trim() !== ''
-      : stored !== undefined && state.draft !== stored.text;
+  const edited = isEdited(state);
 
-  /** The change on its way to the host: a close asked for meanwhile waits for it. */
+  /** The change on its way to the host: leaving waits for it. */
   const inFlight = useRef<Promise<boolean> | null>(null);
   const track = (change: Promise<boolean>): Promise<boolean> => {
     inFlight.current = change;
@@ -160,38 +199,52 @@ export function ProjectMemoryPanel({
     return change;
   };
 
-  /** Saves the open note's text; false when the host refused, which the panel shows. */
-  const save = (): Promise<boolean> => track(write());
-  const write = async (): Promise<boolean> => {
-    if (opened === null) {
+  /** Saves the open note's text; false when the host said no, which the panel shows. */
+  const save = (): Promise<boolean> => track(write(latest.current));
+  const write = async ({ draft, opened: note }: PanelState): Promise<boolean> => {
+    if (note === null) {
       return true;
     }
-    setState((now) => ({ ...now, failure: null, pending: true }));
+    update((now) => ({ ...now, failure: null, pending: true }));
     try {
       const written = await notes.write(
-        opened === 'new' ? { text: state.draft } : { path: opened.path, text: state.draft }
+        note === 'new' ? { text: draft } : { path: note.path, text: draft }
       );
-      const found = await notes.list();
-      setState((now) => ({
+      // What was typed while the save was on its way stays in the draft, still to save.
+      update((now) => ({
         ...now,
-        notes: listed(found).notes,
+        notes: ordered([...now.notes.filter((held) => held.path !== written.path), written]),
         opened: { path: written.path },
         pending: false,
+        refused: null,
       }));
       return true;
     } catch (cause) {
-      setState((now) => ({ ...now, failure: messageOf(cause), pending: false }));
+      update((now) => ({ ...now, failure: messageOf(cause), pending: false, refused: draft }));
       return false;
     }
   };
 
-  /** Opens another note, or a new one, once an edit to the open one is saved. */
+  /**
+   * Before the open note is left: lands the change on its way, then saves an edit made since,
+   * unless it is the text the host just said no to. False when the host says no now.
+   */
+  const settle = async (): Promise<boolean> => {
+    for (let running = inFlight.current; running; running = inFlight.current) {
+      if (!(await running)) {
+        return false;
+      }
+    }
+    return !leavesUnsaved(latest.current) || (await save());
+  };
+
+  /** Opens another note, or a new one, once the open one is settled. */
   const openNote = async (next: OpenNote): Promise<boolean> => {
-    if (state.pending || (edited && !(await save()))) {
+    if (!(await settle())) {
       return false;
     }
     flushSync(() => {
-      setState((now) => ({
+      update((now) => ({
         ...now,
         confirmingDelete: false,
         draft:
@@ -200,31 +253,32 @@ export function ProjectMemoryPanel({
             : (now.notes.find((note) => note.path === next.path)?.text ?? ''),
         failure: null,
         opened: next,
+        refused: null,
       }));
     });
     return true;
   };
 
-  const remove = (): Promise<boolean> => track(deleteOpened());
-  const deleteOpened = async (): Promise<boolean> => {
-    if (opened === null) {
+  const remove = (): Promise<boolean> => track(deleteOpened(latest.current));
+  const deleteOpened = async ({ opened: note }: PanelState): Promise<boolean> => {
+    if (note === null) {
       return true;
     }
-    setState((now) => ({ ...now, failure: null, pending: true }));
+    update((now) => ({ ...now, failure: null, pending: true }));
     try {
-      if (opened !== 'new') {
-        await notes.delete(opened.path);
+      if (note !== 'new') {
+        await notes.delete(note.path);
       }
-      const found = opened === 'new' ? state.notes : await notes.list();
-      const next = listed(found);
+      const gone = note === 'new' ? null : note.path;
+      const next = firstOpen(latest.current.notes.filter((held) => held.path !== gone));
       flushSync(() => {
-        setState((now) => ({ ...now, ...next, confirmingDelete: false, pending: false }));
+        update((now) => ({ ...now, ...next, confirmingDelete: false, pending: false }));
       });
       const first = next.opened === null || next.opened === 'new' ? null : next.opened.path;
       (first === null ? newNoteButton.current : rows.current.get(first))?.focus();
       return true;
     } catch (cause) {
-      setState((now) => ({
+      update((now) => ({
         ...now,
         confirmingDelete: false,
         failure: messageOf(cause),
@@ -234,11 +288,9 @@ export function ProjectMemoryPanel({
     }
   };
 
-  /** Closes once nothing is left unsaved: a change on its way lands first, then an edit saves. */
+  /** Closes once the open note is settled; when the host says no, the reason shows first. */
   const close = async (): Promise<void> => {
-    const running = inFlight.current;
-    const settled = running ? await running : !edited || (await save());
-    if (settled) {
+    if (await settle()) {
       onOpenChange(false);
     }
   };
@@ -359,7 +411,7 @@ export function ProjectMemoryPanel({
                 className="bg-background focus-visible:ring-ring min-h-0 flex-1 resize-none rounded-md border p-3 font-mono text-xs leading-5 outline-hidden focus-visible:ring-2"
                 onChange={(event) => {
                   const { value } = event.target;
-                  setState((now) => ({ ...now, draft: value }));
+                  update((now) => ({ ...now, draft: value }));
                 }}
                 ref={editor}
                 spellCheck={false}
@@ -371,7 +423,7 @@ export function ProjectMemoryPanel({
                   <Button
                     onClick={() => {
                       flushSync(() => {
-                        setState((now) => ({ ...now, confirmingDelete: false }));
+                        update((now) => ({ ...now, confirmingDelete: false }));
                       });
                       deleteButton.current?.focus();
                     }}
@@ -404,7 +456,7 @@ export function ProjectMemoryPanel({
                         return;
                       }
                       flushSync(() => {
-                        setState((now) => ({ ...now, confirmingDelete: true }));
+                        update((now) => ({ ...now, confirmingDelete: true }));
                       });
                       cancelButton.current?.focus();
                     }}

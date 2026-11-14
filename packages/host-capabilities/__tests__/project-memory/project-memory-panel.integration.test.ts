@@ -7,12 +7,17 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { StateStore } from '@brainstrike/state-store';
+import {
+  StateStore,
+  StateStoreReadOnlyError,
+  type WorkspaceRootRequest,
+} from '@brainstrike/state-store';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { ProjectMemoryNotes } from '../../src/project-memory/memory-notes.ts';
 import {
   createHostRootRegistry,
   type HostRootRegistryOwner,
+  type HostRootRegistryStore,
 } from '../../src/workspace-roots/index.ts';
 
 let base: string;
@@ -140,4 +145,44 @@ test("a deleted project's memory is refused, and its folder is not made again", 
     owner.service['projects/memory/delete']({ path: '/memories/beta.md', projectId: beta })
   ).rejects.toMatchObject(gone);
   expect(existsSync(folder)).toBe(false);
+});
+
+test('a read-only host lists the notes and refuses a write or a delete, as it refuses other project changes', async () => {
+  const made = await write(alpha, '# Test runtime\nThe tests need Node 26.\n');
+  // BST-2144: a store that opened damaged is read-only.
+  const damaged: HostRootRegistryStore = {
+    deleteSetting: (key) => store.deleteSetting(key),
+    getSetting: (key) => store.getSetting(key),
+    root: store.root,
+    setSetting: (key, value) => store.setSetting(key, value),
+    stateDamage: 'fixture damage',
+    workspaceRoots: (request: WorkspaceRootRequest) => store.workspaceRoots(request),
+  };
+  const readOnly = createHostRootRegistry({
+    disposeCommandSessionsForRoot: async () => 0,
+    e2e: false,
+    evictLspServersForRoot: async () => undefined,
+    managedWorktreeAuthorizer: async () => 'unmanaged',
+    pickFolder: async () => null,
+    publishRootsChanged: async () => undefined,
+    store: damaged,
+  });
+  try {
+    await expect(
+      readOnly.service['projects/memory/list']({ projectId: alpha })
+    ).resolves.toMatchObject({ notes: [{ path: made.path }] });
+    for (const change of [
+      readOnly.service['projects/rename']({ name: 'Renamed', projectId: alpha }),
+      readOnly.service['projects/memory/write']({ path: made.path, projectId: alpha, text: 'x' }),
+      readOnly.service['projects/memory/write']({ projectId: alpha, text: '# New\nnote\n' }),
+      readOnly.service['projects/memory/delete']({ path: made.path, projectId: alpha }),
+    ]) {
+      await expect(change).rejects.toBeInstanceOf(StateStoreReadOnlyError);
+    }
+    expect((await list(alpha)).notes.map((note) => note.text)).toEqual([
+      '# Test runtime\nThe tests need Node 26.\n',
+    ]);
+  } finally {
+    await readOnly.close();
+  }
 });

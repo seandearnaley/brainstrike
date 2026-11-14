@@ -235,3 +235,164 @@ describe("a project's Memory panel", () => {
     expect(notes.write).toHaveBeenCalledWith({ path: style.path, text: '# Style\nTabs.\n' });
   });
 });
+
+/** A promise the test settles when it chooses. */
+function deferred<T>() {
+  let settle: { resolve: (value: T) => void; reject: (cause: unknown) => void } = {
+    reject: () => undefined,
+    resolve: () => undefined,
+  };
+  const promise = new Promise<T>((resolve, reject) => {
+    settle = { reject, resolve };
+  });
+  return { promise, ...settle };
+}
+
+const REFUSED = 'Not saved: holds a secret (github-token).';
+const GONE = 'This project no longer exists, so its memory was not read or changed.';
+
+// Leaving saves an edit, unless it is the text the host just refused: the reason shows once,
+// and the person can always leave.
+describe('leaving the Memory panel after the host says no', () => {
+  it('closes on Escape after a refused save, without saving again', async () => {
+    const notes = hostNotes([style]);
+    notes.write.mockRejectedValueOnce(new Error(REFUSED));
+    const onOpenChange = renderPanel(notes);
+    await waitFor(() => expect(editor()).toHaveValue(style.text));
+
+    fireEvent.change(editor(), { target: { value: '# Style\nghp_x\n' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(REFUSED);
+    fireEvent.keyDown(editor(), { key: 'Escape' });
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(notes.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the panel open when the save on the way out is refused, and the next Escape leaves', async () => {
+    const notes = hostNotes([style]);
+    notes.write.mockRejectedValue(new Error(REFUSED));
+    const onOpenChange = renderPanel(notes);
+    await waitFor(() => expect(editor()).toHaveValue(style.text));
+
+    fireEvent.change(editor(), { target: { value: '# Style\nghp_x\n' } });
+    fireEvent.keyDown(editor(), { key: 'Escape' });
+    expect(await screen.findByRole('alert')).toHaveTextContent(REFUSED);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(editor(), { key: 'Escape' });
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(notes.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('tries again on the way out when the text changed after a refusal', async () => {
+    const notes = hostNotes([style]);
+    notes.write.mockRejectedValueOnce(new Error(REFUSED));
+    const onOpenChange = renderPanel(notes);
+    await waitFor(() => expect(editor()).toHaveValue(style.text));
+
+    fireEvent.change(editor(), { target: { value: '# Style\nghp_x\n' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(REFUSED);
+    fireEvent.change(editor(), { target: { value: '# Style\nTabs.\n' } });
+    fireEvent.keyDown(editor(), { key: 'Escape' });
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(notes.write).toHaveBeenLastCalledWith({ path: style.path, text: '# Style\nTabs.\n' });
+  });
+
+  it("closes after a refused delete in a project that's gone", async () => {
+    const notes = hostNotes([style]);
+    notes.delete.mockRejectedValueOnce(new Error(GONE));
+    const onOpenChange = renderPanel(notes);
+    await waitFor(() => expect(editor()).toHaveValue(style.text));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(GONE);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it('opens another note picked after a refusal, leaving the refused text unsaved', async () => {
+    const notes = hostNotes([style, runtime]);
+    notes.write.mockRejectedValueOnce(new Error(REFUSED));
+    renderPanel(notes);
+    await waitFor(() => expect(editor()).toHaveValue(style.text));
+
+    fireEvent.change(editor(), { target: { value: '# Style\nghp_x\n' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(REFUSED);
+    fireEvent.click(screen.getByRole('option', { name: /Test runtime/u }));
+
+    await waitFor(() => expect(editor()).toHaveValue(runtime.text));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(notes.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('says why the notes could not be read, and closes', async () => {
+    const notes = hostNotes([style]);
+    notes.list.mockRejectedValueOnce(new Error(GONE));
+    const onOpenChange = renderPanel(notes);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(GONE);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+});
+
+describe('what the person types while the host is busy', () => {
+  it('saves what was typed after Save once that save lands, then closes; reopening shows it', async () => {
+    const notes = hostNotes([style]);
+    const write = notes.write.getMockImplementation();
+    const landing = deferred<undefined>();
+    notes.write.mockImplementationOnce(async (sent) => {
+      await landing.promise;
+      return (await write?.(sent)) ?? style;
+    });
+    const onOpenChange = vi.fn();
+    const panel = render(
+      <ProjectMemoryPanel
+        notes={notes}
+        onOpenChange={onOpenChange}
+        open
+        title="beaker · Memory"
+        triggerRef={{ current: null }}
+      />
+    );
+    await waitFor(() => expect(editor()).toHaveValue(style.text));
+
+    fireEvent.change(editor(), { target: { value: '# Style\nTabs.\n' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.change(editor(), { target: { value: '# Style\nTabs, width 4.\n' } });
+    fireEvent.keyDown(editor(), { key: 'Escape' });
+    landing.resolve(undefined);
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(notes.write).toHaveBeenLastCalledWith({
+      path: style.path,
+      text: '# Style\nTabs, width 4.\n',
+    });
+    panel.unmount();
+    renderPanel(notes);
+    await waitFor(() => expect(editor()).toHaveValue('# Style\nTabs, width 4.\n'));
+  });
+
+  it('keeps a new note started before the notes arrive, and lists them beside it', async () => {
+    const notes = hostNotes([style]);
+    const listing = deferred<ProjectMemoryPanelNote[]>();
+    notes.list.mockReturnValueOnce(listing.promise);
+    renderPanel(notes);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New note' }));
+    await waitFor(() => expect(editor()).toHaveFocus());
+    fireEvent.change(editor(), { target: { value: '# Deploy\nTag first.\n' } });
+    listing.resolve([style]);
+
+    await waitFor(() => expect(options()).toHaveLength(1));
+    expect(editor()).toHaveValue('# Deploy\nTag first.\n');
+    expect(options()[0]).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+});

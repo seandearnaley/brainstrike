@@ -17,7 +17,7 @@ import path from 'node:path';
 import type { MemoryInput } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { projectMemorySection } from '../../src/project-memory/memory-admission.ts';
-import { loadedMemoryIndex } from '../../src/project-memory/memory-index.ts';
+import { loadedMemoryIndex, memoryNoteStem } from '../../src/project-memory/memory-index.ts';
 import { ProjectMemoryNotes, ProjectMemoryRefusal } from '../../src/project-memory/memory-notes.ts';
 
 let dataRoot: string;
@@ -368,6 +368,34 @@ describe("a person's notes in the Memory panel", () => {
     ).rejects.toBeInstanceOf(ProjectMemoryRefusal);
     expect(existsSync(outsideFolder)).toBe(false);
     await expect(notes.list()).resolves.toEqual([]);
+  });
+});
+
+describe("a new note's file name", () => {
+  const long = 'a'.repeat(59);
+  /** No half of a surrogate pair, no mark without its letter, and composed as NFC. */
+  const wellFormed = (name: string) =>
+    !(/\p{Cs}/u.test(name) || /^\p{M}/u.test(name)) && name === name.normalize('NFC');
+
+  it('keeps a character beyond the basic plane whole where the name is cut', () => {
+    // U+20000, a CJK ideograph that takes two UTF-16 units, is the 60th character.
+    expect(memoryNoteStem(`# ${long}\u{20000}${'b'.repeat(10)}\n`)).toBe(`${long}\u{20000}`);
+    expect(memoryNoteStem(`# ${'漢'.repeat(70)}\n`)).toBe('漢'.repeat(60));
+  });
+
+  it('turns an emoji into a word break, and never ends on half of one', () => {
+    for (const emoji of ['😀', '👩‍💻', '🇨🇦']) {
+      const stem = memoryNoteStem(`# ${long}${emoji}${'b'.repeat(10)}\n`);
+      expect(wellFormed(stem)).toBe(true);
+      expect(stem).toBe(long);
+    }
+    expect(memoryNoteStem('# Ship it 🚀 today\n')).toBe('ship-it-today');
+  });
+
+  it('keeps a combining mark with its letter, cut or not', () => {
+    expect(memoryNoteStem(`# ${long}q̇${'b'.repeat(10)}\n`)).toBe(`${long}q̇`);
+    expect(memoryNoteStem('# Café hours\n')).toBe('café-hours');
+    expect(wellFormed(memoryNoteStem('# ́ accent first\n'))).toBe(true);
   });
 });
 

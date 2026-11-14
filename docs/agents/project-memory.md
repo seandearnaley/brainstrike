@@ -47,15 +47,17 @@ Owners: [requests](../../packages/host-capabilities/src/project-memory/memory-pa
 - Memory in a project section's menu in the Threads panel opens it. The Threads panel keeps one, outside its virtual list (`ThreadProjectMemoryPanel`), mounted afresh per opening so it reads the notes then.
 - The root registry serves its requests with the project's others, to the desktop's private client only:
   - `projects/memory/list`: every note, its path, title, text, modified time and mark.
-  - `projects/memory/write`: a note's whole text. It replaces the note at `path`; without one it makes a note named from its first line.
+  - `projects/memory/write`: a note's whole text. It replaces the note at `path`; without one it makes a note named from its first line, cut at 60 characters as a person counts them (`memoryNoteStem`).
   - `projects/memory/delete`.
+  - A read-only host (a damaged store) refuses a write or a delete with the registry's own refusal, as it refuses the project's other changes; listing stays open.
 - Each goes through `ProjectMemoryNotes` (`list`, `save`, the tool's `delete`), so the index and the marks change with the note. Never write the folder from the panel's code.
 - A person's save is trusted: it clears the note's mark and its index line's `(untrusted)`.
 - The tool's path checks and resolver apply: a path outside `/memories` (so another project's folder) and `MEMORY.md` are refused. A secret is `memory.secret`; any other refusal is `memory.refused`, in the tool's words.
 - A project the store no longer has (`project-folders` answers none) is `memory.project-gone`, and its folder is not made again. For a project it has, a request makes the folder, as admission does.
 - Trust (ADR-0032) gates what a run loads, never the panel: the person may always read, edit and delete their project's notes.
 - The list shows a note's title and date only: untrusted notes first, with the card's mark (`ProjectMemoryUntrustedMark`), then newest first. The editor is the note's Markdown, with Save and Delete; Delete asks once, in the panel. With no notes, only New note shows.
-  - Leaving an edited note, or the panel, saves it first; a refused save keeps the text and shows the host's words.
+  - Leaving (closing, or opening another note) first lands a save or delete on its way, then saves an edit made since, unless the text is exactly what the host just said no to. So a refusal, or a host that cannot be reached, shows its words once and keeps the text; the next close or switch leaves without saving it. An edit after the refusal is saved on the way out again. Never trap the person in the panel, and never add a Discard control.
+  - The notes listed when the panel opens fill in beside a note the person already opened; they never replace its draft.
   - No description, helper text or explanation of memory. Keep it that way.
 - A run reads the index when it is admitted, so a person's edit reaches the next run, never one already running.
 

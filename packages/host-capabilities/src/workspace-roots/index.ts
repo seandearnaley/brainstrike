@@ -196,7 +196,7 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
 
   const service: HostRootRegistry = {
     // ADR-0040, BST-2534: a project's Memory panel, through the notes' one writer.
-    ...projectMemoryPanel(store),
+    ...projectMemoryPanel(store, refuseWhenReadOnly),
     // ADR-0034: a project's name and folders are written by the store's roots domain, whose
     // refusals (a name too long, an unknown project or folder, a thread's own folder) are typed.
     'projects/join': async (request) => {
