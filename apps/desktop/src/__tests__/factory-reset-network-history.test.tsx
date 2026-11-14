@@ -8,7 +8,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type { ResetOutcome } from '@brainstrike/types';
 import { resetToastStore, Toaster } from '@brainstrike/ui';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useFactoryResetOutcomeNotice } from '../renderer/use-factory-reset-outcome-notice';
 import type { VisibleDesktopElectronApi } from '../types/desktop-electron-api';
@@ -125,6 +125,7 @@ async function factoryReset(replace: () => Promise<void> = async () => undefined
       for (const listener of listeners) {
         listener(outcome);
       }
+      return listeners.size > 0;
     },
     resetLocalDatabase: async () => undefined,
     runtimes: [],
@@ -224,4 +225,20 @@ it('tells the window that starts after Chromium failed, through the outcome it t
   expect(await screen.findByText(NOT_CLEARED)).toBeVisible();
   expect(screen.getAllByText(NOT_CLEARED)).toHaveLength(1);
   expect(published).toEqual([]);
+});
+
+it('keeps a failure that arrives with no window open, and tells the next window that starts', async () => {
+  const { handler } = await factoryReset(async () => {
+    render(<ReplacementWindow />);
+  });
+  expect(await answerOf(handler.reset())).toEqual({ success: true });
+  // The person closes the window; on macOS the app keeps running with none open.
+  cleanup();
+
+  owned('app').networkHistoryWrite.reject(new Error('the disk is full'));
+  await queuedWork();
+  // The Dock opens a new window, which takes the reset's outcome as it starts.
+  render(<ReplacementWindow />);
+
+  expect(await screen.findByText(NOT_CLEARED)).toBeVisible();
 });

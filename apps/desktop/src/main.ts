@@ -577,11 +577,14 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   prepareDatabaseProfileReset: () => profileReset.prepare(),
   // ADR-0015, BST-2515: a failure Chromium reports after the replacement window took its outcome.
   publishResetOutcome: (outcome) => {
+    let delivered = false;
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
         pushToRenderer(window.webContents, DESKTOP_IPC_CHANNELS.db.resetOutcome, outcome);
+        delivered = true;
       }
     }
+    return delivered;
   },
   resetLocalDatabase: (lease) => profileReset.clear(lease),
   resumeAfterReset: createDesktopResetResume({

@@ -65,9 +65,11 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   /**
    * ADR-0015, BST-2515: tells every window what a reset did that Main learned after the
    * replacement window took the outcome: Chromium's own clear of the browsing data, which it
-   * finishes after the reset, failed. Without it that failure reaches only Main's log.
+   * finishes after the reset, failed. Without it that failure reaches only Main's log. Answers
+   * whether a window received it: on macOS the app runs with none open, and then the failure waits
+   * for the next window's take.
    */
-  readonly publishResetOutcome?: (outcome: ResetOutcome) => void;
+  readonly publishResetOutcome?: (outcome: ResetOutcome) => boolean;
   readonly resetLocalDatabase: (lease?: ProfileResetLease) => Promise<void>;
   readonly resumeAfterReset?: (
     outcome: 'failed' | 'succeeded',
@@ -222,13 +224,18 @@ export function createDesktopFactoryResetHandler({
   // has settled, Main pushes it to every window.
   let untakenBrowsingData: BrowsingDataClearFailure | null = null;
   let pushBrowsingDataFailures = false;
+  /** Pushes the failure to the windows open now; with none open, it waits for the next take. */
+  const deliverBrowsingDataFailure = (browsingData: BrowsingDataClearFailure): void => {
+    const delivered = publishResetOutcome?.({ browsingData, mode: 'factory' }) ?? false;
+    untakenBrowsingData = delivered ? null : browsingData;
+  };
   const reportBackgroundClearFailure = ({ error }: BackgroundClearFailure): void => {
     const browsingData: BrowsingDataClearFailure = {
       reason: error instanceof Error ? error.message : String(error),
       status: 'failed',
     };
     if (pushBrowsingDataFailures) {
-      publishResetOutcome?.({ browsingData, mode: 'factory' });
+      deliverBrowsingDataFailure(browsingData);
       return;
     }
     untakenBrowsingData = browsingData;
@@ -332,8 +339,7 @@ export function createDesktopFactoryResetHandler({
     // asked, which took its outcome as it started.
     pushBrowsingDataFailures = true;
     if (failure.kind === 'failed' && untakenBrowsingData !== null) {
-      publishResetOutcome?.({ browsingData: untakenBrowsingData, mode: 'factory' });
-      untakenBrowsingData = null;
+      deliverBrowsingDataFailure(untakenBrowsingData);
     }
     if (failure.kind === 'failed') {
       logger.error('Failed to reset desktop application data:', failure.error);
