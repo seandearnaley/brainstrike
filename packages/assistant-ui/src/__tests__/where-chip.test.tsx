@@ -460,6 +460,7 @@ describe('each where-control row wires only its own handler', () => {
       mode: mode({
         onQuickCreate: vi.fn(() => Promise.resolve({ needsSheet: true })),
         repositorySetupConsent: {
+          brainstrikeWorktrees: false,
           decision: null,
           onDecision: vi.fn(() => Promise.resolve()),
           repositoryPath: '/ws/brainstrike',

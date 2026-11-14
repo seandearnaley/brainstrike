@@ -212,6 +212,7 @@ export {
   type WorkspaceBarProps,
   type WorkspaceBarQuickCreateOutcome,
   type WorkspaceBarRecentRoot,
+  type WorkspaceBarRepositorySetupAnswer,
   type WorkspaceBarRepositorySetupConsent,
   type WorkspaceBarReveal,
   type WorkspaceBarRoot,

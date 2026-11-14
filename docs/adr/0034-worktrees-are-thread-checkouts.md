@@ -14,6 +14,9 @@
     in a scratch folder the host makes for it.
   - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
     to the host, so a worktree the host makes runs the script too.
+  - 2026-11-14 (owner decision, under the 12 Nov setup-consent decision below): a worktree
+    Brainstrike makes on its own runs the setup script only when the person also allowed that,
+    a second answer that is off by default; built (BST-2501).
   - 2026-11-12 (build decisions, under the project record below): a project can be named, a
     folder joined to another project, and a moved folder located; built.
   - 2026-11-12 (build decisions, below): Factory Reset archives every managed worktree before
@@ -1240,6 +1243,54 @@ Not built: telling apart scripts that differ between a repository's
 checkouts. The script is read from the checkout the worktree is made from,
 and one answer per repository holds one hash, so approving one checkout's
 script makes another checkout's different script ask again.
+
+### Sean's decision, 2026-11-14: Brainstrike's own worktrees are a second, opt-in answer
+
+A security review of the consent code (BST-2501) flagged the scope above: the
+script is local shell code, and the model could make it run by making a
+worktree. Of three options (keep one approval for every worktree; a second,
+opt-in answer; run the setup of model-made worktrees inside the exec sandbox
+fence), Sean chose the second.
+
+- **The sheet gains a second answer**, "Also run it for worktrees Brainstrike
+  makes on its own", off by default. An approval runs the script for the
+  worktrees the person makes from the where-control (the create sheet,
+  New worktree… and the branch menu's "Switch in a new worktree"), as before.
+  It runs it for the worktrees Automatic isolation and the assistant's
+  `manageWorktree` make only when the second answer is on.
+- **With it off, those worktrees skip setup and say why.**
+- **The approval is still pinned to the script's hash**, so a changed script
+  asks both answers again.
+
+Built. Host protocol version 36.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **One more field on the one record.** Each `worktrees.setup.consent` entry
+  carries `brainstrikeWorktrees`. An entry written before it has none and
+  reads as false, the safe answer; nothing is migrated. A skip with the second
+  answer on is refused (`worktree.setup-consent-refused`); the sheet's Skip
+  always sends it off.
+- **"Brainstrike made it" is the ledger's `createdBy: 'agent'`**, which the
+  host binds for Automatic isolation and `manageWorktree` and no tool input can
+  set (`worktree-tool-dependencies.ts`). Setup reads the row's creator with the
+  answer (`resolveSetupCommand`), so the worktree service did not change. The
+  where-control's creations are recorded as `user`.
+- **The skip is told through the worktree's setup outcome, not a new thread
+  event.** Setup is `skipped`, with a reason that says Brainstrike made the
+  worktree on its own and where to turn the second answer on. It is on the
+  ledger row, which the where-control already shows for the thread's worktree
+  ("Setup skipped: …"), and in `manageWorktree`'s result to the model. A
+  committed note would need a new host event and a transcript renderer for a
+  fact the row already carries.
+- **The box in the sheet.** While the script is approved, it shows the host's
+  standing answer, and a change is recorded at once. Before an approval it is
+  the person's choice, sent with Allow. Settings › Workspace marks each
+  approval "Also Brainstrike's worktrees" or "Your worktrees only".
+- **The wire.** `worktrees/setup-consent/decide` takes `brainstrikeWorktrees`,
+  and each `worktrees/setup-consent/list` answer and
+  `worktrees/create-context`'s `repositorySetup` carry it, all required.
 
 ## Factory Reset archives the managed worktrees, 2026-11-12
 

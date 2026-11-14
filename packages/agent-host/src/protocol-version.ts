@@ -181,4 +181,10 @@
 // read, and carries the person's `focus`. A refused summary the provider billed commits its usage
 // as the run's `model.usage` of kind `compaction-summary`. The new reason and kind are why this is
 // a version bump.
-export const AGENT_HOST_PROTOCOL_VERSION = 34;
+// v36 (2026-11-14): a repository's setup script answer has a second, opt-in part (ADR-0034, Sean
+// 2026-11-14, BST-2501): whether an approval also runs the script for the worktrees Brainstrike
+// makes on its own (Automatic isolation, `manageWorktree`). `worktrees/setup-consent/decide`
+// takes `brainstrikeWorktrees`, and each `worktrees/setup-consent/list` answer and
+// `worktrees/create-context`'s `repositorySetup` carry it, all required. The required parameter
+// and fields are why this is a version bump. (v35 is BST-2513's.)
+export const AGENT_HOST_PROTOCOL_VERSION = 36;

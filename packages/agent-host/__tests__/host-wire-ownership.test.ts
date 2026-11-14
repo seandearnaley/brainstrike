@@ -8,13 +8,13 @@ import {
   HostEventSchema,
   parseHostParams,
 } from '../src/protocol.js';
-import wireV34 from './fixtures/host-v34-methods.json' with { type: 'json' };
+import wireV36 from './fixtures/host-v36-methods.json' with { type: 'json' };
 
 test('every first-party host request/result/event grammar has one Effect owner', () => {
   const requests = Object.entries(HOST_METHOD_SCHEMAS);
   const results = Object.entries(HOST_RESULT_SCHEMAS);
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV34.version);
-  expect(requests.map(([name]) => name).sort()).toEqual(wireV34.methods);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV36.version);
+  expect(requests.map(([name]) => name).sort()).toEqual(wireV36.methods);
   expect(results.map(([name]) => name).sort()).toEqual(requests.map(([name]) => name).sort());
   expect(
     [...requests, ...results, ['event', HostEventSchema]]
@@ -24,7 +24,7 @@ test('every first-party host request/result/event grammar has one Effect owner',
 });
 
 test('protocol version and secret-bearing request refusal stay fixed', () => {
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(34);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(36);
   const badAccess = { access: 'x', catalogId: 'github', token: 'never-print-me' };
   expect(() => parseHostParams('mcp/config/install', badAccess)).toThrow(
     'Invalid MCP host request'
@@ -164,6 +164,51 @@ test('a v31 worktree listing entry names its project, and a repository joins a p
     projectId: 'p',
   });
   expect(() => parseHostParams('projects/rename', { name: 'Inner' })).toThrow();
+});
+
+// v36 (BST-2501, Sean 2026-11-14): a setup script answer says whether it also runs the script for
+// the worktrees Brainstrike makes on its own; nothing assumes it.
+test('a v36 setup script answer carries its second answer, which is required', () => {
+  const scriptSha256 = 'a'.repeat(64);
+  const answer = { brainstrikeWorktrees: false, decision: 'approved', rootId: 'r', scriptSha256 };
+  expect(parseHostParams('worktrees/setup-consent/decide', answer)).toEqual(answer);
+  const { brainstrikeWorktrees: _, ...older } = answer;
+  expect(() => parseHostParams('worktrees/setup-consent/decide', older)).toThrow();
+
+  const consent = {
+    brainstrikeWorktrees: true,
+    decidedAt: '2026-11-14T00:00:00.000Z',
+    decision: 'approved',
+    repositoryId: '/code/app/.git',
+    scriptSha256,
+  };
+  const decodeList = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['worktrees/setup-consent/list'], {
+    onExcessProperty: 'error',
+  });
+  expect(decodeList({ ok: true, value: [consent] })).toEqual({ ok: true, value: [consent] });
+  const { brainstrikeWorktrees: __, ...olderConsent } = consent;
+  expect(() => decodeList({ ok: true, value: [olderConsent] })).toThrow();
+
+  const context = {
+    managedParentPath: '/managed/app',
+    repositorySetup: {
+      brainstrikeWorktrees: false,
+      decision: null,
+      repositoryId: '/code/app/.git',
+      repositoryPath: '/code/app',
+      scriptPath: '/code/app/.brainstrike/worktree-setup.sh',
+      scriptSha256,
+    },
+    suggestedName: 'swift-badger',
+  };
+  const decodeContext = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['worktrees/create-context'], {
+    onExcessProperty: 'error',
+  });
+  expect(decodeContext({ ok: true, value: context })).toEqual({ ok: true, value: context });
+  const { brainstrikeWorktrees: ___, ...olderSetup } = context.repositorySetup;
+  expect(() =>
+    decodeContext({ ok: true, value: { ...context, repositorySetup: olderSetup } })
+  ).toThrow();
 });
 
 test('the owned MCP settlement decoder keeps its original refusal', () => {

@@ -6,12 +6,14 @@
  * the SHA-256 of the script's bytes the person answered for.
  *
  * This module is the record's only reader and writer. Only a person's answer
- * reaches the writer (the create sheet's Allow and Skip, Settings › Workspace's
- * Revoke), never a run. Every worktree the service creates reads the record,
- * so the person's own creation, the model's worktree tool and Automatic
- * isolation all run the script when the repository is approved at the script's
- * current hash. `resolveSetupCommand` re-hashes the script before it runs and
- * fails closed.
+ * reaches the writer (the create sheet's Allow and Skip, its "Also run it for
+ * worktrees Brainstrike makes on its own", Settings › Workspace's Revoke),
+ * never a run. Every worktree the service creates reads the record: the
+ * person's own creation runs the script when the repository is approved at the
+ * script's current hash, and a worktree Brainstrike makes on its own (Automatic
+ * isolation, the model's worktree tool) only when the approval also says so
+ * (`brainstrikeWorktrees`, Sean 2026-11-14). `resolveSetupCommand` re-hashes
+ * the script before it runs and fails closed.
  *
  * The state store has no listing by prefix, so the record is one JSON value,
  * as the trusted locations are (`workspace.trust.locations`), and its changes
@@ -45,13 +47,26 @@ export type WorktreeSetupConsentStore = Pick<
 const StoredConsentSchema = Schema.Record(
   Schema.String,
   Schema.Struct({
+    // Absent from an answer recorded before the second answer existed, which reads as false:
+    // the script runs only for the worktrees the person makes.
+    brainstrikeWorktrees: Schema.optionalKey(Schema.Boolean),
     decidedAt: Schema.String,
     decision: Schema.Literals(['approved', 'denied']),
     scriptSha256: Schema.String,
   })
 );
 type StoredConsent = (typeof StoredConsentSchema)['Type'];
+type StoredAnswer = StoredConsent[string];
 const decodeStoredConsent = Schema.decodeUnknownSync(StoredConsentSchema);
+
+/** The stored answer as the service reads it, the second answer false when it was not given. */
+function answerOf(entry: StoredAnswer): RepositorySetupDecisionInput {
+  return {
+    brainstrikeWorktrees: entry.brainstrikeWorktrees === true,
+    decision: entry.decision,
+    scriptSha256: entry.scriptSha256,
+  };
+}
 
 /**
  * Every answer, by repository. A value the host did not write throws rather
@@ -100,9 +115,7 @@ export async function readWorktreeSetupConsent(
   repositoryId: string
 ): Promise<RepositorySetupDecisionInput | undefined> {
   const entry = (await readStoredConsent(store))[repositoryId];
-  return entry === undefined
-    ? undefined
-    : { decision: entry.decision, scriptSha256: entry.scriptSha256 };
+  return entry === undefined ? undefined : answerOf(entry);
 }
 
 /** Every repository's answer, by repository id, for Settings › Workspace. */
@@ -110,7 +123,11 @@ export async function listWorktreeSetupConsents(
   store: WorktreeSetupConsentStore
 ): Promise<readonly WorktreeSetupConsent[]> {
   return Object.entries(await readStoredConsent(store))
-    .map(([repositoryId, entry]) => ({ ...entry, repositoryId }))
+    .map(([repositoryId, entry]) => ({
+      ...answerOf(entry),
+      decidedAt: entry.decidedAt,
+      repositoryId,
+    }))
     .sort((left, right) => left.repositoryId.localeCompare(right.repositoryId));
 }
 
@@ -118,16 +135,25 @@ export async function listWorktreeSetupConsents(
  * Records the person's answer for the script in the repository's checkout,
  * only for the bytes on disk now, which the person was shown by hash: a
  * script that changed since is refused, and nothing is recorded. An answer
- * replaces the repository's earlier one.
+ * replaces the repository's earlier one, both of its parts. A skip that would
+ * still run the script for the worktrees Brainstrike makes is refused.
  */
 export async function decideWorktreeSetupConsent(
   store: WorktreeSetupConsentStore,
   request: {
+    readonly brainstrikeWorktrees: boolean;
     readonly decision: WorktreeRepositorySetupDecision;
     readonly repository: Pick<RepositoryContext, 'commonDir' | 'repositoryRoot'>;
     readonly scriptSha256: string;
   }
 ): Promise<BoundaryResult<WorktreeSetupConsent>> {
+  if (request.decision === 'denied' && request.brainstrikeWorktrees) {
+    return gitRefused(
+      'input',
+      'worktree.setup-consent-refused',
+      'A skipped setup script runs for no worktree, so it cannot run for the worktrees Brainstrike makes.'
+    );
+  }
   const scriptPath = path.join(request.repository.repositoryRoot, REPOSITORY_SETUP_SCRIPT);
   let bytes: Buffer;
   try {
@@ -147,6 +173,7 @@ export async function decideWorktreeSetupConsent(
     );
   }
   const consent: WorktreeSetupConsent = {
+    brainstrikeWorktrees: request.brainstrikeWorktrees,
     decidedAt: new Date().toISOString(),
     decision: request.decision,
     repositoryId: request.repository.commonDir,
@@ -159,6 +186,7 @@ export async function decideWorktreeSetupConsent(
       stored: {
         ...stored,
         [consent.repositoryId]: {
+          brainstrikeWorktrees: consent.brainstrikeWorktrees,
           decidedAt: consent.decidedAt,
           decision: consent.decision,
           scriptSha256: consent.scriptSha256,
@@ -210,8 +238,11 @@ export async function resolveRepositorySetupContext(
   }
   const scriptSha256 = sha256OfBuffer(bytes);
   const standing = await readConsent(context.commonDir);
+  // An answer for other bytes is no answer: both of its parts are asked again.
+  const current = standing?.scriptSha256 === scriptSha256 ? standing : undefined;
   return {
-    decision: standing?.scriptSha256 === scriptSha256 ? standing.decision : null,
+    brainstrikeWorktrees: current?.decision === 'approved' && current.brainstrikeWorktrees,
+    decision: current?.decision ?? null,
     repositoryId: context.commonDir,
     repositoryPath: context.repositoryRoot,
     scriptPath,

@@ -25,9 +25,11 @@ function hostConsents(initial: readonly WorktreeSetupConsent[]): WorktreeSetupCo
 
 function answer(
   repositoryId: string,
-  decision: WorktreeSetupConsent['decision']
+  decision: WorktreeSetupConsent['decision'],
+  brainstrikeWorktrees = false
 ): WorktreeSetupConsent {
   return {
+    brainstrikeWorktrees,
     decidedAt: '2026-11-12T00:00:00.000Z',
     decision,
     repositoryId,
@@ -57,6 +59,26 @@ describe('WorktreeSetupConsentSettingsSection', () => {
     ).toContain('Allowed');
     expect(screen.getByTestId('worktree-setup-consent-/repos/skipped/.git').textContent).toContain(
       'Skipped'
+    );
+  });
+
+  // BST-2501, Sean 2026-11-14: an approval runs the script for the worktrees Brainstrike makes on
+  // its own only when the person also chose that, and the list says which.
+  it('says which approvals also run the script for the worktrees Brainstrike makes', async () => {
+    render(
+      <WorktreeSetupConsentSettingsSection
+        consents={hostConsents([
+          answer('/repos/everywhere/.git', 'approved', true),
+          answer('/repos/mine/.git', 'approved'),
+        ])}
+      />
+    );
+
+    expect(
+      (await screen.findByTestId('worktree-setup-consent-/repos/everywhere/.git')).textContent
+    ).toContain('Also Brainstrike’s worktrees');
+    expect(screen.getByTestId('worktree-setup-consent-/repos/mine/.git').textContent).toContain(
+      'Your worktrees only'
     );
   });
 

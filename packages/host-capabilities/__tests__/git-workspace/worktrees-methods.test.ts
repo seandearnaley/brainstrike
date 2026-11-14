@@ -224,9 +224,13 @@ describe('worktrees IPC handlers', () => {
     expect(service.create).toHaveBeenCalledWith(params);
   });
 
-  it('records nothing for a malformed setup script answer', async () => {
+  it.each([
+    { brainstrikeWorktrees: false, decision: 'sometimes' },
+    // BST-2501: the answer for worktrees Brainstrike makes is never assumed.
+    { decision: 'approved' },
+  ])('records nothing for a malformed setup script answer (%o)', async (answer) => {
     const result = await handlers().decideSetupConsent({
-      decision: 'sometimes',
+      ...answer,
       rootId: 'r',
       scriptSha256: 'a'.repeat(64),
     });
@@ -234,7 +238,7 @@ describe('worktrees IPC handlers', () => {
     expect(result).toEqual({
       error: expect.objectContaining({
         message:
-          'worktrees:setup-consent/decide requires { rootId, decision: "approved" | "denied", scriptSha256 }.',
+          'worktrees:setup-consent/decide requires { rootId, decision: "approved" | "denied", scriptSha256, brainstrikeWorktrees: boolean }.',
       }),
       ok: false,
     });

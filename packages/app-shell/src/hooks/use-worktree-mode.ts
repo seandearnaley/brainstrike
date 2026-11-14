@@ -17,6 +17,7 @@ import type {
   WorkspaceBarBaseRefOption,
   WorkspaceBarCreateWorktreeRequest,
   WorkspaceBarMode,
+  WorkspaceBarRepositorySetupAnswer,
   WorkspaceBarRepositorySetupConsent,
   WorkspaceBarWorktreeOption,
   WorkspaceBarWorktreeSummary,
@@ -29,7 +30,6 @@ import {
   type WorktreeCreateContext,
   type WorktreeCreateResult,
   type WorktreeListEntry,
-  type WorktreeRepositorySetupDecision,
   type WorktreeSettings,
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
@@ -290,12 +290,13 @@ function computeWorktreeSummary(params: {
  */
 function computeRepositorySetupConsent(
   repositorySetup: WorktreeCreateContext['repositorySetup'],
-  onRepositorySetupDecision: (decision: WorktreeRepositorySetupDecision) => Promise<void>
+  onRepositorySetupDecision: (answer: WorkspaceBarRepositorySetupAnswer) => Promise<void>
 ): WorkspaceBarRepositorySetupConsent | null {
   if (!repositorySetup) {
     return null;
   }
   return {
+    brainstrikeWorktrees: repositorySetup.brainstrikeWorktrees,
     decision: repositorySetup.decision,
     onDecision: onRepositorySetupDecision,
     repositoryPath: repositorySetup.repositoryPath,
@@ -771,13 +772,13 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
   // the host's reason, which the sheet shows, after the sheet reads the script
   // again: the next answer is then for the bytes now on disk.
   const onRepositorySetupDecision = useCallback(
-    async (decision: WorktreeRepositorySetupDecision): Promise<void> => {
+    async (answer: WorkspaceBarRepositorySetupAnswer): Promise<void> => {
       const rootId = args.primaryRootId;
       if (!(bridge && rootId && repositorySetup)) {
         throw new Error('Repository setup consent context is unavailable.');
       }
       const decided = await bridge.decideSetupConsent({
-        decision,
+        ...answer,
         rootId,
         scriptSha256: repositorySetup.scriptSha256,
       });

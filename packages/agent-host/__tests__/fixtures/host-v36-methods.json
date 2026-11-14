@@ -1,5 +1,5 @@
 {
-  "version": 34,
+  "version": 36,
   "methods": [
     "auth/chatgpt/cancel",
     "auth/chatgpt/sign-in",

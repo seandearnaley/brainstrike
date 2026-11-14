@@ -1,7 +1,8 @@
 /**
  * Repository setup script consent — revocation surface (ADR-0034). The agent
- * host keeps each repository's answer; this section lists them and revokes
- * one, so the repository's next worktree asks again.
+ * host keeps each repository's answer; this section lists them, with whether
+ * an approval also runs the script for the worktrees Brainstrike makes on its
+ * own, and revokes one, so the repository's next worktree asks again.
  *
  * The create sheet is where an answer is MADE (and, since it stays visible
  * with the standing choice highlighted, where it's usually CHANGED too) —
@@ -89,9 +90,9 @@ export function WorktreeSetupConsentSettingsSection({
         <CardTitle>Repository setup script consent</CardTitle>
         <CardDescription>
           Repositories you allowed or skipped to run their{' '}
-          <code>.brainstrike/worktree-setup.sh</code> in every new worktree, including the ones the
-          assistant makes. Revoke an answer to be asked again next time — the create sheet also lets
-          you change your mind before creating.
+          <code>.brainstrike/worktree-setup.sh</code> in the worktrees you make, and, where you
+          chose so, in the ones Brainstrike makes on its own. Revoke an answer to be asked again
+          next time — the create sheet also lets you change your mind before creating.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -120,6 +121,13 @@ export function WorktreeSetupConsentSettingsSection({
                   <Badge variant={entry.decision === 'approved' ? 'default' : 'secondary'}>
                     {entry.decision === 'approved' ? 'Allowed' : 'Skipped'}
                   </Badge>
+                  {entry.decision === 'approved' ? (
+                    <Badge variant="outline">
+                      {entry.brainstrikeWorktrees
+                        ? 'Also Brainstrike’s worktrees'
+                        : 'Your worktrees only'}
+                    </Badge>
+                  ) : null}
                   <Button
                     data-testid={`worktree-setup-consent-revoke-${entry.repositoryId}`}
                     disabled={revoking !== undefined}

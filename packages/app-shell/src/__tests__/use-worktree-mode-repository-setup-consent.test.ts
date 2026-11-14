@@ -62,6 +62,9 @@ const ARGS = {
   uncommittedChanges: false,
 };
 
+/** Allow, for the worktrees the person makes only. */
+const ALLOW = { brainstrikeWorktrees: false, decision: 'approved' } as const;
+
 const CREATE_REQUEST = {
   baseRef: 'main',
   branch: { name: 'bs/bright-fox' },
@@ -69,6 +72,7 @@ const CREATE_REQUEST = {
 } as const;
 
 const REPOSITORY_SETUP = {
+  brainstrikeWorktrees: false,
   decision: null,
   repositoryId: '/work/app/.git',
   repositoryPath: '/work/app',
@@ -77,12 +81,12 @@ const REPOSITORY_SETUP = {
 } as const;
 
 /** The host's create-sheet context, with its standing answer for the script. */
-function createContext(decision: 'approved' | 'denied' | null) {
+function createContext(decision: 'approved' | 'denied' | null, brainstrikeWorktrees = false) {
   return {
     ok: true,
     value: {
       managedParentPath: '/managed/app-slug',
-      repositorySetup: { ...REPOSITORY_SETUP, decision },
+      repositorySetup: { ...REPOSITORY_SETUP, brainstrikeWorktrees, decision },
       suggestedName: 'bright-fox',
     },
   };
@@ -143,19 +147,21 @@ describe('useWorktreeMode repository setup consent', () => {
     });
 
     expect(result.current?.repositorySetupConsent).toMatchObject({
+      brainstrikeWorktrees: false,
       decision: 'denied',
       repositoryPath: '/work/app',
       scriptPath: '/work/app/.brainstrike/worktree-setup.sh',
     });
   });
 
-  it('records Allow with the host for the script the sheet showed, then shows the host’s answer', async () => {
+  it('records Allow and its second answer with the host for the script the sheet showed, then shows the host’s answer', async () => {
     createContextSpy
       .mockResolvedValueOnce(createContext(null))
-      .mockResolvedValueOnce(createContext('approved'));
+      .mockResolvedValueOnce(createContext('approved', true));
     decideSetupConsentSpy.mockResolvedValueOnce({
       ok: true,
       value: {
+        brainstrikeWorktrees: true,
         decidedAt: '2026-11-12T00:00:00.000Z',
         decision: 'approved',
         repositoryId: '/work/app/.git',
@@ -169,15 +175,22 @@ describe('useWorktreeMode repository setup consent', () => {
     expect(result.current?.repositorySetupConsent).toMatchObject({ decision: null });
 
     await act(async () => {
-      await result.current?.repositorySetupConsent?.onDecision('approved');
+      await result.current?.repositorySetupConsent?.onDecision({
+        brainstrikeWorktrees: true,
+        decision: 'approved',
+      });
     });
 
     expect(decideSetupConsentSpy).toHaveBeenCalledWith({
+      brainstrikeWorktrees: true,
       decision: 'approved',
       rootId: 'r-1',
       scriptSha256: REPOSITORY_SETUP.scriptSha256,
     });
-    expect(result.current?.repositorySetupConsent).toMatchObject({ decision: 'approved' });
+    expect(result.current?.repositorySetupConsent).toMatchObject({
+      brainstrikeWorktrees: true,
+      decision: 'approved',
+    });
   });
 
   it('rejects with the host’s reason when it refuses the answer, and keeps asking', async () => {
@@ -197,7 +210,7 @@ describe('useWorktreeMode repository setup consent', () => {
     });
 
     await act(async () => {
-      await expect(result.current?.repositorySetupConsent?.onDecision('approved')).rejects.toThrow(
+      await expect(result.current?.repositorySetupConsent?.onDecision(ALLOW)).rejects.toThrow(
         'changed since it was shown; review it again.'
       );
     });
@@ -232,13 +245,14 @@ describe('useWorktreeMode repository setup consent', () => {
     });
 
     await act(async () => {
-      await expect(result.current?.repositorySetupConsent?.onDecision('approved')).rejects.toThrow(
+      await expect(result.current?.repositorySetupConsent?.onDecision(ALLOW)).rejects.toThrow(
         'changed since it was shown'
       );
     });
     decideSetupConsentSpy.mockResolvedValueOnce({
       ok: true,
       value: {
+        brainstrikeWorktrees: false,
         decidedAt: '2026-11-12T00:00:00.000Z',
         decision: 'approved',
         repositoryId: '/work/app/.git',
@@ -246,10 +260,11 @@ describe('useWorktreeMode repository setup consent', () => {
       },
     });
     await act(async () => {
-      await result.current?.repositorySetupConsent?.onDecision('approved');
+      await result.current?.repositorySetupConsent?.onDecision(ALLOW);
     });
 
     expect(decideSetupConsentSpy).toHaveBeenLastCalledWith({
+      brainstrikeWorktrees: false,
       decision: 'approved',
       rootId: 'r-1',
       scriptSha256: changed,

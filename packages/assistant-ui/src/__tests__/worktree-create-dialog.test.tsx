@@ -64,6 +64,19 @@ describe('WorktreeCreateDialog uncommitted changes', () => {
   });
 });
 
+function consent(
+  overrides: Partial<NonNullable<WorkspaceBarMode['repositorySetupConsent']>>
+): NonNullable<WorkspaceBarMode['repositorySetupConsent']> {
+  return {
+    brainstrikeWorktrees: false,
+    decision: null,
+    onDecision: vi.fn(() => Promise.resolve()),
+    repositoryPath: '/work/brainstrike',
+    scriptPath: '/work/brainstrike/.brainstrike/worktree-setup.sh',
+    ...overrides,
+  };
+}
+
 describe('WorktreeCreateDialog repository setup consent', () => {
   it('identifies the repository and script, explains the consequences, and blocks create', async () => {
     const onDecision = vi.fn(() => Promise.resolve());
@@ -71,6 +84,7 @@ describe('WorktreeCreateDialog repository setup consent', () => {
       <WorktreeCreateDialog
         mode={mode({
           repositorySetupConsent: {
+            brainstrikeWorktrees: false,
             decision: null,
             onDecision,
             repositoryPath: '/work/brainstrike',
@@ -89,13 +103,18 @@ describe('WorktreeCreateDialog repository setup consent', () => {
     // before the setup command regardless of Allow/Skip) — the copy must not
     // read as a consequence of allowing the script.
     expect(screen.getByText(/regardless of this choice/iu)).toBeVisible();
-    // ADR-0034, owner decision 2026-11-12: one host record answers for every creation, so the
-    // person is told an approval also runs it for the worktrees the assistant makes.
     expect(
       screen.getByText(
-        /also runs it for worktrees Brainstrike makes in this repository on its own.*until the script changes/iu
+        /runs it for the worktrees you make in this repository.*until the script changes/iu
       )
     ).toBeVisible();
+    // Sean, 2026-11-14 (BST-2501): the worktrees Brainstrike makes on its own are a second,
+    // opt-in answer, off until the person turns it on.
+    expect(
+      screen.getByRole('checkbox', {
+        name: 'Also run it for worktrees Brainstrike makes on its own',
+      })
+    ).not.toBeChecked();
     expect(screen.getByTestId('worktree-create-submit')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Allow script' })).toHaveAttribute(
       'data-variant',
@@ -107,7 +126,83 @@ describe('WorktreeCreateDialog repository setup consent', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Allow script' }));
-    expect(onDecision).toHaveBeenCalledWith('approved');
+    expect(onDecision).toHaveBeenCalledWith({ brainstrikeWorktrees: false, decision: 'approved' });
+  });
+
+  it('sends the second answer with Allow once the person turns it on', async () => {
+    const onDecision = vi.fn(() => Promise.resolve());
+    render(
+      <WorktreeCreateDialog
+        mode={mode({ repositorySetupConsent: consent({ decision: null, onDecision }) })}
+        onOpenChange={vi.fn()}
+        open
+      />
+    );
+
+    await userEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Also run it for worktrees Brainstrike makes on its own',
+      })
+    );
+    // Turning it on before allowing records nothing: it is part of the approval.
+    expect(onDecision).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Allow script' }));
+
+    expect(onDecision).toHaveBeenCalledExactlyOnceWith({
+      brainstrikeWorktrees: true,
+      decision: 'approved',
+    });
+  });
+
+  it('shows the standing second answer, and records a change of it at once', async () => {
+    const onDecision = vi.fn(() => Promise.resolve());
+    render(
+      <WorktreeCreateDialog
+        mode={mode({
+          repositorySetupConsent: consent({
+            brainstrikeWorktrees: true,
+            decision: 'approved',
+            onDecision,
+          }),
+        })}
+        onOpenChange={vi.fn()}
+        open
+      />
+    );
+    const also = screen.getByRole('checkbox', {
+      name: 'Also run it for worktrees Brainstrike makes on its own',
+    });
+    expect(also).toBeChecked();
+
+    await userEvent.click(also);
+
+    expect(onDecision).toHaveBeenCalledExactlyOnceWith({
+      brainstrikeWorktrees: false,
+      decision: 'approved',
+    });
+  });
+
+  it('never sends the second answer with Skip', async () => {
+    const onDecision = vi.fn(() => Promise.resolve());
+    render(
+      <WorktreeCreateDialog
+        mode={mode({ repositorySetupConsent: consent({ decision: null, onDecision }) })}
+        onOpenChange={vi.fn()}
+        open
+      />
+    );
+
+    await userEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Also run it for worktrees Brainstrike makes on its own',
+      })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Skip script' }));
+
+    expect(onDecision).toHaveBeenCalledExactlyOnceWith({
+      brainstrikeWorktrees: false,
+      decision: 'denied',
+    });
   });
 
   it('enables create after an approval or denial is recorded, and reflects the standing decision', () => {
@@ -115,6 +210,7 @@ describe('WorktreeCreateDialog repository setup consent', () => {
       <WorktreeCreateDialog
         mode={mode({
           repositorySetupConsent: {
+            brainstrikeWorktrees: false,
             decision: 'denied',
             onDecision: vi.fn(() => Promise.resolve()),
             repositoryPath: '/work/brainstrike',
@@ -153,6 +249,7 @@ describe('WorktreeCreateDialog repository setup consent', () => {
       <WorktreeCreateDialog
         mode={mode({
           repositorySetupConsent: {
+            brainstrikeWorktrees: false,
             decision: null,
             onDecision,
             repositoryPath: '/work/brainstrike',

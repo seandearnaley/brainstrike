@@ -65,6 +65,8 @@ function createContext(setup: 'approved' | 'denied' | 'none' | 'unanswered') {
         setup === 'none'
           ? null
           : {
+              // A person's own worktree runs the script on the approval alone.
+              brainstrikeWorktrees: false,
               decision: setup === 'unanswered' ? null : setup,
               repositoryId: '/work/app/.git',
               repositoryPath: '/work/app',

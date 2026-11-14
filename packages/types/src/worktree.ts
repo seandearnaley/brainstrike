@@ -156,6 +156,12 @@ export type WorktreeRepositorySetupDecision = 'approved' | 'denied';
  * It answers only while the script's bytes hash to `scriptSha256`.
  */
 export interface WorktreeSetupConsent {
+  /**
+   * Whether an approval also runs the script for the worktrees Brainstrike makes on its own
+   * (Automatic isolation, the assistant's `manageWorktree`), the person's second, opt-in answer
+   * (Sean, 2026-11-14). False for a skip, and for an answer recorded before it existed.
+   */
+  readonly brainstrikeWorktrees: boolean;
   /** ISO time of the answer. */
   readonly decidedAt: string;
   readonly decision: WorktreeRepositorySetupDecision;
@@ -190,6 +196,11 @@ export interface WorktreeCreateContext {
   readonly managedParentPath: string;
   /** Present only when the repository fallback script needs a durable decision. */
   readonly repositorySetup: {
+    /**
+     * The standing second answer for this script (`WorktreeSetupConsent.brainstrikeWorktrees`);
+     * false whenever `decision` is not `approved`.
+     */
+    readonly brainstrikeWorktrees: boolean;
     /**
      * The host's standing answer for this script, or null when there is none
      * or it was given for other bytes (the script changed since: pull, branch

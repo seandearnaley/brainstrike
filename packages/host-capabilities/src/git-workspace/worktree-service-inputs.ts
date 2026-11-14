@@ -26,6 +26,8 @@ const logger = createLogger('WorktreeService');
  * different script contents.
  */
 export interface RepositorySetupDecisionInput {
+  /** The approval also runs the script for the worktrees Brainstrike makes on its own. */
+  readonly brainstrikeWorktrees: boolean;
   readonly decision: 'approved' | 'denied';
   readonly scriptSha256: string;
 }

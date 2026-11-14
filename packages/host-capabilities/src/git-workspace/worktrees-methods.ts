@@ -255,6 +255,7 @@ function validateRestore(payload: unknown): BoundaryResult<{
 }
 
 function validateDecideSetupConsent(payload: unknown): BoundaryResult<{
+  readonly brainstrikeWorktrees: boolean;
   readonly decision: WorktreeRepositorySetupDecision;
   readonly rootId: string;
   readonly scriptSha256: string;
@@ -264,16 +265,18 @@ function validateDecideSetupConsent(payload: unknown): BoundaryResult<{
       Predicate.isObject(payload) &&
       nonEmptyString(payload['rootId']) &&
       nonEmptyString(payload['scriptSha256']) &&
-      (payload['decision'] === 'approved' || payload['decision'] === 'denied')
+      (payload['decision'] === 'approved' || payload['decision'] === 'denied') &&
+      typeof payload['brainstrikeWorktrees'] === 'boolean'
     )
   ) {
     return gitInvalid(
-      'worktrees:setup-consent/decide requires { rootId, decision: "approved" | "denied", scriptSha256 }.'
+      'worktrees:setup-consent/decide requires { rootId, decision: "approved" | "denied", scriptSha256, brainstrikeWorktrees: boolean }.'
     );
   }
   return {
     ok: true,
     value: {
+      brainstrikeWorktrees: payload['brainstrikeWorktrees'],
       decision: payload['decision'],
       rootId: payload['rootId'],
       scriptSha256: payload['scriptSha256'],
@@ -366,13 +369,14 @@ export function createWorktreesMethods(options: WorktreesMethodsOptions): Worktr
       if (!params.ok) {
         return params;
       }
-      const { decision, rootId, scriptSha256 } = params.value;
+      const { brainstrikeWorktrees, decision, rootId, scriptSha256 } = params.value;
       return await withService('worktrees:setup-consent/decide', async (service) => {
         const repository = await service.repositoryContextForRoot(rootId);
         if (!repository.ok) {
           return repository;
         }
         return await decideWorktreeSetupConsent(options.setupConsentStore, {
+          brainstrikeWorktrees,
           decision,
           repository: repository.value,
           scriptSha256,

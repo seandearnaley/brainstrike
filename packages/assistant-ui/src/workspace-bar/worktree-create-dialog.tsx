@@ -1,6 +1,6 @@
-import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -16,8 +16,8 @@ import {
   SelectValue,
   Switch,
 } from '@brainstrike/ui';
-import { type ReactElement, useState } from 'react';
-import type { WorkspaceBarMode } from './workspace-bar';
+import { type ReactElement, useId, useState } from 'react';
+import type { WorkspaceBarMode, WorkspaceBarRepositorySetupAnswer } from './workspace-bar';
 
 export interface WorktreeCreateDialogProps {
   readonly mode: WorkspaceBarMode;
@@ -65,11 +65,20 @@ export function WorktreeCreateDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deciding, setDeciding] = useState(false);
+  const [brainstrikeWorktreesChosen, setBrainstrikeWorktreesChosen] = useState(false);
+  const brainstrikeWorktreesId = useId();
   const trimmedName = name.trim();
   const nameError = worktreeNameError(name);
   const repositorySetupConsent = mode.repositorySetupConsent;
   // While an answer is on its way to the host, the sheet waits for the host's.
   const consentRequired = repositorySetupConsent?.decision === null || deciding;
+  // Sean, 2026-11-14 (BST-2501): the second answer is part of an approval, off by default. While
+  // the script is approved the box shows the host's standing answer; until then, the person's
+  // choice, which Allow sends.
+  const approved = repositorySetupConsent?.decision === 'approved';
+  const brainstrikeWorktrees = approved
+    ? repositorySetupConsent.brainstrikeWorktrees
+    : brainstrikeWorktreesChosen;
   const derivedBranch = branchTouched
     ? branch
     : `${mode.defaultBranchPrefix}${trimmedName || mode.defaultName}`;
@@ -101,20 +110,29 @@ export function WorktreeCreateDialog({
 
   // The host records the answer for the script it showed; a refusal (the
   // script changed since) is shown here, and the sheet keeps asking.
-  const decide = (decision: WorktreeRepositorySetupDecision): void => {
+  const decide = (answer: WorkspaceBarRepositorySetupAnswer): void => {
     if (!repositorySetupConsent || deciding) {
       return;
     }
     setDeciding(true);
     setError(null);
     repositorySetupConsent
-      .onDecision(decision)
+      .onDecision(answer)
       .catch((caught: unknown) => {
         setError(caught instanceof Error ? caught.message : String(caught));
       })
       .finally(() => {
         setDeciding(false);
       });
+  };
+
+  // A change of a standing approval is recorded at once; before one, it waits for Allow.
+  const changeBrainstrikeWorktrees = (next: boolean): void => {
+    if (approved) {
+      decide({ brainstrikeWorktrees: next, decision: 'approved' });
+      return;
+    }
+    setBrainstrikeWorktreesChosen(next);
   };
 
   return (
@@ -240,19 +258,38 @@ export function WorktreeCreateDialog({
                 </p>
                 <p>Runs local shell code with BRAINSTRIKE_WORKSPACE_* environment variables.</p>
                 <p>
-                  Allowing it also runs it for worktrees Brainstrike makes in this repository on its
-                  own, when another conversation is editing the same folder or the assistant makes a
-                  worktree, until the script changes.
+                  Allowing it runs it for the worktrees you make in this repository, until the
+                  script changes.
                 </p>
                 <p>
                   Separately, .worktreeinclude copies — which may include gitignored files — run for
                   every new worktree regardless of this choice.
                 </p>
               </div>
+              <div className="flex items-start gap-2 text-xs">
+                <Checkbox
+                  aria-describedby={`${brainstrikeWorktreesId}-when`}
+                  checked={brainstrikeWorktrees}
+                  className="mt-0.5"
+                  data-testid="worktree-repository-setup-brainstrike-worktrees"
+                  disabled={deciding}
+                  id={brainstrikeWorktreesId}
+                  onCheckedChange={(next) => changeBrainstrikeWorktrees(next === true)}
+                />
+                <div className="min-w-0 space-y-0.5">
+                  <label htmlFor={brainstrikeWorktreesId}>
+                    Also run it for worktrees Brainstrike makes on its own
+                  </label>
+                  <p className="text-muted-foreground" id={`${brainstrikeWorktreesId}-when`}>
+                    When another conversation is editing the same folder, or the assistant makes a
+                    worktree. Left off, those worktrees skip the script and say why.
+                  </p>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   disabled={deciding}
-                  onClick={() => decide('approved')}
+                  onClick={() => decide({ brainstrikeWorktrees, decision: 'approved' })}
                   size="sm"
                   type="button"
                   variant={repositorySetupConsent.decision === 'approved' ? 'default' : 'outline'}
@@ -261,7 +298,10 @@ export function WorktreeCreateDialog({
                 </Button>
                 <Button
                   disabled={deciding}
-                  onClick={() => decide('denied')}
+                  onClick={() => {
+                    setBrainstrikeWorktreesChosen(false);
+                    decide({ brainstrikeWorktrees: false, decision: 'denied' });
+                  }}
                   size="sm"
                   type="button"
                   variant={repositorySetupConsent.decision === 'denied' ? 'default' : 'outline'}

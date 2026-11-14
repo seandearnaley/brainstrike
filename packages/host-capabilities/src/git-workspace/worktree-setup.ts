@@ -31,6 +31,12 @@ const WORKTREE_SETUP_TIMEOUT_MS = 300_000;
 const WORKTREE_INCLUDE_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const WORKTREE_INCLUDE_FILE = '.worktreeinclude';
 export const REPOSITORY_SETUP_SCRIPT = path.join('.brainstrike', 'worktree-setup.sh');
+/**
+ * Why a worktree Brainstrike made on its own skipped an approved script: the setup reason the
+ * where-control shows for the thread's worktree and `manageWorktree` returns to the model.
+ */
+const BRAINSTRIKE_WORKTREE_SETUP_SKIPPED =
+  'Repository setup script was skipped because Brainstrike made this worktree on its own, and you allowed the script only for worktrees you make. To allow it for these too, turn on "Also run it for worktrees Brainstrike makes on its own" in the new worktree sheet (Customize…).';
 const PORT_BASE = 3000;
 const PORT_SPAN = 2000;
 const brainstrikePortEnvironmentVariable = 'BRAINSTRIKE_PORT';
@@ -364,6 +370,12 @@ async function resolveSetupCommand(input: WorktreeSetupInput): Promise<ResolvedC
       argv: [],
       reason: 'Repository setup script consent is required before it can run.',
     };
+  }
+  // Sean, 2026-11-14 (BST-2501): an approval runs the script for the worktrees the person
+  // makes. One Brainstrike makes on its own (Automatic isolation, the model's worktree tool,
+  // both recorded as the agent's) runs it only when the person also chose that.
+  if (input.worktree.createdBy === 'agent' && !decision.brainstrikeWorktrees) {
+    return { argv: [], reason: BRAINSTRIKE_WORKTREE_SETUP_SKIPPED };
   }
   if (process.platform === 'win32') {
     return {

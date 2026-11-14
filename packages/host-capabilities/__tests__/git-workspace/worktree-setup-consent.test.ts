@@ -52,6 +52,7 @@ describe('worktree setup consent, the host record', () => {
     const repository = checkout('app', 'echo setup\n');
 
     const decided = await decideWorktreeSetupConsent(store, {
+      brainstrikeWorktrees: true,
       decision: 'approved',
       repository,
       scriptSha256: sha256('echo setup\n'),
@@ -60,6 +61,7 @@ describe('worktree setup consent, the host record', () => {
     expect(decided).toEqual({
       ok: true,
       value: {
+        brainstrikeWorktrees: true,
         decidedAt: expect.any(String),
         decision: 'approved',
         repositoryId: repository.commonDir,
@@ -67,17 +69,69 @@ describe('worktree setup consent, the host record', () => {
       },
     });
     await expect(readWorktreeSetupConsent(store, repository.commonDir)).resolves.toEqual({
+      brainstrikeWorktrees: true,
       decision: 'approved',
       scriptSha256: sha256('echo setup\n'),
     });
   });
 
+  // BST-2501, Sean 2026-11-14: a record written before the second answer existed holds none,
+  // and reads as the safe one: the script runs only for the worktrees the person makes.
+  it('reads an answer recorded with no second answer as not for worktrees Brainstrike makes', async () => {
+    store.settings.set(
+      WORKTREE_SETUP_CONSENT_KEY,
+      JSON.stringify({
+        '/repo/.git': {
+          decidedAt: '2026-11-13T00:00:00.000Z',
+          decision: 'approved',
+          scriptSha256: sha256('echo setup\n'),
+        },
+      })
+    );
+
+    await expect(readWorktreeSetupConsent(store, '/repo/.git')).resolves.toEqual({
+      brainstrikeWorktrees: false,
+      decision: 'approved',
+      scriptSha256: sha256('echo setup\n'),
+    });
+    await expect(listWorktreeSetupConsents(store)).resolves.toEqual([
+      expect.objectContaining({ brainstrikeWorktrees: false, repositoryId: '/repo/.git' }),
+    ]);
+  });
+
+  it('refuses a skip that would still run the script for worktrees Brainstrike makes', async () => {
+    const repository = checkout('app', 'echo setup\n');
+
+    const decided = await decideWorktreeSetupConsent(store, {
+      brainstrikeWorktrees: true,
+      decision: 'denied',
+      repository,
+      scriptSha256: sha256('echo setup\n'),
+    });
+
+    expect(decided).toEqual({
+      error: expect.objectContaining({ code: 'worktree.setup-consent-refused' }),
+      ok: false,
+    });
+    expect(store.settings.has(WORKTREE_SETUP_CONSENT_KEY)).toBe(false);
+  });
+
   it('replaces the repository’s earlier answer when the person answers again', async () => {
     const repository = checkout('app', 'echo setup\n');
     const scriptSha256 = sha256('echo setup\n');
-    await decideWorktreeSetupConsent(store, { decision: 'approved', repository, scriptSha256 });
+    await decideWorktreeSetupConsent(store, {
+      brainstrikeWorktrees: false,
+      decision: 'approved',
+      repository,
+      scriptSha256,
+    });
 
-    await decideWorktreeSetupConsent(store, { decision: 'denied', repository, scriptSha256 });
+    await decideWorktreeSetupConsent(store, {
+      brainstrikeWorktrees: false,
+      decision: 'denied',
+      repository,
+      scriptSha256,
+    });
 
     await expect(listWorktreeSetupConsents(store)).resolves.toEqual([
       expect.objectContaining({ decision: 'denied', repositoryId: repository.commonDir }),
@@ -88,6 +142,7 @@ describe('worktree setup consent, the host record', () => {
     const repository = checkout('app', 'echo edited\n');
 
     const decided = await decideWorktreeSetupConsent(store, {
+      brainstrikeWorktrees: false,
       decision: 'approved',
       repository,
       scriptSha256: sha256('echo setup\n'),
@@ -108,6 +163,7 @@ describe('worktree setup consent, the host record', () => {
     mkdirSync(repositoryRoot);
 
     const decided = await decideWorktreeSetupConsent(store, {
+      brainstrikeWorktrees: false,
       decision: 'approved',
       repository: { commonDir: path.join(repositoryRoot, '.git'), repositoryRoot },
       scriptSha256: sha256('echo setup\n'),
@@ -123,11 +179,13 @@ describe('worktree setup consent, the host record', () => {
     // Answered together: neither answer drops the other.
     await Promise.all([
       decideWorktreeSetupConsent(store, {
+        brainstrikeWorktrees: false,
         decision: 'approved',
         repository: app,
         scriptSha256: sha256('echo app\n'),
       }),
       decideWorktreeSetupConsent(store, {
+        brainstrikeWorktrees: false,
         decision: 'denied',
         repository: api,
         scriptSha256: sha256('echo api\n'),

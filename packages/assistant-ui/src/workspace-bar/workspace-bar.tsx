@@ -136,11 +136,20 @@ export interface WorkspaceBarBaseRefOption {
   readonly value: string;
 }
 
+/** The person's answer for a repository's setup script, both of its parts. */
+export interface WorkspaceBarRepositorySetupAnswer {
+  /** The approval also runs the script for the worktrees Brainstrike makes on its own. */
+  readonly brainstrikeWorktrees: boolean;
+  readonly decision: WorktreeRepositorySetupDecision;
+}
+
 export interface WorkspaceBarRepositorySetupConsent {
+  /** The host's standing second answer for the script's current bytes; false unless approved. */
+  readonly brainstrikeWorktrees: boolean;
   /** The host's standing answer for the script's current bytes, or null. */
   readonly decision: WorktreeRepositorySetupDecision | null;
   /** Records the person's answer with the host; rejects with the host's reason when refused. */
-  readonly onDecision: (decision: WorktreeRepositorySetupDecision) => Promise<void>;
+  readonly onDecision: (answer: WorkspaceBarRepositorySetupAnswer) => Promise<void>;
   readonly repositoryPath: string;
   readonly scriptPath: string;
 }

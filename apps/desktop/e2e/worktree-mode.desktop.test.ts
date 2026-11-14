@@ -134,7 +134,8 @@ test.describe('Worktree mode (desktop)', () => {
   // ADR-0034 Automatic isolation: nothing here waits on a clock. The first
   // thread's run stays in progress because it waits for a person, and each
   // step follows an approval card. The repository's setup script was allowed
-  // once, in the create sheet, so the worktree the host makes runs it too.
+  // once, in the create sheet, for Brainstrike's own worktrees too, so the
+  // worktree the host makes runs it.
   test('a second thread moves to a worktree at its first edit in a folder a running thread has edited', async ({
     modelProvider,
     window: page,
@@ -184,16 +185,23 @@ test.describe('Worktree mode (desktop)', () => {
     const approve = region.getByRole('button', { exact: true, name: `Approve ${tool}` });
     const asksAbout = region.getByTestId('approval-file-target-summary');
 
-    // The person allows the repository's setup script in the create sheet and
-    // creates nothing: the host keeps the answer. New worktree… opens the sheet
-    // because the script has no answer yet; it never skips it silently.
+    // The person allows the repository's setup script in the create sheet, also for the
+    // worktrees Brainstrike makes on its own (off by default; BST-2501), and creates nothing:
+    // the host keeps the answer. New worktree… opens the sheet because the script has no
+    // answer yet; it never skips it silently.
     await chooseThreadFolder(region, path.basename(repo));
     await openWhereMenu(region);
     await page.getByTestId('workspace-bar-mode-new-worktree').click();
     const sheet = page.getByTestId('worktree-create-dialog');
     const allow = sheet.getByRole('button', { exact: true, name: 'Allow script' });
+    const alsoBrainstrike = sheet.getByRole('checkbox', {
+      name: 'Also run it for worktrees Brainstrike makes on its own',
+    });
+    await expect(alsoBrainstrike).not.toBeChecked();
+    await alsoBrainstrike.click();
     await allow.click();
     await expect(allow).toHaveAttribute('data-variant', 'default', { timeout: 30_000 });
+    await expect(alsoBrainstrike).toBeChecked();
     await sheet.getByRole('button', { exact: true, name: 'Cancel' }).click();
     await expect(sheet).toBeHidden();
 

@@ -292,6 +292,7 @@ const WorktreeCheckoutStatusSchema = Schema.Struct({
 const SetupDecision = Schema.Literals(['approved', 'denied']);
 const ScriptSha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 const WorktreeSetupConsentSchema = Schema.Struct({
+  brainstrikeWorktrees: Schema.Boolean,
   decidedAt: Text,
   decision: SetupDecision,
   repositoryId: Text,
@@ -301,6 +302,7 @@ const WorktreeCreateContextSchema = Schema.Struct({
   managedParentPath: Text,
   repositorySetup: Schema.NullOr(
     Schema.Struct({
+      brainstrikeWorktrees: Schema.Boolean,
       decision: Schema.NullOr(SetupDecision),
       repositoryId: Text,
       repositoryPath: Text,
@@ -441,8 +443,12 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
     managedDirectory: NullableText,
     setupCommand: WorktreeSetupCommandSchema,
   }),
-  /** Only a person's answer (the create sheet's Allow or Skip); the host re-hashes the script. */
+  /**
+   * Only a person's answer (the create sheet's Allow or Skip, and whether it also runs the script
+   * for the worktrees Brainstrike makes on its own); the host re-hashes the script.
+   */
   'worktrees/setup-consent/decide': Schema.Struct({
+    brainstrikeWorktrees: Schema.Boolean,
     decision: SetupDecision,
     rootId: Id,
     scriptSha256: ScriptSha256,

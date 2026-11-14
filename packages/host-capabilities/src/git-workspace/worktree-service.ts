@@ -255,9 +255,9 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
   }
 
   /**
-   * The repository's standing answer is read here, for every create, so the
-   * person's own worktree, the model's and Automatic isolation's run setup
-   * alike. A record that cannot be read fails setup visibly, not the create.
+   * The repository's standing answer is read here, for every create; setup reads
+   * it with the row's creator (an agent's worktree needs the second answer).
+   * A record that cannot be read fails setup visibly, not the create.
    */
   async function runSetupSafely(
     repositoryId: string,

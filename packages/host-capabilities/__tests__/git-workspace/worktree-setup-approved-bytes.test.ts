@@ -52,7 +52,11 @@ describe.skipIf(process.platform === 'win32')('the repository setup script that 
   function setup(onScriptChecked?: () => Promise<void>) {
     return runWorktreeSetup({
       ...(onScriptChecked ? { onScriptChecked } : {}),
-      repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(APPROVED) },
+      repositorySetupDecision: {
+        brainstrikeWorktrees: true,
+        decision: 'approved',
+        scriptSha256: sha256(APPROVED),
+      },
       settings: { isDefaultDirectory: true, managedDirectory: directory, setupCommand: null },
       sourcePath: source,
       worktree,
@@ -83,7 +87,11 @@ describe.skipIf(process.platform === 'win32')('the repository setup script that 
     writeFileSync(script, failing);
 
     const outcome = await runWorktreeSetup({
-      repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(failing) },
+      repositorySetupDecision: {
+        brainstrikeWorktrees: true,
+        decision: 'approved',
+        scriptSha256: sha256(failing),
+      },
       settings: { isDefaultDirectory: true, managedDirectory: directory, setupCommand: null },
       sourcePath: source,
       worktree,
