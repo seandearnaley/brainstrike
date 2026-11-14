@@ -22,6 +22,7 @@ import {
   type HostStepDelivery,
 } from './protocol.ts';
 import type { HostProviderRequest, HostProviderRequestReceipt } from './run-provider-request.ts';
+import { isHostEarlierInput } from './turn-input.ts';
 /**
  * HostCore alone folds and writes accepted command records. The committed
  * payload is canonicalized only when its command ID is submitted again, never
@@ -393,6 +394,14 @@ export interface HostRunState {
   sharedByWorkers?: Set<string>;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
+  /**
+   * BST-2531: where each committed step ends among the run's own messages
+   * after its user message (a person's earlier message read before it is
+   * not among them): where its next step begins, so a step keeps the tool
+   * results and notices committed after it. The newest step has no end yet.
+   * A compaction can replace the steps up to one that ended.
+   */
+  readonly stepEnds: Map<number, number>;
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
@@ -535,6 +544,7 @@ export function createHostRunState(
     rawInputs: new Map(),
     responses: new Set(),
     started: new Set(),
+    stepEnds: new Map(),
     steps: 0,
     stopped: false,
     terminal: false,
@@ -588,6 +598,13 @@ export function foldHostRunMessages(
     run.messageIndexes.add(previousLength + index);
   }
   if (event.type === 'model.step') {
+    // The run's previous step ends where this one begins.
+    if (run.steps > 0) {
+      run.stepEnds.set(
+        run.steps - 1,
+        run.messages.filter((message) => !isHostEarlierInput(message)).length
+      );
+    }
     run.steps = event.stepNumber + 1;
     // The step's request held the branch up to its own messages.
     const tokens = reportedStepTokens(event.usage);
@@ -638,6 +655,8 @@ export function recordHostProviderRequest(
         })(receipt.toolCallWindow),
         type: 'provider.request.prepared',
       },
+      // BST-2531: a trim's compaction commits with the request it trimmed.
+      ...(receipt.trim ? [receipt.trim] : []),
     ]);
   };
 }

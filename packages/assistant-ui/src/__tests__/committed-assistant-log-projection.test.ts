@@ -636,9 +636,56 @@ describe('rich committed-log presentation projection', () => {
     });
   });
 
+  it('counts the steps each compaction of a running turn replaced since the last one (BST-2531)', () => {
+    const projection = projector();
+    projection.acceptCommitted(rows);
+    const last = rows.at(-1);
+    if (!last) {
+      throw new Error('Missing recorded rows.');
+    }
+    const compacted = (seq: number, stepNumber: number, reason: string, kept?: number[]) => ({
+      event: {
+        compactedRunIds: [],
+        kind: 'deterministic',
+        reason,
+        runId,
+        summary: 'Dropped.',
+        through: { ...(kept ? { kept } : {}), runId, stepNumber },
+        type: 'context.compacted',
+      },
+      seq,
+      threadId,
+    });
+    // The first kept its steps 2 and 4 word for word, so it replaced five of seven.
+    projection.acceptCommitted([
+      compacted(last.seq + 1, 6, 'pre-request', [2, 4]),
+      compacted(last.seq + 2, 10, 'request-trim'),
+    ]);
+    const cards = answer(projection).content.filter(
+      (part) => part.type === 'data' && part.name === HOST_CONTEXT_COMPACTED_DATA_NAME
+    );
+    expect(cards.map((part) => (part.type === 'data' ? part.data : undefined))).toEqual([
+      {
+        kind: 'deterministic',
+        reason: 'pre-request',
+        stepsCompacted: 5,
+        summary: 'Dropped.',
+        turnsCompacted: 0,
+      },
+      {
+        kind: 'deterministic',
+        reason: 'request-trim',
+        stepsCompacted: 4,
+        summary: 'Dropped.',
+        turnsCompacted: 0,
+      },
+    ]);
+  });
+
   it.each([
     ['an unknown reason', { reason: 'budget' }],
     ['no compacted runs', { compactedRunIds: [] }],
+    ['a step it cannot read', { through: { runId, stepNumber: -1 } }],
     ['usage without its token counts', { modelId: 'openai::gpt-6-sol', usage: { totalTokens: 9 } }],
   ])('stops before a committed compaction with %s', (_label, change) => {
     const projection = projector();

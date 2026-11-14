@@ -57,8 +57,13 @@
 - Between 30,000 tokens and the trigger, requests are larger than they were with OM. Cached input
   is billed at a fraction of the normal rate; a thread idle past the cache lifetime pays the full
   price once. The cap bounds this on large-window models.
-- Compaction is still checked only before a run's first request, and it drops whole turns. A long
-  single run can still reach the request trim. BST-2531 moves the check to every step.
+- Compaction is checked before every step of a run, not only its first request (BST-2531). A run
+  that outgrows its budget part-way through summarizes its own older steps (`through` on
+  `context.compacted`), keeping its user message, its newest steps up to the protect window and
+  every tool call with its result. Each step's request is built from the committed branch.
+  - A request the provider boundary still has to trim commits a deterministic `context.compacted`
+    with reason `request-trim`, so no request loses its oldest messages unseen.
+  - A mid-run compaction rewrites the request's cached prefix once; no cache logic is added.
 - History assembly, the provider-request middleware and the committed transcript read live in the
   memory owner today and are not memory. BST-2533 moves them to Core before deleting anything.
 - A provider-native compaction (Anthropic's `compact_*`, OpenAI's `/responses/compact`) is not the
