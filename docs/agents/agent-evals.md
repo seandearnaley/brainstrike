@@ -58,7 +58,9 @@ The host decides when a thread compacts; a task only has to get there.
 ## Runner
 
 `pnpm --filter @brainstrike/agent-evals eval [--task <id>] [--mode scripted|replay|live] [--trials <n>]`
-builds first, then per task (`--trials` runs each task that many times, each in a fresh sandbox):
+(live also takes `--live --max-spend-usd <dollars> [--model anthropic::<model>]`, see
+[Live runs](#live-runs-and-the-spend-cap)) builds first, then per task (`--trials` runs each task
+that many times, each in a fresh sandbox):
 
 - copies `repo/` to a temp dir with a git baseline, and uses a fresh data root and
   `HOME` (always a disposable profile)
@@ -77,7 +79,7 @@ builds first, then per task (`--trials` runs each task that many times, each in 
 | --- | --- | --- |
 | `scripted` | agent-host `scripted-model` fixture plays `script.json` turn by turn as `scripted::<id>` | loopback boundary that refuses every request |
 | `replay` | the task's `model` via the real provider SDK | the task's cassette via `createProviderCassetteReplay` and the `*_BASE_URL` knobs |
-| `live` | the task's `model` with the owner's key | the real provider; needs `--live` and `BRAINSTRIKE_EVALS_LIVE=1`; refuses in CI |
+| `live` | `--model`, else the task's `model`; Anthropic only, with the owner's key | the real provider; needs `--live`, `BRAINSTRIKE_EVALS_LIVE=1` and `--max-spend-usd`; refuses in CI |
 
 - Scripted mode loads the trusted `--platform` module `src/scripted-platform.ts`.
   The script's model identity enters only through `createHostPlatform`'s trusted
@@ -85,6 +87,41 @@ builds first, then per task (`--trials` runs each task that many times, each in 
   `model.step` name the model that ran. The task's `model` still sets token budgets.
 - Replay without `--task` runs only tasks with a cassette and names those skipped.
   Only `parallel-read` has one (the shared `openai-parallel-tool-calls` fixture).
+
+### Live runs and the spend cap
+
+The owner's benchmark key is Anthropic's and has a hard total, so a live run names its model and a
+cap, and stops itself.
+
+- `--model <provider::model>` names a live run's model for every task; without it each task's own
+  `model` runs. A live run refuses any model that is not `anthropic::<model>`, the tasks' own
+  `openai::` models included. Scripted and replay runs refuse `--model`: a script plays as its own
+  model and a cassette replays the model it recorded.
+- The key comes from `BRAINSTRIKE_ANTHROPIC_API_KEY`, else `ANTHROPIC_API_KEY`, in the shell; it
+  reaches only the host process's environment, and the runner never prints or writes it.
+- `--max-spend-usd <dollars>` is required for a live run (refused without it, naming the flag).
+  Scripted and replay runs make no paid call and refuse it rather than ignore it.
+- The stop rule: the batch adds up each thread's spend as the host's ledger measured it (the
+  `cost $` the results print). Before each turn after the first, and before each trial and task,
+  it starts nothing more once that sum reaches the cap, or is unknown (a call the provider billed
+  but never reported, a call with no list price, or a run whose thread could not be read).
+  - The thread it stopped fails with the turn it did not start; each trial or task it did not start
+    is a failed `Not run:` line; the summary ends `Spend cap $<cap>: $<spent> measured; cut short,
+    <n> run(s) stopped or not run`; the command exits 1.
+- A request in flight is never interrupted for cost, so the cap bounds what starts: one turn can
+  pass it by at most the host's 100 steps, each request within the input budget (the task's
+  `inputTokenLimit` pin, else the model's own) and kept near the compaction trigger, plus its
+  output, until the task's `timeoutMs` ends the turn.
+- One cheap live trial, with the key exported earlier under a name of your own
+  (`EVAL_ANTHROPIC_API_KEY` here) and passed inline:
+
+  ```sh
+  BRAINSTRIKE_EVALS_LIVE=1 BRAINSTRIKE_ANTHROPIC_API_KEY="$EVAL_ANTHROPIC_API_KEY" \
+    pnpm --filter @brainstrike/agent-evals eval --mode live --live --task answer-question \
+    --model anthropic::claude-haiku-5-5 --max-spend-usd 1
+  ```
+
+  The inline name is the first one read, so it wins over any Anthropic key already in the shell.
 
 ## Scoring and results
 
@@ -95,6 +132,7 @@ the reason:
 2. refused provider request (including replay mismatch)
 3. timeout
 4. run verdict other than `completed` (the first turn, then each follow-up, named by turn)
+   - a thread the spend cap stopped fails with the cap's reason, naming the turn it did not start
 5. unserved cassette exchange
 6. verifier did not run or exit 0
 7. unmet `expect`
@@ -114,9 +152,14 @@ the reason:
   - A cost is null when a call has no list price, as every scripted call has. The total is also
     null when the provider bills a call it never reported usage for (a Stop, a timeout or a failure
     mid-stream); `unreportedCalls` counts those.
-- Results append one JSON line per run of a task to
+- `modelId` is the model as `run.started` committed it (null on a line that never ran).
+- `spendCap` is null without a cap; a capped run's lines hold `capUsd`, `spentUsd` (the batch's
+  measured spend through that line, null once unknown) and `cutShort` (the cap stopped that line's
+  later turns, or the whole line).
+- Results append one JSON line per run of a task, or per run the spend cap did not start, to
   `packages/agent-evals/results/<UTC date>-<mode>.jsonl` (gitignored) and print a summary; with
-  `--trials`, the summary ends with each task's share of passing trials.
+  `--trials`, the summary ends with each task's share of passing trials, and a capped run's ends
+  with its spend.
 
 ## What it cannot measure yet
 
@@ -126,7 +169,8 @@ the reason:
 ## Recording (owner only)
 
 `pnpm --filter @brainstrike/agent-evals record --task <id> --model <provider::model>`
-makes paid calls with the owner's key. Agents never run it; it refuses in CI.
+makes paid calls with the owner's key. Agents never run it; it refuses in CI. It takes no spend
+cap.
 
 - Runs live through `startProviderCassetteRecorder`.
 - Rejects a cassette containing a home path or key (`providerCassetteFindings`)

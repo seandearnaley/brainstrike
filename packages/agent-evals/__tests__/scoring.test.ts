@@ -12,6 +12,7 @@ import {
   scoreEvalAttempt,
   threadMetrics,
 } from '../src/scoring.js';
+import { addThreadSpend, NOTHING_SPENT, spendCapCheck } from '../src/spend-cap.js';
 
 const require = createRequire(import.meta.url);
 
@@ -279,10 +280,10 @@ describe('readThreadFromLog', () => {
     expect(spend.bySource['compaction-summary']?.costUsd).toBeGreaterThan(0);
   });
 
-  test('a call the provider bills but never reported leaves the total unknown, and is counted', async () => {
+  /** A priced run whose last request was sent, then stopped before any usage came back. */
+  async function cutOffRun() {
     const { rows, runId } = await approvedRun();
     const finished = rows.at(-1)!;
-    // A priced run whose last request was sent, then stopped before any usage came back.
     const cutOff = Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema))([
       ...rows
         .slice(0, -1)
@@ -326,11 +327,30 @@ describe('readThreadFromLog', () => {
       },
       { ...finished, event: { ...finished.event, outcome: 'stopped' }, seq: finished.seq + 1 },
     ]);
-    const { spend } = readThreadFromLog(cutOff, [runId]);
+    return readThreadFromLog(cutOff, [runId]);
+  }
+
+  test('a call the provider bills but never reported leaves the total unknown, and is counted', async () => {
+    const { spend } = await cutOffRun();
     expect(spend.unreportedCalls).toBe(1);
     expect(spend.costUsd).toBeNull();
     // The calls that did report still have their price.
     expect(spend.bySource['chat']?.costUsd).toBeGreaterThan(0);
+  });
+
+  test('under a spend cap, an unreported call is unknown spend, and unknown spend stops the run', async () => {
+    const { spend } = await cutOffRun();
+    // Its reported calls alone sit far under the cap, but they are not the whole.
+    expect(spend.bySource['chat']?.costUsd).toBeLessThan(1);
+    expect(spendCapCheck(1, addThreadSpend(NOTHING_SPENT, spend, 'this thread'))).toEqual({
+      capUsd: 1,
+      stop: 'the spend is unknown: this thread has 1 call(s) the provider bills but never reported',
+    });
+    const reported = { ...spend, costUsd: 0.5, unreportedCalls: 0 };
+    expect(spendCapCheck(1, addThreadSpend(NOTHING_SPENT, reported, 'this thread'))).toEqual({
+      capUsd: 1,
+      spentUsd: 0.5,
+    });
   });
 
   test('a thread with an unpriced call has no total cost, rather than a partial one', async () => {
