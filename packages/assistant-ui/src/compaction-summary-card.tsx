@@ -21,7 +21,20 @@ const SUMMARY_INVALID_CODE = 'compaction.summary-invalid';
 const REASON_LABELS: Record<CompactionSummaryDetails['reason'], string> = {
   'context-overflow': 'After the provider reported a context overflow',
   'pre-request': 'Before the request, to keep it inside the context budget',
+  'request-trim': 'Left out of a request over the context budget',
 };
+
+function counted(count: number, noun: string): string {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
+}
+
+/** The earlier turns, and the steps of a running turn, the compaction replaced. */
+function compactedLabel({ stepsCompacted, turnsCompacted }: CompactionSummaryDetails): string {
+  return [
+    ...(turnsCompacted > 0 ? [counted(turnsCompacted, 'turn')] : []),
+    ...(stepsCompacted ? [counted(stepsCompacted, 'step')] : []),
+  ].join(', ');
+}
 
 function kindLabel(
   fallbackKind: CompactionSummaryPayload['fallbackKind'],
@@ -46,11 +59,7 @@ function kindLabel(
 function CompactionDetails({ details }: { readonly details: CompactionSummaryDetails }) {
   const rows: { id: string; label: string; value: string }[] = [
     { id: 'reason', label: 'Reason', value: REASON_LABELS[details.reason] },
-    {
-      id: 'turns',
-      label: 'Compacted',
-      value: `${details.turnsCompacted} ${details.turnsCompacted === 1 ? 'turn' : 'turns'}`,
-    },
+    { id: 'turns', label: 'Compacted', value: compactedLabel(details) },
     ...(details.modelId === undefined
       ? []
       : [{ id: 'model', label: 'Summarizer', value: details.modelId }]),

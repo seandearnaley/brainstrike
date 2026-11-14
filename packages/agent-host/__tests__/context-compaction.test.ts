@@ -6,7 +6,7 @@ import {
 import { jsonSchema, type ModelMessage } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  compactedRunIds,
+  compactionCuts,
   HostContextSummarySchemaError,
   overflowCompaction,
   prepareCompactedContext,
@@ -22,7 +22,10 @@ type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
 type Input = Parameters<typeof prepareCompactedContext>[0];
 
 function chain(count: number): HostRunState[] {
-  return Array.from({ length: count }, (_, index) => ({ id: `run-${index}` }) as HostRunState);
+  return Array.from(
+    { length: count },
+    (_, index) => ({ id: `run-${index}`, stepEnds: new Map() }) as HostRunState
+  );
 }
 
 /** `chain(count)` where `run-<index>` holds what its requests reported. */
@@ -95,7 +98,8 @@ describe('prepareCompactedContext', () => {
     });
     expect(summarize).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
-    expect(prepared).toEqual({ messages });
+    expect(prepared.messages).toEqual(messages);
+    expect(prepared.note).toBeUndefined();
   });
 
   it('summarizes every unprotected turn past the trigger and commits the summarizer receipt', async () => {
@@ -457,7 +461,8 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
         messages: opening(6, 40_000),
       });
       expect(committed).toEqual([]);
-      expect(prepared).toEqual({ messages: opening(6, 40_000) });
+      expect(prepared.messages).toEqual(opening(6, 40_000));
+      expect(prepared.note).toBeUndefined();
     }
   });
 });
@@ -728,8 +733,10 @@ describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
     const rows = [sibling, { ...sibling, compactedRunIds: ['run-0'], runId: 'run-1' }].map(
       (event, seq) => ({ event, seq, threadId: 'thread' }) as HostLogRow
     );
-    expect(compactedRunIds(rows, new Set(['run-0', 'run-1', 'run-2']))).toEqual(new Set(['run-0']));
-    expect(compactedRunIds(rows, new Set(['run-0', 'run-1', 'run-9']))).toEqual(
+    expect(compactionCuts(rows, new Set(['run-0', 'run-1', 'run-2'])).runs).toEqual(
+      new Set(['run-0'])
+    );
+    expect(compactionCuts(rows, new Set(['run-0', 'run-1', 'run-9'])).runs).toEqual(
       new Set(['run-0', 'run-1', 'run-9'])
     );
   });

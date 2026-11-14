@@ -34,9 +34,22 @@ describe('readHostContextCompaction', () => {
     expect(readHostContextCompaction(fallback)).toEqual(fallback);
   });
 
+  it('reads a compaction of a running turn’s steps, and a request trim (BST-2531)', () => {
+    const steps = { ...part, stepsCompacted: 7, turnsCompacted: 0 };
+    expect(readHostContextCompaction(steps)).toEqual(steps);
+    const trim = {
+      kind: 'deterministic',
+      reason: 'request-trim',
+      summary: 'Dropped.',
+      turnsCompacted: 1,
+    };
+    expect(readHostContextCompaction(trim)).toEqual(trim);
+  });
+
   it.each([
     ['without its reason', { ...part, reason: undefined }],
     ['with no compacted turns', { ...part, turnsCompacted: 0 }],
+    ['with no compacted steps', { ...part, stepsCompacted: 0, turnsCompacted: 0 }],
     ['with an empty summarizer model', { ...part, modelId: '' }],
     ['with usage missing its tokens', { ...part, usage: { inputTokens: 10 } }],
     ['with a summarizer failure missing its code', { ...part, summarizerFailure: {} }],

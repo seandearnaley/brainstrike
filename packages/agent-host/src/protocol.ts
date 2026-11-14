@@ -782,10 +782,15 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('context.compacted'),
         ...RunFields,
-        compactedRunIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
+        /** The earlier runs whose whole turns the summary replaced. */
+        compactedRunIds: Schema.mutable(Schema.Array(Id)),
         kind: Schema.Literals(['agentic', 'deterministic']),
         modelId: Schema.optional(Id),
-        reason: Schema.Literals(['pre-request', 'context-overflow']),
+        /**
+         * Before a request, after a provider's overflow, or the provider
+         * request's own trim of a request still over its budget (BST-2531).
+         */
+        reason: Schema.Literals(['pre-request', 'context-overflow', 'request-trim']),
         /**
          * A deterministic fallback's reason: the agentic summarizer's typed
          * failure code, and the reference its cause is logged under (BST-2204).
@@ -797,8 +802,19 @@ export function hostEventSchema(json: JsonSchemaFactory) {
           })
         ),
         summary: Schema.String.check(Schema.isMinCodePoints(1)),
+        /**
+         * BST-2531: the steps of `runId` up to and including `stepNumber`
+         * that the summary replaced; the run's user message stays.
+         */
+        through: Schema.optional(Schema.Struct({ runId: Id, stepNumber: Seq })),
         usage: Schema.optional(json()),
-      }),
+      }).check(
+        Schema.makeFilter((event) =>
+          event.compactedRunIds.length > 0 || event.through !== undefined
+            ? undefined
+            : { issue: 'A compaction replaces at least one turn or step', path: [] }
+        )
+      ),
       Schema.Struct({
         type: Schema.Literal('workspace.edit.recorded'),
         ...RunFields,
