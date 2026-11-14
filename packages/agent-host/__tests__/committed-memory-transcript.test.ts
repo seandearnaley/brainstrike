@@ -4,8 +4,9 @@ import approved from '@brainstrike/test-utils/fixtures/committed-approved-host-r
 import granted from '@brainstrike/test-utils/fixtures/committed-host-granted-run.json' with {
   type: 'json',
 };
+import { MessageList } from '@mastra/core/agent';
 import { Schema } from 'effect';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { committedRowAddress } from '../src/committed-identities.js';
@@ -161,25 +162,32 @@ function longRun(steps: number): HostLogRow[] {
 }
 
 /**
- * Memory reads the whole transcript several times a step, so its cost per
- * read decides how a long run slows down. Converting each row once copied
- * every earlier segment of its run: a read cost the square of the run's
- * steps, and a 100-step run spent 26 of its 37 seconds here. A read is now
- * linear: eight times the steps take about eight times as long, not 64.
+ * The messages one conversion hands Mastra's converter (`MessageList.add`),
+ * which converts each of them in turn. Counted, not timed, so a loaded
+ * machine cannot change the answer (BST-2509).
  */
-test('converting a run takes time in proportion to its steps', () => {
-  const fastest = (steps: number): number => {
-    const rows = longRun(steps);
-    return Math.min(
-      ...Array.from({ length: 5 }, () => {
-        const before = performance.now();
-        expect(committedMemoryTranscript(rows, 'recorded-resource')).toHaveLength(steps + 1);
-        return performance.now() - before;
-      })
+function convertedMessages(steps: number): number {
+  const rows = longRun(steps);
+  const add = vi.spyOn(MessageList.prototype, 'add');
+  try {
+    expect(committedMemoryTranscript(rows, 'recorded-resource')).toHaveLength(steps + 1);
+    return add.mock.calls.reduce(
+      (count, [messages]) => count + (Array.isArray(messages) ? messages.length : 1),
+      0
     );
-  };
-  const short = fastest(100);
-  const long = fastest(800);
-  console.info(`TRANSCRIPT_CONVERSION_MS ${JSON.stringify({ long, short })}`);
-  expect(long / short).toBeLessThan(24);
+  } finally {
+    add.mockRestore();
+  }
+}
+
+/**
+ * Memory reads the whole transcript several times a step, so the work of one
+ * read decides how a long run slows down. Converting each row once handed the
+ * converter every earlier segment of its run again: a read converted the
+ * square of the run's steps, and a 100-step run spent 26 of its 37 seconds
+ * here. A read now converts each row's own messages: eight times the steps
+ * convert eight times the messages, not 64 times.
+ */
+test('converting a run converts messages in proportion to its steps', () => {
+  expect(convertedMessages(800)).toBeLessThan(24 * convertedMessages(100));
 });
