@@ -10,7 +10,8 @@ test('opens home', async ({ homePage }) => {
 });
 ```
 
-- Each test gets its own `ElectronHarness`, a disposable profile (keyed by run, shard, worker, test and retry) and a real disposable workspace root. No app or profile is shared across tests.
+- Each test gets its own `ElectronHarness`, a disposable profile (keyed by run, shard, worker, test and retry), a real disposable workspace root and a disposable Trash. No app or profile is shared across tests.
+- Main moves a scratch folder it trashes into the test's Trash (`BRAINSTRIKE_E2E_TRASH_DIR`, `electron.getTrashDirectory()`), never into the machine's. A test-mode launch without it refuses to trash anything.
 - Fixtures: `electron` (the harness), `electronApp` (its context), `window`, `homePage`, `modelProvider`, `failureCollector`.
 - Launch overrides go through the `electronEnv` option.
 
