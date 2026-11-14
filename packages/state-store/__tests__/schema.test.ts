@@ -418,6 +418,27 @@ describe('state DB migrations', () => {
     }
   });
 
+  test('a profile that held Mastra memory loses its memory tables, which held conversation text nothing erases any more', () => {
+    const db = new Database(':memory:');
+    try {
+      migrate(db);
+      // As schema version 3 left a profile before ADR-0039 retired it.
+      db.exec(`CREATE TABLE brainstrike_memory_scopes (resource_id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
+      CREATE TABLE brainstrike_memory_entities (kind TEXT, id TEXT, resource_id TEXT, thread_id TEXT, payload TEXT);
+      INSERT INTO brainstrike_memory_entities VALUES ('observation', 'o1', 'r', 't', 'what the person said');
+      PRAGMA user_version = 19;`);
+      migrate(db);
+      const tables = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'brainstrike_memory%'"
+        )
+        .all();
+      expect(tables).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   test('the upgrader is idempotent and refuses a DB written by a newer build', () => {
     const db = new Database(':memory:');
     try {

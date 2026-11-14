@@ -32,7 +32,7 @@ export interface HostProviderRequestReceipt {
 
 /** One run's provider requests: each step prepares what its request sends before the call. */
 export class HostProviderRequest {
-  /** The provenance of the step's request (`hostProviderHistory`); none while it prepares. */
+  /** The provenance of the step's request (`hostProviderHistory`); none before the first step prepares. */
   private history: readonly MastraDBMessage[] | undefined;
   /** Committed tool-output rewrites as of the step's history read. */
   private rewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
@@ -48,11 +48,6 @@ export class HostProviderRequest {
   ) {
     this.selected = selected;
     this.record = record;
-  }
-
-  /** A step is being prepared: no request goes out until it is. */
-  clear(): void {
-    this.history = undefined;
   }
 
   /** What the step's requests send, read from the committed log. */

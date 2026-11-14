@@ -367,7 +367,7 @@ export interface HostRunState {
   /** A UserPromptSubmit hook's committed context, part of the run's instructions. */
   promptContext?: string;
   /** The run's provider request boundary, once its admission selected a provider. */
-  providerRequest?: HostProviderRequest;
+  providerRequest?: HostProviderRequest | undefined;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   /**
@@ -422,7 +422,8 @@ export interface HostRunState {
 /**
  * Core keeps every run of the process. Once a run has ended and its resources
  * have joined, nothing reads its admission again: the run's tools, their executors
- * and validators, and the instructions it was admitted with are let go. Either
+ * and validators, the instructions it was admitted with and its provider request
+ * are let go. Either
  * can come first (a Stop joins them before the run's end commits, and its
  * Stop hooks and turn end still read the admission), so both call this.
  */
@@ -431,6 +432,8 @@ export function releaseSettledRunAdmission(run: HostRunState): void {
     run.admission = undefined;
     run.admissionTask = undefined;
     run.nativeWebSearch = undefined;
+    // It holds the branch's whole committed transcript as its last step read it.
+    run.providerRequest = undefined;
   }
 }
 /**
