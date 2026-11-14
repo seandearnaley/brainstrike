@@ -1,6 +1,8 @@
 import {
   type AssistantMemoryThread,
   AssistantThreadAppearanceSaveError,
+  type ThreadRepositoryRow,
+  type ThreadScratchFolder,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
@@ -96,29 +98,43 @@ describe('thread metadata badges', () => {
       );
     });
 
-    it('names the scratch folder for a thread that works in one, at every panel width', () => {
-      const scratchFolder = {
+    const scratchFolder: ThreadScratchFolder = {
+      displayName: 'quiet-otter',
+      path: '/profile/scratch/quiet-otter',
+      repository: null,
+      rootId: 'root-scratch',
+    };
+    const inScratchFolder: AssistantMemoryThread['metadata'] = {
+      operatingRootDisplayName: 'quiet-otter',
+      operatingRootId: 'root-scratch',
+      operatingRootPath: '/profile/scratch/quiet-otter',
+    };
+    /** The listing's entry for a scratch folder that became a repository's own checkout. */
+    function scratchRepository(
+      head: Pick<ThreadRepositoryRow, 'branch' | 'detached'>
+    ): ThreadRepositoryRow {
+      return {
+        ...head,
         displayName: 'quiet-otter',
+        folder: scratchFolder,
+        key: '/profile/scratch/quiet-otter/.git',
         path: '/profile/scratch/quiet-otter',
-        rootId: 'root-scratch',
+        projectId: null,
+        projectName: null,
       };
+    }
+
+    it('names the scratch folder for a thread that works in one, at every panel width', () => {
       render(
         <ThreadMetadataBadges
           scratchFolder={scratchFolder}
-          thread={{
-            ...thread,
-            metadata: {
-              operatingRootDisplayName: 'quiet-otter',
-              operatingRootId: 'root-scratch',
-              operatingRootPath: '/profile/scratch/quiet-otter',
-            },
-          }}
+          thread={{ ...thread, metadata: inScratchFolder }}
         />
       );
 
       // Its section, Scratch, does not name the folder, so the chip does instead of Local.
       const chip = screen.getByTestId('thread-checkout-chip');
-      expect(chip).toHaveTextContent('quiet-otter');
+      expect(chip).toHaveTextContent(/^quiet-otter$/u);
       expect(chip).toHaveAttribute(
         'title',
         'Scratch folder quiet-otter at /profile/scratch/quiet-otter'
@@ -126,6 +142,49 @@ describe('thread metadata badges', () => {
       // Marked at every width, as a worktree is; the name waits for 420px.
       expect(chip.className.split(' ')).not.toContain('hidden');
       expect(screen.getByText('quiet-otter').className).toContain('@[420px]/threads:inline');
+    });
+
+    it('names the branch of a scratch folder that has become a git repository', () => {
+      render(
+        <ThreadMetadataBadges
+          scratchFolder={{
+            ...scratchFolder,
+            repository: scratchRepository({ branch: 'feature/notes', detached: false }),
+          }}
+          thread={{ ...thread, metadata: inScratchFolder }}
+        />
+      );
+
+      // Two scratch repositories are told apart by branch, and the thread stays a scratch thread.
+      const chip = screen.getByTestId('thread-checkout-chip');
+      expect(chip).toHaveTextContent(/^quiet-otter · feature\/notes$/u);
+      expect(chip).toHaveAttribute(
+        'title',
+        'Scratch folder quiet-otter at /profile/scratch/quiet-otter, on branch feature/notes'
+      );
+      // Under 420px it is still its folder icon alone: the branch waits with the name.
+      expect(chip.className.split(' ')).not.toContain('hidden');
+      expect(screen.getByText('· feature/notes').className).toContain('@[420px]/threads:inline');
+      expect(screen.getByText('· feature/notes').className.split(' ')).toContain('hidden');
+    });
+
+    it('says a scratch repository on no branch is detached', () => {
+      render(
+        <ThreadMetadataBadges
+          scratchFolder={{
+            ...scratchFolder,
+            repository: scratchRepository({ branch: null, detached: true }),
+          }}
+          thread={{ ...thread, metadata: inScratchFolder }}
+        />
+      );
+
+      const chip = screen.getByTestId('thread-checkout-chip');
+      expect(chip).toHaveTextContent(/^quiet-otter · detached$/u);
+      expect(chip).toHaveAttribute(
+        'title',
+        'Scratch folder quiet-otter at /profile/scratch/quiet-otter, on a detached HEAD'
+      );
     });
 
     it('shows nothing for a thread with no folder', () => {

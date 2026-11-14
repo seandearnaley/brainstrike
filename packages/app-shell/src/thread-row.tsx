@@ -5,7 +5,7 @@ import {
   AssistantThreadAppearanceSaveError,
   type AssistantThreadColorId,
   type AssistantThreadIconId,
-  type ThreadFolderRow,
+  type ThreadScratchFolder,
 } from '@brainstrike/assistant-data';
 import {
   type AnyContextAction,
@@ -95,7 +95,7 @@ export interface ThreadRowProps {
   ) => Promise<void>;
   readonly pinned: boolean;
   /** The scratch folder the thread works in, which its checkout chip names; see `ThreadMetadataBadges`. */
-  readonly scratchFolder: ThreadFolderRow | null;
+  readonly scratchFolder: ThreadScratchFolder | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -320,7 +320,7 @@ function ThreadRowItem({
   readonly renameError: string | null;
   readonly renameSaving: boolean;
   readonly rowGroupId: string | null;
-  readonly scratchFolder: ThreadFolderRow | null;
+  readonly scratchFolder: ThreadScratchFolder | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -692,7 +692,7 @@ function ThreadRowDisplay({
   ) => Promise<void>;
   readonly pendingDelete: boolean;
   readonly pinned: boolean;
-  readonly scratchFolder: ThreadFolderRow | null;
+  readonly scratchFolder: ThreadScratchFolder | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
