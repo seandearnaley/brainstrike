@@ -483,8 +483,9 @@ Decisions the build made, which are not Sean's:
   own read, so the sheet that opens for the question shows the same name.
 - The row keeps its label, New worktree…: it still opens the sheet when the
   setup script has no answer.
-- The sheet's note that uncommitted changes stay in the thread's folder is the
-  sheet's alone; one click shows no note, and the changes stay there as before.
+- The sheet notes, before Create, that uncommitted changes stay in the
+  thread's folder. One click has no sheet, so once the thread is in the new
+  worktree a toast says so ("Uncommitted changes stayed in <folder>").
 - The desktop E2E specs share one helper (`e2e/utils/create-worktree.ts`) that
   makes a worktree in one click and reads its name and folder from the
   where-control.

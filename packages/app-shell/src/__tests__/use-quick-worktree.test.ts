@@ -76,8 +76,8 @@ function createContext(setup: 'approved' | 'denied' | 'none' | 'unanswered') {
   };
 }
 
-async function renderReady() {
-  const rendered = renderHook(() => useWorktreeMode(ARGS), { wrapper });
+async function renderReady(args: typeof ARGS = ARGS) {
+  const rendered = renderHook(() => useWorktreeMode(args), { wrapper });
   await waitFor(() => expect(rendered.result.current?.createDisabledReason).toBeNull());
   return rendered;
 }
@@ -155,6 +155,22 @@ describe('New worktree… in one click', () => {
       worktreeId: 'w-1',
     });
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  // The sheet says where uncommitted changes stay; with no sheet, the person is told once it moved.
+  it('says the folder’s uncommitted changes stayed behind, once the thread is in the new worktree', async () => {
+    const { result } = await renderReady({ ...ARGS, uncommittedChanges: true });
+
+    await act(async () => {
+      await result.current?.onQuickCreate();
+    });
+
+    expect(onSelectWorktree).toHaveBeenCalledTimes(1);
+    expect(toastSpy).toHaveBeenCalledExactlyOnceWith({
+      description:
+        'The worktree quiet-otter starts from the last commit, so your uncommitted changes stay in app.',
+      title: 'Uncommitted changes stayed in app',
+    });
   });
 
   it.each(['approved', 'denied'] as const)(

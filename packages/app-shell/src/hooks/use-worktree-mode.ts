@@ -759,7 +759,6 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     setCreateSheetContext(result.value);
     return result.value;
   }, [args.primaryRootId, bridge, threadState]);
-  const onQuickCreate = useQuickWorktree({ onCreate, readCreateContext });
 
   const managedParentPath =
     createSheetContext?.managedParentPath ??
@@ -806,6 +805,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     args.uncommittedChanges && args.primaryRootPath
       ? (pathFolderName(args.primaryRootPath) ?? args.primaryRootPath)
       : null;
+  const onQuickCreate = useQuickWorktree({ onCreate, readCreateContext, uncommittedFolderName });
   const missingWorktreeReason = missingWorktreeDiagnostic({
     currentWorktreeId,
     hasAttemptedForCurrentId,
