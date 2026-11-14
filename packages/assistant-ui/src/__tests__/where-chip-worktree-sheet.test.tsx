@@ -40,6 +40,7 @@ const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({
   onHandOffToLocal: undefined,
   onOpenCreateSheet: vi.fn(() => Promise.resolve()),
   onOpenPicker: vi.fn(),
+  onQuickCreate: vi.fn(() => Promise.resolve({ needsSheet: false })),
   pending: false,
   picker: {
     error: null,
@@ -129,7 +130,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     expect(await screen.findByTestId('worktree-create-branch')).toHaveValue('bs/bright-fox');
     expect(screen.getByTestId('worktree-create-name')).toHaveValue('bright-fox');
     expect(screen.getByTestId('worktree-create-location')).toHaveTextContent('/managed');
@@ -145,7 +146,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     expect(await screen.findByTestId('worktree-create-dialog')).toBeVisible();
 
     await user.keyboard('{Escape}');
@@ -167,7 +168,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     });
     const { rerender } = render(<WorkspaceBar {...baseBarProps} mode={initial} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
 
     rerender(
@@ -197,7 +198,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const onOpenCreateSheet = vi.fn(() => Promise.reject(new Error('inventory unavailable')));
     render(<WorkspaceBar {...baseBarProps} mode={mode({ onOpenCreateSheet })} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     expect(onOpenCreateSheet).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
   });
@@ -206,7 +207,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
     await user.type(name, 'quiet-otter');
@@ -220,7 +221,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     expect(value.onCreate).toHaveBeenCalledWith({
       baseRef: 'main',
@@ -234,7 +235,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     await user.click(await screen.findByTestId('worktree-create-detached'));
     expect(screen.queryByTestId('worktree-create-branch')).toBeNull();
     await user.click(screen.getByTestId('worktree-create-submit'));
@@ -250,7 +251,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     await user.click(await screen.findByTestId('worktree-create-base-ref'));
     await user.click(await screen.findByRole('option', { name: 'origin/main (fresh)' }));
     await user.click(screen.getByTestId('worktree-create-submit'));
@@ -270,7 +271,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     const error = await screen.findByTestId('worktree-create-error');
     expect(error).toHaveAttribute('role', 'alert');
@@ -285,7 +286,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     const name = await screen.findByTestId('worktree-create-name');
     const branch = screen.getByTestId('worktree-create-branch');
     await user.clear(name);
@@ -297,7 +298,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     expect(screen.queryByTestId('worktree-create-error')).toBeNull();
     expect(await screen.findByTestId('worktree-create-name')).toHaveValue('bright-fox');
     expect(screen.getByTestId('worktree-create-branch')).toHaveValue('bs/bright-fox');
@@ -310,7 +311,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     expect(await screen.findByTestId('worktree-create-error')).toBeVisible();
     await user.type(screen.getByTestId('worktree-create-name'), 'x');
@@ -326,7 +327,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const value = mode({ onCreate: vi.fn(() => new Promise<void>(() => undefined)) });
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     const submit = screen.getByTestId('worktree-create-submit');
     expect(submit).toBeDisabled();
@@ -355,7 +356,12 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const item = await screen.findByTestId('workspace-bar-mode-new-worktree');
     expect(item).not.toHaveAttribute('data-disabled');
     expect(screen.queryByTestId('workspace-bar-mode-create-disabled-reason')).toBeNull();
-    await user.click(item);
+    const customize = screen.getByTestId('workspace-bar-mode-new-worktree-customize');
+    expect(customize).not.toHaveAttribute('data-disabled');
+    expect(
+      screen.queryByTestId('workspace-bar-mode-new-worktree-customize-disabled-reason')
+    ).toBeNull();
+    await user.click(customize);
     expect(await screen.findByTestId('worktree-create-dialog')).toBeVisible();
   });
 
@@ -374,6 +380,12 @@ describe("The where-control's worktree sheets and dialogs", () => {
     expect(screen.getByTestId('workspace-bar-mode-create-disabled-reason')).toHaveTextContent(
       'Create before sending the first request.'
     );
+    expect(screen.getByTestId('workspace-bar-mode-new-worktree-customize')).toHaveAttribute(
+      'data-disabled'
+    );
+    expect(
+      screen.getByTestId('workspace-bar-mode-new-worktree-customize-disabled-reason')
+    ).toHaveTextContent('Create before sending the first request.');
   });
 
   it('rejects a folder name containing a path separator', async () => {
@@ -381,7 +393,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const value = mode();
     render(<WorkspaceBar {...baseBarProps} mode={value} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
     await user.type(name, 'a/b');
@@ -396,7 +408,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
     await user.type(name, '..');
@@ -410,7 +422,7 @@ describe("The where-control's worktree sheets and dialogs", () => {
     const user = setup();
     render(<WorkspaceBar {...baseBarProps} mode={mode()} />);
     await user.click(screen.getByTestId('workspace-bar-where-chip'));
-    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(await screen.findByTestId('workspace-bar-mode-new-worktree-customize'));
     const name = await screen.findByTestId('worktree-create-name');
     await user.clear(name);
     await user.type(name, 'my-worktree');

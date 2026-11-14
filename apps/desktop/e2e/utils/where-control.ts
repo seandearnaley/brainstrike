@@ -8,7 +8,8 @@ export function whereChip(scope: Locator | Page): Locator {
   return scope.getByTestId('workspace-bar-where-chip').first();
 }
 
-function pageOf(scope: Locator | Page): Page {
+/** The page a scope is on: the where-menu opens at the page's top level. */
+export function pageOf(scope: Locator | Page): Page {
   return 'page' in scope && typeof scope.page === 'function' ? scope.page() : (scope as Page);
 }
 

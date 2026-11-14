@@ -203,6 +203,7 @@ export {
   type WorkspaceBarCreateWorktreeRequest,
   type WorkspaceBarMode,
   type WorkspaceBarProps,
+  type WorkspaceBarQuickCreateOutcome,
   type WorkspaceBarRecentRoot,
   type WorkspaceBarRepositorySetupConsent,
   type WorkspaceBarReveal,

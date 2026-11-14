@@ -23,13 +23,14 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
+import { createAndUseWorktree } from './utils/create-worktree';
 import { freshRepo as createFreshRepo, createTempDirTracker } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { startThread } from './utils/new-thread';
 import { seedRoots } from './utils/seed-root';
 import { seedHostThreads, type WorkspaceRootRow } from './utils/seed-threads';
-import { openWhereMenu, whereChip } from './utils/where-control';
+import { whereChip } from './utils/where-control';
 
 const tempDirs = createTempDirTracker();
 
@@ -299,14 +300,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     // A new thread in the repository moves into a new worktree before its first send.
     await repoSection.getByTestId('thread-folder-new-thread').click();
     const welcome = page.getByTestId('new-thread-welcome');
-    await openWhereMenu(welcome);
-    await page.getByTestId('workspace-bar-mode-new-worktree').click();
-    const create = page.getByTestId('worktree-create-dialog');
-    const worktreeName = (await create.getByTestId('worktree-create-name').inputValue()).trim();
-    await create.getByTestId('worktree-create-submit').click();
-    await expect(whereChip(welcome)).toContainText(worktreeName, {
-      timeout: 90_000,
-    });
+    const { name: worktreeName } = await createAndUseWorktree(welcome);
     await startThread(page, 'Start in the worktree.');
 
     // The thread sits under its repository, beside the two in the repository's
