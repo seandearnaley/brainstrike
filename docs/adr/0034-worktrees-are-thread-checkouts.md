@@ -25,6 +25,8 @@
   - 2026-11-13 (build decisions, under the idle-worktree cap below): an idle managed worktree
     whose branch has commits of its own and adds nothing the default branch lacks is archived,
     and the thread that made it is told; built (BST-2504).
+  - 2026-11-13 (build decisions, under the idle-worktree cap below): when a thread is deleted,
+    the managed worktrees it made that no other thread is bound to are archived; built (BST-2505).
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -385,14 +387,11 @@ Not built:
   keeps the binding it was admitted with, and its thread cannot move while it
   works (ADR-0028 rule 5); a shell command is not writing (Sean's second
   answer).
-- Cleaning up a worktree that was made and never entered, beyond the cap. It
-  stays in the ledger, bound to no thread, when the run is stopped or its
-  thread is deleted while the worktree is being made, whether the host made it
-  or the model's worktree tool did (`manageWorktree` create), and when a worker
-  dispatched in the same step keeps the thread where it is. It is idle, so the
-  idle-worktree cap (owner decisions, 2026-11-12) archives it once its
-  repository has more than 15 idle worktrees.
 - An action that brings a worktree's changes back.
+
+Cleaning up a worktree that was made and never entered was on this list until
+a deleted thread's worktrees were archived (BST-2505, under the idle-worktree
+cap below). One whose thread still exists is left to the cap.
 
 The repository's setup script for a worktree the host made was on this list
 until consent for it moved to the host (owner decision, 2026-11-12, below).
@@ -585,11 +584,14 @@ revisit:
   further archive, and Core waits for the one in flight and commits its
   notice before it stops admitting, so no worktree is archived untold (from
   Codex's review). It does not run when a thread is deleted or handed back to
-  Local; those worktrees are counted at the repository's next creation.
+  Local; those worktrees are counted at the repository's next creation. A
+  deleted thread's own worktrees are archived whatever the count (BST-2505,
+  below).
 - **The worktree just made is never counted.** Its thread is about to enter
   it, so the count does not depend on whether that binding has committed yet.
   A worktree that was made and never entered is counted from the repository's
-  next creation, so the cap is what clears it away.
+  next creation, so the cap is what clears it away while its thread lives; once
+  the thread is deleted, it is archived (BST-2505, below).
 - **"Bound" is any of a binding's folders:** the thread's worktree
   (`checkoutWorktreeId`), its operating folder, the folder it returns to or
   another of its folders, matched by id, or by a folder's path (as opened and
@@ -666,7 +668,53 @@ and later work may revisit them:
   Where this thread works menu, then Restore and use under Archived.
 - Files git ignores, which archiving deletes, do not come back.
 
-Not built: a cap after a thread is deleted.
+Built: archiving a deleted thread's worktrees (BST-2505). The ticket set the
+outcome; these are build decisions, mine and not Sean's, and later work may
+revisit them:
+
+- **The rule.** When a thread is deleted, each live managed worktree whose
+  ledger row names that thread as its maker, and that no other thread is bound
+  to, is archived. The thread that made it may be gone before it entered it:
+  its run was stopped, or the thread deleted, while the worktree was being made
+  (by the host's Automatic isolation or the model's `manageWorktree` create), or
+  a worker dispatched in the same step kept the thread where it was. A thread
+  that entered its worktree and is then deleted leaves it bound to no thread,
+  so it is archived too. A thread's child threads are deleted with it, and each
+  one's worktrees are archived the same way. The idle cap does not count on a
+  deletion: a repository's other idle worktrees wait for its next creation.
+- **No new column.** The ledger's `thread_id` already records the maker,
+  written once at insert and never changed, as for every creation and adoption.
+  A new ledger read, `list-thread`, lists a thread's live rows in every
+  repository, since a thread can make worktrees in more than one and
+  `list-repository` reads one. The state store's worktree ledger domain is its
+  one reader and writer, and the state DB's schema is unchanged.
+- **Bound** is the cap's test: any existing thread's binding names the worktree
+  or a folder that is it or lies inside it. The deleted thread is no longer in
+  Core's thread list, so its own binding does not keep the worktree. The
+  bindings are read again in the archive's own turn, so a thread that takes the
+  worktree meanwhile keeps it.
+- **How it archives.** Through `archiveIdleWorktree`, inside the cap's queue,
+  with the cap's skip rules: a bound, locked, nested-repository or active-run
+  worktree stays. Otherwise it is archived with `force` and the archive
+  preview's token, as the cap archives: the snapshot ref and the branch are
+  kept, so Restore and use brings it back with its uncommitted changes, and the
+  files git ignores are deleted.
+- **When.** Once the deletion has committed: each deleted thread is erased and
+  its runs have joined, so a tool call still making a worktree when its run was
+  stopped or its thread deleted has recorded it by then. Core asks the
+  platform through the cap's port (`idleWorktreeArchives.afterThreadDeleted`),
+  outside its admission queue, and never waits on it: the deletion answers
+  without it, and a pass that fails does not fail the deletion. At the host's
+  close no pass starts, and the one in flight finishes before the worktree
+  service retires, as the cap's do. A host with no cap (the CLI) archives
+  nothing on a deletion.
+- **No notice.** The thread is gone, so no one is told. One log line for each
+  deleted thread names the worktrees archived (with branch and snapshot ref)
+  and those left in place, each with why (`worktree.bound`,
+  `worktree.run-active`, `worktree.locked`, `worktree.nested-repositories` or
+  `host.closing`); an archive that fails is also logged as an error.
+- **What it leaves.** A worktree made and never entered whose thread still
+  exists stays until that thread is deleted or the cap counts it.
 
 Built: archive on merge (BST-2504), the last part of the worktree life cycle
 (a Restore action, a cap with skip rules, and archive on merge). The ticket set

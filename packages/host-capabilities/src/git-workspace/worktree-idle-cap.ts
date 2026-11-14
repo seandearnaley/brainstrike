@@ -18,6 +18,10 @@
  * merged worktree never counts toward the 15. The same pass runs once in each
  * repository with live worktrees after the host opens (`afterOpen`), in the
  * same queue, and stops when the host closes.
+ *
+ * When a thread is deleted, the worktrees it made that no thread is bound to
+ * are archived in the same queue (`afterThreadDeleted`, BST-2505,
+ * `worktree-thread-cleanup.ts`).
  */
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -35,6 +39,7 @@ import { IDLE_ARCHIVE_LEFT_IN_PLACE } from './worktree-idle-archive.ts';
 import { archiveMergedWorktrees } from './worktree-merged-archive.ts';
 import { isPathWithin } from './worktree-paths.ts';
 import { createMutex, type WorktreeArchiveParams } from './worktree-service-inputs.ts';
+import { archiveUnclaimedOf } from './worktree-thread-cleanup.ts';
 
 const logger = createLogger('IdleWorktreeCap');
 
@@ -50,6 +55,8 @@ export interface IdleWorktreeCapDeps {
   readonly listActive: () => Promise<readonly ManagedWorktreeRow[]>;
   /** A repository's ledger rows, archived ones too. */
   readonly listRepository: (repoCommonDir: string) => Promise<readonly ManagedWorktreeRow[]>;
+  /** The live ledger rows a thread made, in every repository, for its deletion's pass. */
+  readonly listThread: (threadId: string) => Promise<readonly ManagedWorktreeRow[]>;
   /**
    * Tells the thread a creation was for which worktrees the cap archived, and the thread that
    * made a merged worktree that it was archived.
@@ -93,6 +100,12 @@ export interface IdleWorktreeCap {
    * cap's queue. Settles when it has finished, and never rejects: a failure is logged.
    */
   readonly afterOpen: () => Promise<void>;
+  /**
+   * After a thread's deletion has committed: archives the worktrees it made that no thread is
+   * bound to, in the cap's queue (BST-2505). Settles when that pass has finished, and never
+   * rejects: a failure is logged.
+   */
+  readonly afterThreadDeleted: (threadId: string) => Promise<void>;
   /** Starts no further pass, then waits for the ones in flight. */
   close(): Promise<void>;
 }
@@ -354,6 +367,24 @@ export function createIdleWorktreeCap(deps: IdleWorktreeCapDeps): IdleWorktreeCa
         return Promise.resolve();
       }
       return track(passAfterOpen(), { pass: 'after-open' });
+    },
+    afterThreadDeleted: (threadId) => {
+      if (closing) {
+        logger.info('The host is closing; a deleted thread’s worktrees are not archived', {
+          threadId,
+        });
+        return Promise.resolve();
+      }
+      const pass = {
+        archive: deps.archive,
+        closing: () => closing,
+        isBound,
+        listThread: deps.listThread,
+      };
+      return track(
+        turn(() => archiveUnclaimedOf(pass, threadId)),
+        { pass: 'thread-deleted', threadId }
+      );
     },
     close: async () => {
       closing = true;

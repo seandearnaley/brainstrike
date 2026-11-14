@@ -51,6 +51,13 @@ export function executeWorktreeLedgerRequest(db, request) {
         .prepare(`${read} WHERE repo_common_dir=? ORDER BY created_at DESC,id DESC`)
         .all(request.repoCommonDir);
       break;
+    case 'list-thread':
+      rows = db
+        .prepare(
+          `${read} WHERE thread_id=? AND archived_at IS NULL ORDER BY created_at DESC,id DESC`
+        )
+        .all(request.threadId);
+      break;
     case 'insert': {
       const row = request.row;
       rows = db

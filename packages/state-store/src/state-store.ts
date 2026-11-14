@@ -619,7 +619,9 @@ export class StateStore implements MemoryDomainPort {
       const reply = await this.call({ op: 'worktree-ledger', request });
       return { rows: reply['rows'] as WorktreeLedgerReply['rows'] };
     };
-    return ['get', 'by-path', 'list-active', 'list-repository'].includes(request.operation)
+    return ['get', 'by-path', 'list-active', 'list-repository', 'list-thread'].includes(
+      request.operation
+    )
       ? execute()
       : this.run(execute);
   }
