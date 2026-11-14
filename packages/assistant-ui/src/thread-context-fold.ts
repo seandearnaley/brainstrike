@@ -248,6 +248,8 @@ export class ThreadContextFold {
   private readonly runs = new Map<string, MutableRun>();
   /** The run and step whose committed `model.step` made each tool call. */
   private readonly callSteps = new Map<string, { readonly runId: string; readonly step: number }>();
+  /** Each run's steps its compactions kept word for word (`through.kept`). */
+  private readonly keptSteps = new Map<string, Set<number>>();
   private lastSeq = Number.NEGATIVE_INFINITY;
   private snapshot: ThreadContextSnapshot | undefined;
   accept(rows: readonly CommittedAssistantLogRow[]): ThreadContextSnapshot {
@@ -348,7 +350,8 @@ export class ThreadContextFold {
   }
   /**
    * A compaction replaced earlier turns whole, and with `through` the steps of
-   * a run up to one (BST-2531): their calls read as compacted from this run on.
+   * a run up to one but its kept ones (BST-2531): their calls read as
+   * compacted from this run on. A step any compaction kept stays sent.
    */
   private compacted(runId: string, event: Readonly<Record<string, unknown>>): boolean {
     const run = this.runs.get(runId);
@@ -363,8 +366,15 @@ export class ThreadContextFold {
     const throughRun = string(through?.['runId']);
     const throughStep = through?.['stepNumber'];
     if (throughRun && typeof throughStep === 'number') {
+      const kept = this.keptSteps.get(throughRun) ?? new Set<number>();
+      for (const step of Array.isArray(through?.['kept']) ? through['kept'] : []) {
+        if (typeof step === 'number') {
+          kept.add(step);
+        }
+      }
+      this.keptSteps.set(throughRun, kept);
       for (const [toolCallId, at] of this.callSteps) {
-        if (at.runId === throughRun && at.step <= throughStep) {
+        if (at.runId === throughRun && at.step <= throughStep && !kept.has(at.step)) {
           run.compactedCallIds.push(toolCallId);
         }
       }

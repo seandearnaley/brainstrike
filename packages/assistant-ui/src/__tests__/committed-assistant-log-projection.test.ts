@@ -643,21 +643,22 @@ describe('rich committed-log presentation projection', () => {
     if (!last) {
       throw new Error('Missing recorded rows.');
     }
-    const compacted = (seq: number, stepNumber: number, reason: string) => ({
+    const compacted = (seq: number, stepNumber: number, reason: string, kept?: number[]) => ({
       event: {
         compactedRunIds: [],
         kind: 'deterministic',
         reason,
         runId,
         summary: 'Dropped.',
-        through: { runId, stepNumber },
+        through: { ...(kept ? { kept } : {}), runId, stepNumber },
         type: 'context.compacted',
       },
       seq,
       threadId,
     });
+    // The first kept its steps 2 and 4 word for word, so it replaced five of seven.
     projection.acceptCommitted([
-      compacted(last.seq + 1, 6, 'pre-request'),
+      compacted(last.seq + 1, 6, 'pre-request', [2, 4]),
       compacted(last.seq + 2, 10, 'request-trim'),
     ]);
     const cards = answer(projection).content.filter(
@@ -667,7 +668,7 @@ describe('rich committed-log presentation projection', () => {
       {
         kind: 'deterministic',
         reason: 'pre-request',
-        stepsCompacted: 7,
+        stepsCompacted: 5,
         summary: 'Dropped.',
         turnsCompacted: 0,
       },

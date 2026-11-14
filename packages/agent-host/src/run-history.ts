@@ -25,7 +25,7 @@ function isEarlierInputRow(row: HostLogRow): boolean {
 /**
  * The committed transcript of every turn the run's request sends: each earlier
  * turn of its branch that no committed compaction replaced, then its own, less
- * the steps a compaction replaced (BST-2531). It borrows the exact committed
+ * the steps a compaction replaced and did not keep (BST-2531). It borrows the exact committed
  * occurrences, so a known call is never lost to a turn that reuses its SDK ID.
  */
 export function hostProviderHistory(
@@ -40,20 +40,37 @@ export function hostProviderHistory(
   const cuts = compactionCuts(rows, branch);
   const sent = new Set([...branch].filter((runId) => !cuts.runs.has(runId)));
   const ids = new Set([...sent].map((runId) => committedRunIdentity(rows, runId).userMessageId));
-  // A step ends where the next begins: a run's request resumes at the step after its cut.
-  const resumesAt = new Map(
-    rows.flatMap((row) =>
-      row.event.type === 'model.step' &&
-      cuts.steps.get(row.event.runId) === row.event.stepNumber - 1
-        ? [[row.event.runId, row.seq] as const]
-        : []
-    )
-  );
+  // Where each cut run's steps begin: a step ends where the next begins.
+  const stepRows = new Map<string, Map<number, number>>();
+  for (const row of rows) {
+    if (row.event.type === 'model.step' && cuts.steps.has(row.event.runId)) {
+      const steps = stepRows.get(row.event.runId) ?? new Map<number, number>();
+      steps.set(row.event.stepNumber, row.seq);
+      stepRows.set(row.event.runId, steps);
+    }
+  }
+  /** Whether a cut run's row is still sent: past its cut, in a kept step, or a person's earlier message. */
+  const sentRow = (runId: string, row: HostLogRow): boolean => {
+    const cut = cuts.steps.get(runId);
+    const steps = stepRows.get(runId);
+    if (cut === undefined || !steps) {
+      return true;
+    }
+    const begins = (step: number) =>
+      step === 0 ? 0 : (steps.get(step) ?? Number.POSITIVE_INFINITY);
+    return (
+      row.seq >= begins(cut + 1) ||
+      isEarlierInputRow(row) ||
+      [...(cuts.kept.get(runId) ?? [])].some(
+        (step) => row.seq >= begins(step) && row.seq < begins(step + 1)
+      )
+    );
+  };
   for (const row of rows) {
     if (row.threadId !== run.threadId || !('runId' in row.event) || !sent.has(row.event.runId)) {
       continue;
     }
-    if (row.seq >= (resumesAt.get(row.event.runId) ?? 0) || isEarlierInputRow(row)) {
+    if (sentRow(row.event.runId, row)) {
       ids.add(committedRowAddress(row));
     }
   }

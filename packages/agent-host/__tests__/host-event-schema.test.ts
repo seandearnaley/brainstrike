@@ -126,6 +126,10 @@ describe('the committed host event schema', () => {
       { ...compacted, through: { runId, stepNumber: 0 } },
     ],
     [
+      'a compaction of steps that kept a skill load and an answer',
+      { ...compacted, through: { kept: [2, 5], runId, stepNumber: 10 } },
+    ],
+    [
       'a request trim',
       { ...compacted, kind: 'deterministic', reason: 'request-trim', summary: 'Dropped.' },
     ],
@@ -172,6 +176,14 @@ describe('the committed host event schema', () => {
     ],
     ['a compaction that replaces nothing', { ...compacted, compactedRunIds: [] }],
     ['a compaction through a negative step', { ...compacted, through: { runId, stepNumber: -1 } }],
+    [
+      'a compaction that keeps the step it names as replaced',
+      { ...compacted, through: { kept: [10], runId, stepNumber: 10 } },
+    ],
+    [
+      'a compaction with an empty kept list',
+      { ...compacted, through: { kept: [], runId, stepNumber: 3 } },
+    ],
     ['a missing required field', { outcome: 'completed', type: 'run.finished' }],
     ['a value outside its enum', { outcome: 'done', runId, type: 'run.finished' }],
     ['a non-object', 'run.finished'],

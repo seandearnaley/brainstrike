@@ -303,11 +303,10 @@ describe('threadContextAt window states', () => {
     expect(stateAt(3)).toEqual({ a: ['compacted', 0, 505], b: ['in-window', 205, 205] });
   });
 
-  it('reads the calls of steps a compaction inside a run replaced as compacted (BST-2531)', () => {
-    const l = log();
+  /** Run r1's steps, one read each: the model's call, then the host's run of it. */
+  const readSteps = (l: ReturnType<typeof log>, ids: readonly string[]) => {
     l.run('r1');
-    // Three steps, one read each: the model's call, then the host's run of it.
-    for (const [stepNumber, id] of ['a', 'b', 'c'].entries()) {
+    for (const [stepNumber, id] of ids.entries()) {
       l.add({
         messages: [
           {
@@ -323,15 +322,21 @@ describe('threadContextAt window states', () => {
       });
       l.tool('r1', id, 'brainstrike.readWorkspaceFile', read(`src/${id}.ts`, 1, 10));
     }
-    l.add({
-      compactedRunIds: [],
-      kind: 'agentic',
-      reason: 'pre-request',
-      runId: 'r1',
-      summary: 's',
-      through: { runId: 'r1', stepNumber: 1 },
-      type: 'context.compacted',
-    });
+  };
+  const compacted = (stepNumber: number, kept?: number[]) => ({
+    compactedRunIds: [],
+    kind: 'agentic',
+    reason: 'pre-request',
+    runId: 'r1',
+    summary: 's',
+    through: { ...(kept ? { kept } : {}), runId: 'r1', stepNumber },
+    type: 'context.compacted',
+  });
+
+  it('reads the calls of steps a compaction inside a run replaced as compacted (BST-2531)', () => {
+    const l = log();
+    readSteps(l, ['a', 'b', 'c']);
+    l.add(compacted(1));
     l.request('r1', [sent('c')]);
     const snapshot = fold(l.rows);
     const states = Object.fromEntries(
@@ -339,6 +344,21 @@ describe('threadContextAt window states', () => {
     );
     expect(states).toEqual({ a: 'compacted', b: 'compacted', c: 'in-window' });
     expect(snapshot.runs.get('r1')?.compactions).toBe(1);
+  });
+
+  it('never reads a step a compaction kept word for word as compacted, across later compactions', () => {
+    const l = log();
+    readSteps(l, ['a', 'b', 'c', 'd']);
+    // The first kept step 0; the second replaced up to step 2 past it.
+    l.add(compacted(1, [0]));
+    l.add(compacted(2));
+    // A request without `a` (a trim left it out) shows it gone, not summarized.
+    l.request('r1', [sent('d')]);
+    const snapshot = fold(l.rows);
+    const states = Object.fromEntries(
+      threadContextAt(snapshot, linear(snapshot), 1).calls.map((c) => [c.call.toolCallId, c.state])
+    );
+    expect(states).toEqual({ a: 'dropped', b: 'compacted', c: 'compacted', d: 'in-window' });
   });
 
   it('keeps an attachment in the window for its own run only', () => {

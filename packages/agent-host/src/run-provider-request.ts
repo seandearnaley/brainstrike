@@ -41,7 +41,10 @@ export class HostProviderRequest {
   private history: readonly MastraDBMessage[] | undefined;
   /** Committed tool-output rewrites as of the step's history read. */
   private rewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
-  /** How the step's context names what a trim left out (`HostCompactedContext.trim`). */
+  /**
+   * How the step's context names what a trim left out (`HostCompactedContext.trim`);
+   * the step's first trimmed request takes it.
+   */
   private trim: ((kept: number) => Compacted | undefined) | undefined;
   /** The tool calls this run's previous provider request carried; none before its first. */
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
@@ -85,11 +88,14 @@ export class HostProviderRequest {
       onPrepared: async (prepared) => {
         const toolCalls = preparedPromptToolCalls(prepared);
         const toolCallWindow = diffPromptToolCallWindow(this.previousRequestToolCalls, toolCalls);
+        // A step's SDK retries send the same request again: its trim is named
+        // once, by the first attempt that trims, and never committed twice.
+        const name = prepared.accounting.removedMessages > 0 ? this.trim : undefined;
+        if (name) {
+          this.trim = undefined;
+        }
         // A trimmed request starts at a user message: it kept that one and every later one.
-        const trim =
-          prepared.accounting.removedMessages > 0
-            ? this.trim?.(prepared.params.prompt.filter(({ role }) => role === 'user').length)
-            : undefined;
+        const trim = name?.(prepared.params.prompt.filter(({ role }) => role === 'user').length);
         await this.record({
           accounting: prepared.accounting,
           breakdown: preparedPromptBreakdown(prepared, toolCalls),

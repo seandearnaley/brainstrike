@@ -7,6 +7,8 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
+import { APICallError } from 'ai';
+import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import {
@@ -153,6 +155,36 @@ test('a long run summarizes its older steps between two steps and carries on', a
   expect(invocations).toContain('turn-1-call-12');
 });
 
+test('a step that loaded a skill stays word for word in every later request of a long run', async () => {
+  const skill: HostTool = {
+    description: 'Load a skill',
+    execute: async () => ({ instructions: 'Review every chapter twice.' }),
+    identity: 'native-skill-generation-1',
+    inputSchema: z.object({ name: z.string() }),
+    risk: 'read',
+  };
+  const { harness, model } = await longRunHost(
+    [{ input: { name: 'review' }, toolId: 'skill' }, ...reads(12)],
+    { tools: { skill } }
+  );
+  const runId = await harness.start(QUESTION);
+  const rows = await rowsUntil(harness, harness.threadId, finished(runId), 30_000);
+  expect(compactions(rows)[0]?.through).toMatchObject({ kept: [0], runId });
+  // The skill's call and result stay; the reads behind the protect window go.
+  const last = model.doStreamCalls.at(-1);
+  expect(last && callIds(last)).toContain('turn-1-call-1');
+  expect(last && callIds(last)).not.toContain('turn-1-call-2');
+  expect(JSON.stringify(last?.prompt)).toContain('Review every chapter twice.');
+  const history = hostProviderHistory(rows, { runId, threadId: harness.threadId });
+  const invocations = history.flatMap((message) =>
+    message.content.parts.flatMap((part) =>
+      part.type === 'tool-invocation' ? [part.toolInvocation.toolCallId] : []
+    )
+  );
+  expect(invocations).toContain('turn-1-call-1');
+  expect(invocations).not.toContain('turn-1-call-2');
+});
+
 test('a compaction committed before an approval pause holds after the run resumes', async () => {
   const { harness, model } = await longRunHost(
     [...reads(12), { input: { path: 'notes.md' }, toolId: 'write_file' }],
@@ -241,11 +273,33 @@ test('a tool loaded in a compacted step is still offered', async () => {
   expect(discovered).toContain('brainstrike_lspInspect');
 });
 
-test('a request the provider boundary still trims commits a compaction that says so', async () => {
+/**
+ * Two questions of about 8,000 tokens under a 15,000-token budget: both turns
+ * stay protected, so nothing compacts first and the second request is
+ * trimmed. `failFirst` makes the second turn's first attempt fail with a
+ * retryable provider error, so the SDK sends the same request again.
+ */
+async function trimmedSecondTurn(failFirst: boolean) {
   const prompt = (label: string) => `${label} ${'p'.repeat(32_000)}`;
-  const model = scriptedTurns(
+  const scripted = scriptedTurns(
     ['First', 'Second'].map((label) => ({ answer: `${label} answered.`, prompt: label, steps: [] }))
   );
+  let failed = !failFirst;
+  const model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      if (!failed && JSON.stringify(options.prompt).includes('Second')) {
+        failed = true;
+        throw new APICallError({
+          isRetryable: true,
+          message: 'The provider is overloaded.',
+          requestBodyValues: {},
+          statusCode: 503,
+          url: 'https://provider.test/v1/responses',
+        });
+      }
+      return scripted.doStream(options);
+    },
+  });
   let store: StateStore | undefined;
   const harness = await setupChildRunHost(model, cleanup, {}, (platform) => async (request) => {
     const admitted = await recordingAdmission([])(platform)?.(request);
@@ -264,7 +318,11 @@ test('a request the provider boundary still trims commits a compaction that says
   await rowsUntil(harness, harness.threadId, finished(firstRun), 15_000);
   const secondRun = await harness.start(prompt('Second'));
   const rows = await rowsUntil(harness, harness.threadId, finished(secondRun), 15_000);
+  return { firstRun, rows, secondRun };
+}
 
+test('a request the provider boundary still trims commits a compaction that says so', async () => {
+  const { firstRun, rows, secondRun } = await trimmedSecondTurn(false);
   expect(rows.find(finished(secondRun))?.event).toMatchObject({ outcome: 'completed' });
   expect(compactions(rows)).toEqual([
     {
@@ -284,3 +342,18 @@ test('a request the provider boundary still trims commits a compaction that says
     type: 'provider.request.prepared',
   });
 });
+
+test('a trimmed request the provider retries commits its trim once, beside both receipts', async () => {
+  const { firstRun, rows, secondRun } = await trimmedSecondTurn(true);
+  expect(rows.find(finished(secondRun))?.event).toMatchObject({ outcome: 'completed' });
+  expect(compactions(rows)).toMatchObject([
+    { compactedRunIds: [firstRun], reason: 'request-trim', runId: secondRun },
+  ]);
+  const receipts = rows.filter(
+    (row) => row.event.type === 'provider.request.prepared' && row.event.runId === secondRun
+  );
+  expect(receipts.map((row) => row.event)).toMatchObject([
+    { accounting: { removedMessages: 2 } },
+    { accounting: { removedMessages: 2 } },
+  ]);
+}, 30_000);

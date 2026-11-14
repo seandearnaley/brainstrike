@@ -58,14 +58,16 @@ async function pastTrigger(overrides: Partial<Input>) {
 /**
  * One turn of `steps` steps, each a call that writes `chars` characters and
  * its short result: about chars/4 + 11 estimated tokens a step. `intakeAfter`
- * puts a notice the run took between that step and the next. As Core folds
+ * puts a notice the run took between that step and the next; `tools` names
+ * the tool a step calls instead (a skill load, an `askUser`). As Core folds
  * them, each step ends where the next begins.
  */
 function longTurn(
   id: string,
   steps: number,
   chars: number,
-  intakeAfter?: number
+  intakeAfter?: number,
+  tools: Readonly<Record<number, string>> = {}
 ): { readonly messages: ModelMessage[]; readonly run: HostRunState } {
   const messages: ModelMessage[] = [{ content: `question ${id}`, role: 'user' }];
   const stepEnds = new Map<number, number>();
@@ -74,13 +76,14 @@ function longTurn(
       stepEnds.set(step - 1, messages.length - 1);
     }
     const toolCallId = `${id}-call-${step}`;
+    const toolName = tools[step] ?? 'write';
     messages.push(
       {
         content: [
           {
             input: { content: 'x'.repeat(chars) },
             toolCallId,
-            toolName: 'write',
+            toolName,
             type: 'tool-call',
           },
         ],
@@ -91,7 +94,7 @@ function longTurn(
           {
             output: { type: 'text', value: 'ok' },
             toolCallId,
-            toolName: 'write',
+            toolName,
             type: 'tool-result',
           },
         ],
@@ -248,6 +251,93 @@ describe('a long run compacts between steps (BST-2531)', () => {
       inputTokenLimit: 35_000,
     });
     expect(committed.map((event) => event.through)).toEqual([{ runId: 'run-0', stepNumber: 2 }]);
+  });
+
+  /**
+   * Sixteen steps (64,180) against a 40,000-token budget: the protect window
+   * keeps steps 11 to 15, so the compaction runs through step 10. Step 2
+   * loads a skill and step 5 holds an `askUser` answer.
+   */
+  const protectedRun = () =>
+    longTurn('run-0', 16, 16_000, undefined, { 2: 'skill', 5: 'brainstrike_askUser' });
+  /** The messages of the run's step `step`: its call, then its result. */
+  const stepMessages = (turn: ReturnType<typeof longTurn>, step: number) =>
+    turn.messages.slice(1 + step * 2, 3 + step * 2);
+
+  it('keeps a step that loaded a skill or holds an askUser answer word for word, and replaces the steps around it', async () => {
+    const turn = protectedRun();
+    const summarize = vi.fn(async (_transcript: string) => summary);
+    const { committed, prepared } = await stepCompactions(turn, { summarize });
+    expect(committed.map((event) => event.through)).toEqual([
+      { kept: [2, 5], runId: 'run-0', stepNumber: 10 },
+    ]);
+    const transcript = summarize.mock.calls[0]?.[0] ?? '';
+    expect(transcript).not.toContain('run-0-call-2');
+    expect(transcript).not.toContain('run-0-call-5');
+    expect(transcript).toContain('run-0-call-10');
+    expect(prepared.messages).toEqual([
+      turn.messages[0],
+      ...stepMessages(turn, 2),
+      ...stepMessages(turn, 5),
+      ...turn.messages.slice(23),
+    ]);
+  });
+
+  it('keeps them when the summarizer fails and the fallback drops the oldest steps', async () => {
+    const turn = protectedRun();
+    const { committed, prepared } = await stepCompactions(turn, {
+      summarize: async () => {
+        throw new Error('provider unavailable');
+      },
+    });
+    // Reclaiming 36,180 takes every replaceable step: 0, 1, 3, 4 and 6 to 10.
+    expect(committed[0]).toMatchObject({
+      kind: 'deterministic',
+      summary:
+        'Deterministic fallback: dropped 9 earlier steps of this turn (18 messages) after an agentic summarizer failure; no summarization model ran.',
+      through: { kept: [2, 5], runId: 'run-0', stepNumber: 10 },
+    });
+    expect(prepared.messages).toEqual([
+      turn.messages[0],
+      ...stepMessages(turn, 2),
+      ...stepMessages(turn, 5),
+      ...turn.messages.slice(23),
+    ]);
+  });
+
+  it('counts a kept step as nothing to reclaim', async () => {
+    // As above, eight steps against 35,000 reclaim with steps 0 to 2; with 0 and 1 loading
+    // skills only step 2 (4,011) could go, short of both the 7,592 and one protect window.
+    const summarize = vi.fn(async () => summary);
+    const { committed } = await stepCompactions(
+      longTurn('run-0', 8, 16_000, undefined, { 0: 'skill', 1: 'skill' }),
+      { inputTokenLimit: 35_000, summarize }
+    );
+    expect(committed).toEqual([]);
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
+  it('keeps every kept step of a run across its compactions', async () => {
+    const turn = protectedRun();
+    const compaction = (stepNumber: number, kept: number[]): Compacted => ({
+      compactedRunIds: [],
+      kind: 'agentic',
+      reason: 'pre-request',
+      runId: 'run-0',
+      summary: `Through ${stepNumber}.`,
+      through: { kept, runId: 'run-0', stepNumber },
+      type: 'context.compacted',
+    });
+    const { prepared } = await stepCompactions(turn, {
+      compactions: [compaction(3, [2]), compaction(10, [5])],
+      inputTokenLimit: 200_000,
+    });
+    expect(prepared.messages).toEqual([
+      turn.messages[0],
+      ...stepMessages(turn, 2),
+      ...stepMessages(turn, 5),
+      ...turn.messages.slice(23),
+    ]);
   });
 
   it('lets overflow recovery drop the run’s oldest steps when no earlier turn is droppable', async () => {

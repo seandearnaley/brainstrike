@@ -33,7 +33,10 @@ export interface HostContextCompaction {
   /** The summarizer's catalog model, when one ran. */
   readonly modelId?: string;
   readonly reason: HostContextCompactionReason;
-  /** The steps of a running turn it replaced since its run's last compaction (its `through`). */
+  /**
+   * The steps of a running turn it replaced since its run's last compaction
+   * (its `through`, less the steps it kept word for word).
+   */
   readonly stepsCompacted?: number;
   readonly summarizerFailure?: HostContextSummarizerFailure;
   readonly summary: string;
@@ -82,9 +85,21 @@ function readHostCompactionUsage(usage: unknown): HostContextCompactionUsage {
 }
 
 /** The last step of a running turn a compaction replaced, or why it cannot be read. */
-function readThrough(value: unknown): { readonly runId: string; readonly stepNumber: number } {
-  if (Predicate.isObject(value) && isText(value['runId']) && isCount(value['stepNumber'])) {
-    return { runId: value['runId'], stepNumber: value['stepNumber'] };
+function readThrough(value: unknown): {
+  /** The steps before it the compaction kept word for word. */
+  readonly kept: number;
+  readonly runId: string;
+  readonly stepNumber: number;
+} {
+  const kept = Predicate.isObject(value) ? (value['kept'] ?? []) : undefined;
+  if (
+    Predicate.isObject(value) &&
+    isText(value['runId']) &&
+    isCount(value['stepNumber']) &&
+    Array.isArray(kept) &&
+    kept.every(isCount)
+  ) {
+    return { kept: kept.length, runId: value['runId'], stepNumber: value['stepNumber'] };
   }
   throw new Error('Committed compaction has an unreadable step.');
 }
@@ -128,7 +143,9 @@ export function committedHostCompaction(
     kind,
     ...(modelId === undefined ? {} : { modelId }),
     reason,
-    ...(through === undefined ? {} : { stepsCompacted: through.stepNumber - (before ?? -1) }),
+    ...(through === undefined
+      ? {}
+      : { stepsCompacted: through.stepNumber - (before ?? -1) - through.kept }),
     ...(summarizerFailure === undefined
       ? {}
       : { summarizerFailure: readSummarizerFailure(summarizerFailure) }),

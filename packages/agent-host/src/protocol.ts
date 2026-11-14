@@ -804,9 +804,23 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         summary: Schema.String.check(Schema.isMinCodePoints(1)),
         /**
          * BST-2531: the steps of `runId` up to and including `stepNumber`
-         * that the summary replaced; the run's user message stays.
+         * that the summary replaced; the run's user message stays, and so do
+         * the `kept` steps among them (a skill load, an `askUser` or
+         * `submitPlan` result), word for word.
          */
-        through: Schema.optional(Schema.Struct({ runId: Id, stepNumber: Seq })),
+        through: Schema.optional(
+          Schema.Struct({
+            kept: Schema.optional(Schema.mutable(Schema.Array(Seq)).check(Schema.isMinLength(1))),
+            runId: Id,
+            stepNumber: Seq,
+          }).check(
+            Schema.makeFilter((through) =>
+              (through.kept ?? []).every((step) => step < through.stepNumber)
+                ? undefined
+                : { issue: 'A kept step precedes the last step a compaction replaced', path: [] }
+            )
+          )
+        ),
         usage: Schema.optional(json()),
       }).check(
         Schema.makeFilter((event) =>

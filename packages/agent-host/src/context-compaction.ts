@@ -17,6 +17,7 @@ import {
   compactionReclaims,
   cutsOf,
   type HostCompactionCuts,
+  replacedSegments,
   type Segment,
   selectCandidates,
   splitTurns,
@@ -178,28 +179,51 @@ function transcriptContent(message: ModelMessage): unknown {
   );
 }
 
-/** One JSON line per message, like the legacy projected transcript; attachments by label only. */
+/**
+ * One JSON line per message the segments replace, like the legacy projected
+ * transcript; attachments by label only. A kept step stays in the request,
+ * so the summary does not retell it.
+ */
 function transcript(segments: readonly Segment[]): string {
-  return segments
+  return replacedSegments(segments)
     .flatMap((segment) => segment.messages)
     .map((message) => JSON.stringify({ content: transcriptContent(message), role: message.role }))
     .join('\n');
 }
 
 function messageCount(segments: readonly Segment[]): number {
-  return segments.reduce((total, segment) => total + segment.messages.length, 0);
+  return replacedSegments(segments).reduce((total, segment) => total + segment.messages.length, 0);
 }
 
-/** The whole turns `segments` replace, and the last step of the turn whose steps they replace. */
+/**
+ * The whole turns `segments` replace, the last step of the turn whose steps
+ * they replace, and the steps before it they keep word for word.
+ */
 function replaced(
   segments: readonly Segment[]
 ): Pick<Compacted, 'compactedRunIds'> & Partial<Pick<Compacted, 'through'>> {
-  const last = segments.at(-1);
+  const last = replacedSegments(segments).at(-1);
+  const kept = segments.flatMap((segment) =>
+    segment.kept &&
+    segment.step !== undefined &&
+    last?.step !== undefined &&
+    segment.step < last.step
+      ? [segment.step]
+      : []
+  );
   return {
     compactedRunIds: segments.flatMap((segment) =>
       segment.step === undefined ? [segment.run.id] : []
     ),
-    ...(last?.step === undefined ? {} : { through: { runId: last.run.id, stepNumber: last.step } }),
+    ...(last?.step === undefined
+      ? {}
+      : {
+          through: {
+            ...(kept.length > 0 ? { kept } : {}),
+            runId: last.run.id,
+            stepNumber: last.step,
+          },
+        }),
   };
 }
 
@@ -284,7 +308,7 @@ function deterministicEvent(
   after: string
 ): Compacted {
   const turns = selected.filter((segment) => segment.step === undefined).length;
-  const steps = selected.length - turns;
+  const steps = replacedSegments(selected).length - turns;
   const dropped = [
     ...(turns > 0 ? [`${turns} earlier turns`] : []),
     ...(steps > 0 ? [`${steps} earlier steps of this turn`] : []),

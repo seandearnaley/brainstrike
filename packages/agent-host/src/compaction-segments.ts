@@ -36,6 +36,8 @@ export function splitTurns(
 
 /** Where a branch's committed compactions cut it. */
 export interface HostCompactionCuts {
+  /** Each run's steps its compactions kept word for word among the steps they replaced. */
+  readonly kept: ReadonlyMap<string, ReadonlySet<number>>;
   /** The runs whose whole turns were replaced. */
   readonly runs: ReadonlySet<string>;
   /** Each run's last replaced step: its steps up to that one are gone, its user message stays. */
@@ -44,12 +46,17 @@ export interface HostCompactionCuts {
 
 export function cutsOf(compactions: readonly Compacted[]): HostCompactionCuts {
   const steps = new Map<string, number>();
+  const kept = new Map<string, Set<number>>();
   for (const { through } of compactions) {
     if (through) {
       steps.set(through.runId, Math.max(steps.get(through.runId) ?? -1, through.stepNumber));
+      kept.set(
+        through.runId,
+        new Set([...(kept.get(through.runId) ?? []), ...(through.kept ?? [])])
+      );
     }
   }
-  return { runs: new Set(compactions.flatMap((event) => event.compactedRunIds)), steps };
+  return { kept, runs: new Set(compactions.flatMap((event) => event.compactedRunIds)), steps };
 }
 
 /** Where step `step` of the turn's run ends in its turn: after its user message and the step. */
@@ -61,16 +68,40 @@ function stepEnd(run: HostRunState, step: number): number {
   return 1 + end;
 }
 
+/** Where step `step` begins in its turn: where the step before it ended, or after the user message. */
+function stepStart(run: HostRunState, step: number): number {
+  return step === 0 ? 1 : stepEnd(run, step - 1);
+}
+
 /** Where the turn's messages after its user message resume past its last replaced step. */
 function bodyStart(turn: Turn, cuts: HostCompactionCuts): number {
   const step = cuts.steps.get(turn.run.id);
   return step === undefined ? 1 : stepEnd(turn.run, step);
 }
 
-/** The turn as its requests carry it: its user message, then the messages after its last replaced step. */
+/**
+ * The positions in the turn its requests carry, in order: its user message,
+ * each kept step among the replaced ones, then everything after its last
+ * replaced step.
+ */
+function keptPositions(turn: Turn, cuts: HostCompactionCuts): number[] {
+  const range = (from: number, to: number) =>
+    Array.from({ length: Math.max(0, to - from) }, (_unused, index) => from + index);
+  if (!cuts.steps.has(turn.run.id)) {
+    return range(0, turn.messages.length);
+  }
+  const kept = [...(cuts.kept.get(turn.run.id) ?? [])].sort((a, b) => a - b);
+  return [
+    0,
+    ...kept.flatMap((step) => range(stepStart(turn.run, step), stepEnd(turn.run, step))),
+    ...range(bodyStart(turn, cuts), turn.messages.length),
+  ];
+}
+
+/** The turn as its requests carry it (`keptPositions`). */
 function keptMessages(turn: Turn, cuts: HostCompactionCuts): readonly ModelMessage[] {
   return cuts.steps.has(turn.run.id)
-    ? [...turn.messages.slice(0, 1), ...turn.messages.slice(bodyStart(turn, cuts))]
+    ? keptPositions(turn, cuts).flatMap((position) => turn.messages.slice(position, position + 1))
     : turn.messages;
 }
 
@@ -89,7 +120,10 @@ export function applyOverlay(turns: readonly Turn[], cuts: HostCompactionCuts): 
 /** Legacy `COMPACTION_PROTECT_WINDOW_TOKENS` (desktop compaction-range-repository.ts). */
 const PROTECT_WINDOW_TOKENS = 20_000;
 
-/** Legacy SKILL_TOOL_NAMES and PLAN_TOOL_NAMES: an active skill or plan keeps its turn. */
+/**
+ * Legacy SKILL_TOOL_NAMES and PLAN_TOOL_NAMES: an active skill or plan keeps
+ * its turn, and inside the running turn its step (BST-2531).
+ */
 const PROTECTED_TOOL_NAMES: ReadonlySet<string> = new Set([
   NATIVE_TOOL_ID.skill,
   NATIVE_TOOL_ID.askUser,
@@ -98,8 +132,9 @@ const PROTECTED_TOOL_NAMES: ReadonlySet<string> = new Set([
   'submitPlan',
 ]);
 
-function callsProtectedTool(turn: Turn): boolean {
-  return turn.messages.some(
+/** Whether `messages` call a skill or plan tool or hold its result: the one protection predicate. */
+function callsProtectedTool(messages: readonly ModelMessage[]): boolean {
+  return messages.some(
     (message) =>
       typeof message.content !== 'string' &&
       message.content.some(
@@ -126,7 +161,7 @@ function protectedRunIds(turns: readonly Turn[]): Set<string> {
     recent += estimateTokens(turn.messages);
   }
   for (const turn of turns) {
-    if (callsProtectedTool(turn)) {
+    if (callsProtectedTool(turn.messages)) {
       kept.add(turn.run.id);
     }
   }
@@ -137,10 +172,20 @@ function protectedRunIds(turns: readonly Turn[]): Set<string> {
 export interface Segment {
   /** Whether a cut after it keeps every tool call with its result. */
   readonly closed: boolean;
+  /**
+   * A step that loaded a skill or holds an `askUser` or `submitPlan` result:
+   * a cut past it keeps it word for word (`through.kept`).
+   */
+  readonly kept: boolean;
   readonly messages: readonly ModelMessage[];
   readonly run: HostRunState;
   /** The run's step the segment ends with; absent for a whole turn. */
   readonly step?: number;
+}
+
+/** What `segments` replace: every one that is not kept. */
+export function replacedSegments(segments: readonly Segment[]): Segment[] {
+  return segments.filter((segment) => !segment.kept);
 }
 
 /** Every tool call and tool result in `messages`, by call. */
@@ -165,7 +210,8 @@ function toolParts(messages: readonly ModelMessage[]): { calls: string[]; result
 /**
  * The turn's ended steps past its last replaced one, oldest first, and the
  * rest of the turn: its newest step, which has not ended. A step is closed
- * when every call made since the last cut has its result by its end.
+ * when every call made since the last cut has its result by its end, and kept
+ * when it calls a skill or plan tool or holds its result.
  */
 function stepSegments(
   turn: Turn,
@@ -187,15 +233,24 @@ function stepSegments(
     for (const id of results) {
       open.delete(id);
     }
-    steps.push({ closed: open.size === 0, messages, run: turn.run, step });
+    steps.push({
+      closed: open.size === 0,
+      kept: callsProtectedTool(messages),
+      messages,
+      run: turn.run,
+      step,
+    });
     start = end;
   }
   return { steps, tail: turn.messages.slice(start) };
 }
 
-/** The oldest of `steps` up to the last one closed. */
+/**
+ * The oldest of `steps` up to the last one a cut can follow: closed, and
+ * replaced rather than kept, so the cut always replaces the step it names.
+ */
 function closedPrefix(steps: readonly Segment[]): Segment[] {
-  return steps.slice(0, steps.findLastIndex((step) => step.closed) + 1);
+  return steps.slice(0, steps.findLastIndex((step) => step.closed && !step.kept) + 1);
 }
 
 /**
@@ -225,31 +280,40 @@ export function compactionCandidates(turns: readonly Turn[], cuts: HostCompactio
   return [
     ...visible
       .filter((turn) => !kept.has(turn.run.id))
-      .map((turn) => ({ closed: true, messages: turn.messages, run: turn.run })),
+      .map((turn) => ({ closed: true, kept: false, messages: turn.messages, run: turn.run })),
     ...(current ? droppableSteps(current, cuts) : []),
   ];
 }
 
 /**
- * Whether summarizing `candidates` is worth a call: they reach the target
- * (`reclaim`), or hold at least one protect window. Less than both, the
- * protected newest steps and the request's own overhead already sit near the
- * trigger, and each summary would reclaim a step only to fire again.
+ * Whether summarizing `candidates` is worth a call: what they replace (kept
+ * steps are not) reaches the target (`reclaim`), or holds at least one
+ * protect window. Less than both, the protected newest steps and the
+ * request's own overhead already sit near the trigger, and each summary would
+ * reclaim a step only to fire again.
  */
 export function compactionReclaims(candidates: readonly Segment[], reclaim: number): boolean {
-  const droppable = candidates.reduce(
+  const droppable = replacedSegments(candidates).reduce(
     (total, segment) => total + estimateTokens(segment.messages),
     0
   );
   return droppable >= Math.min(reclaim, PROTECT_WINDOW_TOKENS);
 }
 
-/** The oldest candidates that reclaim `reclaim` (at least one), ending where every call has its result. */
+/**
+ * The oldest candidates whose replaced ones reclaim `reclaim` (at least one),
+ * ending on a replaced one where every call has its result.
+ */
 export function selectCandidates(candidates: readonly Segment[], reclaim: number): Segment[] {
   let reclaimed = 0;
   let end = 0;
-  while (end < candidates.length && (reclaimed < reclaim || !candidates[end - 1]?.closed)) {
-    reclaimed += estimateTokens(candidates[end]?.messages ?? []);
+  const last = () => candidates[end - 1];
+  while (
+    end < candidates.length &&
+    (reclaimed < reclaim || !last()?.closed || last()?.kept === true)
+  ) {
+    const segment = candidates[end];
+    reclaimed += segment && !segment.kept ? estimateTokens(segment.messages) : 0;
     end += 1;
   }
   return candidates.slice(0, end);
@@ -276,7 +340,7 @@ export function trimmedSegments(
       break;
     }
     if (skipped >= own) {
-      dropped.push({ closed: true, messages: turn.messages, run: turn.run });
+      dropped.push({ closed: true, kept: false, messages: turn.messages, run: turn.run });
       skipped -= own;
       continue;
     }
@@ -287,7 +351,7 @@ export function trimmedSegments(
         isUser(message) && turn.messages.slice(0, position).filter(isUser).length === skipped
     );
     const whole = turns.find((candidate) => candidate.run.id === turn.run.id) ?? turn;
-    const position = bodyStart(whole, cuts) + at - 1;
+    const position = keptPositions(whole, cuts)[at] ?? 0;
     dropped.push(
       ...closedPrefix(
         stepSegments(whole, cuts).steps.filter(
