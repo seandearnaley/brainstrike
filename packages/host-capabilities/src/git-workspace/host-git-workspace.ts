@@ -91,6 +91,8 @@ export interface WorktreeWorkspace {
   listActiveWorktrees(): Promise<readonly ManagedWorktreeRow[]>;
   /** A repository's managed worktrees as the ledger records them, archived ones too. */
   listRepositoryWorktrees(repoCommonDir: string): Promise<readonly ManagedWorktreeRow[]>;
+  /** The live managed worktrees the ledger records a thread made, in every repository. */
+  listThreadWorktrees(threadId: string): Promise<readonly ManagedWorktreeRow[]>;
   readonly loadRoots: () => Promise<{ id: string; path: string }[]>;
   readonly readSettings: () => ReturnType<typeof readWorktreeSettings>;
   /** The commit the ledger recorded as a managed worktree's at its creation (BST-2518). */
@@ -192,6 +194,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
     inventory,
     listActiveWorktrees: () => ledger.listActive(),
     listRepositoryWorktrees: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
+    listThreadWorktrees: (threadId) => ledger.listForThread(threadId),
     loadRoots,
     readSettings,
     readWorktreeBaseCommit: (worktreeId) => ledger.baseCommit(worktreeId),
@@ -260,12 +263,14 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
   // ADR-0034 decision 7: after a creation for a thread, its repository's oldest idle worktrees
   // beyond the cap are archived and Core tells that thread. Before the count, and once after
   // the host opens, idle worktrees whose branches have merged are archived and Core tells the
-  // threads that made them (BST-2504).
+  // threads that made them (BST-2504). When a thread is deleted, the worktrees it made that no
+  // thread is bound to are archived in the same queue (BST-2505).
   const archiveListeners = new Set<(archive: HostIdleWorktreeArchive) => void>();
   const idleCap = createIdleWorktreeCap({
     archive: (params) => workspace.worktrees.archive(params),
     listActive: () => workspace.listActiveWorktrees(),
     listRepository: (repoCommonDir) => workspace.listRepositoryWorktrees(repoCommonDir),
+    listThread: (threadId) => workspace.listThreadWorktrees(threadId),
     publish: (archive) => {
       if (archiveListeners.size === 0) {
         logger.error('Worktrees were archived with no thread listening to be told', {
@@ -468,6 +473,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
         }
       })()),
     idleWorktreeArchives: {
+      afterThreadDeleted: (threadId) => idleCap.afterThreadDeleted(threadId),
       settle: () => idleCap.close(),
       subscribe: (listener) => {
         archiveListeners.add(listener);

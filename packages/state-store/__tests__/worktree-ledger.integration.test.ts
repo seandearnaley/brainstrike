@@ -76,3 +76,35 @@ test('worktree identity, setup, archive and restore survive real writer reopen',
     await store.close();
   }
 });
+
+// BST-2505: a deleted thread's own live worktrees, wherever it made them, by the thread the ledger
+// records as their maker.
+test("lists a thread's live worktrees in every repository, newest first, and no other thread's", async () => {
+  const store = await StateStore.open(freshDir('worktree-domain-thread'));
+  try {
+    const made = (
+      id: string,
+      createdAt: string,
+      extra: { readonly repoCommonDir?: string; readonly threadId?: string | null } = {}
+    ) =>
+      store.worktreeLedger({
+        operation: 'insert',
+        row: { ...row, createdAt, id, path: `/disposable/${id}`, ...extra },
+      });
+    await made('older', '2026-10-13T00:00:00.000Z');
+    await made('newer', '2026-10-14T00:00:00.000Z', { repoCommonDir: '/disposable/other/.git' });
+    await made('archived', '2026-10-15T00:00:00.000Z');
+    await store.worktreeLedger({ id: 'archived', operation: 'archive', snapshotRef: 'refs/a' });
+    await made('another-thread', '2026-10-16T00:00:00.000Z', { threadId: 'thread-other' });
+    await made('no-thread', '2026-10-17T00:00:00.000Z', { threadId: null });
+
+    const { rows } = await store.worktreeLedger({
+      operation: 'list-thread',
+      threadId: 'thread-current',
+    });
+
+    expect(rows.map(({ id }) => id)).toEqual(['newer', 'older']);
+  } finally {
+    await store.close();
+  }
+});

@@ -142,6 +142,8 @@ export interface WorktreeLedger {
   insert(row: ManagedWorktreeRow & { readonly baseCommit: string }): Promise<ManagedWorktreeRow>;
   listActive(): Promise<readonly ManagedWorktreeRow[]>;
   listForRepository(repoCommonDir: string): Promise<readonly ManagedWorktreeRow[]>;
+  /** The live worktrees the ledger records `threadId` made, in every repository (BST-2505). */
+  listForThread(threadId: string): Promise<readonly ManagedWorktreeRow[]>;
   markArchived(id: string, snapshotRef: string): Promise<ManagedWorktreeRow>;
   markRestored(id: string): Promise<ManagedWorktreeRow>;
   recordSetup(id: string, outcome: WorktreeSetupOutcome): Promise<ManagedWorktreeRow>;
@@ -175,6 +177,7 @@ export function createWorktreeLedger(
     insert: (row) => mutate({ operation: 'insert', row }),
     listActive: () => rows({ operation: 'list-active' }),
     listForRepository: (repoCommonDir) => rows({ operation: 'list-repository', repoCommonDir }),
+    listForThread: (threadId) => rows({ operation: 'list-thread', threadId }),
     markArchived: (id, snapshotRef) => mutate({ id, operation: 'archive', snapshotRef }),
     markRestored: (id) => mutate({ id, operation: 'restore' }),
     recordSetup: (id, outcome) =>
