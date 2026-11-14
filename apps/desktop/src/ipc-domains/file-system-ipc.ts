@@ -15,7 +15,8 @@ function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/u.test(value) || /^\\\\[^\\]+\\[^\\]+/u.test(value);
 }
 
-function isE2eTestMode(): boolean {
+/** Test mode, as the picker and Main's scratch-folder Trash read it. */
+export function isE2eTestMode(): boolean {
   return (
     process.argv.includes('--test-mode') ||
     process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
