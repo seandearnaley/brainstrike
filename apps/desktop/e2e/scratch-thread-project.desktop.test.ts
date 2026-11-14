@@ -4,24 +4,52 @@
  * scratch folder; "Turn into a project…" in the where-control moves that folder
  * into the folder the picker answers, and the thread keeps working there: its
  * next message writes into the moved folder, and the Threads panel lists it
- * under its project instead of Scratch.
+ * under its project instead of Scratch. A place already taken in the chosen
+ * folder is refused: the where-control says why under the row, and the scratch
+ * folder stays where it was, its thread in Scratch.
  *
  * Drives the built app over a disposable profile. Test mode's folder picker
  * answers the harness's workspace folder (`BRAINSTRIKE_E2E_REAL_ROOT_PATH`),
  * on the same disk as the profile; only the model is scripted.
  */
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import type { ModelProviderShim } from './utils/model-provider-shim';
 import { startThread } from './utils/new-thread';
 import { openWhereMenu, whereChip } from './utils/where-control';
 
 const WRITE = 'brainstrike_writeWorkspaceFile';
+
+/**
+ * Each send writes `notes.txt` with what `content` answers then. Edits run without asking, so
+ * each write is the model's first and only step.
+ */
+async function scriptNotesWrites(
+  page: Page,
+  modelProvider: ModelProviderShim,
+  content: () => string
+): Promise<void> {
+  await configureAssistantProvider(page);
+  await new HomePage(page).openSettings();
+  await new SettingsPage(page).openCategory(/Permissions/iu, 'permissions');
+  await page.getByTestId('permission-policy-edit').selectOption('allow');
+  modelProvider.setScript(({ requestBody, toolNames }) =>
+    (requestBody as { stream?: unknown }).stream === true && toolNames.includes(WRITE)
+      ? {
+          finalText: `Wrote ${content().trim()}.`,
+          toolCall: { arguments: { content: content(), path: 'notes.txt' }, name: WRITE },
+        }
+      : { finalText: 'Project notes' }
+  );
+  await ensureAssistantShellVisible(page);
+}
 
 test('a scratch thread turned into a project keeps working in the moved folder, listed under its project', async ({
   electron,
@@ -29,21 +57,8 @@ test('a scratch thread turned into a project keeps working in the moved folder, 
   window: page,
 }) => {
   test.setTimeout(150_000);
-  await configureAssistantProvider(page);
-  // Edits run without asking, so each write is the model's first and only step.
-  await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/Permissions/iu, 'permissions');
-  await page.getByTestId('permission-policy-edit').selectOption('allow');
   let content = 'scratch notes\n';
-  modelProvider.setScript(({ requestBody, toolNames }) =>
-    (requestBody as { stream?: unknown }).stream === true && toolNames.includes(WRITE)
-      ? {
-          finalText: `Wrote ${content.trim()}.`,
-          toolCall: { arguments: { content, path: 'notes.txt' }, name: WRITE },
-        }
-      : { finalText: 'Project notes' }
-  );
-  await ensureAssistantShellVisible(page);
+  await scriptNotesWrites(page, modelProvider, () => content);
   const scratch = path.join(electron.getUserDataDir(), 'scratch');
 
   const thread = await startThread(page, 'Write notes.txt.');
@@ -85,5 +100,60 @@ test('a scratch thread turned into a project keeps working in the moved folder, 
   });
   expect(await readFile(path.join(place, 'notes.txt'), 'utf8')).toBe('project notes\n');
   expect(await readdir(scratch)).toEqual([]);
+  expect(modelProvider.refusals()).toEqual([]);
+});
+
+test('Turn into a project… refuses a place already taken, says why under the row, and leaves the folder in Scratch', async ({
+  electron,
+  modelProvider,
+  window: page,
+}) => {
+  test.setTimeout(120_000);
+  await scriptNotesWrites(page, modelProvider, () => 'scratch notes\n');
+  const scratch = path.join(electron.getUserDataDir(), 'scratch');
+  const thread = await startThread(page, 'Write notes.txt.');
+  await expect(thread.getByText('Wrote scratch notes.', { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  const [name = ''] = await readdir(scratch);
+  // The folder the picker answers already holds something of the person's by that name.
+  const taken = path.join(electron.getWorkspaceRoot(), name);
+  await mkdir(taken);
+  await writeFile(path.join(taken, 'theirs.txt'), 'already here\n');
+
+  await openWhereMenu(thread);
+  await page.getByTestId('workspace-bar-scratch-project').click();
+
+  // The host refused, and the where-control says why under the row, in the host's words.
+  await expect(
+    page
+      .getByRole('region', { name: /^Notifications/u })
+      .getByRole('listitem')
+      .filter({ hasText: 'Could not turn this thread into a project' })
+  ).toBeVisible({ timeout: 30_000 });
+  await openWhereMenu(thread);
+  const refusal = page.getByTestId('workspace-bar-scratch-project-refusal');
+  await expect(refusal).toContainText(
+    `${taken} already exists, so the scratch folder was not moved there.`
+  );
+  await expect(refusal).toContainText('Choose another folder, or move or rename what is there.');
+  await expect(page.getByTestId('workspace-bar-scratch-project')).not.toHaveAttribute(
+    'data-disabled'
+  );
+  await page.keyboard.press('Escape');
+
+  // Nothing moved: the scratch folder keeps its work, and what was in the place is untouched.
+  expect(await readdir(scratch)).toEqual([name]);
+  expect(await readFile(path.join(scratch, name, 'notes.txt'), 'utf8')).toBe('scratch notes\n');
+  expect(await readdir(taken)).toEqual(['theirs.txt']);
+  // The thread still works in its scratch folder and lists under Scratch.
+  await expect(whereChip(thread)).toHaveAccessibleName(`Where this thread works: ${name} · Local`);
+  const threadsPanel = page.getByTestId('threads-panel');
+  const headers = threadsPanel.getByTestId('thread-folder-header');
+  await expect(headers).toHaveCount(1);
+  await expect(
+    headers.filter({ hasText: 'Scratch' }).getByTestId('thread-folder-count')
+  ).toHaveText('1');
+  await expect(threadsPanel.getByTitle(`Scratch folder ${name} at `)).toHaveCount(1);
   expect(modelProvider.refusals()).toEqual([]);
 });
