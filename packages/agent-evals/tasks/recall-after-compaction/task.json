@@ -1,7 +1,8 @@
 {
   "expect": {
     "compactions": {
-      "atLeast": 1
+      "atLeast": 1,
+      "kind": "agentic"
     }
   },
   "followUps": [
@@ -41,7 +42,7 @@
     }
   ],
   "id": "recall-after-compaction",
-  "inputTokenLimit": 30000,
+  "inputTokenLimit": 60000,
   "model": "openai::gpt-6-luna",
   "prompt": "Read docs/decisions.md, then change the port in src/server.ts to the one it settles on. Use workspace-relative paths and do not pass a root.",
   "timeoutMs": 300000,
