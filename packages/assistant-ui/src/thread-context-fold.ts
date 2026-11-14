@@ -359,8 +359,11 @@ export class ThreadContextFold {
     if (!(run && Array.isArray(compactedRunIds))) {
       return false;
     }
+    // A summary covers what the branch's earlier one did too (BST-2527): each turn counts once.
     run.compactedRunIds.push(
-      ...compactedRunIds.filter((id): id is string => typeof id === 'string')
+      ...compactedRunIds.filter(
+        (id): id is string => typeof id === 'string' && !run.compactedRunIds.includes(id)
+      )
     );
     const through = record(event['through']);
     const throughRun = string(through?.['runId']);

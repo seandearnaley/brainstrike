@@ -361,6 +361,30 @@ describe('threadContextAt window states', () => {
     expect(states).toEqual({ a: 'dropped', b: 'compacted', c: 'compacted', d: 'in-window' });
   });
 
+  it('counts each earlier turn a run’s summaries cover once, though each summary names it (BST-2527)', () => {
+    const l = log();
+    for (const id of ['r1', 'r2', 'r3']) {
+      l.run(id);
+    }
+    // r3 compacted r1 before its first step, then merged r2 in before a later one.
+    for (const compactedRunIds of [['r1'], ['r1', 'r2']]) {
+      l.add({
+        compactedRunIds,
+        earlierRequests: [],
+        filesEdited: [],
+        kind: 'agentic',
+        reason: 'pre-request',
+        runId: 'r3',
+        summary: 's',
+        toolsLoaded: [],
+        type: 'context.compacted',
+      });
+    }
+    const run = fold(l.rows).runs.get('r3');
+    expect(run?.compactions).toBe(2);
+    expect(run?.compactedRunIds).toEqual(['r1', 'r2']);
+  });
+
   it('keeps an attachment in the window for its own run only', () => {
     const l = log();
     l.run('r1', ':file[a.md]{name=root-1::docs/a.md}');

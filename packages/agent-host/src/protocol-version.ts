@@ -169,4 +169,9 @@
 // events are removed. Removing a method is why this is a version bump. Additive since (ADR-0040,
 // BST-2530): project memory's `memory.changed`, `memory.refused` and `memory.undone` events and
 // the `memory/undo` method, new variants and a new method.
-export const AGENT_HOST_PROTOCOL_VERSION = 32;
+// v33 (2026-11-14): a thread carries one current compaction summary (BST-2527). Each
+// `context.compacted` covers everything its branch's earlier summary covered as well:
+// `compactedRunIds` lists every whole turn it covers and `through` the newest step cut. It
+// carries what the host wrote from the log, `filesEdited`, `toolsLoaded` and `earlierRequests`,
+// required. The required fields are why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 33;

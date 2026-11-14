@@ -45,7 +45,7 @@ export class HostProviderRequest {
    * How the step's context names what a trim left out (`HostCompactedContext.trim`);
    * the step's first trimmed request takes it.
    */
-  private trim: ((kept: number) => Compacted | undefined) | undefined;
+  private trim: ((kept: number) => Promise<Compacted | undefined>) | undefined;
   /** The tool calls this run's previous provider request carried; none before its first. */
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
 
@@ -64,7 +64,7 @@ export class HostProviderRequest {
   prepare(
     history: readonly MastraDBMessage[],
     rewrites: ReadonlyMap<string, HostProjectionRewrite>,
-    trim: (kept: number) => Compacted | undefined
+    trim: (kept: number) => Promise<Compacted | undefined>
   ): void {
     this.history = history;
     this.rewrites = rewrites;
@@ -95,7 +95,9 @@ export class HostProviderRequest {
           this.trim = undefined;
         }
         // A trimmed request starts at a user message: it kept that one and every later one.
-        const trim = name?.(prepared.params.prompt.filter(({ role }) => role === 'user').length);
+        const trim = await name?.(
+          prepared.params.prompt.filter(({ role }) => role === 'user').length
+        );
         await this.record({
           accounting: prepared.accounting,
           breakdown: preparedPromptBreakdown(prepared, toolCalls),

@@ -131,10 +131,13 @@ describe('committed host run resilience is visible in the thread', () => {
       {
         event: {
           compactedRunIds: [runIds[0]],
+          earlierRequests: [],
+          filesEdited: [],
           kind: 'deterministic',
           reason: 'context-overflow',
           runId,
           summary,
+          toolsLoaded: [],
           type: 'context.compacted',
         },
         seq: seq + 1,
@@ -159,7 +162,15 @@ describe('committed host run resilience is visible in the thread', () => {
       .repository.messages.find(({ message: item }) => item.id === runId)?.message;
     expect(message?.content.slice(0, 1)).toEqual([
       {
-        data: { kind: 'deterministic', reason: 'context-overflow', summary, turnsCompacted: 1 },
+        data: {
+          earlierRequests: [],
+          filesEdited: [],
+          kind: 'deterministic',
+          reason: 'context-overflow',
+          summary,
+          toolsLoaded: [],
+          turnsCompacted: 1,
+        },
         name: 'brainstrike.context-compacted',
         type: 'data',
       },
