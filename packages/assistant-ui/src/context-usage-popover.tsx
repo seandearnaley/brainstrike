@@ -1,11 +1,11 @@
 /**
  * ContextUsagePopoverContent — the "Context Usage" detail panel opened from the
  * compact ring row (see context-usage-meter.tsx). Cursor-style anatomy
- * (BST-940): a "% full" header, a segmented capacity bar over the effective
- * input budget, and a color-keyed legend of category rows (System instructions,
+ * (BST-940): a "% full" header, a segmented capacity bar over the compaction
+ * trigger, and a color-keyed legend of category rows (System instructions,
  * Tool definitions, Task list, Conversation, Attachments, Unattributed) with
  * per-tool and conversation-split sub-rows, and the cumulative tokens + cost
- * row. The critical trimming-risk notice
+ * row. The critical compaction notice
  * deliberately does NOT live here — a warning must not hide inside a hover
  * surface (it stays inline next to the ring).
  */
@@ -508,27 +508,27 @@ function composeBreakdown(params: {
 }
 
 interface CapacityBarProps {
-  effectiveInputBudget: number;
+  compactionTrigger: number;
   segments: readonly CategorySegment[];
 }
 
 /**
  * Pure width math for the capacity bar: proportional widths clamped so an
- * over-budget estimate can never overflow 100%. Kept OUTSIDE the component —
- * the running `remaining` accumulator must not be a render-scope reassignment
- * (React Compiler immutability).
+ * estimate past the trigger can never overflow 100%. Kept OUTSIDE the
+ * component — the running `remaining` accumulator must not be a render-scope
+ * reassignment (React Compiler immutability).
  */
 function computeSegmentWidths(
   segments: readonly CategorySegment[],
-  effectiveInputBudget: number
+  compactionTrigger: number
 ): (CategorySegment & { width: number })[] {
   const widths: (CategorySegment & { width: number })[] = [];
   let remaining = 100;
   for (const segment of segments) {
-    const raw = (segment.tokens / effectiveInputBudget) * 100;
-    // Floor tiny segments to a visible sliver, but the remaining-budget clamp
-    // wins LAST so the widths can never sum past 100 (an over-budget thread is
-    // the inline critical notice's job, not the bar's).
+    const raw = (segment.tokens / compactionTrigger) * 100;
+    // Floor tiny segments to a visible sliver, but the remaining-width clamp
+    // wins LAST so the widths can never sum past 100 (a thread past its
+    // trigger is the inline critical notice's job, not the bar's).
     const width = Math.min(Math.max(raw, 0.75), remaining);
     remaining = Math.max(0, remaining - width);
     widths.push({ ...segment, width });
@@ -537,14 +537,14 @@ function computeSegmentWidths(
 }
 
 /**
- * Segmented capacity bar over the effective input budget. Segments render in
- * legend order; the unfilled remainder is the muted track (free space).
+ * Segmented capacity bar over the compaction trigger. Segments render in
+ * legend order; the unfilled remainder is the muted track (room before compaction).
  */
-const CapacityBar = ({ effectiveInputBudget, segments }: CapacityBarProps) => {
+const CapacityBar = ({ compactionTrigger, segments }: CapacityBarProps) => {
   if (segments.length === 0) {
     return null;
   }
-  const widths = computeSegmentWidths(segments, effectiveInputBudget);
+  const widths = computeSegmentWidths(segments, compactionTrigger);
   return (
     <div
       aria-hidden="true"
@@ -573,11 +573,12 @@ export interface ContextUsagePopoverContentProps {
    * run — the popover then falls back to the client conversation estimate.
    */
   breakdownState?: AssistantContextBreakdownState | undefined;
+  /** The request size at which the thread compacts: the header's and bar's denominator. */
+  compactionTrigger: number;
   contextWindow: number;
   /** Full-part client walk (per-tool + conversation split sub-rows). */
   conversationEstimate?: ConversationTokenEstimate | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  effectiveInputBudget: number;
   estimatedTokens?: number | undefined;
   isEstimated: boolean;
   /** In-flight run's billed step usage (BST-953 live tick). */
@@ -628,10 +629,10 @@ const WorkspaceFilesRow = ({
 
 export const ContextUsagePopoverContent = ({
   breakdownState,
+  compactionTrigger,
   contextWindow,
   conversationEstimate,
   cumulativeUsage,
-  effectiveInputBudget,
   estimatedTokens,
   isEstimated,
   liveRunUsage,
@@ -661,22 +662,22 @@ export const ContextUsagePopoverContent = ({
         </>
       )}
 
-      {/* Context section: percent-full + used/budget fraction. The denominator
-          is the effective input budget (contextWindow − output reservation);
-          the full model window is on the line below so neither number is lost. */}
+      {/* Context section: percent-full + used/trigger fraction. The denominator
+          is the compaction trigger, so full means the thread compacts now; the
+          full model window is on the line below so neither number is lost. */}
       <p
         className={cn('tabular-nums', cumulativeUsage ? undefined : 'font-medium')}
         data-testid="context-usage-popover-header"
       >
         Context {Math.round(percentage)}% full · {formatCompact(usedTokens)}
-        {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(effectiveInputBudget)}
+        {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(compactionTrigger)}
       </p>
       <p className="text-muted-foreground text-2xs" data-testid="context-usage-popover-window">
         model window {formatTokenCount(contextWindow)}
       </p>
 
       {/* Segmented capacity bar — same figures as the legend rows below. */}
-      <CapacityBar effectiveInputBudget={effectiveInputBudget} segments={segments} />
+      <CapacityBar compactionTrigger={compactionTrigger} segments={segments} />
 
       {/* Malformed wire part → surfaced honestly, never coerced into rows. */}
       {breakdownInvalid && (

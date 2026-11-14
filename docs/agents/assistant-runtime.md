@@ -24,6 +24,9 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
   - Context-overflow recovery needs a committed compaction that actually shortens the request.
 - Pre-request compaction measures the request the provider will receive.
   - It triggers at 90% of the run's input budget or its compaction cap (200,000 tokens by default), whichever is less, and reclaims toward 7/9 of that trigger. `deriveContextCompactionThreshold` in `assistant-contract` is the one derivation; the admission carries the cap beside `inputTokenLimit`.
+  - A person sets the cap in the composer's Output & Limits ("Compact at", at least 64,000, no upper bound). It rides the desktop intent as `agentLoop.compactionTokenCap` only when set, so a recovered run keeps its captured cap; the standalone intent carries none.
+  - The production admission turns an unset cap into the default (`resolveContextCompactionTokenCap`), the same call Settings and the context meter use.
+  - The trigger is the context meter's one denominator: the composer derives it from the run's budget and cap, the ring is full when the thread compacts, and warning (75%) and critical (90%) read against it. The Context tab's bar shows the same figure.
   - The size is what the provider last reported: the branch's latest `model.step` input tokens, else its latest `provider.request.prepared` `accounting.totalTokens`, plus the chars/4 estimate of what the branch committed after that request. A committed compaction voids every earlier report of its thread.
   - With nothing reported, it is the chars/4 estimate of the request's messages plus the run's instructions and tool definitions. Turns are always sized by the estimate when choosing which to drop.
   - Every turn on the branch that no compaction covers is sent; there is no history window.

@@ -140,8 +140,8 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
       <TooltipProvider>
         <CommittedAssistantConversation
           commands={{ onNew: vi.fn() }}
+          compactionTrigger={800}
           contextWindow={1000}
-          effectiveInputBudget={800}
           label="Recorded host context"
           store={bridge}
         />
@@ -157,7 +157,7 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
       inputTokens: 1,
       outputTokens: 25,
     });
-    expect(screen.getByRole('button', { name: 'Context usage: 3% of input budget' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Context usage: 3% to compaction' })).toBeTruthy();
     const usage = useContextUsageStore.getState().usageByThread[threadId];
     await act(async () => {
       source.fold.accept(structuredClone(rows));
@@ -171,8 +171,8 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
       <TooltipProvider>
         <CommittedAssistantConversation
           commands={{ onNew: vi.fn() }}
+          compactionTrigger={800}
           contextWindow={1000}
-          effectiveInputBudget={800}
           label="Reopened host context"
           store={store(reopened)}
         />

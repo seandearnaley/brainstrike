@@ -1,13 +1,16 @@
+import { Result, Schema } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
   CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   CONTEXT_BUDGET_SAFETY_MARGIN_MIN,
   CONTEXT_BUDGET_SAFETY_MARGIN_RATIO,
   CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP,
+  ContextCompactionTokenCapSchema,
   deriveAgentLoopInputTokenLimit,
   deriveContextCompactionThreshold,
   deriveEffectiveInputBudget,
   deriveMaxOutputTokensWithinBudget,
+  resolveContextCompactionTokenCap,
 } from '../context-budget.js';
 
 describe('deriveEffectiveInputBudget', () => {
@@ -150,5 +153,26 @@ describe('deriveContextCompactionThreshold (BST-2526)', () => {
       expect(() => deriveContextCompactionThreshold(invalid, 200_000)).toThrow(/inputTokenLimit/u);
       expect(() => deriveContextCompactionThreshold(185_904, invalid)).toThrow(/tokenCap/u);
     }
+  });
+});
+
+describe('the compaction cap setting (BST-2539)', () => {
+  const refuses = (cap: unknown) =>
+    Result.isFailure(Schema.decodeUnknownResult(ContextCompactionTokenCapSchema)(cap));
+  const accepts = (cap: unknown) => Schema.decodeUnknownSync(ContextCompactionTokenCapSchema)(cap);
+
+  it('refuses a cap below 64,000 tokens and accepts 64,000', () => {
+    expect(refuses(63_999)).toBe(true);
+    expect(accepts(64_000)).toBe(64_000);
+  });
+
+  it('has no upper bound and refuses a fraction', () => {
+    expect(accepts(5_000_000)).toBe(5_000_000);
+    expect(refuses(100_000.5)).toBe(true);
+  });
+
+  it('is 200,000 tokens until a person sets it', () => {
+    expect(resolveContextCompactionTokenCap(undefined)).toBe(200_000);
+    expect(resolveContextCompactionTokenCap(100_000)).toBe(100_000);
   });
 });

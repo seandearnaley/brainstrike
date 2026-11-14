@@ -12,6 +12,8 @@ import type { RuntimeSubagentSettings } from './subagent-settings.ts';
 export type RuntimeJsonObject = Record<string, unknown>;
 
 export interface RuntimeAgentLoopSettings {
+  /** The compaction cap a person set (BST-2539); absent, the admission uses the default. */
+  compactionTokenCap?: number;
   inputTokenLimit?: number;
   maxSteps?: number;
 }

@@ -1,17 +1,19 @@
 /**
  * ContextUsageMeter — compact context gauge shown above the composer.
  *
- * One row: an SVG donut ring (context-ring.tsx) + a "used / budget" fraction.
+ * One row: an SVG donut ring (context-ring.tsx) + a "used / trigger" fraction.
  * The row is a popover trigger that opens, on explicit activation only (click,
  * Enter or Space), the "Context Usage" detail panel (context-usage-popover.tsx)
  * holding the breakdown list and cumulative tokens + cost. Sources
  * usage from the zustand store (exact, post-turn) and falls back to a heuristic
  * estimate when no exact value has been recorded yet.
  *
- * Threshold states (fraction of effectiveInputBudget):
+ * The ring, the fraction and the states all read against compactionTrigger,
+ * the request size at which the thread compacts (BST-2539): a full ring means
+ * it compacts now. Threshold states:
  *   ok      < 75%
  *   warning ≥ 75%
- *   critical ≥ 90% → shows the trimming-risk notice INLINE (a warning must not
+ *   critical ≥ 90% → shows the compaction notice INLINE (a warning must not
  *   hide inside the popover)
  */
 import { useAuiState } from '@assistant-ui/react';
@@ -77,6 +79,12 @@ export interface CumulativeUsageDisplay {
 }
 
 export interface ContextUsageMeterProps {
+  /**
+   * The request size at which the thread compacts
+   * (`deriveContextCompactionThreshold`): the meter's one denominator, so a
+   * full ring means the thread compacts now. Meter is hidden when absent.
+   */
+  compactionTrigger: number | undefined;
   /** Full model context window size. Meter is hidden when absent. */
   contextWindow: number | undefined;
   /**
@@ -97,8 +105,6 @@ export interface ContextUsageMeterProps {
    * the ring and the recorded figure stay the conversation's own.
    */
   draftTokens?: number | undefined;
-  /** Effective input budget (contextWindow − output reservation). Meter is hidden when absent. */
-  effectiveInputBudget: number | undefined;
   /** Heuristic token estimate to display before exact usage is recorded. */
   estimatedTokens?: number | undefined;
   /** True while a run streams — the gauge shows the LIVE estimate (flagged). */
@@ -107,8 +113,8 @@ export interface ContextUsageMeterProps {
   threadKey?: string | undefined;
 }
 
-function resolveUsageState(used: number, effectiveInputBudget: number): ContextRingState {
-  const ratio = used / effectiveInputBudget;
+function resolveUsageState(used: number, compactionTrigger: number): ContextRingState {
+  const ratio = used / compactionTrigger;
   if (ratio >= 0.9) {
     return 'critical';
   }
@@ -144,7 +150,7 @@ function DraftHint({
 }
 
 /**
- * Trimming-risk notice, INLINE next to the ring, never hidden inside the
+ * Compaction notice, INLINE next to the ring, never hidden inside the
  * popover (visibility rule). A draft that would cross the line warns before
  * it is sent.
  */
@@ -161,8 +167,8 @@ function BudgetNotice({
   return (
     <p className="bs-composer-context-notice" data-testid="context-usage-critical-notice">
       {state === 'critical'
-        ? 'Approaching input budget; older messages may be trimmed.'
-        : 'Sending this draft approaches the input budget; older messages may be trimmed.'}
+        ? 'Approaching compaction; older messages will be summarized.'
+        : 'Sending this draft approaches compaction; older messages will be summarized.'}
     </p>
   );
 }
@@ -179,29 +185,29 @@ interface TriggerDisplay {
  * Pure chip-content resolution (BST-953): with durable cumulative data the
  * chip leads with the overall thread total (+cost when priceable, 'live'
  * while the in-flight run's steps are included); without it (web / an
- * unhydrated thread) it falls back to the context used/budget fraction.
+ * unhydrated thread) it falls back to the context used/trigger fraction.
  * Kept OUTSIDE the component (module-level, like computeSegmentWidths).
  */
 function resolveTriggerDisplay(params: {
+  compactionTrigger: number;
   cumulativeUsage: CumulativeUsageDisplay | undefined;
-  effectiveInputBudget: number;
   isEstimated: boolean;
   liveTokens: number;
   percentage: number;
   usedTokens: number;
 }): TriggerDisplay {
-  const { cumulativeUsage, effectiveInputBudget, isEstimated, liveTokens, percentage, usedTokens } =
+  const { compactionTrigger, cumulativeUsage, isEstimated, liveTokens, percentage, usedTokens } =
     params;
   if (cumulativeUsage === undefined) {
     return {
-      ariaLabel: `Context usage: ${Math.round(percentage)}% of input budget${isEstimated ? ' (estimated)' : ''}`,
+      ariaLabel: `Context usage: ${Math.round(percentage)}% to compaction${isEstimated ? ' (estimated)' : ''}`,
       ...(isEstimated ? { badge: 'est.' as const } : {}),
-      primaryText: `${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)}`,
+      primaryText: `${formatCompact(usedTokens)} / ${formatCompact(compactionTrigger)}`,
     };
   }
   const threadTotalTokens = cumulativeUsage.totalTokens + liveTokens;
   return {
-    ariaLabel: `Thread usage: ${formatTokenCount(threadTotalTokens)}; context ${Math.round(percentage)}% of input budget`,
+    ariaLabel: `Thread usage: ${formatTokenCount(threadTotalTokens)}; context ${Math.round(percentage)}% to compaction`,
     ...(liveTokens > 0 ? { badge: 'live' as const } : {}),
     // The durable cost EXCLUDES the live tokens the total now includes —
     // pairing them would present a current token count beside a lagging price
@@ -216,11 +222,11 @@ function resolveTriggerDisplay(params: {
 
 export const ContextUsageMeter = ({
   threadKey,
+  compactionTrigger,
   contextWindow,
   conversationEstimate,
   cumulativeUsage,
   draftTokens = 0,
-  effectiveInputBudget,
   estimatedTokens,
   isRunning,
 }: ContextUsageMeterProps) => {
@@ -263,20 +269,20 @@ export const ContextUsageMeter = ({
   const recordRing = useThreadContextStore((s) => s.recordRing);
   // biome-ignore lint/plugin: publishes a figure only this meter can compute to the shared store
   useEffect(() => {
-    if (contextWindow && effectiveInputBudget) {
-      recordRing(key, { budgetTokens: effectiveInputBudget, isEstimated, usedTokens });
+    if (contextWindow && compactionTrigger) {
+      recordRing(key, { isEstimated, triggerTokens: compactionTrigger, usedTokens });
     }
-  }, [contextWindow, effectiveInputBudget, isEstimated, key, recordRing, usedTokens]);
+  }, [compactionTrigger, contextWindow, isEstimated, key, recordRing, usedTokens]);
 
   // Render nothing when we have no denominator.
-  if (!(contextWindow && effectiveInputBudget)) {
+  if (!(contextWindow && compactionTrigger)) {
     return null;
   }
 
-  const state = resolveUsageState(usedTokens, effectiveInputBudget);
-  const percentage = Math.min(100, (usedTokens / effectiveInputBudget) * 100);
+  const state = resolveUsageState(usedTokens, compactionTrigger);
+  const percentage = Math.min(100, (usedTokens / compactionTrigger) * 100);
   // What sending the draft would bring the context to: it warns before the send.
-  const projectedState = resolveUsageState(usedTokens + draftTokens, effectiveInputBudget);
+  const projectedState = resolveUsageState(usedTokens + draftTokens, compactionTrigger);
   const draftText = draftTokens > 0 ? `+${formatTokenCount(draftTokens)}` : undefined;
 
   // Thread-total headline (BST-953): the overall billed figure — every
@@ -305,8 +311,8 @@ export const ContextUsageMeter = ({
   const liveRunUsage = isRunning === true || isSettlingRunUsage ? recordedLiveRunUsage : undefined;
   const liveTokens = liveRunUsage ? liveRunUsage.inputTokens + liveRunUsage.outputTokens : 0;
   const trigger = resolveTriggerDisplay({
+    compactionTrigger,
     cumulativeUsage,
-    effectiveInputBudget,
     isEstimated,
     liveTokens,
     percentage,
@@ -324,13 +330,13 @@ export const ContextUsageMeter = ({
         <PopoverTrigger asChild>
           {/* The gauge row is a ONE-TURN-LAG estimate of the next prompt's
               size (prev input + prev output). The denominator is
-              effectiveInputBudget so the fraction and the ring fill tell the
+              compactionTrigger so the fraction and the ring fill tell the
               same story; the full model window lives in the popover + title. */}
           <button
             aria-label={draftText ? `${trigger.ariaLabel}; draft ${draftText}` : trigger.ariaLabel}
             className="bs-composer-chip bs-composer-context-trigger"
             data-testid="context-usage-trigger"
-            title={`context ${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)} · model window ${formatTokenCount(contextWindow)}`}
+            title={`context ${formatCompact(usedTokens)} / ${formatCompact(compactionTrigger)} · model window ${formatTokenCount(contextWindow)}`}
             type="button"
           >
             <ContextRing isEstimated={isEstimated} percentage={percentage} state={state} />
@@ -360,10 +366,10 @@ export const ContextUsageMeter = ({
         >
           <ContextUsagePopoverContent
             breakdownState={breakdownState}
+            compactionTrigger={compactionTrigger}
             contextWindow={contextWindow}
             conversationEstimate={conversationEstimate}
             cumulativeUsage={cumulativeUsage}
-            effectiveInputBudget={effectiveInputBudget}
             estimatedTokens={estimatedTokens}
             isEstimated={isEstimated}
             liveRunUsage={liveRunUsage}
@@ -392,16 +398,16 @@ ContextUsageMeter.displayName = 'ContextUsageMeter';
  * without an assistant-ui context.
  */
 export interface ThreadContextMeterProps {
+  compactionTrigger: number | undefined;
   contextWindow: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  effectiveInputBudget: number | undefined;
   threadKey: string | undefined;
 }
 
 export const ThreadContextMeter = ({
+  compactionTrigger,
   contextWindow,
   cumulativeUsage,
-  effectiveInputBudget,
   threadKey,
 }: ThreadContextMeterProps) => {
   // Access all messages to build the full-part conversation walk. The walk is
@@ -418,11 +424,11 @@ export const ThreadContextMeter = ({
 
   return (
     <ContextUsageMeter
+      compactionTrigger={compactionTrigger}
       contextWindow={contextWindow}
       conversationEstimate={conversationEstimate}
       {...(cumulativeUsage ? { cumulativeUsage } : {})}
       draftTokens={draftTokens}
-      effectiveInputBudget={effectiveInputBudget}
       isRunning={isRunning}
       threadKey={threadKey}
     />

@@ -76,14 +76,11 @@ function addedTokensPerTurn(runs: readonly ContextRun[], view: ThreadContextAtTu
   return added;
 }
 
-/** The host compacts once the prompt reaches this share of the input limit (agent-host). */
-const COMPACTION_TICK_RATIO = 0.9;
-
 function percentOf(value: number, total: number): string {
   return `${Math.min(100, (value / Math.max(total, 1)) * 100)}%`;
 }
 
-/** The composer ring's total against its budget, the files' share, and the compaction tick. */
+/** The composer ring's total against its compaction trigger (full compacts now), and the files' share. */
 function ContextRingBar({
   filesTokens,
   ring,
@@ -99,34 +96,29 @@ function ContextRingBar({
         </span>
         <span className="tabular-nums" data-testid="context-map-ring-total">
           {formatTokenCount(ring.usedTokens).replace(/ tokens$/u, '')} /{' '}
-          {formatTokenCount(ring.budgetTokens)}
+          {formatTokenCount(ring.triggerTokens)}
         </span>
       </div>
-      {/* biome-ignore lint/a11y/useSemanticElements: a stacked bar with a compaction tick; <meter> draws one value. */}
+      {/* biome-ignore lint/a11y/useSemanticElements: a stacked bar, the files' share inside the total; <meter> draws one value. */}
       <div
         aria-label="Context in use"
-        aria-valuemax={ring.budgetTokens}
+        aria-valuemax={ring.triggerTokens}
         aria-valuemin={0}
-        aria-valuenow={Math.min(ring.usedTokens, ring.budgetTokens)}
+        aria-valuenow={Math.min(ring.usedTokens, ring.triggerTokens)}
         className="bg-muted relative h-1.5 rounded-full"
         role="meter"
       >
         <div
           className="bg-foreground/30 absolute inset-y-0 left-0 rounded-full"
-          style={{ width: percentOf(ring.usedTokens, ring.budgetTokens) }}
+          style={{ width: percentOf(ring.usedTokens, ring.triggerTokens) }}
         />
         {filesTokens !== null && (
           <div
             className="bg-info absolute inset-y-0 left-0 rounded-full"
-            style={{ width: percentOf(Math.min(filesTokens, ring.usedTokens), ring.budgetTokens) }}
+            style={{ width: percentOf(Math.min(filesTokens, ring.usedTokens), ring.triggerTokens) }}
             title="Workspace files in the window"
           />
         )}
-        <div
-          className="bg-foreground absolute -inset-y-0.5 w-px"
-          style={{ left: `${COMPACTION_TICK_RATIO * 100}%` }}
-          title="The thread compacts near 90% of its input limit"
-        />
       </div>
     </div>
   );

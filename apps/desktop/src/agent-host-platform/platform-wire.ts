@@ -1,5 +1,6 @@
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
+  ContextCompactionTokenCapSchema,
   ReferencedFileFailureSchema,
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
@@ -83,6 +84,8 @@ export const PlatformNativeRuntimeSchema = Schema.Struct({
 });
 export const PlatformSelectionSchema = Schema.Struct({
   childSystem: Schema.optional(Schema.String),
+  /** BST-2539: the cap the run's intent carries; absent, the production admission's default. */
+  compactionTokenCap: Schema.optional(ContextCompactionTokenCapSchema),
   configuration: PlatformModelConfigurationSchema,
   contextWindow: Schema.Int.check(Schema.isGreaterThan(0)),
   delegation: Schema.optional(

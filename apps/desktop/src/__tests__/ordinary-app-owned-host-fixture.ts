@@ -55,7 +55,7 @@ const desktop = resolve(import.meta.dirname, '../..');
 // take seconds, not expect.poll's one-second default.
 const RUN_PROGRESS_POLL = { timeout: 30_000 } as const;
 // The meter leads with the thread's committed total; context occupancy moves to the ring.
-const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% of input budget$/u;
+const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% to compaction$/u;
 
 /**
  * The host pids of the command started in `workspace`. On Linux the OS sandbox
