@@ -1,6 +1,7 @@
 const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['agentHost', 'onPrepareClose'],
   ['desktopLifecycle', 'requestReload'],
+  ['electronAPI', 'factoryReset', 'onResetOutcome'],
   ['electronAPI', 'factoryReset', 'resetLocal'],
   ['electronAPI', 'factoryReset', 'takeResetOutcome'],
   ['electronAPI', 'content', 'clear'],
