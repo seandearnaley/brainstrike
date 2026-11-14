@@ -9,6 +9,6 @@ test('every chapter has its scene notes, written by one run that kept going', as
       'utf8'
     );
     const scenes = notes.split('\n').filter((line) => line.startsWith(`- Chapter ${chapter}:`));
-    assert.ok(scenes.length >= 180, `notes/chapter-${chapter}.md has ${scenes.length} scenes`);
+    assert.ok(scenes.length >= 360, `notes/chapter-${chapter}.md has ${scenes.length} scenes`);
   }
 });

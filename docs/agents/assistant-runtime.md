@@ -25,6 +25,7 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
 - Pre-request compaction measures the request the provider will receive, before every step of a run (BST-2531).
   - Each step's request is built from the committed branch (`prepareRunContext`), so a compaction committed at any step, or before an approval pause, holds for every later step and leg.
   - It triggers at 90% of the run's input budget or its compaction cap (200,000 tokens by default), whichever is less, and reclaims toward 7/9 of that trigger. `deriveContextCompactionThreshold` in `assistant-contract` is the one derivation; the admission carries the cap beside `inputTokenLimit`.
+  - Past the trigger it summarizes only when what it can drop reaches the target or holds at least one protect window (20,000 estimated tokens), `compactionReclaims`. Otherwise the request goes as it is; overflow recovery and the request trim stay the last resort.
   - The size is what the provider last reported: the branch's latest `model.step` input tokens, else its latest `provider.request.prepared` `accounting.totalTokens`, plus the chars/4 estimate of what the branch committed after that request. A committed compaction voids every earlier report of its thread.
   - With nothing reported, it is the chars/4 estimate of the request's messages plus the run's instructions and tool definitions. Turns and steps are always sized by the estimate when choosing which to drop.
   - Every turn on the branch that no compaction covers is sent; there is no history window.

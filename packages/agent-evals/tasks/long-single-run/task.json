@@ -5,9 +5,9 @@
     }
   },
   "id": "long-single-run",
-  "inputTokenLimit": 30000,
+  "inputTokenLimit": 60000,
   "model": "openai::gpt-6-luna",
-  "prompt": "Write the scene notes for chapters 1 to 36 of the book, one file each at notes/chapter-<n>.md: one line per scene, at least 180 lines a chapter. Write them all in this turn. Use workspace-relative paths and do not pass a root.",
+  "prompt": "Write the scene notes for chapters 1 to 36 of the book, one file each at notes/chapter-<n>.md: one line per scene, at least 360 lines a chapter. Write them all in this turn. Use workspace-relative paths and do not pass a root.",
   "timeoutMs": 300000,
   "title": "Carry one run on past its input budget several times by compacting its older steps between steps",
   "verify": {

@@ -230,6 +230,20 @@ export function compactionCandidates(turns: readonly Turn[], cuts: HostCompactio
   ];
 }
 
+/**
+ * Whether summarizing `candidates` is worth a call: they reach the target
+ * (`reclaim`), or hold at least one protect window. Less than both, the
+ * protected newest steps and the request's own overhead already sit near the
+ * trigger, and each summary would reclaim a step only to fire again.
+ */
+export function compactionReclaims(candidates: readonly Segment[], reclaim: number): boolean {
+  const droppable = candidates.reduce(
+    (total, segment) => total + estimateTokens(segment.messages),
+    0
+  );
+  return droppable >= Math.min(reclaim, PROTECT_WINDOW_TOKENS);
+}
+
 /** The oldest candidates that reclaim `reclaim` (at least one), ending where every call has its result. */
 export function selectCandidates(candidates: readonly Segment[], reclaim: number): Segment[] {
   let reclaimed = 0;

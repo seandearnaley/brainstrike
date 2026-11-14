@@ -217,6 +217,39 @@ describe('a long run compacts between steps (BST-2531)', () => {
     ]);
   });
 
+  it('summarizes nothing when what it could drop reaches neither the target nor one protect window', async () => {
+    // Six steps (24,070) against 20,000: the trigger is 18,000, the target
+    // 14,000. The protect window keeps steps 1 to 5; step 0 (4,011) is all
+    // that could go, short of the 10,070 to reclaim.
+    const summarize = vi.fn(async () => summary);
+    const turn = longTurn('run-0', 6, 16_000);
+    const { committed, prepared } = await stepCompactions(turn, {
+      inputTokenLimit: 20_000,
+      summarize,
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(committed).toEqual([]);
+    expect(prepared.messages).toEqual(turn.messages);
+    // Overflow recovery is the last resort: it still drops what it can.
+    expect(
+      await overflowCompaction({
+        chain: [turn.run],
+        compactions: [],
+        inputTokenLimit: 20_000,
+        messages: turn.messages,
+      })
+    ).toMatchObject({ through: { runId: 'run-0', stepNumber: 0 } });
+  });
+
+  it('summarizes less than one protect window when that reaches the target', async () => {
+    // Eight steps (32,092) against 35,000: the trigger is 31,500, the target
+    // 24,500. Steps 0 to 2 (12,033) reach the 7,592 to reclaim.
+    const { committed } = await stepCompactions(longTurn('run-0', 8, 16_000), {
+      inputTokenLimit: 35_000,
+    });
+    expect(committed.map((event) => event.through)).toEqual([{ runId: 'run-0', stepNumber: 2 }]);
+  });
+
   it('lets overflow recovery drop the run’s oldest steps when no earlier turn is droppable', async () => {
     const turn = long();
     const event = await overflowCompaction({

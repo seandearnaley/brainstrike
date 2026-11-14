@@ -6,7 +6,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 1: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-1.md"
@@ -18,7 +18,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 2: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-2.md"
@@ -30,7 +30,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 3: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-3.md"
@@ -42,7 +42,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 4: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-4.md"
@@ -54,7 +54,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 5: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-5.md"
@@ -66,7 +66,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 6: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-6.md"
@@ -78,7 +78,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 7: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-7.md"
@@ -90,7 +90,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 8: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-8.md"
@@ -102,7 +102,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 9: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-9.md"
@@ -114,7 +114,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 10: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-10.md"
@@ -126,7 +126,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 11: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-11.md"
@@ -138,7 +138,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 12: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-12.md"
@@ -150,7 +150,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 13: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-13.md"
@@ -162,7 +162,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 14: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-14.md"
@@ -174,7 +174,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 15: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-15.md"
@@ -186,7 +186,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 16: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-16.md"
@@ -198,7 +198,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 17: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-17.md"
@@ -210,7 +210,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 18: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-18.md"
@@ -222,7 +222,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 19: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-19.md"
@@ -234,7 +234,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 20: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-20.md"
@@ -246,7 +246,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 21: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-21.md"
@@ -258,7 +258,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 22: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-22.md"
@@ -270,7 +270,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 23: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-23.md"
@@ -282,7 +282,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 24: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-24.md"
@@ -294,7 +294,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 25: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-25.md"
@@ -306,7 +306,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 26: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-26.md"
@@ -318,7 +318,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 27: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-27.md"
@@ -330,7 +330,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 28: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-28.md"
@@ -342,7 +342,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 29: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-29.md"
@@ -354,7 +354,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 30: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-30.md"
@@ -366,7 +366,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 31: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-31.md"
@@ -378,7 +378,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 32: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-32.md"
@@ -390,7 +390,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 33: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-33.md"
@@ -402,7 +402,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 34: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-34.md"
@@ -414,7 +414,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 35: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-35.md"
@@ -426,7 +426,7 @@
         "content": {
           "$repeat": {
             "text": "- Chapter 36: the courier crosses the harbour at dawn.\n",
-            "times": 180
+            "times": 360
           }
         },
         "path": "notes/chapter-36.md"
@@ -434,5 +434,5 @@
       "toolId": "brainstrike_writeWorkspaceFile"
     }
   ],
-  "summary": "Goal:\nWrite the scene notes for chapters 1 to 36, one file each under notes/.\nState:\nThe notes for the earlier chapters are written.\nDecisions:\nOne line per scene, 180 lines a chapter.\nNext:\nWrite the remaining chapters.\nFiles touched:\nnotes/chapter-1.md and the chapters after it written so far"
+  "summary": "Goal:\nWrite the scene notes for chapters 1 to 36, one file each under notes/.\nState:\nThe notes for the earlier chapters are written.\nDecisions:\nOne line per scene, 360 lines a chapter.\nNext:\nWrite the remaining chapters.\nFiles touched:\nnotes/chapter-1.md and the chapters after it written so far"
 }

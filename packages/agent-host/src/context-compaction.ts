@@ -14,6 +14,7 @@ import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import {
   applyOverlay,
   compactionCandidates,
+  compactionReclaims,
   cutsOf,
   type HostCompactionCuts,
   type Segment,
@@ -370,9 +371,9 @@ export interface HostCompactedContext {
 /**
  * Before each provider request of a run (BST-2531): once the request reaches
  * 90% of its input budget or its compaction cap, whichever is less, commit a
- * compaction of the droppable earlier turns and the run's own older steps,
- * then apply every committed compaction of this branch. Below the trigger
- * nothing is committed.
+ * compaction of the droppable earlier turns and the run's own older steps
+ * when they reclaim enough (`compactionReclaims`), then apply every committed
+ * compaction of this branch. Below the trigger nothing is committed.
  *
  * The request is sized by what its provider last reported (`measureHostContext`).
  */
@@ -394,7 +395,13 @@ export async function prepareCompactedContext(
     const candidates = compactionCandidates(turns, cuts);
     const { target, trigger } = deriveContextCompactionThreshold(limit, input.compactionTokenCap);
     const current = candidates.length === 0 ? 0 : await measureBranch(input, turns, cuts);
-    if (candidates.length > 0 && current >= trigger) {
+    // Past the trigger, only a compaction that can reclaim enough is worth its
+    // summary; otherwise the request goes as it is, and a trim says so.
+    if (
+      candidates.length > 0 &&
+      current >= trigger &&
+      compactionReclaims(candidates, current - target)
+    ) {
       const event = await compactionEvent({
         candidates,
         ...(input.classify ? { classify: input.classify } : {}),
