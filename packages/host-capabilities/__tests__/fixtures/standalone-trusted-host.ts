@@ -109,6 +109,15 @@ export async function standaloneHost(
     workspace,
     ...(platformModule ? ['--platform', platformModule] : []),
   ]);
+  /** The thread's log rows from `threads show`; a refused read fails with the CLI's own error. */
+  const threadRows = async (threadId: string) => {
+    const shown = await command(['threads', 'show', '--thread', threadId]);
+    expect(shown, shown.stderr).toMatchObject({ code: 0 });
+    return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(JSON.parse(shown.stdout)).rows;
+  };
   const run = async (model: string) => {
     const result = await command([
       'run',
@@ -124,14 +133,9 @@ export async function standaloneHost(
     if (!identity.success) {
       return { result };
     }
-    const shown = await command(['threads', 'show', '--thread', identity.data.threadId]);
-    const { rows } = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(JSON.parse(shown.stdout));
-    return { result, rows };
+    return { result, rows: await threadRows(identity.data.threadId) };
   };
-  return { command, run, started, workspace };
+  return { command, run, started, threadRows, workspace };
 }
 
 export type StandaloneHost = Awaited<ReturnType<typeof standaloneHost>>;
