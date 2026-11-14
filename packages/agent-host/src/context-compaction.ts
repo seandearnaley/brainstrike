@@ -23,6 +23,7 @@ import {
 } from './compaction-segments.ts';
 import { type HostContextSummary, HostContextSummaryRefusal } from './compaction-summary-call.ts';
 import {
+  estimateHostContext,
   estimateTokens,
   type HostContextRewrites,
   type HostRequestExtras,
@@ -375,6 +376,27 @@ function measureBranch(
 }
 
 /**
+ * What a compaction must reclaim to bring a request measuring `current` to
+ * `target`, in the estimated tokens that size what it can drop (BST-2541): the
+ * excess scaled by the request's estimate over its measured size. A provider
+ * may count a request as more tokens than chars/4 (Anthropic about 1.5 times
+ * read-heavy text); unscaled, the reclaim would ask more than the droppable
+ * steps' estimate can show, and the request would run on past the trigger.
+ */
+async function estimatedReclaim(
+  input: CompactionBounds,
+  turns: readonly Turn[],
+  cuts: HostCompactionCuts,
+  { current, target }: { readonly current: number; readonly target: number }
+): Promise<number> {
+  const estimated = await estimateHostContext({
+    estimate: () => estimateTokens(applyOverlay(turns, cuts)),
+    readRequestExtras: input.readRequestExtras,
+  });
+  return (current - target) * (estimated / current);
+}
+
+/**
  * Deterministic overflow recovery: after the provider reported a context
  * overflow, drop the oldest droppable turns and steps toward the target (at
  * least one). Undefined when nothing is droppable or no input budget is
@@ -450,17 +472,17 @@ export async function prepareCompactedContext(
     const current = candidates.length === 0 ? 0 : await measureBranch(input, turns, branch.cuts);
     // Past the trigger, only a compaction that can reclaim enough is worth its
     // summary; otherwise the request goes as it is, and a trim says so.
-    if (
-      candidates.length > 0 &&
-      current >= trigger &&
-      compactionReclaims(candidates, current - target)
-    ) {
+    const reclaim =
+      candidates.length > 0 && current >= trigger
+        ? await estimatedReclaim(input, turns, branch.cuts, { current, target })
+        : undefined;
+    if (reclaim !== undefined && compactionReclaims(candidates, reclaim)) {
       const event = await compactionEvent({
         ...branch,
         candidates,
         ...(input.classify ? { classify: input.classify } : {}),
         context: withNote(branch.current, applyOverlay(turns, branch.cuts)),
-        reclaim: current - target,
+        reclaim,
         run,
         signal: input.signal,
         summarize: input.summarize,

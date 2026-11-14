@@ -324,6 +324,35 @@ describe('a long run compacts between steps (BST-2531)', () => {
     ]);
   });
 
+  it('compacts at the trigger when the provider counts the request as more tokens than the estimate (BST-2541)', async () => {
+    // Seventeen steps of 2,011 estimated tokens (34,191 with the question) and 5,600 tokens of
+    // instructions against 60,000: the trigger is 54,000, the target 42,000. The provider counted
+    // the request before step 16 as 55,370, about 1.5 times the estimate as Anthropic counts
+    // read-heavy text, so the next request measures 57,381 and must lose 15,381 of the provider's
+    // tokens: 10,666 of the estimate's (57,381 is 39,791 estimated). The protect window keeps
+    // steps 7 to 16; steps 0 to 6 (14,077) can go, which a 15,381 reclaim would wait for.
+    const compact = (summarize: Input['summarize']) => {
+      const turn = longTurn('run-0', 17, 8000);
+      turn.run.reportedContext = { step: { after: 33, rewritten: [], tokens: 55_370 } };
+      return stepCompactions(turn, {
+        inputTokenLimit: 60_000,
+        readRequestExtras: async () => ({ instructions: 'i'.repeat(22_400), tools: {} }),
+        summarize,
+      });
+    };
+    const summarized = await compact(async () => summary);
+    expect(summarized.committed.map(({ kind, through }) => ({ kind, through }))).toEqual([
+      { kind: 'agentic', through: { runId: 'run-0', stepNumber: 6 } },
+    ]);
+    // Without a summary, steps 0 to 5 (12,066) reach the 10,666.
+    const dropped = await compact(async () => {
+      throw new Error('provider unavailable');
+    });
+    expect(dropped.committed.map(({ kind, through }) => ({ kind, through }))).toEqual([
+      { kind: 'deterministic', through: { runId: 'run-0', stepNumber: 5 } },
+    ]);
+  });
+
   it('counts a kept step as nothing to reclaim', async () => {
     // As above, eight steps against 35,000 reclaim with steps 0 to 2; with 0 and 1 loading
     // skills only step 2 (4,011) could go, short of both the 7,592 and one protect window.

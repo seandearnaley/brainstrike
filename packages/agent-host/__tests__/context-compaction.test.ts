@@ -362,10 +362,12 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
       });
     // Uncapped, 90% of the budget (851,314) is far off.
     expect((await compact(undefined)).committed).toEqual([]);
-    // Toward 155,556 is 54,450: the three oldest turns; 70% of the cap (140,000) would take four.
+    // Toward 155,556 is 54,450 of the provider's tokens: 36,311 of the estimate's (210,006 measured
+    // is 140,045 estimated, BST-2541), the two oldest turns; 70% of the cap (140,000) would take
+    // three.
     const { committed } = await compact(CAP);
     expect(committed.map((event) => [event.kind, event.compactedRunIds])).toEqual([
-      ['deterministic', ['run-0', 'run-1', 'run-2']],
+      ['deterministic', ['run-0', 'run-1']],
     ]);
   });
 

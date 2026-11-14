@@ -152,14 +152,23 @@ function freedSince(
   );
 }
 
+/** The chars/4 estimate of a request: `estimate` (its messages) with the run's instructions and tool definitions. */
+export async function estimateHostContext(input: {
+  readonly estimate: () => number;
+  readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
+}): Promise<number> {
+  const extras = await input.readRequestExtras?.();
+  return input.estimate() + (extras ? await estimateExtras(extras) : 0);
+}
+
 /**
  * The size of the thread's next request, in this order: the provider's input
  * tokens on the branch's latest step that reported them; else the host's own
  * count of its latest prepared request — each less what tool-output rewrites
  * freed from that request since, plus the chars/4 estimate of what the branch
  * committed after it (that step's output and tool results, the new user
- * message); else `estimate` with the run's instructions and tool definitions.
- * A reported count already holds the instructions and tools.
+ * message); else the request's estimate (`estimateHostContext`). A reported
+ * count already holds the instructions and tools.
  */
 export async function measureHostContext(
   input: HostContextRewrites & {
@@ -179,6 +188,5 @@ export async function measureHostContext(
       estimateTokens(input.messages.slice(report.after))
     );
   }
-  const extras = await input.readRequestExtras?.();
-  return input.estimate() + (extras ? await estimateExtras(extras) : 0);
+  return await estimateHostContext(input);
 }
