@@ -21,6 +21,7 @@ import {
 } from './file-watch-connection.ts';
 import { bindHostGitWorkspaceMethods } from './git-workspace-connection.ts';
 import { bindHostHookTrustMethods } from './hook-trust.ts';
+import { rebindLocatedRoot } from './locate-rebinding.ts';
 import { bindHostMcpContentMethods } from './mcp-content-connection.ts';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.ts';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.ts';
@@ -341,7 +342,9 @@ export function bindHostConnection(
   disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
   disposables.push(bindHostTerminalMethods(handle, connection, terminals, origin));
   bindHostFileReadMethods(handle, fileReads, origin);
-  bindHostRootRegistryMethods(handle, rootRegistry, origin);
+  bindHostRootRegistryMethods(handle, rootRegistry, origin, (root) =>
+    rebindLocatedRoot(core, root)
+  );
   disposables.push(bindHostFileWatchMethods(handle, connection, fileWatches, origin));
   bindHostFileSearchMethods(handle, connection, fileSearch, origin);
   bindHostHookTrustMethods(handle, core.store);
