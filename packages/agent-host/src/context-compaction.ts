@@ -404,12 +404,17 @@ export async function overflowCompaction(input: CompactionBounds): Promise<Compa
 
 /** A step's prepared request context, and how to read a trim of its request. */
 export interface HostCompactedContext {
+  /**
+   * Whether `messages` opens with the branch's note, which a trim of the
+   * request keeps as it keeps the system text (BST-2532).
+   */
+  readonly leadingNote: boolean;
   /** The branch as the request carries it: the current summary's note first, then its turns. */
   readonly messages: ModelMessage[];
   /**
    * The compaction that records what the provider request left out when it
-   * kept only its `kept` newest user messages; undefined when it left out
-   * nothing a compaction can name.
+   * kept only its `kept` newest user messages of the turns, the note not
+   * among them; undefined when it left out nothing a compaction can name.
    */
   readonly trim: (kept: number) => Promise<Compacted | undefined>;
 }
@@ -466,6 +471,7 @@ export async function prepareCompactedContext(
   }
   const branch = compactionBranch(input, compactions);
   return {
+    leadingNote: branch.current !== undefined,
     messages: withNote(branch.current, applyOverlay(turns, branch.cuts)),
     trim: async (kept) => {
       const dropped = trimmedSegments(turns, branch.cuts, kept);

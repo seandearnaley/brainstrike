@@ -629,7 +629,7 @@ async function runHostSdkAttempt(
         request?.prepare(
           hostProviderHistory(rows, { runId: run.id, threadId: run.threadId }),
           committedRewrites(rows),
-          context.trim
+          context
         );
         return await hostStepRequest(
           ports,

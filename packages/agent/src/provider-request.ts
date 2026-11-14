@@ -68,6 +68,12 @@ export interface ProviderRequestContext {
   /** Replay provenance for canonical eligibility and signed-reasoning rules. */
   readonly history?: readonly MastraDBMessage[];
   readonly inputTokenLimit?: number;
+  /**
+   * The prompt's first message after the system text is the host's note (a
+   * compaction's summary, BST-2532): a trim keeps it as it keeps the system
+   * text, and never counts it as left out.
+   */
+  readonly leadingNote?: boolean;
   readonly provider: SupportedProvider;
   readonly rewrites?: ReadonlyMap<string, ToolProjectionRewriteEntry>;
   readonly runtimeData?: Pick<RuntimeData, 'model' | 'modelSettings' | 'providerOptions'>;
@@ -323,26 +329,39 @@ async function measuredTokens(
 }
 
 /**
- * The most recent part of an over-budget conversation that fits, with every
- * system message. It starts at a user turn: providers require one first, and
- * a user turn never splits a tool call from its results. The request already
- * starts at its first user turn (its boundaries are asserted) and its
- * accounting found it over budget, so that whole prompt is not measured
- * again. Each shorter candidate is measured exactly as the request is
- * accounted, and a longer suffix never counts fewer tokens, so a binary search
- * over the later user turns finds the cut.
+ * The most recent part of an over-budget conversation that fits, after every
+ * system message and the caller's leading note. It starts at a user turn:
+ * providers require one first, and a user turn never splits a tool call from
+ * its results. The request already starts at a user message (its boundaries
+ * are asserted) and its accounting found it over budget, so that whole prompt
+ * is not measured again. Each shorter candidate is measured exactly as the
+ * request is accounted, and a longer suffix never counts fewer tokens, so a
+ * binary search over the later user turns finds the cut.
  */
 async function recentPromptWithin(
   prompt: LanguageModelV4Prompt,
   budget: number,
-  measurement: PreparedTokenMeasurement
+  measurement: PreparedTokenMeasurement,
+  leadingNote: boolean
 ): Promise<LanguageModelV4Prompt | undefined> {
-  const starts = prompt.flatMap((message, index) => (message.role === 'user' ? [index] : []));
+  const first = prompt.findIndex((message) => message.role !== 'system');
+  if (leadingNote && prompt[first]?.role !== 'user') {
+    throw new Error('A provider request names a leading note it does not open with');
+  }
+  // What every candidate keeps: the system text and, when the caller names one, the note.
+  const note = leadingNote ? first : -1;
+  // The whole conversation after them starts here, and is known not to fit.
+  const whole = leadingNote ? first + 1 : first;
+  const starts = prompt.flatMap((message, index) =>
+    message.role === 'user' && index > whole ? [index] : []
+  );
   const from = (start: number) =>
-    prompt.filter((message, index) => message.role === 'system' || index >= start);
+    prompt.filter(
+      (message, index) => message.role === 'system' || index === note || index >= start
+    );
   const fits = async (candidate: number) =>
     (await measuredTokens(from(starts[candidate] ?? 0), measurement)) <= budget;
-  let low = 1;
+  let low = 0;
   let high = starts.length;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
@@ -366,7 +385,12 @@ async function limitProviderPrompt(
   limit: number
 ): Promise<LanguageModelV4Prompt> {
   // Reserve the actual outgoing tool surface; memory and projection are already in.
-  const limited = await recentPromptWithin(input, limit - accounting.toolTokens, measurement);
+  const limited = await recentPromptWithin(
+    input,
+    limit - accounting.toolTokens,
+    measurement,
+    context.leadingNote === true
+  );
   if (!limited) {
     throw new ProviderRequestContextOverflowError(accounting, limit);
   }
