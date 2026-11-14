@@ -128,7 +128,7 @@ import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChatGptSignInIpcHandlers } from './ipc-chatgpt-sign-in';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
-import { pickWorkspaceFolder } from './ipc-domains/file-system-ipc';
+import { isE2eTestMode, pickWorkspaceFolder } from './ipc-domains/file-system-ipc';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
@@ -168,6 +168,7 @@ import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
 import { trashEveryScratchFolder, trashScratchFolder } from './scratch-folder-trash';
+import { scratchTrashDestination } from './scratch-trash-destination';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { markRendererFirstPaint, readStartupTimeline } from './startup-timeline';
@@ -534,6 +535,14 @@ const profileReset = createDesktopProfileResetOwner({
 // ADR-0015, ADR-0034: asked only on Main's private platform connection to the host it launched.
 const mainWorktreeReset = createMainWorktreeReset();
 
+// ADR-0034: where a scratch folder Main moves to the Trash goes. Test mode's is the folder the
+// E2E harness names, never the system Trash.
+const moveScratchFolderToTrash = scratchTrashDestination({
+  e2e: isE2eTestMode(),
+  env: process.env,
+  systemTrash: (folder) => shell.trashItem(folder),
+});
+
 const handleResetLocal = createDesktopFactoryResetHandler({
   // ADR-0034: the host archives every managed worktree into its repository before either reset
   // deletes the ledger: Factory Reset with its state DB, Clear Database with its rows. A host
@@ -632,7 +641,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   sessionDataPath: app.getPath('sessionData'),
   // ADR-0034: Clear Database deleted every scratch thread's row; their folders go to the Trash.
   trashScratchFolders: () =>
-    trashEveryScratchFolder(app.getPath('userData'), (folder) => shell.trashItem(folder)),
+    trashEveryScratchFolder(app.getPath('userData'), moveScratchFolderToTrash),
   userDataPath: app.getPath('userData'),
 });
 
@@ -1817,7 +1826,7 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     },
     // ADR-0034: a deleted thread's scratch folder goes to the system Trash, from userData only.
     trashScratchFolder: (folder) =>
-      trashScratchFolder(app.getPath('userData'), folder, (trashed) => shell.trashItem(trashed)),
+      trashScratchFolder(app.getPath('userData'), folder, moveScratchFolderToTrash),
     workspaceRootsChanged: onWorkspaceRootsChanged,
     worktreeReset: mainWorktreeReset,
   });
