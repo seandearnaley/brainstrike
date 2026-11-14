@@ -1,8 +1,8 @@
 // @vitest-environment node
 // ADR-0034 decision 7: the idle worktrees the cap archived after a worktree
 // was made for this thread are named in its transcript, with how to get them back.
-// BST-2504: so are the worktrees it made whose branches add nothing the default
-// branch lacks.
+// BST-2504: so are the worktrees it made whose branches merging into the default
+// branch would change nothing.
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { expect, it } from 'vitest';
 import { isAlwaysVisibleRunEvent } from '../assistant-run-event-derivation';
@@ -94,13 +94,15 @@ it('shows an archive committed with no reason as the idle cap’s', () => {
 
 const MERGED = { defaultBranch: 'origin/main', reason: 'merged' };
 
-it('says its branch added nothing new, what was kept and deleted, and how to restore it', () => {
+// BST-2518: not "adds nothing main doesn't have", which a merge main then reverted makes untrue,
+// and nothing on uncommitted changes, which a worktree archived on merge never has.
+it('says merging its branch would change nothing, what was kept and deleted, and how to restore it', () => {
   const [notice] = notices([BADGER], MERGED);
 
   expect(notice).toMatchObject({
     detail:
-      'The branch bs/swift-badger adds nothing that origin/main doesn’t already have, so its worktree swift-badger was archived. Its uncommitted changes are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore it, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.',
-    label: 'Archived worktree swift-badger, whose branch adds nothing new',
+      'Merging the branch bs/swift-badger into origin/main would change nothing, so its worktree swift-badger was archived. Its commits stay on its branch and in its archive snapshot (refs/brainstrike/worktree-archive/wt-1), and only files git ignores, such as installed dependencies, were deleted. To restore it, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.',
+    label: 'Archived worktree swift-badger: merging its branch would change nothing',
     metadata: { defaultBranch: 'origin/main', reason: 'merged', worktrees: [BADGER] },
     runId,
     status: 'info',
@@ -109,7 +111,7 @@ it('says its branch added nothing new, what was kept and deleted, and how to res
   expect(isAlwaysVisibleRunEvent(notice)).toBe(true);
 });
 
-it('names each worktree with its branch when several branches added nothing new', () => {
+it('names each worktree with its branch when merging several branches would change nothing', () => {
   const [notice] = notices(
     [
       BADGER,
@@ -123,9 +125,9 @@ it('names each worktree with its branch when several branches added nothing new'
     MERGED
   );
 
-  expect(notice?.label).toBe('Archived 2 worktrees whose branches add nothing new');
+  expect(notice?.label).toBe('Archived 2 worktrees: merging their branches would change nothing');
   expect(notice?.detail).toBe(
-    'The branches of these worktrees add nothing that origin/main doesn’t already have, so they were archived: swift-badger (branch bs/swift-badger), calm-otter (branch bs/calm-otter). The uncommitted changes of each are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1, refs/brainstrike/worktree-archive/wt-2), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore one, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.'
+    'Merging the branches of these worktrees into origin/main would change nothing, so they were archived: swift-badger (branch bs/swift-badger), calm-otter (branch bs/calm-otter). The commits of each stay on its branch and in its archive snapshot (refs/brainstrike/worktree-archive/wt-1, refs/brainstrike/worktree-archive/wt-2), and only files git ignores, such as installed dependencies, were deleted. To restore one, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.'
   );
 });
 

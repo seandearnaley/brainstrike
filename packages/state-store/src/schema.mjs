@@ -25,14 +25,17 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 // since SQLite cannot widen its CHECK in place.
 // Version 18 adds `projects.name` (project-schema.mjs), the name the person gives a project. Every project keeps its
 // row and starts unnamed.
+// Version 19 adds `brainstrike_worktrees.base_commit` (worktree-ledger-domain.mjs), the commit a managed worktree was
+// made or adopted at. Every worktree keeps its row, and one recorded before it has none.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
 import { PROJECT_NAME_UPGRADE, PROJECT_SCHEMA } from './project-schema.mjs';
 import { SCRATCH_FOLDER_UPGRADE, WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
+import { WORKTREE_BASE_COMMIT_UPGRADE } from './worktree-ledger-domain.mjs';
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -85,6 +88,7 @@ export const UPGRADES = [
   PROJECT_SCHEMA,
   SCRATCH_FOLDER_UPGRADE,
   PROJECT_NAME_UPGRADE,
+  WORKTREE_BASE_COMMIT_UPGRADE,
 ];
 
 /**

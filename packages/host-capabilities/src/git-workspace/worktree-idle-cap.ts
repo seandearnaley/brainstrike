@@ -55,6 +55,11 @@ export interface IdleWorktreeCapDeps {
    * made a merged worktree that it was archived.
    */
   readonly publish: (archive: HostIdleWorktreeArchive) => void;
+  /**
+   * The commit the ledger recorded as a worktree's at its creation, for archive on merge, which
+   * takes a worktree only once its branch has moved from it (BST-2518).
+   */
+  readonly readBaseCommit: (worktreeId: string) => Promise<string | null>;
   /** Every recorded folder, closed ones too: a binding names its folders by root id. */
   readonly readRoots: () => Promise<
     readonly { readonly canonicalPath: string; readonly id: string; readonly path: string }[]

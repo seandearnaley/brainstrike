@@ -252,14 +252,21 @@ interface ArchiveNoticeAddress {
 
 /**
  * What every archive notice ends with, whatever archived the worktrees: what the archive kept,
- * that it deleted the files git ignores, and where the person restores one.
+ * that it deleted the files git ignores, and where the person restores one. The cap may archive
+ * uncommitted changes; archive on merge never does (BST-2518), so its notice names commits alone.
  */
-function archiveKeptAndRestore(worktrees: ArchivedWorktrees): string {
+function archiveKeptAndRestore(worktrees: ArchivedWorktrees, kept: 'changes' | 'commits'): string {
   const only = worktrees.length === 1;
   const snapshots = worktrees.map(({ snapshotRef }) => snapshotRef).join(', ');
-  return `${
-    only ? 'Its uncommitted changes are' : 'The uncommitted changes of each are'
-  } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore ${
+  const keptHow =
+    kept === 'changes'
+      ? `${
+          only ? 'Its uncommitted changes are' : 'The uncommitted changes of each are'
+        } kept in its archive snapshot (${snapshots}), its commits stay on its branch,`
+      : `${
+          only ? 'Its commits stay' : 'The commits of each stay'
+        } on its branch and in its archive snapshot (${snapshots}),`;
+  return `${keptHow} and only files git ignores, such as installed dependencies, were deleted. To restore ${
     only ? 'it' : 'one'
   }, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.`;
 }
@@ -285,7 +292,7 @@ function idleCapArchiveNotice(
   return {
     detail: `This repository had more than ${limit} worktrees that no thread is using, so the oldest ${
       only ? 'was' : 'were'
-    } archived: ${named}. ${archiveKeptAndRestore(worktrees)}`,
+    } archived: ${named}. ${archiveKeptAndRestore(worktrees, 'changes')}`,
     id: notice.id,
     kind: 'worktree.archived',
     label: only
@@ -299,8 +306,10 @@ function idleCapArchiveNotice(
 }
 
 /**
- * The worktrees this thread made whose branches add nothing the default branch lacks. It does
- * not say "merged": a commit and its own revert add nothing either.
+ * The worktrees this thread made whose branches merging into the default branch would change
+ * nothing. It says only that: not "merged", since a commit and its own revert add nothing either,
+ * nor "adds nothing the default branch doesn't have", which a merge the default branch then
+ * reverted makes untrue (BST-2518).
  */
 function mergedArchiveNotice(
   event: Readonly<Record<string, unknown>>,
@@ -316,17 +325,17 @@ function mergedArchiveNotice(
     return { branch, name };
   });
   const archived = only
-    ? `The branch ${only.branch} adds nothing that ${defaultBranch} doesn’t already have, so its worktree ${only.name} was archived.`
-    : `The branches of these worktrees add nothing that ${defaultBranch} doesn’t already have, so they were archived: ${named
+    ? `Merging the branch ${only.branch} into ${defaultBranch} would change nothing, so its worktree ${only.name} was archived.`
+    : `Merging the branches of these worktrees into ${defaultBranch} would change nothing, so they were archived: ${named
         .map(({ branch, name }) => `${name} (branch ${branch})`)
         .join(', ')}.`;
   return {
-    detail: `${archived} ${archiveKeptAndRestore(worktrees)}`,
+    detail: `${archived} ${archiveKeptAndRestore(worktrees, 'commits')}`,
     id: notice.id,
     kind: 'worktree.archived',
     label: only
-      ? `Archived worktree ${only.name}, whose branch adds nothing new`
-      : `Archived ${worktrees.length} worktrees whose branches add nothing new`,
+      ? `Archived worktree ${only.name}: merging its branch would change nothing`
+      : `Archived ${worktrees.length} worktrees: merging their branches would change nothing`,
     metadata: { defaultBranch, reason: 'merged', worktrees },
     runId: notice.runId,
     status: 'info',

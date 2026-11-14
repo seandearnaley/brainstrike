@@ -28,6 +28,9 @@ export const IDENTITY = [
   'user.name=BrainStrike Test',
 ];
 
+/** The worktrees a test checks are made for `thread-2`'s run unless it says otherwise. */
+export const MADE_BY_THREAD_2 = { runId: 'run-2', threadId: 'thread-2' } as const;
+
 /** What a test reads and changes; reset before each test. */
 interface MergedArchiveState {
   /** Runs as the pass asks the service to archive a worktree, before the archive's turn. */
@@ -83,6 +86,7 @@ export function mergedArchiveHarness() {
       publish: (archive) => {
         state.told.push(archive);
       },
+      readBaseCommit: (worktreeId) => ledger.baseCommit(worktreeId),
       readRoots: async () => [],
       readThreads: async () => state.threads,
       run: (params) => state.run(params),
@@ -112,16 +116,14 @@ export function mergedArchiveHarness() {
       }
     );
 
-    /** A worktree on `bs/<name>` from `main`, made for `thread-2`'s run by default. */
+    /** A worktree on `bs/<name>` from `baseRef` (`main`), made for `thread-2`'s run by default. */
     async function make(
       name: string,
-      provenance: Pick<WorktreeCreateParams, 'runId' | 'threadId'> = {
-        runId: 'run-2',
-        threadId: 'thread-2',
-      }
+      provenance: Pick<WorktreeCreateParams, 'runId' | 'threadId'> = MADE_BY_THREAD_2,
+      baseRef = 'main'
     ): Promise<ManagedWorktreeRow> {
       const created = await service.create({
-        baseRef: 'main',
+        baseRef,
         branch: { name: `bs/${name}` },
         createdBy: 'agent',
         name,
@@ -147,6 +149,13 @@ export function mergedArchiveHarness() {
   /** The person fetched: the local view of `origin`'s default branch is `main`. */
   function fetchMain(): void {
     git(state.repo, ['update-ref', 'refs/remotes/origin/main', 'refs/heads/main']);
+  }
+
+  /** A branch `feat` off `main` with one commit of its own; the checkout stays on `main`. */
+  function featureBranch(): void {
+    git(state.repo, ['checkout', '--quiet', '-b', 'feat']);
+    commit(state.repo, 'feature.ts', 'export const feature = 1;\n', 'feature work');
+    git(state.repo, ['checkout', '--quiet', 'main']);
   }
 
   /** A worktree whose branch has a commit of its own, squash-merged into `main` and fetched. */
@@ -208,6 +217,7 @@ export function mergedArchiveHarness() {
     commit,
     expectArchived,
     expectKept,
+    featureBranch,
     fetchMain,
     host,
     mergedNotice,

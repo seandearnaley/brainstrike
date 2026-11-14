@@ -104,6 +104,7 @@ test('the standalone host refuses to archive the worktree it was launched on', {
         row: {
           archivedAt: null,
           archiveSnapshotRef: null,
+          baseCommit: 'a'.repeat(40),
           baseRef: 'main',
           branch: 'launch-2386',
           createdAt: new Date().toISOString(),

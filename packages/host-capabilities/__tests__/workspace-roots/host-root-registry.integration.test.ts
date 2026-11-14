@@ -568,6 +568,7 @@ describe('host root registry', () => {
       row: {
         archivedAt: null,
         archiveSnapshotRef: null,
+        baseCommit: 'a'.repeat(40),
         baseRef: 'a'.repeat(40),
         branch: 'adopted',
         createdAt: '2026-11-12T00:00:00.000Z',
