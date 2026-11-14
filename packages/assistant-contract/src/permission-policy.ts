@@ -36,12 +36,36 @@ export function isAccessMode(value: unknown): value is AccessMode {
 /** The auto-review model target that resolves to the chat provider's quick model. */
 export const AUTO_REVIEW_MODEL_AUTO = 'auto';
 
+/**
+ * Each chat provider's quick models, in preference order: the cheap, fast
+ * models auto access mode's reviewer runs on.
+ */
+const QUICK_MODEL_CANDIDATES_BY_CHAT_PROVIDER: Readonly<Record<string, readonly string[]>> = {
+  anthropic: ['anthropic/claude-haiku-4-5'],
+  google: ['google/gemini-2.5-flash'],
+  openai: ['openai/gpt-5.4-mini'],
+  openrouter: [
+    'openrouter/google/gemini-2.5-flash',
+    'openrouter/google/gemini-3.5-flash-lite',
+    'openrouter/deepseek/deepseek-v4-flash',
+  ],
+};
+
+/**
+ * The chat provider's preferred quick model as a `provider/model` target, or
+ * undefined when it has none. It never names another provider: the reviewer
+ * only sends the conversation to the party already receiving it.
+ */
+export function resolveQuickModelTarget(chatProvider: string): string | undefined {
+  return QUICK_MODEL_CANDIDATES_BY_CHAT_PROVIDER[chatProvider]?.[0];
+}
+
 /** The host's refusal of a saved policy in a shape it cannot read, such as an older build's. */
 export const PERMISSION_POLICY_UNREADABLE_CODE = 'permissions.policy-unreadable';
 
 /**
  * Auto access mode's reviewer: `model` is {@link AUTO_REVIEW_MODEL_AUTO} or a
- * `provider/model` target, as the observational-memory model target is written.
+ * `provider/model` target.
  */
 export interface AutoReviewSettings {
   readonly model: string;

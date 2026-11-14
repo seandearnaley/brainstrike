@@ -10,7 +10,7 @@ task touches.
 | Working on | Contract |
 | --- | --- |
 | Run admission, streaming and Stop | [Runtime](assistant-runtime.md) |
-| Logs, hydration and memory | [Persistence](assistant-persistence.md) |
+| Logs, hydration and accounting | [Persistence](assistant-persistence.md) |
 | Providers, credentials and MCP | [Providers](assistant-providers.md), [provider cassettes](provider-cassettes.md) |
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
 | Agent eval tasks | [Evals](agent-evals.md) |

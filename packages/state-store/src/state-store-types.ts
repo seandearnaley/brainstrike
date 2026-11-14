@@ -60,8 +60,6 @@ export interface StateStoreOptions extends LockOptions {
   readonly hooks?: StateStoreHooks;
   /** Required by purge, thread delete and the replay of an interrupted purge. */
   readonly indexer?: IndexerPort;
-  /** Trusted host composition only; never supplied in a client memory request. */
-  readonly memoryCalculatorModule?: string;
   readonly onSyncSpan?: (span: SyncSpan) => void;
   readonly onWriteSpan?: (span: WriteSpan) => void;
   readonly startup?: StateStoreStartupOwner;

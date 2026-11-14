@@ -4,7 +4,6 @@ import type {
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
 import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
-import type { RuntimeAssistantMemorySettings } from '@brainstrike/assistant-contract/memory-settings';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
@@ -13,7 +12,6 @@ import type {
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
-import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { McpConfig } from './mcp/config.ts';
 import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request.ts';
@@ -103,12 +101,13 @@ export interface AssistantUiMessage {
 
 /**
  * Agent runtime data. Extends the dependency-light `assistant-contract`
- * `RuntimeData` (the canonical wire/UI contract) and overrides only the two
- * fields that bind to runtime libraries, plus server-only fields. The
+ * `RuntimeData` (the canonical wire/UI contract) and overrides only the
+ * field that binds to a runtime library (`providerOptions`), plus server-only
+ * fields. The
  * shared fields, including `provider`, live in the contract; this is what
  * removes the old "keep the two declarations in sync" drift hazard.
  */
-export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
+export interface RuntimeData extends Omit<ContractRuntimeData, 'providerOptions'> {
   /**
    * Server-validated assistant-ui message id for this response. The runtime
    * uses it as Mastra's first generated assistant id so persisted content,
@@ -126,13 +125,6 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
   /** Mastra agent tools registry. Agent-only. */
   /** MCP server configuration. Agent-only. */
   mcpConfig?: McpConfig;
-  /**
-   * Mastra memory context. Agent keeps the Mastra-bound `memoryOptions`
-   * (`AgentMemoryOption['options']`) — it intentionally diverges from the
-   * contract's dependency-free mirror, so the contract package stays free of the
-   * Mastra dependency. Do NOT move this to assistant-contract.
-   */
-  memory?: RuntimeMemoryContext;
   /**
    * Serializable permission posture + caller-provided tool risk classification.
    * When present, the runtime gates the agent's tool map by the policy BEFORE
@@ -218,14 +210,6 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * the main-process skills scan). Agent-only — mirrors `hookRunner`.
    */
   workspaceSkills?: WorkspaceSkills;
-}
-
-interface RuntimeMemoryContext {
-  memoryOptions?: AgentMemoryOption['options'];
-  memorySettings?: RuntimeAssistantMemorySettings;
-  resourceId: string;
-  runId?: string;
-  threadId: string;
 }
 
 export type { GoogleThinkingLevel, OpenAiReasoningEffort, OpenAiReasoningSummary };

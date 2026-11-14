@@ -426,29 +426,14 @@ describe('assistant thread surface', () => {
     vi.useRealTimers();
   });
 
-  // `capabilityNotice` must not live in `aui-thread-viewport`: that element
-  // scrolls, and a long thread opens pinned to its newest message, so a notice
-  // placed there is off-screen exactly when the composer is usable. Asserting
-  // the ANCESTOR, not just the text, is the point — the first version of this
-  // feature rendered the right words in the wrong container.
-  it('keeps a capability notice out of the scrolling transcript', () => {
-    render(<Panel {...baseProps} capabilityNotice="Memory is unavailable here." />);
-
-    const notice = screen.getByTestId('assistant-capability-notice');
-    expect(notice).toHaveTextContent('Memory is unavailable here.');
-    expect(notice.closest('[data-testid="assistant-composer-shell"]')).not.toBeNull();
-    expect(notice.closest('[data-testid="assistant-ui-viewport"]')).toBeNull();
-  });
-
-  // The two channels are independent. `disabledReason` keeps its place above
-  // the transcript even with no `disabled`, because a caller may set it alone
-  // and still mean blocked — committed-assistant-conversation.tsx does that for
-  // host-unavailable, and the reading-position browser test depends on the
-  // notice landing inside the viewport so scroll anchoring can hold a reader.
-  it('leaves a disabled reason above the transcript, with no capability notice', () => {
+  // `disabledReason` keeps its place above the transcript even with no
+  // `disabled`, because a caller may set it alone and still mean blocked —
+  // committed-assistant-conversation.tsx does that for host-unavailable, and
+  // the reading-position browser test depends on the notice landing inside
+  // the viewport so scroll anchoring can hold a reader.
+  it('leaves a disabled reason above the transcript', () => {
     render(<Panel {...baseProps} disabledReason="The agent host is unavailable." />);
 
-    expect(screen.queryByTestId('assistant-capability-notice')).toBeNull();
     const reason = screen.getByText('The agent host is unavailable.');
     expect(reason.closest('[data-testid="assistant-ui-viewport"]')).not.toBeNull();
   });
@@ -566,7 +551,7 @@ describe('assistant thread surface', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('hides background run-event rows by default (memory/context bookkeeping)', () => {
+  it('hides background run-event rows by default (context bookkeeping)', () => {
     render(<Panel {...baseProps} onModelChange={() => {}} />);
 
     const dataUi = useAssistantDataUIMock.mock.calls
@@ -582,8 +567,8 @@ describe('assistant thread surface', () => {
       <RunEventPart
         data={{
           id: 'evt-1',
-          kind: 'memory.reflection.completed',
-          label: 'Reflected memory',
+          kind: 'run.step.finished',
+          label: 'Step finished',
           status: 'completed',
           timestamp: '2026-06-16T10:00:00.000Z',
         }}
@@ -1278,14 +1263,14 @@ describe('assistant thread surface', () => {
     });
   });
 
-  it('updates agent context and memory controls', () => {
+  it('updates agent context controls', () => {
     const onSettingsChange = vi.fn();
 
     render(
       <ProviderSettingsPanel
         onSettingsChange={onSettingsChange}
         providerId="openai"
-        settings={{ memoryLastMessages: 40, workingMemoryEnabled: true }}
+        settings={{}}
       />
     );
 
@@ -1296,14 +1281,6 @@ describe('assistant thread surface', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('openai', {
       agentInputTokenLimit: 64_000,
     });
-
-    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
-    fireEvent.change(memory, { target: { value: '12' } });
-    fireEvent.blur(memory);
-    expect(onSettingsChange).toHaveBeenCalledWith('openai', { memoryLastMessages: 12 });
-
-    fireEvent.click(screen.getByRole('switch', { name: 'Enable working memory' }));
-    expect(onSettingsChange).toHaveBeenCalledWith('openai', { workingMemoryEnabled: false });
   });
 
   it('emits unset updates when token and step limit toggles are disabled', () => {
@@ -1333,7 +1310,7 @@ describe('assistant thread surface', () => {
     expect(onSettingsChange).toHaveBeenCalledWith('openai', { maxOutputTokens: undefined });
   });
 
-  it('refuses out-of-range provider numeric drafts and clears a blank memory edit', () => {
+  it('refuses out-of-range provider numeric drafts', () => {
     const onSettingsChange = vi.fn();
 
     render(
@@ -1344,7 +1321,6 @@ describe('assistant thread surface', () => {
           agentInputTokenLimit: 32_000,
           agentMaxSteps: 8,
           maxOutputTokens: 1024,
-          memoryLastMessages: 40,
         }}
       />
     );
@@ -1360,13 +1336,6 @@ describe('assistant thread surface', () => {
     fireEvent.blur(limit);
     expect(screen.getAllByRole('alert')).toHaveLength(2);
     expect(onSettingsChange).not.toHaveBeenCalled();
-
-    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
-    fireEvent.change(memory, { target: { value: '' } });
-    fireEvent.blur(memory);
-    expect(onSettingsChange).toHaveBeenCalledWith('OpenRouter', {
-      memoryLastMessages: undefined,
-    });
 
     fireEvent.change(screen.getByRole('slider', { name: 'Max output tokens' }), {
       target: { value: '999999' },

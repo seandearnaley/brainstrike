@@ -175,7 +175,7 @@ test('a long resting headline truncates instead of pushing the step count out of
 
 test('subagent chips keep the header on one line, folding to their colour dots where their names do not fit', () => {
   const callSigns = ['Cedar-a9b0a8', 'Nimbus-54e4c0', 'Iris-35a412'];
-  const resting = 'Updated memory, loaded tool, delegated to Worker';
+  const resting = 'Searched tools, loaded tool, delegated to Worker';
   const summary = {
     counts: { failed: 1, steps: 28 },
     live: 'Working',

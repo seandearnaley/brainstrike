@@ -46,7 +46,7 @@ export type HostAttemptFailure = Pick<HostRunAttempt, 'detail' | 'reason' | 'ref
 function isContextOverflow(cause: unknown): boolean {
   return (
     cause instanceof ProviderRequestContextOverflowError ||
-    // A typed host failure (memory's own model, BST-2202) is no chat provider's evidence.
+    // A typed host failure (BST-2202) is no chat provider's evidence.
     (!(cause instanceof BoundaryFailureError) &&
       isContextOverflowProviderErrorCode(extractProviderRunError(cause).code))
   );

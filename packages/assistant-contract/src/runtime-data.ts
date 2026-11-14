@@ -6,7 +6,6 @@ import {
   type OpenAiReasoningSummary,
 } from '@brainstrike/types';
 import type { AssistantTaskItem } from './assistant-task-list.ts';
-import type { RuntimeAssistantMemorySettings } from './memory-settings.ts';
 import type { SkillsContextRequest } from './skills.ts';
 import type { RuntimeSubagentSettings } from './subagent-settings.ts';
 
@@ -155,8 +154,6 @@ export interface RuntimeWorkspaceRoot {
   rootId: string;
 }
 
-export type RuntimeMemoryOptions = RuntimeJsonObject;
-
 /**
  * Renderer-supplied preference for auto-injecting a mounted root's workspace
  * instructions file (`AGENTS.md`/`AGENT.md`/`CLAUDE.md`) into the assistant's
@@ -192,8 +189,6 @@ export interface SubagentPersonasAvailabilityRequest {
 }
 
 export interface RuntimeMemoryContext {
-  memoryOptions?: RuntimeMemoryOptions;
-  memorySettings?: RuntimeAssistantMemorySettings;
   resourceId: string;
   runId?: string;
   threadId: string;

@@ -12,7 +12,7 @@
       "outcome": "completed",
       "rows": [
         "Found files done",
-        "Updated memory done"
+        "Used updateWorkingMemory failed"
       ],
       "steps": [
         {

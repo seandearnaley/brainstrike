@@ -91,7 +91,6 @@ export function AssistantConversationPanel({
                   <AssistantPanelErrorBoundary>
                     <ApprovalOwnerThreadContext value={ownerThread ?? null}>
                       <ChatThreadUI
-                        capabilityNotice={undefined}
                         disabledReason={undefined}
                         hasGroupedProviders={providerGroups.length > 0}
                         isComposerDisabled={isComposerDisabled}

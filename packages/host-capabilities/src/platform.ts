@@ -27,10 +27,7 @@ import {
   STANDALONE_WORKSPACE_CAPABILITY_ERROR,
 } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
-  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_PERMISSION_POLICIES,
-  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
@@ -41,7 +38,6 @@ import {
   SKILL_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
@@ -581,11 +577,6 @@ export async function createHostPlatform(
       })({
         agentLoop: { inputTokenLimit, maxSteps: DEFAULT_AGENT_MAX_STEPS },
         enabledNativeToolIds: toolIds.native,
-        memoryOptions: {
-          lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-          workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-        },
-        memorySettings: CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
         modelConfiguration: configuration,
         permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
         subagents,
@@ -677,18 +668,6 @@ export async function createHostPlatform(
         // Core commits the hook files this run did not load (`hooks.skipped`).
         hookSkips: skipped,
         maxSteps: DEFAULT_AGENT_MAX_STEPS,
-        memory: {
-          native: {
-            options: {
-              lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-              observationalMemory: false,
-              workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-            },
-          },
-          // Core already commits the final prepared request accounting before this observer.
-          recordPrompt: async () => undefined,
-          resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        },
         // A trusted model's request is shaped as its budgets model's provider shapes it.
         providerRequestContext: {
           inputTokenLimit,

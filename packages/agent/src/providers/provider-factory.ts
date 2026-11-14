@@ -10,19 +10,13 @@ import {
   PROVIDER_DEFAULT_MODELS,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  type IdentifiedModelConfig,
-  type MastraModelConfig,
-  ModelRouterLanguageModel,
-  type OpenAICompatibleConfig,
-} from '@mastra/core/llm';
+import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
 import { resolveBedrockModelId } from './bedrock-model-id.ts';
 import { chatGptPlanModel, chatGptWireModelId } from './chatgpt-plan-model.ts';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content.ts';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching.ts';
 import {
-  apiKeyAuthInput,
   assertExactlyOneAwsCredential,
   assertValidProviderAuthInput,
   bearerApiKeyOnly,
@@ -41,34 +35,6 @@ export type ProviderModelConfiguration =
   | ReturnType<ReturnType<typeof createAmazonBedrock>>
   | LanguageModelV2
   | ModelRouterLanguageModel;
-
-/** Preserve the existing Mastra consumer's vendored SDK declaration boundary. */
-function toMastraModelConfiguration(model: ProviderModelConfiguration): MastraModelConfig {
-  if (
-    'specificationVersion' in model &&
-    model.specificationVersion === 'v2' &&
-    !(model instanceof ModelRouterLanguageModel)
-  ) {
-    // Both represent the public V2 model. Mastra vendors an older mutable JSON
-    // declaration; the current provider permits readonly JSON. No runtime copy.
-    // https://github.com/vercel/ai/tree/main/packages/provider/src/language-model/v2
-    // Remove this declaration bridge when the existing Mastra/provider pins agree.
-    return model as unknown as Extract<MastraModelConfig, { specificationVersion: 'v2' }>;
-  }
-  return model;
-}
-
-/** A model object; Mastra 1.78's `{ model, id }` label wraps one but is not one. */
-export type ConcreteLanguageModel = Exclude<
-  MastraModelConfig,
-  string | OpenAICompatibleConfig | IdentifiedModelConfig
->;
-const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
-  'openai',
-  'anthropic',
-  'google',
-  'openrouter',
-]);
 
 /**
  * Build the AI SDK `create*` settings object from projected auth options,
@@ -259,58 +225,6 @@ export function createProvider(
         detail: `Unsupported provider: ${provider}`,
       });
   }
-}
-
-/**
- * Resolve any supported provider configuration into a concrete language model.
- *
- * Mastra's agent runtime accepts model-router descriptors, but persistent
- * memory must never receive one: a descriptor can defer credential lookup back
- * to Mastra instead of using Brainstrike's explicit env/keychain resolution.
- */
-export function createLanguageModelProvider(
-  provider: SupportedProvider | string,
-  apiKey?: string,
-  model?: string
-): ConcreteLanguageModel {
-  if (
-    !(isSupportedProvider(provider) && PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS.has(provider))
-  ) {
-    throw createMastraAgentError('mastra_agent_unsupported_provider', {
-      context: { provider },
-      detail: `Persistent memory does not support provider: ${provider}`,
-    });
-  }
-  if (!apiKey?.trim()) {
-    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-      context: { provider },
-      detail: `Persistent memory provider "${provider}" requires an explicit API key.`,
-    });
-  }
-
-  // Persistent memory stays on the resolved-string surface; the ONE
-  // string→union adapter wraps it for the factory seam (BST-1352).
-  const modelConfig = toMastraModelConfiguration(
-    createProvider(provider, apiKeyAuthInput(apiKey), model)
-  );
-  if (isConcreteLanguageModel(modelConfig)) {
-    return modelConfig;
-  }
-  throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-    context: { provider },
-    detail: `Persistent memory provider "${provider}" did not produce a concrete language model.`,
-  });
-}
-
-function isConcreteLanguageModel(
-  modelConfig: MastraModelConfig
-): modelConfig is ConcreteLanguageModel {
-  return (
-    typeof modelConfig === 'object' &&
-    modelConfig !== null &&
-    'doGenerate' in modelConfig &&
-    'doStream' in modelConfig
-  );
 }
 
 /**

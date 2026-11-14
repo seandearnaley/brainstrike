@@ -5,8 +5,8 @@ const ids = new WeakMap<object, string>();
 
 /**
  * One failure, one reference (BST-2202): every boundary that reports the same
- * failure object (a memory step, the run's attempt outcome and its owner's
- * joined failure) names the same correlation id, so its cause is one lookup.
+ * failure object (the run's attempt outcome and its terminal detail) names the
+ * same correlation id, so its cause is one lookup.
  */
 export function correlationIdFor(cause: unknown): string {
   if (typeof cause !== 'object' || cause === null) {

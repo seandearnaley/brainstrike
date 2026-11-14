@@ -27,7 +27,6 @@
   },
   "exports": {
     "./mcp-content-application-port": "./src/mcp-content-application-port.ts",
-    "./memory-model-targets": "./src/memory-model-targets.ts",
     "./node-workspace-services": "./src/node-workspace-services.ts",
     "./ports": "./src/ports.ts",
     "./provider-credential-projection": "./src/provider-credential-projection.ts",

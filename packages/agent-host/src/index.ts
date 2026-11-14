@@ -10,25 +10,12 @@ export {
   type AgentHostToolBindings,
   createAgentHostToolBindings,
 } from './adapters/canonical-tool-bindings.ts';
-export { committedMemoryTranscript } from './adapters/committed-memory-transcript.ts';
 export { hostToolDiscoveryEnabled } from './adapters/host-tool-discovery.ts';
 export {
   createKeyringNativeBackend,
   type KeyringNativeBackend,
 } from './adapters/keyring-native-worker.ts';
 export { createMcpHostToolAdapter } from './adapters/mcp.ts';
-export {
-  HostMemory,
-  type HostMemoryCapabilities,
-  type HostMemoryIdentity,
-  type HostMemoryStep,
-} from './adapters/memory.ts';
-export { StateStoreMemoryStorage } from './adapters/memory-storage.ts';
-export { type HostObservationSource, hostMemoryModels } from './adapters/observation-state.ts';
-export {
-  StateStoreHostMemory,
-  type StateStoreHostMemoryOptions,
-} from './adapters/state-store-host-memory.ts';
 export { hostChildCallSign } from './child-presentation.ts';
 export {
   type HostCliDefaults,
@@ -42,6 +29,7 @@ export {
   committedRowAddress,
   committedRunIdentity,
 } from './committed-identities.ts';
+export { committedTranscript } from './committed-transcript.ts';
 export { bindHostConnection } from './connection.ts';
 export { HostCore, type HostEventStore } from './core.ts';
 export { readHostRow } from './event-storage.ts';
@@ -77,8 +65,6 @@ export {
 } from './process-entry.ts';
 export {
   createProductionHostPlatform,
-  type HostMemoryPreconditions,
-  type HostMemoryReadiness,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
 } from './production-platform.ts';

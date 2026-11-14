@@ -50,12 +50,6 @@ import {
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.ts';
 import {
-  HostMemoryCycleEventSchema,
-  HostMemoryModelsSchema,
-  HostObservationalMemoryStateSchema,
-  hostUsageEventSchemas,
-} from './protocol-memory.ts';
-import {
   HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
   PERMISSION_POLICY_RESULT_SCHEMAS,
@@ -114,7 +108,6 @@ export * from './protocol-hook-trust.ts';
 export * from './protocol-mcp-content.ts';
 export * from './protocol-mcp-presentation.ts';
 export * from './protocol-mcp-settings.ts';
-export * from './protocol-memory.ts';
 export * from './protocol-permission-policy.ts';
 export * from './protocol-rewind.ts';
 export * from './protocol-search.ts';
@@ -451,16 +444,6 @@ export const HOST_METHOD_SCHEMAS = {
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': Schema.Struct(Thread),
   'thread/list': Schema.Record(Schema.String, Schema.Never),
-  /**
-   * Memory readiness for the thread's next run: the admission `run/start`
-   * makes with these fields, released at once. Nothing is committed.
-   */
-  'thread/memory/read': Schema.Struct({
-    ...Thread,
-    configuration: Schema.optional(Schema.Record(Schema.String, Schema.MutableJson)),
-    modelId: Id,
-    ...PlanMode,
-  }),
   'thread/read': Schema.Struct({ ...Thread, fromSeq: Seq }),
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
@@ -692,17 +675,16 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         delivery: Schema.optional(HostStepDeliverySchema),
         messages: Schema.mutable(Schema.Array(json())),
       }),
-      ...hostUsageEventSchemas(json),
-      HostMemoryCycleEventSchema,
+      /**
+       * A run's model calls outside its steps, each costed under the model it
+       * ran on: the run's thread title and Auto-reviews.
+       */
       Schema.Struct({
-        type: Schema.Literal('memory.observation.withheld'),
+        type: Schema.Literal('model.usage'),
         ...RunFields,
-        reason: Schema.Literal('branched-thread'),
-      }),
-      Schema.Struct({
-        type: Schema.Literal('memory.settlement.failed'),
-        ...RunFields,
-        detail: Schema.String.check(Schema.isMinCodePoints(1)),
+        kind: Schema.Literals(['thread-title', 'auto-review']),
+        modelId: Id,
+        usage: json(),
       }),
       Schema.Struct({
         type: Schema.Literal('provider.request.prepared'),
@@ -1049,20 +1031,6 @@ export const HOST_RESULT_SCHEMAS = {
       )
     ),
   }),
-  // Not ready: the reason `run/start` would fail with; the observation needs an admission.
-  'thread/memory/read': Schema.Union([
-    Schema.Struct({
-      admission: Schema.Struct({ ready: Schema.Literal(true) }),
-      models: Schema.optional(HostMemoryModelsSchema),
-      observational: HostObservationalMemoryStateSchema,
-    }),
-    Schema.Struct({
-      admission: Schema.Struct({
-        ready: Schema.Literal(false),
-        reason: Schema.String.check(Schema.isMinCodePoints(1)),
-      }),
-    }),
-  ]),
   'thread/read': Schema.Struct({ rows: Schema.mutable(Schema.Array(HostLogRowSchema)) }),
   'thread/tree': Schema.Struct({
     /** Every thread delegated beneath it, each parent before its children. */

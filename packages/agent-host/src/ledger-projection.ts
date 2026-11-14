@@ -39,7 +39,7 @@ export const STATUS_BY_OUTCOME: Readonly<
     HostLatestRun['status']
   >
 > = { completed: 'completed', failed: 'failed', interrupted: 'failed', stopped: 'cancelled' };
-/** The AI SDK step usage Core commits on model.step and memory.usage. */
+/** The AI SDK step usage Core commits on model.step and model.usage. */
 const CommittedUsageSchema = Schema.Struct({
   inputTokenDetails: Schema.optional(
     Schema.Struct({
@@ -256,8 +256,8 @@ export function catalogModel(modelId: string): CatalogModel | undefined {
     ? { model: modelId.slice(separator + 2), provider: modelId.slice(0, separator) }
     : undefined;
 }
-/** An observer call's model: the catalog id Core commits it under (BST-1929). */
-export function observerUsageModel(modelId: string): CatalogModel | undefined {
+/** A side call's model: the catalog id Core commits it under (BST-1929). */
+export function sideCallUsageModel(modelId: string): CatalogModel | undefined {
   const committed = catalogModel(modelId);
   if (!committed) {
     warnUncosted(modelId);
@@ -266,16 +266,15 @@ export function observerUsageModel(modelId: string): CatalogModel | undefined {
 }
 const uncostedModelIds = new Set<string>();
 /**
- * An observer call that names no catalog model (a row committed before
- * BST-1929 carries the SDK's own id) cannot be priced or attributed, so cost
- * views leave it out (once per id).
+ * A side call that names no catalog model cannot be priced or attributed, so
+ * cost views leave it out (once per id).
  */
 function warnUncosted(modelId: string): void {
   if (uncostedModelIds.has(modelId)) {
     return;
   }
   uncostedModelIds.add(modelId);
-  logger.warn('Observer usage without a catalog model is not costed', { modelId });
+  logger.warn('Side-call usage without a catalog model is not costed', { modelId });
 }
 /** The run's bound workspace root at Send; null for a run bound to none (unattributed). */
 type RunRoot = Pick<
@@ -312,11 +311,6 @@ interface RunFold {
   unreportedCallCount: number;
 }
 type RunOutcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
-/** The observer's calls are one source each; the observer names its own model. */
-const MEMORY_USAGE_KIND = {
-  observation: 'om-observation',
-  reflection: 'om-reflection',
-} as const satisfies Record<string, AssistantRunUsageKind>;
 /** A streamed chunk's kind; every committed chunk passes here, so the schema is built once. */
 const StreamedChunkSchema = Schema.Struct({ type: Schema.String });
 const ToolCallSchema = Schema.Struct({
@@ -471,15 +465,11 @@ export class ThreadLedgerFold {
         'chat',
         nativeWebSearchCalls(event.messages, event.usage)
       );
-    } else if (event.type === 'memory.usage') {
-      // Memory's own model calls cost under their own model, within the run.
-      const model = observerUsageModel(event.modelId);
-      this.count(run, row, model, event.usage, MEMORY_USAGE_KIND[event.kind]);
     } else if (event.type === 'model.usage') {
       // A side call costs under the model it ran on, which an Auto-review names.
-      this.count(run, row, observerUsageModel(event.modelId), event.usage, event.kind);
+      this.count(run, row, sideCallUsageModel(event.modelId), event.usage, event.kind);
     } else if (event.type === 'context.compacted' && event.usage !== undefined) {
-      // A compaction summarizer's side call, when one ran, costs like Memory's.
+      // A compaction summarizer's side call, when one ran, costs under its own model.
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
       this.count(run, row, model, event.usage, 'compaction-summary');
     } else if (event.type === 'stream.chunk') {
@@ -608,7 +598,7 @@ export class ThreadLedgerFold {
     if (!model) {
       return;
     }
-    // Each call is priced under its own model: an observer's call is not the run's.
+    // Each call is priced under its own model: a side call's is not the run's.
     // Its native searches bill beside its tokens.
     const priced = costOfCall(model, tokens, row.ts);
     const cacheSavingsUsd = priced.cacheSavingsUsd;

@@ -23,7 +23,7 @@
 - No local models: chat and embeddings come from hosted providers.
   - Shared code gates on injected capabilities, not platform guesses (ADR-0008).
   - New durable state joins the existing reset lifecycle (ADR-0015).
-- The host owns the AI SDK run loop. Mastra is a memory library, not another server, permission system or persistence owner (ADRs 0011, 0012, 0017).
+- The host owns the AI SDK run loop and a thread's context; its compaction is the only thing that replaces history. Mastra supplies narrow utilities (tool search, skills, OpenRouter routing), never memory, another server, permission system or persistence owner (ADRs 0011, 0012, 0017, 0039).
   - Keep Node-only dependencies out of browser bundles.
 - Strictest TypeScript settings stay on; never loosen a compiler flag to pass a check.
   - Follow existing React and shared UI conventions.

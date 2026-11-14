@@ -162,7 +162,7 @@ describe('scoreEvalAttempt', () => {
       reasonOf({
         ...completed,
         ...expecting,
-        run: run({ brainstrike_readWorkspaceFile: 1, updateWorkingMemory: 1 }),
+        run: run({ brainstrike_manageTaskList: 1, brainstrike_readWorkspaceFile: 1 }),
       })
     ).toMatch(
       /at least 2 brainstrike_readWorkspaceFile calls in one step; the run made at most 1/u

@@ -145,7 +145,6 @@ export interface AssistantProviderSettings {
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
   maxOutputTokens?: number;
-  memoryLastMessages?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
   /**
@@ -164,7 +163,6 @@ export interface AssistantProviderSettings {
    * escape hatches and win when explicitly set.
    */
   reasoningVisible?: boolean;
-  workingMemoryEnabled?: boolean;
 }
 
 export const assistantProviderSettingKeys = [
@@ -176,11 +174,9 @@ export const assistantProviderSettingKeys = [
   'googleIncludeThoughts',
   'googleThinkingLevel',
   'maxOutputTokens',
-  'memoryLastMessages',
   'reasoningEffort',
   'reasoningSummary',
   'reasoningVisible',
-  'workingMemoryEnabled',
 ] as const satisfies readonly (keyof AssistantProviderSettings)[];
 
 const assertNoMissingAssistantProviderSettingKeys = <_MissingKeys extends never>(): void =>

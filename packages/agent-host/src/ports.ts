@@ -1,4 +1,4 @@
-import type { ProviderRequestAccounting } from '@brainstrike/agent/provider-request';
+import type { ProviderRequestContext } from '@brainstrike/agent/provider-request';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import type {
   ScaledToolResultBudget,
@@ -23,10 +23,6 @@ import type {
 } from '@brainstrike/assistant-contract';
 import type { ChatGptSignInStatus } from '@brainstrike/assistant-contract/chatgpt-sign-in';
 import type { ChildEffort, ChildModelTarget } from '@brainstrike/assistant-contract/child-model';
-import type {
-  AssistantContextBreakdown,
-  PromptToolCallWindow,
-} from '@brainstrike/assistant-contract/context-breakdown';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
@@ -36,7 +32,6 @@ import type {
   FlexibleSchema,
   LanguageModel,
   LanguageModelCallOptions,
-  LanguageModelUsage,
   ModelMessage,
   streamText,
   Tool,
@@ -50,8 +45,6 @@ import type {
   HostEvent,
   HostHookSkip,
   HostLogRow,
-  HostMemoryModels,
-  HostObservationalMemoryState,
   HostParams,
   HostResults,
   HostRewindConflict,
@@ -78,9 +71,6 @@ export type HostProjectionRewrite = Extract<
   HostEvent,
   { type: 'tool.projection.rewritten' }
 >['rewrites'][number];
-
-/** A memory cycle's committed facts, without the run they belong to (BST-2224). */
-export type HostMemoryCycle = Omit<Extract<HostEvent, { type: 'memory.cycle' }>, 'runId' | 'type'>;
 
 /** One committed tool call on a request's branch, with its committed model-facing result. */
 export interface HostToolInvocation {
@@ -234,84 +224,6 @@ export interface HostToolContext {
   /** Existing native/MCP progress is committed by the run-log owner. */
   readonly write?: (chunk: unknown) => Promise<void>;
 }
-export interface HostRunContext {
-  /**
-   * The threads' committed rows that Core's hydration keeps, as Core already
-   * decoded them, threads by id and each by seq: the run's Memory history.
-   */
-  readCommittedRows(threadIds: ReadonlySet<string>): readonly HostLogRow[];
-  /**
-   * One observation or reflection cycle's facts (BST-2224), committed through
-   * HostCore before the run's owner joins, like its spend.
-   */
-  recordMemoryCycle?(cycle: HostMemoryCycle): Promise<void>;
-  /** A typed, committed reason this run received no observational memory. */
-  recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
-  /** These receipts append through HostCore, before publication and terminal join. */
-  recordObserverUsage?(receipt: {
-    readonly kind: 'observation' | 'reflection';
-    readonly modelId: string;
-    readonly usage: LanguageModelUsage;
-  }): Promise<void>;
-  recordProviderRequest?(receipt: {
-    readonly accounting: ProviderRequestAccounting;
-    readonly breakdown: AssistantContextBreakdown;
-    readonly modelId: string;
-    readonly provider: string;
-    readonly toolCallWindow: PromptToolCallWindow;
-  }): Promise<void>;
-  readonly runId: string;
-  readonly signal: AbortSignal;
-  readonly threadId: string;
-  /**
-   * BST-1932: false for a read-only persona's child run, which keeps the
-   * parent's Memory on its own thread but never reads or writes working memory.
-   */
-  readonly workingMemory?: false;
-}
-/** One step's request as the run's Memory selected it. */
-export interface HostPreparedStep {
-  /**
-   * The earlier committed turns (their run ids) whose messages this request
-   * holds, from the branch. Pre-request compaction measures this request, and
-   * only these turns can leave it (ADR-0013).
-   */
-  readonly historyRunIds: ReadonlySet<string>;
-  readonly messages: ModelMessage[];
-  /**
-   * The same step's request reassembled from the committed log after Core
-   * committed a compaction, so the compacted turns leave it. Memory's own step
-   * preparation does not run again.
-   */
-  rebuild(): Promise<HostPreparedStep>;
-  /**
-   * The committed tool-output rewrites the provider request applies to these
-   * messages, so the request is measured as it is sent.
-   */
-  readonly rewrites: ReadonlyMap<string, HostProjectionRewrite>;
-  readonly system?: string;
-}
-/** Fence new work and join every provider, memory, storage and hook tail. */
-export interface HostRunOwner {
-  close(): Promise<void>;
-  /** Native Memory may consume only the step that the host already committed. */
-  commitHostStep?(): Promise<void>;
-  /**
-   * The run's foreground work, joined before its `run.finished`; a
-   * HostRunOwnerFailure is the run's outcome. Background work the owner still
-   * runs (Mastra's buffered observation) joins in `close`, after the run ends.
-   * An owner without it joins its whole `close` before the run ends.
-   */
-  endTurn?(): Promise<void>;
-  /** Enclose the selected concrete model at its final public provider boundary. */
-  prepareHostModel?(model: LanguageModel): LanguageModel;
-  /** Public Memory context selection before the existing provider request boundary. */
-  prepareHostStep?(request: {
-    readonly messages: readonly ModelMessage[];
-    readonly stepNumber: number;
-  }): Promise<HostPreparedStep>;
-}
-
 /** Trusted run configuration; credential resolution stays inside the adapter. */
 export interface HostProviderRequest {
   readonly configuration: Readonly<RuntimeData>;
@@ -465,8 +377,6 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
-  /** The observer this admission's memory uses, for `thread/memory/read`. */
-  readonly memoryModels?: HostMemoryModels;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
@@ -474,13 +384,12 @@ export interface HostRunAdmission {
    * that tool resolves to `allow` at admission; it has no local execute.
    */
   readonly nativeWebSearch?: Tool;
-  openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
   /**
-   * Observational memory as this admission configures it, with the thread's
-   * committed record when it is on. Absent means off.
+   * The provider request boundary (`run-provider-request.ts`) every model call
+   * of the run passes through. Absent, the run's requests go out as prepared.
    */
-  readObservation?(threadId: string): Promise<HostObservationalMemoryState>;
+  readonly providerRequest?: ProviderRequestContext | undefined;
   /**
    * ADR-0028 step 3b: the context a person's message read mid-run calls for
    * (the files it mentions, the skills it activates), read as this admission
@@ -510,8 +419,6 @@ export interface HostRunAdmission {
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */
   readonly unavailableMcpServers?: readonly HostMcpUnavailableServer[];
-  /** BST-1932: a read-only child's admission withholds working memory from its run owner. */
-  readonly workingMemory?: false;
 }
 
 /** The host's single credential writer and token holder. */
@@ -565,10 +472,7 @@ export interface HostRunAdmissionRequest {
   readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
 
-/**
- * What a run would be admitted with, before any run exists: an admission
- * request without its run. thread/memory/read evaluates preconditions on it.
- */
+/** What a run would be admitted with, before any run exists: an admission request without its run. */
 export type HostRunIntentRequest = Omit<HostRunAdmissionRequest, 'runId'>;
 
 /** A configured MCP server whose tools a run proceeds without, and why. */
@@ -1054,19 +958,8 @@ export interface HostPlatform {
   readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority; absent where the host owns no MCP config. */
   readonly mcpSettings?: HostMcpSettingsService;
-  /** Run-scoped construction; cached shared memory must not capture a run signal. */
-  openRun?(context: HostRunContext): Promise<HostRunOwner>;
   /** Provider reads from the host's own store; absent where it owns none. */
   readonly providers?: HostProviderService;
-  /**
-   * thread/memory/read: the admission's pure preconditions for this request
-   * (no acquisition, MCP discovery or model warmup) and the observation they
-   * configure for `threadId`. Absent where the host has no composer.
-   */
-  readMemoryReadiness?(
-    request: HostRunIntentRequest,
-    threadId: string
-  ): Promise<HostResults['thread/memory/read']>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;

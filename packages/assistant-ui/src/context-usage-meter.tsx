@@ -4,7 +4,7 @@
  * One row: an SVG donut ring (context-ring.tsx) + a "used / budget" fraction.
  * The row is a popover trigger that opens, on explicit activation only (click,
  * Enter or Space), the "Context Usage" detail panel (context-usage-popover.tsx)
- * holding the breakdown list, OM stats, and cumulative tokens + cost. Sources
+ * holding the breakdown list and cumulative tokens + cost. Sources
  * usage from the zustand store (exact, post-turn) and falls back to a heuristic
  * estimate when no exact value has been recorded yet.
  *
@@ -46,10 +46,9 @@ interface CumulativeModelUsage {
   readonly provider: string;
 }
 
-/** One source's share of the thread total (BST-953). OM figures are local estimates. */
+/** One source's share of the thread total (BST-953). */
 interface CumulativeSourceUsage {
   readonly costUsd: number | null;
-  readonly estimated: boolean;
   readonly inputTokens: number;
   readonly kind: AssistantRunUsageKind;
   /** Its models, costliest first. */
@@ -61,8 +60,8 @@ interface CumulativeSourceUsage {
  * Durable thread-total usage, resolved upstream (structural mirror of the
  * app-shell resolver's shape — dependency direction app-shell → ui). Distinct
  * from the one-turn-lag context gauge: this is the running captured billing
- * total persisted across reloads, broken down by source (chat / subagents /
- * OM) with cache-class totals and the net caching savings. `cost` is never $0
+ * total persisted across reloads, broken down by source (chat, subagents,
+ * compaction summaries, …) with cache-class totals and the net caching savings. `cost` is never $0
  * for an unavailable price, and captured-only totals are visibly qualified as
  * estimates.
  */
@@ -76,120 +75,6 @@ export interface CumulativeUsageDisplay {
   readonly outputTokens: number;
   readonly totalTokens: number;
 }
-
-/**
- * Resolved observational-memory (OM) state for the active thread. Produced by the
- * app-shell resolver (assistant-om-segment.ts) and rendered as INFORMATIONAL
- * stats inside the context popover — the observation is NOT a budget segment
- * (it is retrievalMode-dependent and, when injected, already counted in chat
- * usage, so summing it into the budget would double-count / false-trip
- * over-budget; see the resolver doc). Each variant is an HONEST state — never a
- * fabricated 0:
- *   chat-only → web (no durable OM persistence); OM stats hidden.
- *   inactive  → OM disabled in settings.
- *   loading   → live query fetching (initial / thread switch); stays quiet.
- *   empty     → no OM row yet (first turn).
- *   error     → malformed OM row / live-query error (strict parse failed upstream).
- *   stats     → active/buffered OM, activation progress, and compaction saved.
- */
-/**
- * Why the Auto observer could not resolve (mirrors the app-shell resolver's
- * unresolved reasons; duplicated literals keep the dependency direction
- * app-shell → ui). Drives ACTIONABLE popover copy — a paused observer must
- * say why and what would unpause it.
- */
-export type OmAwaitingObserverReason =
-  | 'keys-unknown'
-  | 'model-not-eligible'
-  | 'no-backend'
-  | 'no-chat-provider';
-
-/**
- * The OM record's own lifecycle, as the desktop host reports it (BST-2201):
- * Mastra's live flags, when it last observed and buffered (epoch ms, null
- * before the first), its reflection generation and the reflection threshold.
- */
-export interface OmRecordLifecycle {
-  readonly generationCount: number;
-  readonly isBufferingObservation: boolean;
-  readonly isBufferingReflection: boolean;
-  readonly isObserving: boolean;
-  readonly isReflecting: boolean;
-  readonly lastBufferedAtTime: number | null;
-  readonly lastObservedAt: number | null;
-  readonly originType: 'initial' | 'reflection';
-  /** Observation tokens at which the reflector condenses them. */
-  readonly reflectionTokenThreshold: number;
-}
-
-/**
- * The models memory uses (structural mirror of the host's `HostMemoryModels`):
- * the resolved observer's catalog id. Absent: none.
- */
-export interface MemoryModelsDisplay {
-  readonly observer?: string;
-}
-
-/**
- * One committed observation or reflection cycle (structural mirror of the
- * host's `memory.cycle`, BST-2224), with when it committed.
- */
-export interface MemoryCycleDisplay {
-  /** When the cycle committed (epoch ms), where the host reported it. */
-  readonly at?: number;
-  /** Absent when the host did not see the cycle start. */
-  readonly durationMs?: number;
-  readonly failure?: { readonly code: string; readonly correlationId?: string };
-  readonly outcome: 'completed' | 'failed' | 'cancelled';
-  /** What started it: `manual`, `turn-sync` or `async-buffer`. */
-  readonly trigger?: string;
-  readonly usage?: {
-    readonly inputTokens?: number;
-    readonly outputTokens?: number;
-    readonly totalTokens?: number;
-  };
-}
-
-/** The thread's last committed cycle of each kind; absent before its first. */
-export interface MemoryCyclesDisplay {
-  readonly observation?: MemoryCycleDisplay;
-  readonly reflection?: MemoryCycleDisplay;
-}
-
-export type OmMeterState = (
-  | { readonly kind: 'chat-only' }
-  | { readonly kind: 'inactive' }
-  /** OM is on (Auto) but no eligible observer model resolved — waiting, not off. */
-  | { readonly kind: 'awaiting-observer'; readonly reason: OmAwaitingObserverReason }
-  /** A committed host run received no OM, and why (its observations would mix branches). */
-  | { readonly kind: 'withheld'; readonly reason: 'branched-thread' }
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'empty' }
-  /** The read failed: its validated reason, and its boundary code where one was sent. */
-  | { readonly code?: string; readonly kind: 'error'; readonly reason: string }
-  | {
-      readonly kind: 'stats';
-      /** Summaries generated in the async buffer but not activated yet. */
-      readonly bufferedObservationTokens: number;
-      /** observationTokenCount — what OM is currently holding for this thread. */
-      readonly observationTokens: number;
-      /** totalTokensObserved − observationTokenCount, clamped ≥ 0 (compacted away). */
-      readonly compactionSavedTokens: number;
-      /** Absent where the host does not report the record's lifecycle. */
-      readonly lifecycle?: OmRecordLifecycle;
-      /** Raw-message threshold that activates buffered observations. */
-      readonly messageTokenThreshold: number;
-      /** Raw message tokens currently progressing toward activation. */
-      readonly pendingMessageTokens: number;
-    }
-) & {
-  /** The thread's last observation and reflection cycles (Developer panel). */
-  readonly cycles?: MemoryCyclesDisplay;
-  /** The models the read named, where the host reports them (Developer panel). */
-  readonly models?: MemoryModelsDisplay;
-  /** When the host read this state (epoch ms): the record's flags hold as of then. */
-  readonly readAt?: number;
-};
 
 export interface ContextUsageMeterProps {
   /** Full model context window size. Meter is hidden when absent. */
@@ -218,15 +103,6 @@ export interface ContextUsageMeterProps {
   estimatedTokens?: number | undefined;
   /** True while a run streams — the gauge shows the LIVE estimate (flagged). */
   isRunning?: boolean | undefined;
-  /**
-   * Resolved OM state for the active thread, rendered as INFORMATIONAL stats
-   * inside the popover (observed tokens + compaction saved) — NOT a budget
-   * segment. Absent → no OM line (before the first resolve). A host without
-   * memory supplies `{ kind: 'chat-only' }` so the stats are hidden honestly.
-   * Prop name kept as `omSegment` for call-site
-   * stability across the panel layers.
-   */
-  omSegment?: OmMeterState | undefined;
   /** Thread key — MUST match the key used by recordUsage writers (same as threadKey prop on AssistantUiPanel). Falls back to 'active'. */
   threadKey?: string | undefined;
 }
@@ -347,7 +223,6 @@ export const ContextUsageMeter = ({
   effectiveInputBudget,
   estimatedTokens,
   isRunning,
-  omSegment,
 }: ContextUsageMeterProps) => {
   const key = threadKey ?? 'active';
   const usage = useContextUsageStore((s) => s.usageByThread[key]);
@@ -405,7 +280,7 @@ export const ContextUsageMeter = ({
   const draftText = draftTokens > 0 ? `+${formatTokenCount(draftTokens)}` : undefined;
 
   // Thread-total headline (BST-953): the overall billed figure — every
-  // captured source (chat, subagents, OM) plus the in-flight run's live step
+  // captured source plus the in-flight run's live step
   // usage — is what the chip leads with; context-window occupancy stays on
   // the ring and inside the popover. Absent cumulative data (web / an
   // unhydrated thread) falls back to the context fraction.
@@ -492,7 +367,6 @@ export const ContextUsageMeter = ({
             estimatedTokens={estimatedTokens}
             isEstimated={isEstimated}
             liveRunUsage={liveRunUsage}
-            omSegment={omSegment}
             onOpenContextMap={contextMapLink?.openContextMap}
             percentage={percentage}
             usage={usage}
@@ -521,7 +395,6 @@ export interface ThreadContextMeterProps {
   contextWindow: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
   effectiveInputBudget: number | undefined;
-  omSegment?: OmMeterState | undefined;
   threadKey: string | undefined;
 }
 
@@ -529,7 +402,6 @@ export const ThreadContextMeter = ({
   contextWindow,
   cumulativeUsage,
   effectiveInputBudget,
-  omSegment,
   threadKey,
 }: ThreadContextMeterProps) => {
   // Access all messages to build the full-part conversation walk. The walk is
@@ -552,7 +424,6 @@ export const ThreadContextMeter = ({
       draftTokens={draftTokens}
       effectiveInputBudget={effectiveInputBudget}
       isRunning={isRunning}
-      {...(omSegment ? { omSegment } : {})}
       threadKey={threadKey}
     />
   );

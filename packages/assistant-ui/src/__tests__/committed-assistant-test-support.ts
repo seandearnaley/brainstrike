@@ -57,7 +57,7 @@ export class PublishedConversation implements CommittedAssistantStore {
   }
 }
 
-/** Actual production desktop memory/Mastra/mapper capture already committed in this package. */
+/** Actual production desktop Mastra/mapper capture already committed in this package. */
 export async function recordedMessage(): Promise<ThreadAssistantMessage> {
   const response = new Response(recordedContinuation.lines.join(''));
   if (!response.body) {

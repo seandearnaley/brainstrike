@@ -9,7 +9,7 @@ import {
 } from '@assistant-ui/react';
 import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { cleanup, render, renderHook, screen, within } from '@testing-library/react';
 import { memo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CommittedAssistantConversation } from '../committed-assistant-conversation';
@@ -249,26 +249,6 @@ describe('production external store binding', () => {
     expect(setMessages).toHaveBeenCalledTimes(2);
     expect(runtime.thread.export().headId).toBe(other.id);
     expect(source.getSnapshot().repository).toBe(repository);
-  });
-
-  it('shows a withheld observational memory reason in the committed thread meter', async () => {
-    const source = new PublishedConversation('root', [viewMessage('answer', 'Answer')]);
-    source.publish({ observationWithheld: 'branched-thread' });
-    render(
-      <TooltipProvider>
-        <CommittedAssistantConversation
-          commands={{ onNew: vi.fn() }}
-          contextWindow={128_000}
-          effectiveInputBudget={100_000}
-          label="Conversation"
-          store={source}
-        />
-      </TooltipProvider>
-    );
-    fireEvent.click(await screen.findByTestId('context-usage-trigger'));
-    expect(await screen.findByTestId('context-usage-om-note')).toHaveTextContent(
-      /paused.*branches/iu
-    );
   });
 
   it('shows a compaction that fell back as the compaction card in the committed thread', async () => {

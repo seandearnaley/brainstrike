@@ -374,12 +374,10 @@ export class RunLog {
 
   /**
    * @param {string} id
-   * @param {(() => void) | undefined} [beforeDelete]
    * @returns {void}
    */
-  deleteThread(id, beforeDelete) {
+  deleteThread(id) {
     this.db.transaction(() => {
-      beforeDelete?.();
       this.db.prepare('DELETE FROM run_events WHERE thread_id = ?').run(id);
       this.db.prepare('DELETE FROM run_sync WHERE thread_id = ?').run(id);
       this.db.prepare('DELETE FROM threads WHERE id = ?').run(id);

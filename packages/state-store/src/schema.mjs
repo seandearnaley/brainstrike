@@ -9,6 +9,10 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 //   run_sync      one marker per thread, committed synchronous=FULL at each step boundary (M0-A1)
 //   settings      app settings (M0-A2 src/host.ts STATE_DDL)
 //   purge_intent  a purge in progress, replayed at open after a crash (M0-A2 src/host.ts)
+// Version 3 (Mastra's memory tables) is retired (ADR-0039): the step creates nothing, and version 20 drops
+// `brainstrike_memory_scopes` and `brainstrike_memory_entities` from a DB that reached it. Version 4 adds
+// `purge_intent.operation`; the `purge_intent.memory_resources` column it also added is retired: a DB that has it
+// keeps it unread and unwritten (it holds resource ids, never conversation text).
 // Version 6 adds `run_events.hydrate`: 0 keeps a row (a streamed text delta) out of the hydration read, which walks the
 // partial index of the rows that keep it. The tables of versions 8 (the source catalog), 10 (embedding collections) and
 // 13 are retired (BST-2436 deleted the workspace index): each step creates nothing, so a DB that reached it still opens.
@@ -27,15 +31,16 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 // row and starts unnamed.
 // Version 19 adds `brainstrike_worktrees.base_commit` (worktree-ledger-domain.mjs), the commit a managed worktree was
 // made or adopted at. Every worktree keeps its row, and one recorded before it has none.
+// Version 20 drops Mastra's memory tables (ADR-0039). They held working memory and observation text taken from
+// conversations, and nothing clears, purges or reads them any more, so a reset would otherwise leave that text behind.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
-import { MEMORY_SCHEMA } from './memory-domain.mjs';
 import { PROJECT_NAME_UPGRADE, PROJECT_SCHEMA } from './project-schema.mjs';
 import { SCRATCH_FOLDER_UPGRADE, WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 import { WORKTREE_BASE_COMMIT_UPGRADE } from './worktree-ledger-domain.mjs';
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -64,12 +69,10 @@ const V1 = `
 export const UPGRADES = [
   V1,
   AUTHORITATIVE_SCHEMA,
-  MEMORY_SCHEMA,
+  '',
   `
   ALTER TABLE purge_intent ADD COLUMN operation TEXT NOT NULL DEFAULT 'event'
     CHECK (operation IN ('event','thread'));
-  ALTER TABLE purge_intent ADD COLUMN memory_resources TEXT NOT NULL DEFAULT '[]'
-    CHECK (json_valid(memory_resources) AND json_type(memory_resources) = 'array');
 `,
   MCP_TASK_THREAD_SCHEMA,
   `
@@ -89,6 +92,10 @@ export const UPGRADES = [
   SCRATCH_FOLDER_UPGRADE,
   PROJECT_NAME_UPGRADE,
   WORKTREE_BASE_COMMIT_UPGRADE,
+  `
+  DROP TABLE IF EXISTS brainstrike_memory_entities;
+  DROP TABLE IF EXISTS brainstrike_memory_scopes;
+`,
 ];
 
 /**

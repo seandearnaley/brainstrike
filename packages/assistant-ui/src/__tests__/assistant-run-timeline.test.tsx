@@ -51,16 +51,16 @@ describe('deriveAssistantRunEventRows', () => {
     const reads = { count: 0 };
     const started = Array.from({ length: 40 }, (_, index) => ({
       id: `start-${index}`,
-      kind: 'memory.observation.started',
-      label: 'Observation started',
+      kind: 'run.step.started',
+      label: 'Step started',
       status: 'running',
       timestamp: `2026-06-05T00:00:${String(index).padStart(2, '0')}.000Z`,
     }));
     const completed = started.map((event, index) => ({
       ...event,
       id: `complete-${index}`,
-      kind: 'memory.observation.completed',
-      label: `Observation completed ${index}`,
+      kind: 'run.step.finished',
+      label: `Step finished ${index}`,
       status: 'completed',
     }));
     const parts = countedParts([...started, ...completed].map(runEventPart), reads);
@@ -104,15 +104,15 @@ describe('deriveAssistantRunEventRows', () => {
       },
       {
         id: 'repeat-1',
-        kind: 'memory.working.loaded',
-        label: 'Memory read',
+        kind: 'run.database.retried',
+        label: 'Database busy; retried',
         status: 'info',
         timestamp: '2026-06-05T00:00:03.000Z',
       },
       {
         id: 'repeat-2',
-        kind: 'memory.working.loaded',
-        label: 'Memory read',
+        kind: 'run.database.retried',
+        label: 'Database busy; retried',
         status: 'info',
         timestamp: '2026-06-05T00:00:04.000Z',
       },
@@ -271,7 +271,6 @@ describe('isAlwaysVisibleRunEvent', () => {
   it('does not force background bookkeeping or already-carded tool failures', () => {
     // tool.failed already surfaces on its ToolFallback card — never double-report.
     expect(isAlwaysVisibleRunEvent(event('tool.failed', 'failed'))).toBe(false);
-    expect(isAlwaysVisibleRunEvent(event('memory.reflection.completed', 'completed'))).toBe(false);
     expect(isAlwaysVisibleRunEvent(event('run.finished', 'completed'))).toBe(false);
     expect(isAlwaysVisibleRunEvent(event('run.started', 'running'))).toBe(false);
   });
@@ -607,8 +606,8 @@ describe('resolveAssistantRunEventRenderPlan', () => {
   it('hides a started row once its terminal row exists, but not while running', () => {
     const started = {
       id: 's1',
-      kind: 'memory.observation.started',
-      label: 'Observation started',
+      kind: 'run.step.started',
+      label: 'Step started',
       status: 'running',
       timestamp: ts,
     };
@@ -617,8 +616,8 @@ describe('resolveAssistantRunEventRenderPlan', () => {
 
     const completed = {
       id: 's2',
-      kind: 'memory.observation.completed',
-      label: 'Observation completed',
+      kind: 'run.step.finished',
+      label: 'Step finished',
       status: 'completed',
       timestamp: ts,
     };
@@ -632,8 +631,8 @@ describe('resolveAssistantRunEventRenderPlan', () => {
   it('collapses consecutive identical rows into the first with a repeat count', () => {
     const first = {
       id: 'm1',
-      kind: 'memory.working.loaded',
-      label: 'Observational memory read',
+      kind: 'run.database.retried',
+      label: 'Database busy; retried',
       status: 'info',
       timestamp: ts,
     };
@@ -655,14 +654,14 @@ describe('resolveAssistantRunEventRenderPlan', () => {
 
   it('does not collapse rows with different details', () => {
     const first = {
-      detail: '3 notes',
+      detail: 'Attempt 1',
       id: 'm1',
-      kind: 'memory.working.loaded',
-      label: 'Observational memory read',
+      kind: 'run.database.retried',
+      label: 'Database busy; retried',
       status: 'info',
       timestamp: ts,
     };
-    const second = { ...first, detail: '5 notes', id: 'm2' };
+    const second = { ...first, detail: 'Attempt 2', id: 'm2' };
     const messages = [{ parts: [runEventPart(first), runEventPart(second)], role: 'assistant' }];
     expect(resolveAssistantRunEventRenderPlan(messages, first)).toEqual({
       hidden: false,
@@ -679,8 +678,8 @@ describe('AssistantRunTimeline render', () => {
         <AssistantRunTimeline
           data={{
             id: 'm1',
-            kind: 'memory.working.loaded',
-            label: 'Observational memory read',
+            kind: 'run.database.retried',
+            label: 'Database busy; retried',
             status: 'info',
             timestamp: '2026-06-11T00:00:00.000Z',
           }}
@@ -692,21 +691,19 @@ describe('AssistantRunTimeline render', () => {
     expect(screen.getByTitle('Repeated 2 times')).toBeInTheDocument();
   });
 
-  it('tints a memory event, omits the standalone status pill, and hides kind until expanded', () => {
+  it('omits the standalone status pill and hides kind until expanded', () => {
     renderTimeline({
-      detail: 'Loaded 3 notes',
+      detail: 'Step 3',
       id: 'm1',
-      kind: 'memory.working.loaded',
-      label: 'Working memory loaded',
+      kind: 'run.step.finished',
+      label: 'Step finished',
       status: 'completed',
       timestamp: '2026-06-05T00:00:00.000Z',
     });
-    const card = screen.getByTestId('assistant-run-timeline');
-    expect(card.getAttribute('data-tool-category')).toBe('memory');
     expect(screen.queryByText('Completed')).toBeNull(); // no visible pill text
-    expect(screen.queryByText('memory.working.loaded')).toBeNull(); // kind only in fold
+    expect(screen.queryByText('run.step.finished')).toBeNull(); // kind only in fold
     fireEvent.click(screen.getByRole('button', { name: /expand/iu }));
-    expect(screen.getByText('memory.working.loaded')).toBeInTheDocument();
+    expect(screen.getByText('run.step.finished')).toBeInTheDocument();
   });
 
   it('classifies a tool run event by its tool metadata', () => {

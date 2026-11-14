@@ -80,7 +80,7 @@ describe('groupAssistantActivityPart', () => {
     expect(groupAssistantActivityPart(part({ text: 'Done.', type: 'text' }))).toEqual([]);
   });
 
-  it.each(['tool.started', 'tool.completed', 'run.step.started', 'memory.working.loaded'])(
+  it.each(['tool.started', 'tool.completed', 'run.step.started', 'run.step.finished'])(
     'makes an ordinary run event (%s) group-transparent',
     (kind) => {
       expect(groupAssistantActivityPart(runEvent(kind))).toEqual([ACTIVITY_GROUP_KEY]);

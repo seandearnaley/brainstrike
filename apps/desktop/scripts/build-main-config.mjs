@@ -18,8 +18,7 @@
  *   bootstrap and runtime; the agent host loads its launcher and platform).
  * - dist/<package entry>.js  worker and module entries the bundled packages
  *   name by path (`PACKAGE_RUNTIME_ENTRY_POINTS`)
- * - dist/writer-worker.mjs, memory-calculator-worker.mjs  the state-store writer
- *   and memory calculator workers, self-contained
+ * - dist/writer-worker.mjs  the state-store writer worker, self-contained
  * - dist/main-log-transport.js, main-watchdog-worker.js  self-contained ESM,
  *   unpacked beside app.asar, so they cannot share chunks inside it
  * - dist/preload.cjs  the sandboxed preload (CommonJS)
@@ -77,10 +76,6 @@ const shared = {
  *   this app's dist/, that is this dist/.
  */
 export const PACKAGE_RUNTIME_ENTRY_POINTS = {
-  'adapters/memory-storage-calculator': path.join(
-    packagesRoot,
-    'agent-host/src/adapters/memory-storage-calculator.ts'
-  ),
   'host-state-index-worker': path.join(packagesRoot, 'agent-host/src/host-state-index-worker.ts'),
   'keyring-native-entry': path.join(
     packagesRoot,
@@ -144,19 +139,14 @@ export const NODE_PROCESS_BUILD_OPTIONS = {
 };
 
 /**
- * The state-store writer and memory calculator workers are plain ESM (`.mjs`)
- * that state-store names beside its own modules, so their bundled entries keep
- * that extension.
+ * The state-store writer worker is plain ESM (`.mjs`) that state-store names
+ * beside its own modules, so its bundled entry keeps that extension.
  * @type {import('esbuild').BuildOptions}
  */
 export const STATE_STORE_WRITER_BUILD_OPTIONS = {
   ...shared,
   banner: ESM_REQUIRE_BANNER,
   entryPoints: {
-    'memory-calculator-worker': path.join(
-      packagesRoot,
-      'state-store/src/memory-calculator-worker.mjs'
-    ),
     'writer-worker': path.join(packagesRoot, 'state-store/src/writer-worker.mjs'),
   },
   format: 'esm',

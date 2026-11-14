@@ -14,8 +14,6 @@ export interface DesktopHostModelProjection {
 export interface DesktopHostIntentCapture {
   readonly agentLoop: RuntimeData['agentLoop'];
   readonly enabledNativeToolIds: readonly string[];
-  readonly memoryOptions: NonNullable<RuntimeData['memory']>['memoryOptions'];
-  readonly memorySettings: DesktopHostIntent['memorySettings'];
   readonly modelConfiguration: Pick<
     RuntimeData,
     'model' | 'modelSettings' | 'provider' | 'providerOptions'
@@ -43,8 +41,6 @@ export function captureDesktopHostIntent(input: DesktopHostIntentCapture): Deskt
   })({
     agentLoop: input.agentLoop,
     enabledNativeToolIds: input.enabledNativeToolIds,
-    memoryOptions: input.memoryOptions,
-    memorySettings: input.memorySettings,
     modelConfiguration: {
       ...input.modelConfiguration,
       ...(projection ? { model: projection.model, provider: projection.provider } : {}),

@@ -48,7 +48,6 @@ test("the meter's thread total follows the committed log, priced at the catalog 
     bySource: [
       {
         costUsd: 0.001_512,
-        estimated: false,
         inputTokens: 4,
         kind: 'chat',
         models: [

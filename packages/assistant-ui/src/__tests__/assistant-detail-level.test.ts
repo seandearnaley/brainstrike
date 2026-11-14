@@ -35,7 +35,7 @@ describe('resolveToolDisplayPolicy', () => {
 });
 
 describe('shouldShowBackgroundActivity', () => {
-  it('hides memory/context background rows except in developer', () => {
+  it('hides context background rows except in developer', () => {
     expect(shouldShowBackgroundActivity('compact')).toBe(false);
     expect(shouldShowBackgroundActivity('standard')).toBe(false);
     expect(shouldShowBackgroundActivity('developer')).toBe(true);

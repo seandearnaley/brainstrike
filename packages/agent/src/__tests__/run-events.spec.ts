@@ -106,8 +106,8 @@ describe('run event emission', () => {
 
     emitAssistantRunEventSafely({
       event: {
-        kind: 'memory.history.loaded',
-        label: 'Conversation history loaded',
+        kind: 'hook.notice',
+        label: 'Hook notice',
         status: 'completed',
       },
       eventSink: sink,
@@ -117,8 +117,8 @@ describe('run event emission', () => {
 
     expect(sink).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: 'memory.history.loaded',
-        label: 'Conversation history loaded',
+        kind: 'hook.notice',
+        label: 'Hook notice',
         runId: 'run-1',
         status: 'completed',
       })
@@ -136,8 +136,8 @@ describe('run event emission', () => {
     expect(() =>
       emitAssistantRunEventSafely({
         event: {
-          kind: 'memory.working.loaded',
-          label: 'Working memory loaded',
+          kind: 'hook.notice',
+          label: 'Hook notice',
           status: 'completed',
         },
         eventSink: sink,
@@ -148,7 +148,7 @@ describe('run event emission', () => {
 
     expect(onError).toHaveBeenCalledWith(
       expect.any(Error),
-      expect.objectContaining({ kind: 'memory.working.loaded', runId: 'run-1' })
+      expect.objectContaining({ kind: 'hook.notice', runId: 'run-1' })
     );
   });
 });
