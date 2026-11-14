@@ -742,6 +742,16 @@ span.bs-composer-chip {
   flex-shrink: 3;
 }
 
+/* Where-menu closes by fading alone: the shared exit animates transform/filter, making the menu the containing block of the open Branch switcher, which then moved 16px. */
+.bs-where-menu[data-state='closed'] {
+  animation-name: bs-where-menu-exit;
+}
+@keyframes bs-where-menu-exit {
+  to {
+    opacity: 0;
+  }
+}
+
 /* A count cut short says nothing, so a chip that is one keeps its width. */
 .bs-composer-chip-count {
   flex-shrink: 0;

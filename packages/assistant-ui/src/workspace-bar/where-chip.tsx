@@ -26,14 +26,7 @@ import {
   type LucideIcon,
   TriangleAlert,
 } from 'lucide-react';
-import {
-  type CSSProperties,
-  type ReactElement,
-  type ReactNode,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactElement, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { BranchSubmenu } from './branch-menu';
 import { FolderMenuItems, type FolderMenuProps, RootRow } from './folders-menu';
 import { removedFolderLabel, removedFolderState } from './removed-folder';
@@ -62,8 +55,6 @@ export type WhereChipProps = FolderMenuProps & {
 };
 
 const SECTION_LABEL_CLASS = 'text-muted-foreground text-[10px] tracking-wide uppercase';
-/** The where-menu's exit keeps its scale (tw-animate-css reads `--tw-exit-scale`). */
-const WHERE_MENU_EXIT = { '--tw-exit-scale': '1' } as CSSProperties;
 const NO_IDS: ReadonlySet<string> = new Set();
 
 type WhereFacts = Pick<WhereChipProps, 'mode' | 'secondaryRoots' | 'threadCheckout'> & {
@@ -727,7 +718,7 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="w-80"
+          className="bs-where-menu w-80"
           // Selecting another thread hides this one's panel in the same click,
           // so the control is gone while the menu plays its exit animation.
           // Without its anchor the menu would paint at the window's corner for
@@ -748,11 +739,6 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
           // were squeezed into a scrolling strip: focusing a row scrolled it, and
           // a submenu anchored to that row moved when the strip did.
           side="top"
-          // Closes by fading, without the shared shrink: a submenu open inside
-          // it is part of its box, so shrinking the menu toward its corner drew
-          // the submenu along (16px for the Branch switcher) instead of letting
-          // it fade where it is. The submenu's own close still shrinks in place.
-          style={WHERE_MENU_EXIT}
         >
           <WhereMenuBody
             busy={busy}
