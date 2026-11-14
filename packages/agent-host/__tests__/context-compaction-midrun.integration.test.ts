@@ -141,7 +141,10 @@ test('a long run summarizes its older steps between two steps and carries on', a
   if (!last) {
     throw new Error('The run sent no request');
   }
-  expect(userTexts(last)).toEqual([QUESTION]);
+  // The summary leads the history as the host's notice (BST-2532), then the question.
+  const [note, ...asked] = userTexts(last);
+  expect(note).toMatch(/^<brainstrike_notice>\n[\s\S]*\[Earlier conversation compacted\]/u);
+  expect(asked).toEqual([QUESTION]);
   expect(callIds(last)).not.toContain('turn-1-call-1');
   expect(callIds(last)).toContain('turn-1-call-12');
   // The request's provenance leaves them out too.

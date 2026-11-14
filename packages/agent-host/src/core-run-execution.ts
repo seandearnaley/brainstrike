@@ -18,7 +18,6 @@ import {
   startHostEdit,
 } from './checkout-isolation.ts';
 import type { HostContextCompactions } from './context-compaction.ts';
-import { hostContextNotes } from './context-notes.ts';
 import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.ts';
 import { type HostRunState as Run, recordHostProviderRequest } from './core-state.ts';
 import { jsonValue } from './json-value.ts';
@@ -31,15 +30,12 @@ import { hostMemoryRecord } from './project-memory-record.ts';
 import { committedRewrites, type HostProjectionRewrites } from './projection-rewrites.ts';
 import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
-  combineHostSystemContext,
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
   ensureHostRunAdmission,
   hostModelStepEvents,
   hostRunToolDecision,
   hostRunTools,
-  hostStepActiveTools,
-  prepareHostProviderStep,
 } from './run-admission.ts';
 import { hostRunAttemptEvent } from './run-attempts.ts';
 import { hostRunAncestors, hostRunContext } from './run-branch.ts';
@@ -47,7 +43,11 @@ import { commitHostModelMessages, resolveHostApprovalInput } from './run-continu
 import { hostProviderHistory } from './run-history.ts';
 import { HostRunOutcome } from './run-outcome.ts';
 import { HostProviderRequest } from './run-provider-request.ts';
-import { prepareRunContext, recoverHostContextOverflow } from './run-request-context.ts';
+import {
+  hostStepRequest,
+  prepareRunContext,
+  recoverHostContextOverflow,
+} from './run-request-context.ts';
 import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.ts';
 import { hostTelemetry } from './telemetry/host-telemetry.ts';
 import { hostArtifactReader } from './tool-artifacts.ts';
@@ -621,7 +621,7 @@ async function runHostSdkAttempt(
         // old outputs are rewritten, and a request past its trigger compacts
         // the run's older steps first. A compaction committed at any step,
         // or before a pause, holds for every later one.
-        const context = await prepareRunContext(ports, run, ancestors, admission);
+        const context = await prepareRunContext(ports, run, ancestors, admission, model);
         const prepared = context.messages;
         recordedInputLength = prepared.length;
         // What this step's requests send, read from the committed log.
@@ -631,37 +631,13 @@ async function runHostSdkAttempt(
           committedRewrites(rows),
           context.trim
         );
-        // Per-step notes from committed thread state (the legacy task-list note).
-        const notes = hostContextNotes(hostRunTools(run), ports.records.stateView(run.threadId));
-        const system = combineHostSystemContext(context.note, notes).system;
-        const activeTools = await hostStepActiveTools(run, ports.platform);
-        // An approved call that entered a worktree resumes with a model step:
-        // it may answer, never act, in the run's old workspace (ADR-0028).
-        const gated = run.enteredWorktree
-          ? { activeTools: [], toolChoice: 'none' as const }
-          : activeTools
-            ? { activeTools }
-            : {};
-        if (!admission.provider) {
-          return {
-            messages: prepared,
-            // A UserPromptSubmit hook's context joins the run's instructions.
-            ...combineHostSystemContext(system, run.promptContext),
-            ...gated,
-          };
-        }
-        const provider = await admission.provider.prepare({
-          configuration: admission.configuration,
-          messages: prepared,
-          modelId: run.modelId,
-          signal: run.controller.signal,
-          // BST-1932: a child reserves its last step for a tool-free summary.
-          stepNumber: run.steps,
-        });
-        return {
-          ...prepareHostProviderStep(provider, system, request, run.promptContext),
-          ...gated,
-        };
+        return await hostStepRequest(
+          ports,
+          run,
+          admission,
+          prepared,
+          request ? (stepModel) => request.wrap(stepModel) : undefined
+        );
       },
       // ADR-0028 step 3: a run that entered a worktree ends after that step.
       stopWhen: [

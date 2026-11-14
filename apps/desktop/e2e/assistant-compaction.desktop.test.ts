@@ -32,12 +32,25 @@ function lastUser(request: ModelProviderRequest): string {
   return JSON.stringify(withRole(request, ['user']).at(-1) ?? null);
 }
 
-/** Every user message of a provider request, serialized. */
-function userMessages(request: ModelProviderRequest | undefined): string {
-  return JSON.stringify(withRole(request, ['user']));
+/** Whether a user message is the host's notice rather than the person's words. */
+function isHostNotice(message: unknown): boolean {
+  return JSON.stringify(message).includes('<brainstrike_notice>');
 }
 
-/** The request's instructions, which carry the compaction note. */
+/** The person's user messages of a provider request, serialized. */
+function userMessages(request: ModelProviderRequest | undefined): string {
+  return JSON.stringify(withRole(request, ['user']).filter((message) => !isHostNotice(message)));
+}
+
+/** The compaction note: the host's notice that leads the history (BST-2532). */
+function compactionNote(request: ModelProviderRequest | undefined): string {
+  const first = (request?.messages ?? []).find(
+    (message) => !withRole(request, ['system', 'developer']).includes(message)
+  );
+  return isHostNotice(first) ? JSON.stringify(first) : '';
+}
+
+/** The request's instructions, which a compaction leaves as they were. */
 function instructions(request: ModelProviderRequest | undefined): string {
   return JSON.stringify(withRole(request, ['system', 'developer']));
 }
@@ -124,7 +137,9 @@ test('a context overflow compacts the host thread behind a durable divider and t
   expect(attempts).toHaveLength(2);
   expect(userMessages(attempts[0])).toContain(FIRST);
   expect(userMessages(attempts[1])).not.toContain(FIRST);
-  expect(instructions(attempts[1])).toContain(`Earlier requests:\\n- ${FIRST}`);
+  expect(compactionNote(attempts[1])).toContain(`Earlier requests:\\n- ${FIRST}`);
+  // The note leads the history; the instructions stay as the first attempt sent them.
+  expect(instructions(attempts[1])).toBe(instructions(attempts[0]));
 
   // The divider is durable: the committed thread renders it again after a reload.
   await reloadRenderer(window, 'assistant-compaction: reload');

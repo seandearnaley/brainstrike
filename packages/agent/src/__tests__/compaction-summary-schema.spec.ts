@@ -21,6 +21,19 @@ describe('compaction summary section schema', () => {
       name: 'markdown headers',
       text: SECTIONS.map((section) => `## ${section.replace(': ', '\n')}`).join('\n'),
     },
+    // BST-2532: the run's own persona writes the summary, in its own style.
+    {
+      name: 'bold headers after a preamble, as the run’s persona writes them',
+      text: [
+        'Here is the summary of the conversation so far.',
+        '',
+        ...SECTIONS.map((section, index) =>
+          index % 2 === 0
+            ? `**${section.replace(': ', ':** ')}`
+            : `**${section.replace(': ', '**: ')}`
+        ),
+      ].join('\n'),
+    },
   ])('accepts $name section content', ({ text }) => {
     expect(hasCompactionSummarySchema(text)).toBe(true);
   });
