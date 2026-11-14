@@ -33,30 +33,34 @@ const logger = createLogger('AgentHost');
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
 
-/** Every run whose turn a committed `context.compacted` replaced, from the log alone. */
-export function compactedRunIds(rows: readonly HostLogRow[]): Set<string> {
-  const ids = new Set<string>();
-  for (const row of rows) {
-    if (row.event.type === 'context.compacted') {
-      for (const runId of row.event.compactedRunIds) {
-        ids.add(runId);
-      }
-    }
-  }
-  return ids;
+/**
+ * A compaction summarized one branch, so it belongs to a branch only when
+ * every turn it covers is on it. A sibling branch that shares some of those
+ * turns keeps them in full: the summary also tells of turns it never had
+ * (BST-2528).
+ */
+function onBranch(compactions: readonly Compacted[], branch: ReadonlySet<string>): Compacted[] {
+  return compactions.filter((event) => event.compactedRunIds.every((id) => branch.has(id)));
 }
 
-/** The overlay note for every committed compaction that covers one of `runIds`. */
-function compactionNote(
-  compactions: readonly Compacted[],
-  runIds: ReadonlySet<string>
-): string | undefined {
-  const summaries = compactions
-    .filter((event) => event.compactedRunIds.some((id) => runIds.has(id)))
-    .map((event) => event.summary);
-  return summaries.length === 0
+function chainIds(chain: readonly HostRunState[]): Set<string> {
+  return new Set(chain.map((run) => run.id));
+}
+
+/** Every run of `branch` whose turn a committed `context.compacted` of that branch replaced. */
+export function compactedRunIds(
+  rows: readonly HostLogRow[],
+  branch: ReadonlySet<string>
+): Set<string> {
+  const events = rows.flatMap((row) => (row.event.type === 'context.compacted' ? [row.event] : []));
+  return new Set(onBranch(events, branch).flatMap((event) => event.compactedRunIds));
+}
+
+/** The overlay note of the branch's committed compactions. */
+function compactionNote(compactions: readonly Compacted[]): string | undefined {
+  return compactions.length === 0
     ? undefined
-    : `[Earlier conversation compacted]\n${summaries.join('\n')}`;
+    : `[Earlier conversation compacted]\n${compactions.map((event) => event.summary).join('\n')}`;
 }
 
 /** Core-owned fold of committed compactions per thread; the run log is the only record. */
@@ -372,14 +376,15 @@ export async function overflowCompaction(input: CompactionBounds): Promise<Compa
     return;
   }
   const turns = splitTurns(input.chain, input.messages);
-  const compacted = new Set(input.compactions.flatMap((event) => event.compactedRunIds));
+  const compactions = onBranch(input.compactions, chainIds(input.chain));
+  const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
   const candidates = droppable(turns, compacted);
   if (candidates.length === 0) {
     return;
   }
   const current = await measureHostContext({
     chain: input.chain,
-    estimate: () => estimateTokens(applyOverlay(turns, input.compactions)),
+    estimate: () => estimateTokens(applyOverlay(turns, compactions)),
     messages: input.messages,
     readRequestExtras: input.readRequestExtras,
     rewrites: input.rewrites,
@@ -395,7 +400,7 @@ export async function overflowCompaction(input: CompactionBounds): Promise<Compa
   );
 }
 
-/** The committed overlay: compacted turns leave the request; their note joins the system text. */
+/** The branch's committed overlay: compacted turns leave the request; their note joins the system text. */
 function applyOverlay(turns: readonly Turn[], compactions: readonly Compacted[]): ModelMessage[] {
   const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
   return turns.filter((turn) => !compacted.has(turn.run.id)).flatMap((turn) => turn.messages);
@@ -462,7 +467,7 @@ export async function prepareCompactedContext(
   readonly step?: HostPreparedStep;
 }> {
   const turns = splitTurns(input.chain, input.messages);
-  const compactions = [...input.compactions];
+  const compactions = onBranch(input.compactions, chainIds(input.chain));
   let step = await input.prepareStep?.(applyOverlay(turns, compactions));
   const limit = input.inputTokenLimit;
   const run = input.chain.at(-1);
@@ -493,7 +498,7 @@ export async function prepareCompactedContext(
       step = await step?.rebuild();
     }
   }
-  const note = compactionNote(compactions, new Set(input.chain.map((turn) => turn.id)));
+  const note = compactionNote(compactions);
   return {
     messages: applyOverlay(turns, compactions),
     ...(note ? { note } : {}),
