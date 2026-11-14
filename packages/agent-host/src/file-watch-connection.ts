@@ -13,6 +13,7 @@ import type {
   HostRootRegistry,
 } from './ports.ts';
 import { FILE_SEARCH_BATCH, type FileSearchBatch, WORKSPACE_FILES_EVENT } from './protocol.ts';
+import type { HostOpenRoot } from './protocol-workspace-roots.ts';
 
 const logger = createLogger('AgentHostFileWatches');
 
@@ -79,7 +80,9 @@ export function bindHostFileSearchMethods(
 export function bindHostRootRegistryMethods(
   handle: HostMethodHandler,
   rootRegistry: HostRootRegistry | undefined,
-  origin: HostClientOrigin
+  origin: HostClientOrigin,
+  /** ADR-0034 relink (BST-2516): the threads working in a located folder follow it there. */
+  located: (root: HostOpenRoot) => Promise<void>
 ): void {
   const serve = <M extends keyof HostRootRegistry>(method: M): void => {
     handle(method, (params) => {
@@ -90,7 +93,14 @@ export function bindHostRootRegistryMethods(
   serve('projects/join');
   serve('projects/rename');
   serve('workspace/roots/add');
-  serve('workspace/roots/locate');
+  handle('workspace/roots/locate', async (params) => {
+    const registry: HostRootRegistry = desktopOnly(rootRegistry, origin, 'folders');
+    const answer = await registry['workspace/roots/locate'](params);
+    if (answer.root !== null) {
+      await located(answer.root);
+    }
+    return answer;
+  });
   serve('workspace/roots/open');
   serve('workspace/roots/pick');
   serve('workspace/roots/recent');

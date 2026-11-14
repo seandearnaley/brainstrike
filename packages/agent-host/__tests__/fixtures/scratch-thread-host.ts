@@ -232,7 +232,14 @@ export async function scratchThreadHost(
         trashed.push(path);
       },
     }),
-    validateWorkspaceBinding: async () => undefined,
+    // As the desktop's binding authority does: a folder hint that is not where the root is
+    // mounted is refused (BST-2516).
+    validateWorkspaceBinding: async ({ binding }) => {
+      const mounted = folders.get(binding.operatingRootId ?? '');
+      if (binding.operatingRootPath && mounted && binding.operatingRootPath !== mounted) {
+        throw new Error(`The binding names ${binding.operatingRootPath}, not ${mounted}`);
+      }
+    },
   };
   // Core's own deletion is what these tests cover; the store's purge needs the indexer.
   const core = await HostCore.open(crashableStorePort(store).port, platform, () => () => undefined);
@@ -245,6 +252,19 @@ export async function scratchThreadHost(
     /** The test's own folder, outside `<userData>`: where a person keeps projects. */
     base,
     core,
+    /**
+     * Records `path` as a folder of the person's under `rootId` and mounts it there, as the
+     * registry does when the person opens it, or locates it after it moved (the record keeps its
+     * id and is pointed at the new place).
+     */
+    folder: async (rootId: string, path: string): Promise<void> => {
+      await store.workspaceRoots({
+        operation: 'register',
+        repin: true,
+        root: { canonicalPath: path, displayName: basename(path), path, preferredId: rootId },
+      });
+      folders.set(rootId, path);
+    },
     harness,
     /** Opens a folder in the workspace, as the person does. */
     open: async (): Promise<void> => {
