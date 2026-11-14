@@ -390,6 +390,17 @@ export function bindHostConnection(
     }
     return core.scratchProject(params);
   });
+  // ADR-0034 (BST-2513): the new folder goes where Main's picker says, so only the desktop asks.
+  handleCore('thread/workspace/folder/new', (params) => {
+    if (origin !== 'desktop-ui') {
+      throw refusalError(
+        'authorization',
+        'workspace.folder-new-desktop-only',
+        "Making a new project folder is available only to the desktop's private client"
+      );
+    }
+    return core.newProjectFolder(params);
+  });
   handleCore('run/start', (params) => core.startRun(params, origin));
   handleCore('run/regenerate', (params) => core.regenerateRun(params, origin));
   handleCore('run/input', (params) => core.input(params));

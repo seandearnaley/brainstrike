@@ -21,12 +21,15 @@
   - 2026-11-12 (build decisions, below): Clear Database archives every managed worktree too,
     and moves every scratch folder to the system Trash once it has cleared.
   - 2026-11-12 (build decisions, under scratch threads below): a scratch thread's folder can be
-    turned into a project; built. Starting one from a thread that ran with no folder is not.
+    turned into a project; built. Starting one from a thread that ran with no folder is built
+    since (2026-11-13, below).
   - 2026-11-13 (build decisions, under the idle-worktree cap below): an idle managed worktree
     whose branch has commits of its own and adds nothing the default branch lacks is archived,
     and the thread that made it is told; built (BST-2504).
   - 2026-11-13 (build decisions, under the idle-worktree cap below): when a thread is deleted,
     the managed worktrees it made that no other thread is bound to are archived; built (BST-2505).
+  - 2026-11-13 (build decisions, under scratch threads below): a thread that works with no
+    folder of its own gets a new project folder the person places; built (BST-2513).
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -1153,10 +1156,83 @@ Not built:
   roots; the folders stay in the profile until Factory Reset, as worktrees do.
   Built since (Clear Database retires the worktrees and scratch folders,
   below).
-- Starting a project from a thread that already ran with no folder, the second
-  half of "Turn into a project". Such a thread has no folder to move.
 - Mounting only the scratch folders of open threads. Every one mounts at
   launch, as every managed worktree does, each with its own handle.
+
+### A thread with no folder of its own gets a new project folder
+
+Built (BST-2513): the second half of "Turn into a project". A thread first
+sent while a folder was open runs against the open folders and has no binding,
+so once they close its file tools refuse ("No folder is open in the
+workspace…"). It has no folder to move, so it gets a new one the person
+places. It takes Turn into a project…'s path: the platform's scratch folders,
+Main's picker, the roots domain as the only writer of the project, and the
+binding's own command in one admission slot. These are build decisions, not
+Sean's answers, and later work may revisit them:
+
+- **Where.** The where-control shows New project folder… for a sent thread
+  whose binding names no folder, once its metadata has loaded: never for the
+  new thread before its first send, which the host has not made. A scratch
+  thread is bound to its scratch folder, so it is offered Turn into a project…
+  instead. The row is the first under "Where this thread works", before the
+  folder rows. Like every checkout change it waits for the thread's run to
+  end: the row is disabled with the reason while the run is in progress. The
+  host refuses too, before the picker is shown and again once the person has
+  chosen, while the thread or one of its workers has a run in progress
+  (`workspace.folder-running`) and for a thread that has a folder
+  (`workspace.folder-has-binding`). A refusal is said under the row and in a
+  toast, in the host's words.
+- **Destination and name.** Main's picker chooses a parent folder, through
+  `platform/workspace/pick-folder`, as for Turn into a project…. The folder is
+  `<parent>/<name>`. The name is the thread's title, slugged: lowercase ASCII
+  letters and digits, every other run of characters one `-`, accents dropped,
+  at most 64 characters. A thread with no title, or one that leaves no letter
+  or digit, is named as a scratch folder is (`generateWorktreeName`), avoiding
+  the names already in the parent.
+- **Made, never reused.** Only the leaf is made, never its parents, so it is
+  always a folder that did not exist. Refused, with nothing made: a place that
+  already holds anything (`workspace.folder-exists`), a parent that is gone
+  (`workspace.folder-parent-missing`), a parent the person cannot write to
+  (`workspace.folder-not-writable`), and a parent among the scratch folders
+  (`workspace.folder-inside-scratch`), every one of which Clear Database moves
+  to the Trash. The platform's scratch folders make it
+  (`HostScratchFolders.newProjectFolder`, `project-folders.ts`).
+- **Opened as a folder the person chose.** The registry adds it as it adds a
+  folder chosen in the picker (`addRoot`, the grant `workspace/roots/pick`
+  uses): the roots domain's `register` records it with a project of its own,
+  at the end of the open folders, in Recents, and Main is told. Not
+  `addRootByPath`, which opens only a folder already granted (recorded, in
+  Recents, or a managed worktree) and would refuse one made a moment ago, nor
+  `openRootByPath`, which closes the other open folders. No new store
+  operation and no schema change.
+- **Trust is asked there.** The person placed it, so its trust is asked as for
+  any folder they open; no trust or hook record is written. The ruling that an
+  app-made folder is trusted covers a folder the app places itself, under
+  `<userData>/scratch`.
+- **The thread follows.** The last check, the folder's making and opening, and
+  the binding update share one slot of Core's admission queue (`admitted`,
+  with the binding's `held`): a run asked for meanwhile is admitted after it,
+  at the new folder. The window then shows the folder, and the Threads panel
+  reads the root records again.
+- **Deleting the thread later leaves the folder.** It is not a scratch folder:
+  it has no scratch record, and Clear Database moves only folders inside
+  `<userData>/scratch`.
+- **Order and what a failure leaves.** Check, make, open, bind. The host logs
+  the folder it made before the registry opens it.
+  - A registry that refuses to open it leaves nothing: the empty folder is
+    removed and the registry's refusal is said. One that cannot be removed is
+    said too, with the refusal.
+  - A binding that does not commit says where the folder is
+    (`workspace.folder-unbound`): it is open, with its project, and the thread
+    still has no folder until the person chooses it for the thread.
+  - A host that stops between the making and the opening leaves an empty
+    folder, named in the host's log; one that stops before the binding leaves
+    the folder open and the thread with none. Nothing retries or repairs them.
+- **The host method** is `thread/workspace/folder/new`, for the desktop's
+  private client only (`workspace.folder-new-desktop-only`; host protocol
+  version 32), answering the new folder, or null when the person cancelled the
+  picker. A worker is refused (`workspace.folder-worker`): it works in the
+  folder of the thread that dispatched it.
 
 ## Owner decision, 2026-11-12: setup script consent moves to the host
 

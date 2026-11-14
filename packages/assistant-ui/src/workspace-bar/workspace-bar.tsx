@@ -308,6 +308,11 @@ export interface WorkspaceBarProps {
   readonly leaveWorktreeDisabledReason?: string | undefined;
   /** Desktop only — Local / Worktree selection [D1]. Absent ⇒ no checkout rows. */
   readonly mode?: WorkspaceBarMode | undefined;
+  /**
+   * ADR-0034 (BST-2513): present only for a sent thread that works with no folder of its own,
+   * which "New project folder…" gives a new folder the person places.
+   */
+  readonly newProjectFolder?: WorkspaceBarNewProjectFolder | undefined;
   readonly onAddFolder: () => void;
   /** Present only when the platform can re-mount a recent folder without a picker (desktop). */
   readonly onAddRecent?: ((path: string) => void) | undefined;
@@ -383,6 +388,22 @@ export interface WorkspaceBarScratchProject {
   /** Starts it; app-shell shows the outcome, a refusal included. */
   readonly onTurnIntoProject: () => void;
   /** The folder is being moved. */
+  readonly pending: boolean;
+  /** Why the last one did not finish, as the host said, or null. */
+  readonly refusal: string | null;
+}
+
+/**
+ * "New project folder…" (ADR-0034 build decisions, BST-2513): the host asks for a parent with the
+ * folder picker, makes a folder there named by the thread's title, opens it as a project and
+ * binds the thread to it.
+ */
+export interface WorkspaceBarNewProjectFolder {
+  /** Why it waits, or null: a run keeps the folder it was admitted with. */
+  readonly disabledReason: string | null;
+  /** Starts it; app-shell shows the outcome, a refusal included. */
+  readonly onNewProjectFolder: () => void;
+  /** The folder is being made. */
   readonly pending: boolean;
   /** Why the last one did not finish, as the host said, or null. */
   readonly refusal: string | null;

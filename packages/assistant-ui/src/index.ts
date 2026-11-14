@@ -202,6 +202,7 @@ export {
   type WorkspaceBarCheckout,
   type WorkspaceBarCreateWorktreeRequest,
   type WorkspaceBarMode,
+  type WorkspaceBarNewProjectFolder,
   type WorkspaceBarProps,
   type WorkspaceBarQuickCreateOutcome,
   type WorkspaceBarRecentRoot,

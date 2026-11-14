@@ -94,6 +94,7 @@ import { HostTelemetryReplay } from './telemetry-replay.ts';
 import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
 import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
+import { newHostProjectFolder } from './thread-project-folder.ts';
 import { HostThreadRewinds } from './thread-rewind.ts';
 import { bindHostScratch, turnHostScratchIntoProject } from './thread-scratch.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
@@ -378,11 +379,10 @@ export class HostCore {
   ): ReturnType<HostThreadWorkspaceState['readSnapshot']> =>
     this.workspaces.readSnapshot(this.threads, threadId);
 
-  setWorkspace(params: HostParams<'thread/workspace/set'>): Promise<{ accepted: true }> {
-    return this.command('thread/workspace/set', params, () =>
+  readonly setWorkspace = (params: HostParams<'thread/workspace/set'>) =>
+    this.command('thread/workspace/set', params, () =>
       this.workspaces.setSnapshot(params, this.threads)
     );
-  }
 
   readonly readWorkspaceBinding = (
     threadId: string
@@ -401,11 +401,13 @@ export class HostCore {
       );
     return held ? bind() : this.admit(params.threadId, bind);
   }
-  /** ADR-0034 scratch threads (`thread-scratch.ts`); a folder's move holds one admission slot. */
+  /** ADR-0034 thread folders: scratch (`thread-scratch.ts`), new (`thread-project-folder.ts`). */
   readonly scratchWorkspace = (params: HostParams<'thread/workspace/scratch'>) =>
     bindHostScratch(params, this, this.children, this.pendingAdmissions, this.platform);
   readonly scratchProject = (params: HostParams<'thread/workspace/scratch/project'>) =>
     turnHostScratchIntoProject(params, this, this.children, this.runs, this.platform);
+  readonly newProjectFolder = (params: HostParams<'thread/workspace/folder/new'>) =>
+    newHostProjectFolder(params, this, this.children, this.runs, this.platform);
   /** One slot of `threadId`'s admission queue; a binding update in it passes `held`. */
   readonly admitted = <T>(threadId: string, move: () => Promise<T>): Promise<T> =>
     this.admit(threadId, move);
@@ -824,9 +826,8 @@ export class HostCore {
     });
   }
 
-  readMcpInput(input: HostParams<'mcp/input/read'>): Promise<HostResults['mcp/input/read']> {
-    return this.mcpInputs.read(parseHostParams('mcp/input/read', input));
-  }
+  readonly readMcpInput = (input: HostParams<'mcp/input/read'>) =>
+    this.mcpInputs.read(parseHostParams('mcp/input/read', input));
 
   stageMcpInput(
     input: HostParams<'mcp/input/stage'>,
@@ -865,9 +866,8 @@ export class HostCore {
     }).then(() => this.mcpInputs.result(params));
   }
 
-  releaseMcpInputClient(client: HostMcpInputClient): void {
+  readonly releaseMcpInputClient = (client: HostMcpInputClient): void =>
     this.mcpInputs.releaseClient(client);
-  }
 
   readonly respond = (params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> =>
     this.answer('interaction/respond', params);

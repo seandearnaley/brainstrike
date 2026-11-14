@@ -164,4 +164,9 @@
 // `repositoryPath` in place of `projectId`. A repository's first rename or move makes its project,
 // and the listing only reads one, on the own checkout of any repository that is not an open
 // folder, whether or not an open folder holds it now.
-export const AGENT_HOST_PROTOCOL_VERSION = 31;
+// v32 (2026-11-13): a thread with no folder of its own gets a new project folder (ADR-0034 build
+// decisions, BST-2513). `thread/workspace/folder/new`, for the desktop's private client, asks
+// Main's folder picker for a parent, makes a folder there named by the thread's title, opens it as
+// a folder of the person's with a project of its own and binds the thread to it; a new method.
+// Its refusals are typed (`workspace.folder-*`).
+export const AGENT_HOST_PROTOCOL_VERSION = 32;
