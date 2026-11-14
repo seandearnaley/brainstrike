@@ -6,6 +6,7 @@
 import { resolveProviderError } from '@brainstrike/agent/provider-runtime';
 import type { ModelMessage } from 'ai';
 import {
+  type HostCompactedContext,
   overflowCompaction,
   prepareCompactedContext,
   summarizeHostContext,
@@ -30,7 +31,7 @@ async function commitContextEvent(ports: Ports, run: Run, event: HostEvent): Pro
 }
 
 /** Committed tool-output rewrites, plus the policy's new ones, on this step's messages. */
-export function rewriteRunContext(
+function rewriteRunContext(
   ports: Ports,
   run: Run,
   ancestors: readonly Run[],
@@ -113,20 +114,18 @@ export async function recoverHostContextOverflow(ports: Ports, run: Run): Promis
 }
 
 /**
- * The run's first request context: heal interrupted history, apply committed
- * tool-output rewrites (and the policy's new ones), then the compaction
- * overlay (and a new compaction past the trigger), in the legacy order.
+ * A step's request context, from the run's committed branch (BST-2531): heal
+ * interrupted history, apply committed tool-output rewrites (and the policy's
+ * new ones), then the compaction overlay (and a new compaction past the
+ * trigger), in the legacy order.
  */
 export async function prepareRunContext(
   ports: Ports,
   run: Run,
   ancestors: readonly Run[],
-  admission: HostRunAdmission,
-  messages: readonly ModelMessage[]
-): Promise<{
-  readonly messages: ModelMessage[];
-  readonly note?: string;
-}> {
+  admission: HostRunAdmission
+): Promise<HostCompactedContext> {
+  const messages = hostRunContext(ports.runs, run);
   const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
   const rewritten = await rewriteRunContext(ports, run, ancestors, healed);
   return await prepareCompactedContext({

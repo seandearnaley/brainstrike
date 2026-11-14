@@ -171,7 +171,12 @@ export function scriptedTurns(
               : []
           )
       );
-      const next = turn.steps.find((step) => step.some(({ id }) => !completed.has(id)));
+      // The step after the newest one the request holds every result of: a
+      // compaction may have replaced the turn's older steps (BST-2531).
+      const next =
+        turn.steps[
+          turn.steps.findLastIndex((step) => step.every(({ id }) => completed.has(id))) + 1
+        ];
       const chunks: Chunk[] = next
         ? [
             { type: 'stream-start', warnings: [] },

@@ -391,6 +391,57 @@ describe('production external store binding', () => {
     );
   });
 
+  it('counts the steps a compaction inside a run replaced, and names a request trim (BST-2531)', async () => {
+    const card = (id: string, data: Record<string, unknown>) =>
+      viewMessage(id, [
+        { data, name: HOST_CONTEXT_COMPACTED_DATA_NAME, type: 'data' },
+        { text: `Answer after ${id}`, type: 'text' },
+      ]);
+    const source = new PublishedConversation('root', [
+      card('steps', {
+        kind: 'agentic',
+        reason: 'pre-request',
+        stepsCompacted: 7,
+        summary: '## Goal\nKeep going.',
+        turnsCompacted: 0,
+      }),
+      card('both', {
+        kind: 'agentic',
+        reason: 'pre-request',
+        stepsCompacted: 1,
+        summary: '## Goal\nKeep going.',
+        turnsCompacted: 2,
+      }),
+      card('trim', {
+        kind: 'deterministic',
+        reason: 'request-trim',
+        summary: 'Deterministic fallback: dropped 1 earlier turns.',
+        turnsCompacted: 1,
+      }),
+    ]);
+    render(
+      <TooltipProvider>
+        <CommittedAssistantConversation
+          commands={{ onNew: vi.fn() }}
+          label="Conversation"
+          store={source}
+        />
+      </TooltipProvider>
+    );
+    const [steps, both, trim] = await screen.findAllByTestId('compaction-summary-card');
+    if (!(steps && both && trim)) {
+      throw new Error('Expected three compaction cards');
+    }
+    expect(within(steps).getByTestId('compaction-summary-turns')).toHaveTextContent('7 steps');
+    expect(within(both).getByTestId('compaction-summary-turns')).toHaveTextContent(
+      '2 turns, 1 step'
+    );
+    expect(within(trim).getByTestId('compaction-summary-turns')).toHaveTextContent('1 turn');
+    expect(within(trim).getByTestId('compaction-summary-reason')).toHaveTextContent(
+      'Left out of a request over the context budget'
+    );
+  });
+
   it('observes asynchronous tool-resume failures without changing a pending interaction', async () => {
     const answer = viewMessage('answer', [
       {

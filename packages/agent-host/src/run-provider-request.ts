@@ -20,6 +20,9 @@ import {
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { type LanguageModel, type LanguageModelMiddleware, wrapLanguageModel } from 'ai';
 import type { HostProjectionRewrite } from './ports.ts';
+import type { HostEvent } from './protocol.ts';
+
+type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
 
 /** One prepared request, as Core commits it (`provider.request.prepared`). */
 export interface HostProviderRequestReceipt {
@@ -28,6 +31,8 @@ export interface HostProviderRequestReceipt {
   readonly modelId: string;
   readonly provider: string;
   readonly toolCallWindow: PromptToolCallWindow;
+  /** BST-2531: what the request's trim left out, committed with it as a compaction. */
+  readonly trim?: Compacted;
 }
 
 /** One run's provider requests: each step prepares what its request sends before the call. */
@@ -36,6 +41,11 @@ export class HostProviderRequest {
   private history: readonly MastraDBMessage[] | undefined;
   /** Committed tool-output rewrites as of the step's history read. */
   private rewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
+  /**
+   * How the step's context names what a trim left out (`HostCompactedContext.trim`);
+   * the step's first trimmed request takes it.
+   */
+  private trim: ((kept: number) => Compacted | undefined) | undefined;
   /** The tool calls this run's previous provider request carried; none before its first. */
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
 
@@ -50,13 +60,15 @@ export class HostProviderRequest {
     this.record = record;
   }
 
-  /** What the step's requests send, read from the committed log. */
+  /** What the step's requests send, read from the committed log, and how to name a trim of it. */
   prepare(
     history: readonly MastraDBMessage[],
-    rewrites: ReadonlyMap<string, HostProjectionRewrite>
+    rewrites: ReadonlyMap<string, HostProjectionRewrite>,
+    trim: (kept: number) => Compacted | undefined
   ): void {
     this.history = history;
     this.rewrites = rewrites;
+    this.trim = trim;
   }
 
   /** Enclose the selected concrete model at its final public provider boundary. */
@@ -76,12 +88,21 @@ export class HostProviderRequest {
       onPrepared: async (prepared) => {
         const toolCalls = preparedPromptToolCalls(prepared);
         const toolCallWindow = diffPromptToolCallWindow(this.previousRequestToolCalls, toolCalls);
+        // A step's SDK retries send the same request again: its trim is named
+        // once, by the first attempt that trims, and never committed twice.
+        const name = prepared.accounting.removedMessages > 0 ? this.trim : undefined;
+        if (name) {
+          this.trim = undefined;
+        }
+        // A trimmed request starts at a user message: it kept that one and every later one.
+        const trim = name?.(prepared.params.prompt.filter(({ role }) => role === 'user').length);
         await this.record({
           accounting: prepared.accounting,
           breakdown: preparedPromptBreakdown(prepared, toolCalls),
           modelId: model.modelId,
           provider: selected.provider,
           toolCallWindow,
+          ...(trim ? { trim } : {}),
         });
         // Only a committed receipt becomes the next window's base.
         this.previousRequestToolCalls = applyPromptToolCallWindow(

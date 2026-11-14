@@ -46,11 +46,7 @@ import { commitHostModelMessages, resolveHostApprovalInput } from './run-continu
 import { hostProviderHistory } from './run-history.ts';
 import { HostRunOutcome } from './run-outcome.ts';
 import { HostProviderRequest } from './run-provider-request.ts';
-import {
-  prepareRunContext,
-  recoverHostContextOverflow,
-  rewriteRunContext,
-} from './run-request-context.ts';
+import { prepareRunContext, recoverHostContextOverflow } from './run-request-context.ts';
 import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.ts';
 import { hostTelemetry } from './telemetry/host-telemetry.ts';
 import { hostArtifactReader } from './tool-artifacts.ts';
@@ -501,7 +497,10 @@ function hostProviderRequest(
   }
   run.providerRequest ??= new HostProviderRequest(
     admission.providerRequest,
-    recordHostProviderRequest(run, (threadId, events) => ports.append(threadId, events, 'full'))
+    // Folded as a replay folds them: a trim's compaction holds from the next step.
+    recordHostProviderRequest(run, (threadId, events) =>
+      ports.append(threadId, events, 'full', ports.foldRows)
+    )
   );
   return run.providerRequest;
 }
@@ -525,8 +524,6 @@ async function runHostSdkAttempt(
   const initialMessages = hostRunContext(ports.runs, run);
   const ancestors = hostRunAncestors(ports.runs, run);
   let recordedInputLength = initialMessages.length;
-  let historyPrepared = false;
-  let compactionNote: string | undefined;
   const partial = new HostStepPartial();
   try {
     // Strict: a malformed resilience setting fails this run visibly.
@@ -611,27 +608,23 @@ async function runHostSdkAttempt(
           outcome.fail(taken.failure);
           return { messages, toolChoice: 'none' };
         }
-        let prepared: ModelMessage[];
-        if (historyPrepared) {
-          // Stale reads and old outputs are rewritten within the run, as legacy
-          // rewrote them after each tracked tool.
-          prepared = await rewriteRunContext(ports, run, ancestors, messages);
-        } else {
-          historyPrepared = true;
-          const overlay = await prepareRunContext(ports, run, ancestors, admission, messages);
-          prepared = overlay.messages;
-          compactionNote = overlay.note;
-        }
+        // BST-2531: every step's request is built from the committed branch:
+        // old outputs are rewritten, and a request past its trigger compacts
+        // the run's older steps first. A compaction committed at any step,
+        // or before a pause, holds for every later one.
+        const context = await prepareRunContext(ports, run, ancestors, admission);
+        const prepared = context.messages;
         recordedInputLength = prepared.length;
         // What this step's requests send, read from the committed log.
         const rows = ports.readCommittedRows(run);
         request?.prepare(
           hostProviderHistory(rows, { runId: run.id, threadId: run.threadId }),
-          committedRewrites(rows)
+          committedRewrites(rows),
+          context.trim
         );
         // Per-step notes from committed thread state (the legacy task-list note).
         const notes = hostContextNotes(hostRunTools(run), ports.records.stateView(run.threadId));
-        const system = combineHostSystemContext(compactionNote, notes).system;
+        const system = combineHostSystemContext(context.note, notes).system;
         const activeTools = await hostStepActiveTools(run, ports.platform);
         // An approved call that entered a worktree resumes with a model step:
         // it may answer, never act, in the run's old workspace (ADR-0028).

@@ -8,8 +8,11 @@ import { Predicate } from 'effect';
 /** A host thread's committed `context.compacted`, as a data part of the run that made it. */
 export const HOST_CONTEXT_COMPACTED_DATA_NAME = 'brainstrike.context-compacted';
 
-/** Why the host compacted: before a request over its budget, or after a provider overflow. */
-type HostContextCompactionReason = 'pre-request' | 'context-overflow';
+/**
+ * Why the host compacted: before a request over its budget, after a provider
+ * overflow, or because the provider request still left messages out (BST-2531).
+ */
+type HostContextCompactionReason = 'pre-request' | 'context-overflow' | 'request-trim';
 
 /** A summarizer side call's provider-reported tokens. */
 interface HostContextCompactionUsage {
@@ -30,6 +33,11 @@ export interface HostContextCompaction {
   /** The summarizer's catalog model, when one ran. */
   readonly modelId?: string;
   readonly reason: HostContextCompactionReason;
+  /**
+   * The steps of a running turn it replaced since its run's last compaction
+   * (its `through`, less the steps it kept word for word).
+   */
+  readonly stepsCompacted?: number;
   readonly summarizerFailure?: HostContextSummarizerFailure;
   readonly summary: string;
   /** The earlier turns the compaction replaced (its `compactedRunIds`). */
@@ -38,7 +46,7 @@ export interface HostContextCompaction {
 }
 
 function isReason(value: unknown): value is HostContextCompactionReason {
-  return value === 'pre-request' || value === 'context-overflow';
+  return value === 'pre-request' || value === 'context-overflow' || value === 'request-trim';
 }
 
 function isCount(value: unknown): value is number {
@@ -76,12 +84,35 @@ function readHostCompactionUsage(usage: unknown): HostContextCompactionUsage {
   throw new Error('Committed compaction usage has no provider-reported token counts.');
 }
 
+/** The last step of a running turn a compaction replaced, or why it cannot be read. */
+function readThrough(value: unknown): {
+  /** The steps before it the compaction kept word for word. */
+  readonly kept: number;
+  readonly runId: string;
+  readonly stepNumber: number;
+} {
+  const kept = Predicate.isObject(value) ? (value['kept'] ?? []) : undefined;
+  if (
+    Predicate.isObject(value) &&
+    isText(value['runId']) &&
+    isCount(value['stepNumber']) &&
+    Array.isArray(kept) &&
+    kept.every(isCount)
+  ) {
+    return { kept: kept.length, runId: value['runId'], stepNumber: value['stepNumber'] };
+  }
+  throw new Error('Committed compaction has an unreadable step.');
+}
+
 /**
  * A committed `context.compacted` event as its card part: the reason, the
- * turns it replaced, and the summarizer's model and usage when one ran.
+ * turns and steps it replaced, and the summarizer's model and usage when one
+ * ran. `compactedSteps` holds each run's last step an earlier compaction of
+ * the thread replaced, and takes this one's.
  */
 export function committedHostCompaction(
-  event: Readonly<Record<string, unknown>>
+  event: Readonly<Record<string, unknown>>,
+  compactedSteps: Map<string, number>
 ): HostContextCompaction {
   const { compactedRunIds, kind, modelId, reason, summarizerFailure, summary, usage } = event;
   if (kind !== 'agentic' && kind !== 'deterministic') {
@@ -93,9 +124,10 @@ export function committedHostCompaction(
   if (typeof summary !== 'string' || !summary) {
     throw new Error('Committed compaction is missing summary.');
   }
+  const through = event['through'] === undefined ? undefined : readThrough(event['through']);
   if (
     !Array.isArray(compactedRunIds) ||
-    compactedRunIds.length === 0 ||
+    (compactedRunIds.length === 0 && through === undefined) ||
     !compactedRunIds.every((runId) => typeof runId === 'string' && runId)
   ) {
     throw new Error('Committed compaction names no compacted runs.');
@@ -103,10 +135,17 @@ export function committedHostCompaction(
   if (modelId !== undefined && !(typeof modelId === 'string' && modelId)) {
     throw new Error('Committed compaction has an unreadable summarizer model.');
   }
+  const before = through === undefined ? undefined : compactedSteps.get(through.runId);
+  if (through) {
+    compactedSteps.set(through.runId, through.stepNumber);
+  }
   return {
     kind,
     ...(modelId === undefined ? {} : { modelId }),
     reason,
+    ...(through === undefined
+      ? {}
+      : { stepsCompacted: through.stepNumber - (before ?? -1) - through.kept }),
     ...(summarizerFailure === undefined
       ? {}
       : { summarizerFailure: readSummarizerFailure(summarizerFailure) }),
@@ -118,19 +157,22 @@ export function committedHostCompaction(
 
 /** The committed projection writes this part; any other shape is a projection defect. */
 export function readHostContextCompaction(data: unknown): HostContextCompaction {
+  const steps = Predicate.isObject(data) ? data['stepsCompacted'] : undefined;
   if (
     Predicate.isObject(data) &&
     (data['kind'] === 'agentic' || data['kind'] === 'deterministic') &&
     typeof data['summary'] === 'string' &&
     isReason(data['reason']) &&
     isCount(data['turnsCompacted']) &&
-    data['turnsCompacted'] > 0 &&
+    (steps === undefined || isCount(steps)) &&
+    data['turnsCompacted'] + (steps ?? 0) > 0 &&
     (data['modelId'] === undefined || (typeof data['modelId'] === 'string' && data['modelId']))
   ) {
     return {
       kind: data['kind'],
       ...(data['modelId'] === undefined ? {} : { modelId: data['modelId'] }),
       reason: data['reason'],
+      ...(steps === undefined ? {} : { stepsCompacted: steps }),
       ...(data['summarizerFailure'] === undefined
         ? {}
         : { summarizerFailure: readSummarizerFailure(data['summarizerFailure']) }),
