@@ -11,7 +11,7 @@
       "message": "complete:stop",
       "outcome": "completed",
       "rows": [
-        "Updated memory done",
+        "Used updateWorkingMemory failed",
         "Read done",
         "Read done"
       ],
