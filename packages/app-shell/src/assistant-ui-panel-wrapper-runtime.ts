@@ -414,10 +414,13 @@ export function buildAgentLoopSettings(
         buildPositiveIntegerSetting(settings?.maxOutputTokens)
     );
   }
-  if (!(maxSteps || inputTokenLimit)) {
+  // Only a cap the person set rides the intent; the admission resolves an unset one.
+  const compactionTokenCap = buildPositiveIntegerSetting(settings?.agentCompactionTokenCap);
+  if (!(maxSteps || inputTokenLimit || compactionTokenCap)) {
     return;
   }
   return {
+    ...(compactionTokenCap === undefined ? {} : { compactionTokenCap }),
     ...(maxSteps === undefined ? {} : { maxSteps }),
     ...(inputTokenLimit === undefined ? {} : { inputTokenLimit }),
   };

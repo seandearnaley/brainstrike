@@ -25,7 +25,10 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
 - Pre-request compaction measures the request the provider will receive, before every step of a run (BST-2531).
   - Each step's request is built from the committed branch (`prepareRunContext`), so a compaction committed at any step, or before an approval pause, holds for every later step and leg.
   - It triggers at 90% of the run's input budget or its compaction cap (200,000 tokens by default), whichever is less, and reclaims toward 7/9 of that trigger. `deriveContextCompactionThreshold` in `assistant-contract` is the one derivation; the admission carries the cap beside `inputTokenLimit`.
-  - Past the trigger it summarizes only when what it can drop reaches the target or holds at least one protect window (20,000 estimated tokens), `compactionReclaims`. Otherwise the request goes as it is; overflow recovery and the request trim stay the last resort.
+  - A person sets the cap in the composer's Output & Limits ("Compact at", at least 64,000, no upper bound). It rides the desktop intent as `agentLoop.compactionTokenCap` only when set, so a recovered run keeps its captured cap; the standalone intent carries none.
+  - The production admission turns an unset cap into the default (`resolveContextCompactionTokenCap`), the same call Settings and the context meter use.
+  - The trigger is the context meter's one denominator: the composer derives it from the run's budget and cap, the ring is full when the thread compacts, and warning (75%) and critical (90%) read against it. The Context tab's bar shows the same figure.
+  - Past the trigger it summarizes only when what it can drop (kept steps are not droppable) reaches the target or holds at least one protect window (20,000 estimated tokens), `compactionReclaims`. Otherwise the request goes as it is; overflow recovery and the request trim stay the last resort.
   - The size is what the provider last reported: the branch's latest `model.step` input tokens, else its latest `provider.request.prepared` `accounting.totalTokens`, plus the chars/4 estimate of what the branch committed after that request. A committed compaction voids every earlier report of its thread.
   - With nothing reported, it is the chars/4 estimate of the request's messages plus the run's instructions and tool definitions. Turns and steps are always sized by the estimate when choosing which to drop.
   - Every turn on the branch that no compaction covers is sent; there is no history window.
@@ -33,11 +36,13 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
   - Earlier turns whole, except the current turn, the one before it, the newest turns up to 20,000 estimated tokens and any turn that called a skill or plan tool.
   - The current run's older steps, as `through: { runId, stepNumber }`: its steps up to that one leave the request and its user message stays. The newest steps up to 20,000 estimated tokens stay word for word, and the cut falls only where every tool call has its result.
   - A step ends where the next begins (`HostRunState.stepEnds`), so it holds the approval results and notices committed after it; a run's newest step has not ended and is never replaced.
+  - Among the replaced steps, one that loaded a skill or holds an `askUser` or `submitPlan` result stays word for word, by the same predicate that protects a whole turn. It does not stop the cut: the steps around it are still replaced. The event records it in `through.kept`, so what a compaction replaced stays one committed fact.
   - A row without `through` replaces whole turns only. `compactedRunIds` is empty when only steps were replaced.
   - A compaction belongs to a branch that holds every run it names, `through`'s included; a regenerated sibling of that run never sees it.
-  - The overlay, the note, the request's provenance (`hostProviderHistory`) and the card's step count all read `through`. Tool discovery reads the whole committed branch, so a tool loaded in a replaced step stays loaded.
+  - The overlay, the note, the request's provenance (`hostProviderHistory`), the summarizer's transcript, the fallback drop, the card's step count and the context fold all read `through` and its `kept` steps. Tool discovery reads the whole committed branch, so a tool loaded in a replaced step stays loaded.
 - Each request passes the provider request boundary (`run-provider-request.ts`), which filters, measures and limits the prompt against the run's provenance (`run-history.ts`) and commits a `provider.request.prepared` receipt.
   - When it still has to drop the oldest messages to fit, the same commit carries a deterministic `context.compacted` with reason `request-trim` naming the turns and steps it left out, so the thread shows a card. With the every-step check this should not happen in ordinary use.
+  - The SDK's retries of a step send the same request; its trim is named once, by the first attempt that trims, so one compaction commits beside every attempt's receipt.
 - When the summarizer fails, the deterministic fallback's `context.compacted` records the typed failure code and its cause's log reference, and drops only the oldest turns and steps that reach the target.
 - Context-overflow recovery measures the same way and drops toward the same target, at least one turn or step.
 

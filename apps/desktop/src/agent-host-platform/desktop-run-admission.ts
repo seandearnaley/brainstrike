@@ -494,6 +494,7 @@ export function createDesktopRunAdmission(
       };
       return {
         close,
+        compactionTokenCap: intent.agentLoop?.compactionTokenCap,
         configuration,
         contextWindow: definition.contextWindow,
         durableConfiguration: desktopDurableConfiguration(

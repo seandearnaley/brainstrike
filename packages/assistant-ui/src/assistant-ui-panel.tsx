@@ -184,10 +184,10 @@ export const ChatThreadUI = ({
   accessMode,
   approvalStrip,
   isVisible = true,
+  compactionTrigger,
   composerDraftCommand,
   contextWindow,
   cumulativeUsage,
-  effectiveInputBudget,
   providerGroups,
   hasGroupedProviders,
   pickerModels,
@@ -228,10 +228,11 @@ export const ChatThreadUI = ({
    */
   approvalStrip?: ReactNode | undefined;
   isVisible?: boolean;
+  /** The request size at which the thread compacts; the context meter fills toward it. */
+  compactionTrigger?: number | undefined;
   composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
   cumulativeUsage?: CumulativeUsageDisplay | undefined;
-  effectiveInputBudget?: number | undefined;
   attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
   canSteer?: boolean | undefined;
   planMode?: { enabled: boolean; onExit?: () => void; onToggle: () => void } | undefined;
@@ -378,9 +379,9 @@ export const ChatThreadUI = ({
                       <div className="bs-composer-toolbar" data-testid="assistant-composer-toolbar">
                         {workspaceBar ?? null}
                         <ThreadContextMeter
+                          compactionTrigger={compactionTrigger}
                           contextWindow={contextWindow}
                           cumulativeUsage={cumulativeUsage}
-                          effectiveInputBudget={effectiveInputBudget}
                           threadKey={threadKey}
                         />
                       </div>

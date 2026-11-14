@@ -217,11 +217,11 @@ describe('ThreadContextPage', () => {
     await waitFor(() => expect(b?.querySelector('[data-state="gone"]')).toBeTruthy());
   });
 
-  it("shows the composer ring's figure with the files' share and the compaction tick", () => {
+  it("shows the composer ring's figure against its compaction trigger", () => {
     seed();
     useThreadContextStore
       .getState()
-      .recordRing('thread-1', { budgetTokens: 10_000, isEstimated: false, usedTokens: 4500 });
+      .recordRing('thread-1', { isEstimated: false, triggerTokens: 10_000, usedTokens: 4500 });
     render(<Page />);
     expect(screen.getByTestId('context-map-ring-total').textContent).toBe('4.5K / 10.0K tokens');
     expect(

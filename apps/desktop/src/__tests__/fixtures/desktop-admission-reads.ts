@@ -14,7 +14,11 @@ export type CapturedIntent = z.output<typeof CapturedIntentSchema>;
  * model, no native tools, and Skills and workspace instructions off.
  */
 export function capturedIntent(options: {
-  readonly agentLoop?: { readonly inputTokenLimit?: number; readonly maxSteps?: number };
+  readonly agentLoop?: {
+    readonly compactionTokenCap?: number;
+    readonly inputTokenLimit?: number;
+    readonly maxSteps?: number;
+  };
   readonly model: string;
   readonly provider: string;
 }): CapturedIntent {
