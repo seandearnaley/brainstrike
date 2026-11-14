@@ -157,15 +157,19 @@ describe('thread metadata badges', () => {
 
       // Two scratch repositories are told apart by branch, and the thread stays a scratch thread.
       const chip = screen.getByTestId('thread-checkout-chip');
-      expect(chip).toHaveTextContent(/^quiet-otter · feature\/notes$/u);
+      // Name, dot, branch: three items the badge's gap spaces evenly.
+      expect(chip).toHaveTextContent(/^quiet-otter·feature\/notes$/u);
+      expect(within(chip).getByText('·')).toHaveAttribute('aria-hidden', 'true');
       expect(chip).toHaveAttribute(
         'title',
         'Scratch folder quiet-otter at /profile/scratch/quiet-otter, on branch feature/notes'
       );
-      // Under 420px it is still its folder icon alone: the branch waits with the name.
+      // Under 420px it is still its folder icon alone: the branch and its dot wait with the name.
       expect(chip.className.split(' ')).not.toContain('hidden');
-      expect(screen.getByText('· feature/notes').className).toContain('@[420px]/threads:inline');
-      expect(screen.getByText('· feature/notes').className.split(' ')).toContain('hidden');
+      for (const part of [within(chip).getByText('feature/notes'), within(chip).getByText('·')]) {
+        expect(part.className).toContain('@[420px]/threads:inline');
+        expect(part.className.split(' ')).toContain('hidden');
+      }
     });
 
     it('says a scratch repository on no branch is detached', () => {
@@ -180,7 +184,7 @@ describe('thread metadata badges', () => {
       );
 
       const chip = screen.getByTestId('thread-checkout-chip');
-      expect(chip).toHaveTextContent(/^quiet-otter · detached$/u);
+      expect(chip).toHaveTextContent(/^quiet-otter·detached$/u);
       expect(chip).toHaveAttribute(
         'title',
         'Scratch folder quiet-otter at /profile/scratch/quiet-otter, on a detached HEAD'

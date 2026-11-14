@@ -261,6 +261,13 @@ export function ThreadMetadataBadges({
 const THREAD_CHECKOUT_TEXT_CLASS_NAME = 'hidden max-w-24 truncate @[420px]/threads:inline';
 
 /**
+ * The dot between a scratch folder's name and its branch. A flex item of its
+ * own, so the badge's gap spaces both its sides: a space inside a truncated
+ * text is dropped at the start of its line. Hidden with the texts it divides.
+ */
+const THREAD_CHECKOUT_SEPARATOR_CLASS_NAME = 'hidden @[420px]/threads:inline';
+
+/**
  * The checkout chip. A Threads panel at its default width leaves a row about
  * 100px for the title and its badges together, and a text chip there cuts the
  * title to a few letters. So under 420px:
@@ -302,7 +309,12 @@ function ThreadCheckoutBadge({
     >
       <span className={THREAD_CHECKOUT_TEXT_CLASS_NAME}>{checkout.name}</span>
       {branch === null ? null : (
-        <span className={THREAD_CHECKOUT_TEXT_CLASS_NAME}>{` · ${branch.label}`}</span>
+        <>
+          <span aria-hidden="true" className={THREAD_CHECKOUT_SEPARATOR_CLASS_NAME}>
+            ·
+          </span>
+          <span className={THREAD_CHECKOUT_TEXT_CLASS_NAME}>{branch.label}</span>
+        </>
       )}
     </ThreadBadge>
   );
