@@ -65,14 +65,11 @@ describe('deriveActivitySteps', () => {
     expect(steps[1]?.verb.active).toBe('Searching');
   });
 
-  // Live QA 2026-10-16: "Using updateWorkingMemory # Session - **Active task**: …"
-  // — a tool whose arguments carry content names no target, and the host's
-  // meta tools name the argument that is one.
+  // Live QA 2026-10-16: a tool whose arguments carry content names no target,
+  // and the host's meta tools name the argument that is one.
   it('reads each step’s target from the argument its verb names, never from content', () => {
-    const memory = '# Session\n- **Active task**: ship the fix';
     const steps = deriveActivitySteps(
       [
-        tool('m', 'updateWorkingMemory', { memory }, complete),
         tool('s', 'search_tools', { limit: 5, query: 'git worktree' }, complete),
         tool('l', 'load_tool', { toolName: 'brainstrike_manageWorktree' }, complete),
         // Codex review on #3723: load_tool's batch form names several tools.
@@ -94,7 +91,6 @@ describe('deriveActivitySteps', () => {
       {}
     );
     expect(steps.map((step) => [step.verb.done, step.target, step.targetKey])).toEqual([
-      ['Updated memory', null, null],
       ['Searched tools', 'git worktree', 'git worktree'],
       ['Loaded tool', 'brainstrike_manageWorktree', 'brainstrike_manageWorktree'],
       ['Loaded tool', 'brainstrike_lspInspect, webSearch', 'brainstrike_lspInspect, webSearch'],

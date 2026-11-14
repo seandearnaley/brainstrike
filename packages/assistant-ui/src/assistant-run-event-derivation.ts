@@ -117,9 +117,6 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     // A hook file that did not load: its hooks silently not running is the
     // degradation the row reports.
     (event.kind === 'hook.notice' && event.status === 'failed') ||
-    // A background memory cycle that failed after the answer: the only sign
-    // that the run's memory did not settle.
-    (event.kind === 'memory.observation.failed' && event.status === 'failed') ||
     event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'provider.request.warned' ||
     event.kind === 'reference.unavailable' ||
@@ -594,7 +591,7 @@ const STARTED_SUFFIX = '.started';
 /**
  * Success terminals are spelled `.finished` in some namespaces (`run.started`,
  * `run.step.started`, `subagent.started`) and `.completed` in others
- * (`tool.started`, `memory.*.started`, `subagent.tool.started`). Both spellings
+ * (`tool.started`, `subagent.tool.started`). Both spellings
  * are tried and the ONE the contract actually declares wins.
  */
 const COMPLETED_SUFFIXES = ['.completed', '.finished'] as const;
@@ -617,9 +614,8 @@ function isRunEventKind(value: string): value is AssistantRunEventKind {
  * was invisible because `subagent.*` rows are hidden from the timeline entirely
  * (they render inside the SubagentExecutionCard).
  *
- * BST-947 rationale still applies to the `.failed` side: an observation cycle
- * can terminate in the durable `memory.observation.failed` event, and without
- * that pairing a failed cycle leaves its started row spinning forever.
+ * The `.failed` side pairs the same way (`tool.failed`, `subagent.failed`):
+ * without that pairing a failed start leaves its row spinning forever (BST-947).
  */
 function resolveTerminalKind(
   kind: AssistantRunEventKind,

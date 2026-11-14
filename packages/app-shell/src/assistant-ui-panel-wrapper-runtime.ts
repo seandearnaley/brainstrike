@@ -12,7 +12,6 @@ import {
   type OpenRouterAutoProfileModel,
   type OpenRouterModelMetadataLookup,
   openRouterReasoningEffortIssue,
-  type ProviderKeySource,
   type RuntimeData,
   resolveOpenRouterAutoRuntimeProfile,
   resolveOpenRouterOutputWindow,
@@ -20,13 +19,6 @@ import {
   type SelectedModelBudgetDef,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
-import {
-  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-  listAutoObservationalMemoryCandidates,
-  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  type RuntimeAssistantObservationalMemorySettings,
-} from '@brainstrike/assistant-contract/memory-settings';
 import {
   getProviderDefinition,
   getProviderModelDefinitions,
@@ -116,98 +108,6 @@ export function formatToolLabel(toolId: string): string {
 
 export function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Tool: ${toolId}`;
-}
-
-/** Why an 'auto' observer target could not resolve to a concrete model. */
-type ObservationalMemoryAutoUnresolvedReason =
-  | 'keys-unknown'
-  | 'model-not-eligible'
-  | 'no-backend'
-  | 'no-chat-provider';
-
-export interface EffectiveObservationalMemorySettings {
-  /**
-   * Present ONLY when the stored target was the 'auto' sentinel. 'resolved'
-   * carries the concrete target auto picked; 'unresolved' explains why OM is
-   * waiting (surfaced in Settings and the context popover — never a silent
-   * off, and never a thread-memory-disabling validation error).
-   */
-  readonly autoResolution?:
-    | { readonly kind: 'resolved'; readonly target: string }
-    | { readonly kind: 'unresolved'; readonly reason: ObservationalMemoryAutoUnresolvedReason };
-  readonly settings: RuntimeAssistantObservationalMemorySettings;
-}
-
-/**
- * Resolve the stored observational-memory settings into the CONCRETE settings
- * every downstream consumer uses (request data, memory validation, OM meter).
- *
- * The 'auto' sentinel adapts to the profile under the PRIVACY INVARIANT
- * (review ruling on BST-940): the observer is only ever a Mastra-tested fast
- * model from the SELECTED CHAT PROVIDER — the party already receiving the
- * conversation. An unkeyed chat provider, or a candidate disabled in the
- * user's model catalog (isTargetEligible), flips enabled→false with an
- * explicit unresolved reason instead. Explicit (non-auto) targets pass through
- * untouched so misconfiguration keeps its loud validation. 'auto' must never
- * reach the provider/model validator.
- */
-export function resolveEffectiveObservationalMemorySettings(args: {
-  readonly desktopAssistantBackendAvailable: boolean;
-  /**
-   * Model-catalog eligibility for a resolved candidate (provider enabled +
-   * model enabled, same gate as the settings dropdown). Omit while the
-   * registry has not loaded — the key/chat-provider gates still apply.
-   */
-  readonly isTargetEligible?: (target: {
-    readonly modelId: string;
-    readonly provider: string;
-  }) => boolean;
-  readonly providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
-  readonly selectedChatProvider: string | null | undefined;
-  readonly settings: RuntimeAssistantObservationalMemorySettings;
-}): EffectiveObservationalMemorySettings {
-  if (args.settings.modelTarget !== OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET) {
-    return { settings: args.settings };
-  }
-  const unresolved = (
-    reason: ObservationalMemoryAutoUnresolvedReason
-  ): EffectiveObservationalMemorySettings => ({
-    autoResolution: { kind: 'unresolved', reason },
-    settings: { ...args.settings, enabled: false },
-  });
-  if (!args.desktopAssistantBackendAvailable) {
-    return unresolved('no-backend');
-  }
-  if (args.providerKeySources === undefined) {
-    return unresolved('keys-unknown');
-  }
-  const candidates = listAutoObservationalMemoryCandidates({
-    chatProvider: args.selectedChatProvider,
-    providersWithKeys: args.providerKeySources.map(({ provider }) => provider),
-  });
-  if (candidates.length === 0) {
-    return unresolved('no-chat-provider');
-  }
-  // First catalog-eligible candidate wins (candidate order is the Mastra
-  // grounding; e.g. OpenRouter's preferred Gemini targets ship
-  // catalog-disabled, so the fallbacks matter). No predicate → registry not
-  // loaded yet → first candidate, key/chat-provider gates already applied.
-  const target = args.isTargetEligible
-    ? candidates.find((candidate) => {
-        const separatorIndex = candidate.indexOf('/');
-        return args.isTargetEligible?.({
-          modelId: candidate.slice(separatorIndex + 1),
-          provider: candidate.slice(0, separatorIndex),
-        });
-      })
-    : candidates[0];
-  if (target === undefined) {
-    return unresolved('model-not-eligible');
-  }
-  return {
-    autoResolution: { kind: 'resolved', target },
-    settings: { ...args.settings, modelTarget: target },
-  };
 }
 
 /**
@@ -355,8 +255,6 @@ export function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuI
   return items;
 }
 
-export type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
-
 const openRouterLimitFormatter = new Intl.NumberFormat();
 
 /** The send's gate while an OpenRouter model's details load. */
@@ -494,14 +392,6 @@ function buildPositiveIntegerSetting(value: unknown): number | undefined {
   return Number.isFinite(normalized) && normalized > 0 ? normalized : undefined;
 }
 
-function buildNonNegativeIntegerSetting(value: unknown): number | undefined {
-  if (typeof value !== 'number') {
-    return;
-  }
-  const normalized = Math.floor(value);
-  return Number.isFinite(normalized) && normalized >= 0 ? normalized : undefined;
-}
-
 /**
  * Minimal model definition shape needed for input-budget derivation.
  * Matches the required fields on LlmModelDefinition, so callers can pass a
@@ -530,25 +420,6 @@ export function buildAgentLoopSettings(
   return {
     ...(maxSteps === undefined ? {} : { maxSteps }),
     ...(inputTokenLimit === undefined ? {} : { inputTokenLimit }),
-  };
-}
-
-export function buildAssistantMemoryOptions(
-  settings: AssistantProviderSettings | undefined
-): RuntimeMemoryOptions {
-  const configuredLastMessages = buildNonNegativeIntegerSetting(settings?.memoryLastMessages);
-  const lastMessages =
-    configuredLastMessages === undefined
-      ? DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES
-      : configuredLastMessages === 0
-        ? false
-        : configuredLastMessages;
-  return {
-    lastMessages,
-    workingMemory: {
-      ...DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-      enabled: settings?.workingMemoryEnabled ?? DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY.enabled,
-    },
   };
 }
 

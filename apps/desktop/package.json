@@ -173,7 +173,6 @@
     "@fontsource-variable/inter": "catalog:",
     "@fontsource-variable/jetbrains-mono": "catalog:",
     "@mastra/core": "catalog:",
-    "@mastra/memory": "catalog:",
     "@mastra/schema-compat": "catalog:",
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/core": "catalog:",

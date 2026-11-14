@@ -28,17 +28,6 @@ Implementation: `packages/state-store` and `packages/agent-host`.
 - The only clock is the close window (ADR-0030 `closeMs`): a worker still running at its end gets one kill, and its exit is still joined.
 - Close asks the index's writer thread to close, whether it is ready or still starting; a starting writer answers once it has opened its database. Close never terminates a starting writer: a thread terminated inside better-sqlite3's native initialisation aborts the whole host process, before the state DB is closed (BST-2472). Only the close window's kill still ends one.
 
-## Memory calculation
-
-- Mastra memory calculation never runs on the writer thread.
-  - The store starts the worker (`memory-calculator-worker.mjs`) when it opens and never awaits it, so neither open nor the first send waits for its 1-2 s module load. It stops at close, Clear and reset.
-  - The worker only calculates: it opens no database and writes nothing.
-- StateStore reads the input, the worker returns a delta, and the delta commits on the writer's write chain only if the resource's revision is unchanged since the read.
-- One resource's memory mutations run one at a time; appends and other resources continue.
-  - Purge, thread deletion and their replay enter the lanes of the thread's resources first, so earlier memory work commits first and later work reads what they leave.
-- A conflict, crash or module load failure fails that request visibly (`MemoryCalculatorError` for the worker). No retry, no fallback to the writer; the next request starts a fresh worker.
-- Without `memoryCalculatorModule`, native requests are refused.
-
 ## Root and content identity
 
 - The root lease supplies writer authority through acquisition, admitted work and physical close.

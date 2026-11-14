@@ -16,6 +16,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostRunAdmission } from '../src/ports.js';
+import { HostProviderRequest } from '../src/run-provider-request.ts';
 import {
   blocked,
   crashableStorePort,
@@ -47,7 +48,9 @@ function liveAdmissions(): number {
 
 /** A host whose admissions each hold a marker, and the runs whose admission has closed. */
 async function openMarkedHost(
-  model: MockLanguageModelV4
+  model: MockLanguageModelV4,
+  /** What each admission carries beside its tools. */
+  carried: Pick<HostRunAdmission, 'providerRequest'> = {}
 ): Promise<{ readonly closed: string[]; readonly core: HostCore }> {
   const base: HostPlatform = {
     close: async () => undefined,
@@ -68,6 +71,7 @@ async function openMarkedHost(
       const marker = new AdmissionMarker(request.runId);
       return {
         ...admission,
+        ...carried,
         close: async () => {
           await admission.close?.();
           closed.push(marker.runId);
@@ -152,4 +156,38 @@ test('a stopped run holds its admission until its end commits, and no longer', a
     })
   );
   expect(liveAdmissions()).toBe(0);
+});
+
+/**
+ * A run's provider request holds its branch's whole committed transcript, so
+ * one kept per finished run would grow with the square of a thread's runs.
+ */
+test('a run commits one receipt for each provider request, and once ended no longer holds the request', async () => {
+  const { closed, core } = await openMarkedHost(
+    new MockLanguageModelV4({ doStream: async () => stream(text('Done.')) }),
+    { providerRequest: { provider: 'openai' } }
+  );
+  const { threadId } = await core.startThread({ commandId: randomUUID() });
+
+  const runIds: string[] = [];
+  for (const prompt of ['First.', 'Second.', 'Third.']) {
+    const { runId } = await core.startRun({
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt,
+      threadId,
+    });
+    runIds.push(runId);
+    await expect
+      .poll(async () => (await core.read(threadId, 0)).some(finished(runId)), { timeout: 15_000 })
+      .toBe(true);
+  }
+  await expect.poll(() => closed, { timeout: 15_000 }).toEqual(runIds);
+
+  const types = (await core.read(threadId, 0)).map((row) => row.event.type);
+  const count = (type: string) => types.filter((found) => found === type).length;
+  // One model call a run, and one receipt of what each call sent.
+  expect(count('model.step')).toBe(3);
+  expect(count('provider.request.prepared')).toBe(3);
+  expect(Number(queryObjects(HostProviderRequest, { format: 'count' }))).toBe(0);
 });

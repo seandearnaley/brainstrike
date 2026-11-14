@@ -156,7 +156,6 @@ const FAMILY_FILTER_LABELS: Readonly<Record<VerbFamily, string>> = {
   canvas: 'Canvas',
   delegate: 'Delegations',
   edit: 'Edits',
-  memory: 'Memory',
   other: 'Other',
   read: 'Reads',
   run: 'Commands',

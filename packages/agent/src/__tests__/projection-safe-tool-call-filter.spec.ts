@@ -472,10 +472,10 @@ describe('ProjectionSafeToolCallFilter', () => {
         rawResult: { body: `end-raw-sentinel:${generatedHtml}` },
       }),
       createToolMessage({
-        id: 'working-memory',
-        modelOutput: { type: 'text', value: 'Working memory updated' },
+        id: 'task-list',
+        modelOutput: { type: 'text', value: 'Task list updated' },
         rawResult: { ok: true },
-        toolName: 'brainstrike_updateWorkingMemory',
+        toolName: 'brainstrike_manageTaskList',
       }),
     ];
 
@@ -501,7 +501,7 @@ describe('ProjectionSafeToolCallFilter', () => {
     expect(providerPrompt).not.toContain('verify-beginning.ts');
     expect(providerPrompt).toContain('End verified: closing HTML present');
     expect(providerPrompt).toContain('verify-end.ts');
-    expect(providerPrompt).toContain('brainstrike_updateWorkingMemory');
+    expect(providerPrompt).toContain('brainstrike_manageTaskList');
     expect(providerPrompt).toContain('Read BRIEF.md and build the conference site.');
     expect(providerPrompt).toContain(
       'Create index.html without executeCommand, then verify its beginning and end.'

@@ -47,9 +47,9 @@ export interface AssistantContextBreakdown {
   readonly attachmentsCount: number;
   /**
    * Heuristic tokens over the text parts of the outgoing wire messages.
-   * ABSENT for memory-backed runs: Mastra recalls durable history server-side
-   * AFTER this seam, so the wire carries only the current turn and measuring it
-   * would understate the conversation. The renderer falls back to its own
+   * ABSENT when the host assembles durable history AFTER this seam: the wire
+   * then carries only the current turn and measuring it would understate the
+   * conversation. The renderer falls back to its own
    * client-side heuristic walk for the Conversation row.
    */
   readonly historyMessagesTokens?: number;

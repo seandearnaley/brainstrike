@@ -114,11 +114,9 @@ export interface CommittedAssistantLogView {
   readonly activeRunId: string | undefined;
   /** Latest prepared provider prompt's composition, for the context popover. */
   readonly contextBreakdown?: AssistantContextBreakdownState | undefined;
-  /** Latest chat provider step, never aggregate billing or observer usage. */
+  /** Latest chat provider step, never aggregate billing. */
   readonly contextUsage?: ThreadTokenUsage | undefined;
   readonly isRunning: boolean;
-  /** The latest run received no observational memory, and why. */
-  readonly observationWithheld?: 'branched-thread' | undefined;
   readonly pendingInteractions: readonly CommittedAssistantPendingInteraction[];
   readonly repository: ExportedMessageRepository;
 }
@@ -594,8 +592,6 @@ export class CommittedAssistantLogProjection {
       ...this.view,
       activeRunId: runId,
       isRunning: true,
-      // A withheld reason belongs to the run that committed it.
-      observationWithheld: undefined,
       repository: { ...this.view.repository, headId: message.id },
     };
   }
@@ -709,8 +705,7 @@ export class CommittedAssistantLogProjection {
   /**
    * A host event with no message part of its own: an attempt record becomes
    * its run's attempt notice, each skipped hook file a failed hook notice, a
-   * compaction its compaction-card part, a withheld memory reason thread view
-   * state, and anything else host-event data.
+   * compaction its compaction-card part, and anything else host-event data.
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
@@ -740,14 +735,7 @@ export class CommittedAssistantLogProjection {
         contextBreakdown: parseAssistantContextBreakdown(event['breakdown']),
       };
     }
-    if (event['type'] !== 'memory.observation.withheld') {
-      this.data(run, row, event, HOST_EVENT_DATA_NAME);
-      return;
-    }
-    if (event['reason'] !== 'branched-thread') {
-      throw new Error('Committed withheld memory has an unsupported reason.');
-    }
-    this.view = { ...this.view, observationWithheld: event['reason'] };
+    this.data(run, row, event, HOST_EVENT_DATA_NAME);
   }
 
   private stream(run: ProjectedRun, row: CommittedAssistantLogRow): void {

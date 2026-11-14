@@ -164,4 +164,7 @@
 // `repositoryPath` in place of `projectId`. A repository's first rename or move makes its project,
 // and the listing only reads one, on the own checkout of any repository that is not an open
 // folder, whether or not an open folder holds it now.
-export const AGENT_HOST_PROTOCOL_VERSION = 31;
+// v32 (2026-11-14): Mastra memory is retired (ADR-0039, BST-2533). `thread/memory/read` and the
+// `memory.usage`, `memory.cycle`, `memory.observation.withheld` and `memory.settlement.failed`
+// events are removed. Removing a method is why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 32;

@@ -40,19 +40,14 @@ import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-
 import { Schema } from 'effect';
 import {
   desktopInputTokenLimit,
-  desktopMemorySelection,
   readDesktopCatalogSelection,
   readDesktopIntent,
-  readEnabledObservers,
-  resolveDesktopMemorySettings,
 } from './desktop-run-preconditions';
 import { type DesktopToolDescriptor, desktopToolDescriptors } from './desktop-tool-descriptors';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
-import { memoryReadinessReason } from './memory-readiness';
 import {
   PlatformAdmittedSkillSchema,
   type PlatformClientConfigurationSchema,
-  type PlatformMemoryReadinessSchema,
   PlatformModelConfigurationSchema,
   type PlatformSelection,
   platformPermissionPolicy,
@@ -87,8 +82,6 @@ export interface DesktopAdmissionReads {
   } | null>;
   /** The full intent a CLI workspace selection reduces; absent where no owner supplies one. */
   cliOwnerIntent?(request: HostRunIntentRequest): Promise<unknown>;
-  /** The candidates whose provider and model rows are enabled. */
-  enabledObservers(candidates: readonly string[], signal: AbortSignal): Promise<readonly string[]>;
   /** The profile's mounted workspace roots. */
   liveWorkspaceRoots(signal: AbortSignal): Promise<RuntimeWorkspaceRoots>;
 }
@@ -105,10 +98,6 @@ export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation
 }
 export interface DesktopRunAdmission {
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopRunSelection>;
-  /** thread/memory/read: the preconditions an admission starts with, nothing acquired. */
-  readMemoryReadiness(
-    request: HostRunIntentRequest
-  ): Promise<(typeof PlatformMemoryReadinessSchema)['Encoded']>;
   readPermissionPolicy(threadId?: string): Promise<PermissionToolGateSnapshot>;
 }
 function desktopSystemFields(system: string | undefined): {
@@ -144,7 +133,6 @@ function desktopWorkspaceRootObservation(
 }
 function desktopDurableConfiguration(
   intent: (typeof PlatformClientConfigurationSchema)['Type'],
-  observerTarget: string | null,
   { childSystem, system }: HostSystemContext,
   cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
   boundWorkspaceRoots?: RuntimeData['workspaceRoots']
@@ -160,22 +148,9 @@ function desktopDurableConfiguration(
         ...(boundWorkspaceRoots ? { boundWorkspaceRoots } : {}),
         ...desktopSystemFields(system),
         ...(childSystem === undefined ? {} : { childSystem }),
-        memoryResolution: {
-          observationalMemory: desktopObservationResolution(
-            intent.memorySettings.observationalMemory.enabled,
-            observerTarget
-          ),
-          observerTarget,
-        },
       })
     )
   );
-}
-function desktopObservationResolution(enabled: boolean, observerTarget: string | null): string {
-  if (!enabled) {
-    return 'disabled';
-  }
-  return observerTarget === null ? 'waiting-for-eligible-model' : 'resolved';
 }
 function desktopContextReader(
   request: HostRunAdmissionRequest,
@@ -433,11 +408,7 @@ export function createDesktopRunAdmission(
     );
     return policy;
   };
-  /**
-   * The admission's pure preconditions: the catalog model and captured
-   * settings and observer resolution. A run
-   * admission and thread/memory/read both start here; nothing is acquired.
-   */
+  /** The admission's pure preconditions: the catalog model and captured settings. */
   const readPreconditions = async (request: HostRunIntentRequest) => {
     request.signal.throwIfAborted();
     const selection = await readDesktopCatalogSelection(reads, request.modelId, request.signal);
@@ -456,32 +427,13 @@ export function createDesktopRunAdmission(
     }
     const catalog = selection;
     const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
-    const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
-      intent,
-      configuration.provider,
-      await readEnabledObservers(reads, intent, configuration.provider, request.signal)
-    );
-    const memory = desktopMemorySelection(
-      intent,
-      configuration.provider,
-      memorySettings,
-      observerTarget
-    );
-    return {
-      catalog,
-      configuration,
-      inputTokenLimit,
-      intent,
-      memory,
-      observerTarget,
-    };
+    return { catalog, configuration, inputTokenLimit, intent };
   };
   const readConfiguration = async (
     request: HostRunAdmissionRequest,
     workspace?: DesktopWorkspaceBindingBorrow
   ): Promise<DesktopRunSelection> => {
-    const { catalog, configuration, inputTokenLimit, intent, memory, observerTarget } =
-      await readPreconditions(request);
+    const { catalog, configuration, inputTokenLimit, intent } = await readPreconditions(request);
     const { definition } = catalog;
     const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     const native = await readDesktopNativeAdmission(
@@ -546,7 +498,6 @@ export function createDesktopRunAdmission(
         contextWindow: definition.contextWindow,
         durableConfiguration: desktopDurableConfiguration(
           intent,
-          observerTarget,
           { childSystem, system },
           intent.cliWorkspace ? native.runtime.workspaceRoots : undefined,
           desktopWorkspaceRootObservation(workspace)
@@ -556,7 +507,6 @@ export function createDesktopRunAdmission(
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-        memory,
         nativeRuntime: desktopNativeRuntime(native.runtime, native.admittedSkills),
         readPromptContext,
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
@@ -638,16 +588,6 @@ export function createDesktopRunAdmission(
           );
         }
         throw cause;
-      }
-    },
-    // A precondition failure is the reason run/start would fail with.
-    readMemoryReadiness: async (request) => {
-      try {
-        const { memory } = await readPreconditions(request);
-        return { memory, ready: true, resourceId: WORKSPACE_MEMORY_RESOURCE_ID };
-      } catch (cause) {
-        request.signal.throwIfAborted();
-        return { ready: false, reason: memoryReadinessReason(cause) };
       }
     },
     readPermissionPolicy: readHostPermissionPolicy,

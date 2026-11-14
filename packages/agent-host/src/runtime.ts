@@ -1,5 +1,4 @@
-import { extname, isAbsolute } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isAbsolute } from 'node:path';
 import {
   HOST_VERSION,
   type HostRuntime,
@@ -124,9 +123,6 @@ function clientRetirement(
 }
 /** The owned facade forwards each optional capability the acquired platform supplies. */
 function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
-  if (acquired.openRun) {
-    owned.openRun = acquired.openRun.bind(acquired);
-  }
   if (acquired.admitRun) {
     owned.admitRun = acquired.admitRun.bind(acquired);
   }
@@ -141,9 +137,6 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
   }
   if (acquired.forgetThread) {
     owned.forgetThread = acquired.forgetThread.bind(acquired);
-  }
-  if (acquired.readMemoryReadiness) {
-    owned.readMemoryReadiness = acquired.readMemoryReadiness.bind(acquired);
   }
   if (acquired.resolveWorkspaceRoot) {
     owned.resolveWorkspaceRoot = acquired.resolveWorkspaceRoot.bind(acquired);
@@ -281,15 +274,6 @@ function composeHostRoot(
       let store: StateStore;
       try {
         store = await StateStore.open(root, {
-          // The memory calculator worker imports this module itself, outside
-          // any transform: it has this module's extension, TypeScript source
-          // run by Node or the desktop bundle's emitted JS beside it.
-          memoryCalculatorModule: fileURLToPath(
-            new URL(
-              `./adapters/memory-storage-calculator${extname(fileURLToPath(import.meta.url))}`,
-              import.meta.url
-            )
-          ),
           // ADR-0017: the native processes this host starts inherit its Root.
           shareWithNativeChildren: true,
           startup: {

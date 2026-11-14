@@ -24,7 +24,7 @@ import {
   type ProviderAuthInput,
   providerFetchOptions,
 } from '../providers/provider-auth-input';
-import { createLanguageModelProvider, createProvider } from '../providers/provider-factory';
+import { createProvider } from '../providers/provider-factory';
 
 const AWS_AUTH: ProviderAuthInput = {
   apiKey: 'test-bedrock-bearer',
@@ -413,17 +413,6 @@ describe('createProvider bedrock case (BST-1350)', () => {
     }
     expect(thrown).toBeInstanceOf(MastraAgentError);
     expect((thrown as MastraAgentError).message).toContain('aws');
-  });
-
-  it('is excluded from persistent memory (PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS)', () => {
-    let thrown: unknown;
-    try {
-      createLanguageModelProvider('bedrock', 'some-key', 'anthropic.claude-sonnet-5');
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(MastraAgentError);
-    expect((thrown as MastraAgentError).code).toBe('mastra_agent_unsupported_provider');
   });
 });
 

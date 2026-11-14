@@ -159,8 +159,7 @@ function freedSince(
  * freed from that request since, plus the chars/4 estimate of what the branch
  * committed after it (that step's output and tool results, the new user
  * message); else `estimate` with the run's instructions and tool definitions.
- * A reported count already holds the instructions, tools and, with Memory,
- * exactly the request Memory built (ADR-0013).
+ * A reported count already holds the instructions and tools.
  */
 export async function measureHostContext(
   input: HostContextRewrites & {

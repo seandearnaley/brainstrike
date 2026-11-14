@@ -112,8 +112,6 @@ the reason:
 
 ## What it cannot measure yet
 
-- Observational memory. The standalone host runs with it off (`platform.ts`), so no eval arm can
-  turn it on; only the desktop host resolves an observer model.
 - Probe answers in scripted mode. The scripted model's answer is the script's own, so a scripted
   pass proves the plumbing. Recall is measured only in replay or live mode.
 

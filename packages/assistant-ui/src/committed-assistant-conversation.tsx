@@ -33,7 +33,6 @@ export type CommittedAssistantConversationProps = Omit<
 const UNAVAILABLE = 'The agent host is unavailable.';
 const selectConnection = (snapshot: CommittedAssistantSnapshot) => snapshot.connection;
 const selectError = (snapshot: CommittedAssistantSnapshot) => snapshot.error;
-const selectWithheld = (snapshot: CommittedAssistantSnapshot) => snapshot.observationWithheld;
 
 /**
  * A typed failure from another process shows its message and remedy, never its
@@ -78,8 +77,6 @@ function BoundCommittedAssistantConversation({
   // Owner status only: a committed token publication never re-renders this shell.
   const connection = useCommittedAssistantSelector(store, selectConnection);
   const error = useCommittedAssistantSelector(store, selectError);
-  // The host's committed reason replaces the OM line: a withheld run is never shown as active.
-  const withheld = useCommittedAssistantSelector(store, selectWithheld);
   const [commandError, setCommandError] = useState<string | undefined>();
   const rootRef = useRef<HTMLDivElement>(null);
   const reportCommandError = (cause: unknown): void => {
@@ -137,7 +134,6 @@ function BoundCommittedAssistantConversation({
           commands={commands}
           disabledReason={error ?? (unavailable ? UNAVAILABLE : presentation.disabledReason)}
           onCommandError={reportCommandError}
-          {...(withheld ? { omSegment: { kind: 'withheld' as const, reason: withheld } } : {})}
           store={store}
         />
       </div>

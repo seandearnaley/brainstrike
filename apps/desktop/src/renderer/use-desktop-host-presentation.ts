@@ -79,8 +79,6 @@ type Presentation = Pick<
 >;
 
 interface DesktopHostPresentation extends Presentation {
-  /** The enabled catalog models admission reads, as one comparable key. */
-  readonly catalogKey: string;
   readConfiguration(selectionFolderId: string | null): Record<string, unknown>;
   /** The composer's `provider::model`: a pick, else the thread's selection (ADR-0019). */
   readModelId(): string;
@@ -517,7 +515,6 @@ export function useDesktopHostPresentation(
   const contextWindow = metadata.modelDef?.contextWindow;
   return {
     ...picker,
-    catalogKey: catalog.state === 'ready' ? [...catalog.keys].sort().join('\n') : catalog.state,
     composerDraftCommand: composerDraft.command,
     onComposerDraftCommandApplied: composerDraft.onApplied,
     onComposerTextChange: composerDraft.onTextChange,

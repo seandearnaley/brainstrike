@@ -25,8 +25,6 @@ import {
   PlatformCredentialSealSchema,
   PlatformDiagnosticRecordSchema,
   PlatformNativeChildSchema,
-  PlatformObserverCandidatesResultSchema,
-  PlatformObserverCandidatesSchema,
   PlatformRootsChangedSchema,
   PlatformShowFolderSchema,
   PlatformTrashScratchFolderSchema,
@@ -108,22 +106,6 @@ function serveAdmissionReads(
           )
         )
       )
-  );
-  connection.onRequest('platform/admission/observers', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) =>
-      Schema.decodeUnknownSync(PlatformObserverCandidatesResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(
-        await reads.enabledObservers(
-          Schema.decodeUnknownSync(PlatformObserverCandidatesSchema, {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })(input).candidates,
-          signal
-        )
-      )
-    )
   );
   connection.onRequest('platform/admission/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {

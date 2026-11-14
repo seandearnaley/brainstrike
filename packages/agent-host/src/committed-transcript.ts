@@ -5,8 +5,8 @@ import {
   type ToolApprovalRequest,
   type ToolApprovalResponse,
 } from 'ai';
-import { committedRowAddress, committedRunIdentity } from '../committed-identities.ts';
-import type { HostLogRow } from '../protocol.ts';
+import { committedRowAddress, committedRunIdentity } from './committed-identities.ts';
+import type { HostLogRow } from './protocol.ts';
 
 type CommittedModelRow = HostLogRow & {
   readonly event: Extract<HostLogRow['event'], { type: 'model.step' | 'model.messages' }>;
@@ -150,11 +150,10 @@ function toolCallIds(
   return ids;
 }
 
-/** One committed model segment, as Memory stores it: one assistant message. */
+/** One committed model segment, in Mastra's stored form: one assistant message. */
 function assistantSegment(
   row: CommittedModelRow,
   id: string,
-  resourceId: string,
   previous: readonly MastraDBMessage[],
   messages: readonly ModelMessage[],
   modelMetadata: ReturnType<typeof committedModelMetadata>
@@ -163,11 +162,7 @@ function assistantSegment(
   if (ts === undefined) {
     throw new Error('Native segment requires its committed SQLite timestamp');
   }
-  const native = new MessageList({
-    generateMessageId: () => id,
-    resourceId,
-    threadId: row.threadId,
-  });
+  const native = new MessageList({ generateMessageId: () => id, threadId: row.threadId });
   // Conversion borrows preceding calls to recover result arguments. A
   // later approval/result row never updates the earlier call segment, so the
   // converter gets its own copy: of the segments this row borrows from only,
@@ -205,18 +200,13 @@ function assistantSegment(
   return segment;
 }
 
-/** The user message a step's notices commit, as Memory stores it. */
+/** The user message a step's notices commit, in Mastra's stored form. */
 function intakeSegment(
   row: CommittedModelRow,
   id: string,
-  resourceId: string,
   messages: readonly ModelMessage[]
 ): MastraDBMessage {
-  const native = new MessageList({
-    generateMessageId: () => id,
-    resourceId,
-    threadId: row.threadId,
-  });
+  const native = new MessageList({ generateMessageId: () => id, threadId: row.threadId });
   native.add(
     messages.map((message) => ({ ...message, id })),
     'input'
@@ -230,12 +220,11 @@ function intakeSegment(
   return segment;
 }
 
-/** One run's committed model segments, as Memory stores them, in commit order. */
+/** One run's committed model segments, in Mastra's stored form, in commit order. */
 function runSegments(
   segments: readonly CommittedModelRow[],
   committed: ReadonlyMap<HostLogRow, ModelMessage[]>,
-  automaticAllows: ReadonlySet<string>,
-  resourceId: string
+  automaticAllows: ReadonlySet<string>
 ): MastraDBMessage[] {
   const converted: MastraDBMessage[] = [];
   const previous: MastraDBMessage[] = [];
@@ -256,11 +245,10 @@ function runSegments(
     // model as one user message of their own, inside the run's turn.
     const segment =
       event.type === 'model.messages' && event.delivery
-        ? intakeSegment(row, id, resourceId, messages)
+        ? intakeSegment(row, id, messages)
         : assistantSegment(
             row,
             id,
-            resourceId,
             previous,
             messages.map((message) => withoutApprovals(message, automaticAllows)),
             modelMetadata
@@ -290,11 +278,12 @@ function committedModelMessages(row: CommittedModelRow): ModelMessage[] {
   return structuredClone([...messages]);
 }
 
-/** Immutable native segments address existing rows; there is no message-ID writer. */
-export function committedMemoryTranscript(
-  rows: readonly HostLogRow[],
-  resourceId: string
-): MastraDBMessage[] {
+/**
+ * The committed conversation in Mastra's stored form, which tool discovery and
+ * the provider request's provenance read. Each segment addresses its existing
+ * row; there is no message-ID writer.
+ */
+export function committedTranscript(rows: readonly HostLogRow[]): MastraDBMessage[] {
   const committed = new Map(
     rows
       .filter(isCommittedModelRow)
@@ -323,7 +312,6 @@ export function committedMemoryTranscript(
         content: { format: 2, parts: [{ text: started.event.prompt, type: 'text' }] },
         createdAt: identity.createdAt,
         id: identity.userMessageId,
-        resourceId,
         role: 'user',
         threadId: started.threadId,
       });
@@ -332,7 +320,7 @@ export function committedMemoryTranscript(
       (row): row is CommittedModelRow =>
         isCommittedModelRow(row) && row.threadId === started.threadId && row.event.runId === runId
     );
-    for (const segment of runSegments(segments, committed, automaticAllows, resourceId)) {
+    for (const segment of runSegments(segments, committed, automaticAllows)) {
       append(segment);
     }
   }

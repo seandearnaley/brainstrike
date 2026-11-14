@@ -2,11 +2,7 @@ import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ContextUsageMeter,
-  type OmMeterState,
-  ThreadContextMeter,
-} from '../context-usage-meter.js';
+import { ContextUsageMeter, ThreadContextMeter } from '../context-usage-meter.js';
 import { resetContextUsageStore, useContextUsageStore } from '../context-usage-store.js';
 
 // useAuiState must be mocked so ThreadContextMeter can be tested without a
@@ -33,12 +29,8 @@ function openMeterPopover(): void {
 }
 
 /** A by-source subtotal; these meter tests read its tokens, not its cost or models. */
-const source = (
-  kind: AssistantRunUsageKind,
-  inputTokens: number,
-  outputTokens: number,
-  estimated = false
-) => ({ costUsd: null, estimated, inputTokens, kind, models: [], outputTokens }) as const;
+const source = (kind: AssistantRunUsageKind, inputTokens: number, outputTokens: number) =>
+  ({ costUsd: null, inputTokens, kind, models: [], outputTokens }) as const;
 
 describe('ContextUsageMeter', () => {
   beforeEach(() => {
@@ -256,7 +248,7 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     bySource: [
       source('chat', 900_000, 90_000),
       source('subagent', 40_000, 6000),
-      source('om-observation', 60_000, 4000, true),
+      source('compaction-summary', 60_000, 4000),
     ],
     cacheCreationTokens: 50_000,
     cacheReadTokens: 700_000,
@@ -388,10 +380,6 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     );
     expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent('unpriced');
     expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent(/Subagents/u);
-    // OM figures are local estimates and must SAY so.
-    expect(screen.getByTestId('context-usage-source-om-observation')).toHaveTextContent(
-      /Memory observer \(est\.\)/u
-    );
     expect(screen.getByTestId('context-usage-cache-line')).toHaveTextContent(
       /700\.0K read \(70% of input\) · 50\.0K written · saved ~\$5\.18/u
     );
@@ -473,7 +461,7 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     expect(screen.getByTestId('context-usage-breakdown-system')).toBeInTheDocument();
     expect(screen.queryByTestId('context-usage-breakdown-task-list')).not.toBeInTheDocument();
     expect(screen.queryByTestId('context-usage-breakdown-attachments')).not.toBeInTheDocument();
-    // Memory-backed breakdown without a client estimate → no conversation row.
+    // No wire conversation figure and no client estimate → no conversation row.
     expect(screen.queryByTestId('context-usage-breakdown-conversation')).not.toBeInTheDocument();
   });
 
@@ -533,157 +521,6 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     expect(screen.getByTestId('context-usage-breakdown-conversation')).toHaveTextContent(
       /Conversation \(estimated\)/u
     );
-  });
-});
-
-describe('ContextUsageMeter OM informational stats (inside the popover)', () => {
-  beforeEach(() => {
-    resetContextUsageStore();
-    mockMessages = [];
-  });
-
-  const props = {
-    contextWindow: 200_000,
-    effectiveInputBudget: 126_000,
-    threadKey: 't1',
-  };
-
-  it('does not render any OM line when omSegment is absent (desktop pre-load / no prop)', () => {
-    render(<ContextUsageMeter {...props} />);
-    openMeterPopover();
-    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('context-usage-om-note')).not.toBeInTheDocument();
-  });
-
-  it('renders OM as INFORMATIONAL stats (observed tokens + compaction), NOT a budget segment', () => {
-    const omSegment: OmMeterState = {
-      bufferedObservationTokens: 1000,
-      compactionSavedTokens: 30_000,
-      kind: 'stats',
-      messageTokenThreshold: 30_000,
-      observationTokens: 20_000,
-      pendingMessageTokens: 14_000,
-    };
-    render(<ContextUsageMeter {...props} omSegment={omSegment} />);
-    openMeterPopover();
-    const stats = screen.getByTestId('context-usage-om-stats');
-    expect(stats).toBeInTheDocument();
-    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/active om/iu);
-    expect(screen.getByTestId('context-usage-om-active')).toHaveTextContent(/20/u);
-    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/buffered/iu);
-    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.0k.*30\.0k/iu);
-    // Compaction-benefit stat.
-    expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/saved/iu);
-    expect(screen.getByTestId('context-usage-om-compaction')).toHaveTextContent(/30/u);
-    // FIX 2: there is NO budget segment bar and NO over-budget marker for OM.
-    expect(screen.queryByTestId('context-usage-om-segments')).not.toBeInTheDocument();
-    expect(stats).not.toHaveTextContent(/over budget/iu);
-    expect(stats).not.toHaveTextContent(/free/iu);
-  });
-
-  it('omits the compaction stat when nothing has been compacted, still shows observed', () => {
-    render(
-      <ContextUsageMeter
-        {...props}
-        omSegment={{
-          bufferedObservationTokens: 0,
-          compactionSavedTokens: 0,
-          kind: 'stats',
-          messageTokenThreshold: 30_000,
-          observationTokens: 4000,
-          pendingMessageTokens: 500,
-        }}
-      />
-    );
-    openMeterPopover();
-    expect(screen.getByTestId('context-usage-om-active')).toBeInTheDocument();
-    expect(screen.queryByTestId('context-usage-om-compaction')).not.toBeInTheDocument();
-  });
-
-  it('shows buffered and pending work instead of claiming zero tokens were observed', () => {
-    render(
-      <ContextUsageMeter
-        {...props}
-        omSegment={{
-          bufferedObservationTokens: 867,
-          compactionSavedTokens: 0,
-          kind: 'stats',
-          messageTokenThreshold: 30_000,
-          observationTokens: 0,
-          pendingMessageTokens: 14_600,
-        }}
-      />
-    );
-    openMeterPopover();
-    const stats = screen.getByTestId('context-usage-om-stats');
-    expect(screen.queryByTestId('context-usage-om-active')).not.toBeInTheDocument();
-    expect(screen.getByTestId('context-usage-om-buffered')).toHaveTextContent(/867/u);
-    expect(screen.getByTestId('context-usage-om-progress')).toHaveTextContent(/14\.6k.*30\.0k/iu);
-    expect(stats).not.toHaveTextContent(/0 tokens observed/iu);
-  });
-
-  it('FIX 1: loading state stays QUIET (no note, no stats, no empty flash)', () => {
-    render(<ContextUsageMeter {...props} omSegment={{ kind: 'loading' }} />);
-    openMeterPopover();
-    expect(screen.queryByTestId('context-usage-om-note')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
-    // The gauge itself still renders.
-    expect(screen.getByTestId('context-usage-meter')).toBeInTheDocument();
-  });
-
-  it('renders ACTIONABLE reason copy for the awaiting-observer states (BST-947 CDT finding)', () => {
-    const { rerender } = render(
-      <ContextUsageMeter
-        {...props}
-        omSegment={{ kind: 'awaiting-observer', reason: 'model-not-eligible' }}
-      />
-    );
-    openMeterPopover();
-    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(
-      /no recommended observer model is enabled in your model catalog/iu
-    );
-    rerender(
-      <ContextUsageMeter
-        {...props}
-        omSegment={{ kind: 'awaiting-observer', reason: 'no-chat-provider' }}
-      />
-    );
-    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(
-      /needs a chat provider with a saved key/iu
-    );
-  });
-
-  it('renders "Observations off" (never "0 saved") when OM is disabled', () => {
-    render(<ContextUsageMeter {...props} omSegment={{ kind: 'inactive' }} />);
-    openMeterPopover();
-    const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/observations off/iu);
-    expect(note).not.toHaveTextContent(/saved/iu);
-    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
-  });
-
-  it('renders the "not available here" note for chat-only, never zeros', () => {
-    render(<ContextUsageMeter {...props} omSegment={{ kind: 'chat-only' }} />);
-    openMeterPopover();
-    const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/aren’t available here/iu);
-    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
-  });
-
-  it('renders an honest empty state when no OM row exists yet', () => {
-    render(<ContextUsageMeter {...props} omSegment={{ kind: 'empty' }} />);
-    openMeterPopover();
-    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(/no observations yet/iu);
-    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
-  });
-
-  it('renders an honest error state for a malformed OM row (never a fabricated 0)', () => {
-    render(<ContextUsageMeter {...props} omSegment={{ kind: 'error', reason: 'bad column' }} />);
-    openMeterPopover();
-    const note = screen.getByTestId('context-usage-om-note');
-    expect(note).toHaveTextContent(/unavailable/iu);
-    expect(note).not.toHaveTextContent(/^0 /u);
-    expect(screen.queryByTestId('context-usage-om-stats')).not.toBeInTheDocument();
   });
 });
 
@@ -954,7 +791,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
     expect(screen.queryByTestId('context-usage-breakdown-attachments')).not.toBeInTheDocument();
   });
 
-  it('lets the client walk speak for attachments on memory-backed runs (wire is only the turn)', () => {
+  it('lets the client walk speak for attachments when the wire measures no history', () => {
     useContextUsageStore.getState().recordBreakdown('t1', {
       breakdown: {
         attachmentsCount: 0,

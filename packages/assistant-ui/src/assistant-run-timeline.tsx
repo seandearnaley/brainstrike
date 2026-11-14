@@ -145,7 +145,7 @@ export function AssistantRunTimeline({
   const tint = categoryTintClasses(category);
 
   // Run events render as quiet single-line activity rows: tool-call cards are
-  // the visually dominant element in the thread, so lifecycle/memory events
+  // the visually dominant element in the thread, so lifecycle events
   // stay compact with status, label, inline detail, and timing on one line.
   return (
     <div

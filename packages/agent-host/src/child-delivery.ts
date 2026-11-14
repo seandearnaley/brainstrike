@@ -10,8 +10,8 @@
  * Every ledger is a new message that stays in the thread, so re-sending each
  * earlier outcome in full grew a turn's wakes with the square of its workers
  * (debug pack 2026-11-04). A later ledger lists a delivered invocation by its
- * outcome's opening instead: that earlier message can leave Memory's window
- * too, and the opening still tells the model what the worker concluded.
+ * outcome's opening instead: a compaction can replace that earlier message,
+ * and the opening still tells the model what the worker concluded.
  */
 import type { UserModelMessage } from 'ai';
 import type { HostChildDelivery, HostChildDeliveryEntry } from './protocol.ts';

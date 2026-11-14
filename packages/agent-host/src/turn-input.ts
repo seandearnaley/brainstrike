@@ -3,7 +3,7 @@
  * adds user messages inside a running run, the notices it takes at a step
  * boundary, so a turn's input is told by identity, not by role. The mark rides
  * in the message's own `providerOptions`, under a namespace no provider reads,
- * so it survives the commit, every rewrite and Memory's selection.
+ * so it survives the commit and every rewrite.
  * https://ai-sdk.dev/docs/reference/ai-sdk-core/model-message
  */
 import type { ModelMessage, UserModelMessage } from 'ai';

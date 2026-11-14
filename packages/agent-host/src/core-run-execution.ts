@@ -20,20 +20,14 @@ import {
 import type { HostContextCompactions } from './context-compaction.ts';
 import { hostContextNotes } from './context-notes.ts';
 import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.ts';
-import type { HostRunState as Run } from './core-state.ts';
+import { type HostRunState as Run, recordHostProviderRequest } from './core-state.ts';
 import { jsonValue } from './json-value.ts';
 import type { HostMcpInputState } from './mcp-input-state.ts';
 import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.ts';
 import type { HostIntake } from './notices.ts';
 import { hostReadPersonInput } from './person-input.ts';
-import type {
-  HostPlatform,
-  HostPreparedStep,
-  HostRunAdmission,
-  HostRunOwner,
-  HostTool,
-} from './ports.ts';
-import type { HostProjectionRewrites } from './projection-rewrites.ts';
+import type { HostPlatform, HostRunAdmission, HostTool } from './ports.ts';
+import { committedRewrites, type HostProjectionRewrites } from './projection-rewrites.ts';
 import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
   combineHostSystemContext,
@@ -49,7 +43,9 @@ import {
 import { hostRunAttemptEvent } from './run-attempts.ts';
 import { hostRunAncestors, hostRunContext } from './run-branch.ts';
 import { commitHostModelMessages, resolveHostApprovalInput } from './run-continuation.ts';
+import { hostProviderHistory } from './run-history.ts';
 import { HostRunOutcome } from './run-outcome.ts';
+import { HostProviderRequest } from './run-provider-request.ts';
 import {
   prepareRunContext,
   recoverHostContextOverflow,
@@ -125,10 +121,11 @@ export interface HostRunExecutionPorts {
   /** ADR-0028 step 3b: the notices the running `run` takes at its next step, one message each commit. */
   intake(run: Run): readonly HostIntake[];
   readonly mcpInputs: HostMcpInputState;
-  openRun(run: Run): Promise<HostRunOwner | undefined>;
   /** BST-1178: the answers saved for browser origins, in Core's own StateStore. */
   readonly origins: HostBrowserOriginStore;
   readonly platform: HostPlatform;
+  /** The run's thread's committed rows, as Core's hydration keeps them. */
+  readCommittedRows(run: Run): readonly HostLogRow[];
   readonly records: HostToolRecords;
   /** The host is closing or the run's thread is being deleted. */
   retired(threadId: string): boolean;
@@ -493,6 +490,22 @@ async function takeHostIntake(
   return { messages };
 }
 
+/** The run's provider request boundary, kept on the run across its attempts and legs. */
+function hostProviderRequest(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  admission: HostRunAdmission
+): HostProviderRequest | undefined {
+  if (!admission.providerRequest) {
+    return;
+  }
+  run.providerRequest ??= new HostProviderRequest(
+    admission.providerRequest,
+    recordHostProviderRequest(run, (threadId, events) => ports.append(threadId, events, 'full'))
+  );
+  return run.providerRequest;
+}
+
 /** One public SDK attempt over the run's committed branch; every step commits before it is observed. */
 async function runHostSdkAttempt(
   ports: HostRunExecutionPorts,
@@ -506,7 +519,7 @@ async function runHostSdkAttempt(
   });
   let interrupted = false;
   let checkpointFailure: unknown;
-  let ownerStepFailure: unknown;
+  let stepFailure: unknown;
   let maxAttempts: number | undefined;
   run.paused = false;
   const initialMessages = hostRunContext(ports.runs, run);
@@ -524,8 +537,8 @@ async function runHostSdkAttempt(
     const attempt = new AbortController();
     // The watchdog never judges a running tool or delegated child (ADR-0009).
     const toolExecutions = new ToolExecutions();
-    const owner = await ports.openRun(run);
     const admission = await ensureHostRunAdmission(ports.platform, run);
+    const request = hostProviderRequest(ports, run, admission);
     const result = streamText({
       abortSignal: AbortSignal.any([run.controller.signal, attempt.signal]),
       maxRetries: HOST_PROVIDER_REQUEST_RETRIES,
@@ -543,7 +556,7 @@ async function runHostSdkAttempt(
         messages: initialMessages,
         resolveInput: (event) => resolveHostApprovalInput(run, event),
       }),
-      model: owner?.prepareHostModel?.(model) ?? model,
+      model: request?.wrap(model) ?? model,
       onStepFinish: async (step) => {
         // AI SDK notify() catches callback errors; keep storage failures on the host's failure path.
         // https://github.com/vercel/ai/blob/main/packages/ai/src/util/notify.ts
@@ -572,23 +585,6 @@ async function runHostSdkAttempt(
         } catch (cause) {
           checkpointFailure = cause;
           run.controller.abort(cause);
-          return;
-        }
-        try {
-          await owner?.commitHostStep?.();
-        } catch (cause) {
-          run.controller.abort(cause);
-          // While the host closes, the run cannot commit its own failure, so the
-          // lost checkpoint must reject close with its original cause.
-          if (ports.closing()) {
-            checkpointFailure = cause;
-            return;
-          }
-          // The step is committed; its owner (Memory) failed to take it. That
-          // ends the run as failed with the owner's detail, and a non-provider
-          // failure is never re-attempted.
-          ownerStepFailure = cause;
-          outcome.fail(cause);
         }
       },
       onToolExecutionEnd: ({ toolCall }) => toolExecutions.end(toolCall.toolCallId),
@@ -611,41 +607,31 @@ async function runHostSdkAttempt(
         // A hook's block ends the run with its reason; the message stays taken.
         if ('failure' in taken) {
           run.controller.abort(taken.failure);
-          ownerStepFailure = taken.failure;
+          stepFailure = taken.failure;
           outcome.fail(taken.failure);
           return { messages, toolChoice: 'none' };
         }
         let prepared: ModelMessage[];
-        let memory: HostPreparedStep | undefined;
         if (historyPrepared) {
           // Stale reads and old outputs are rewritten within the run, as legacy
           // rewrote them after each tracked tool.
           prepared = await rewriteRunContext(ports, run, ancestors, messages);
-          memory = await owner?.prepareHostStep?.({
-            messages: prepared,
-            stepNumber: run.steps,
-          });
         } else {
           historyPrepared = true;
-          const overlay = await prepareRunContext(
-            ports,
-            run,
-            ancestors,
-            admission,
-            messages,
-            owner
-          );
+          const overlay = await prepareRunContext(ports, run, ancestors, admission, messages);
           prepared = overlay.messages;
           compactionNote = overlay.note;
-          memory = overlay.step;
         }
-        recordedInputLength = memory?.messages.length ?? prepared.length;
+        recordedInputLength = prepared.length;
+        // What this step's requests send, read from the committed log.
+        const rows = ports.readCommittedRows(run);
+        request?.prepare(
+          hostProviderHistory(rows, { runId: run.id, threadId: run.threadId }),
+          committedRewrites(rows)
+        );
         // Per-step notes from committed thread state (the legacy task-list note).
         const notes = hostContextNotes(hostRunTools(run), ports.records.stateView(run.threadId));
-        const system = combineHostSystemContext(
-          combineHostSystemContext(memory?.system, compactionNote).system,
-          notes
-        ).system;
+        const system = combineHostSystemContext(compactionNote, notes).system;
         const activeTools = await hostStepActiveTools(run, ports.platform);
         // An approved call that entered a worktree resumes with a model step:
         // it may answer, never act, in the run's old workspace (ADR-0028).
@@ -656,7 +642,7 @@ async function runHostSdkAttempt(
             : {};
         if (!admission.provider) {
           return {
-            messages: memory?.messages ?? prepared,
+            messages: prepared,
             // A UserPromptSubmit hook's context joins the run's instructions.
             ...combineHostSystemContext(system, run.promptContext),
             ...gated,
@@ -664,14 +650,14 @@ async function runHostSdkAttempt(
         }
         const provider = await admission.provider.prepare({
           configuration: admission.configuration,
-          messages: memory?.messages ?? prepared,
+          messages: prepared,
           modelId: run.modelId,
           signal: run.controller.signal,
           // BST-1932: a child reserves its last step for a tool-free summary.
           stepNumber: run.steps,
         });
         return {
-          ...prepareHostProviderStep(provider, system, owner, run.promptContext),
+          ...prepareHostProviderStep(provider, system, request, run.promptContext),
           ...gated,
         };
       },
@@ -715,9 +701,9 @@ async function runHostSdkAttempt(
     interrupted = cause instanceof ApprovalInputReconstructionError;
     outcome.fail(cause);
   }
-  if (ownerStepFailure !== undefined) {
-    // The abort that follows reaches the stream as its own error; keep the owner's.
-    outcome.fail(ownerStepFailure);
+  if (stepFailure !== undefined) {
+    // The abort that follows reaches the stream as its own error; keep the step's.
+    outcome.fail(stepFailure);
   }
   return { checkpointFailure, interrupted, maxAttempts, outcome, partial: partial.message() };
 }

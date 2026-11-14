@@ -57,22 +57,6 @@ function hostTools(
     durableConfiguration: {},
     inputTokenLimit: 24_000,
     maxSteps: 3,
-    memory: {
-      options: {
-        lastMessages: 1,
-        workingMemory: { enabled: false, scope: 'thread', template: '' },
-      },
-      settings: {
-        observationalMemory: {
-          enabled: false,
-          messageTokens: 1000,
-          modelTarget: 'auto',
-          observationTokens: 1000,
-          retrievalMode: 'off',
-          scope: 'thread',
-        },
-      },
-    },
     nativeRuntime: { provider: 'openai', workspaceRoots: roots, ...native },
     resourceId: 'workspace',
     tools: Object.fromEntries(

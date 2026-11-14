@@ -31,9 +31,6 @@ export * from './mcp-status.ts';
 export * from './mcp-task-ipc.ts';
 export * from './mcp-task-presentation.ts';
 export * from './mcp-tool-preferences.ts';
-export * from './memory-credential-reasons.ts';
-export * from './memory-failure.ts';
-export * from './memory-settings.ts';
 export type {
   CatalogModel,
   CatalogProvider,

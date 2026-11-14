@@ -8,7 +8,6 @@ import { hostCanvases } from './core-canvases.ts';
 import { type HostChildRunPort, HostChildRuns } from './core-child-runs.ts';
 import { HostIdleWorktreeNotices } from './core-idle-worktrees.ts';
 import { hostMcpTaskOwner } from './core-mcp-owner.ts';
-import { readHostThreadMemory } from './core-memory-read.ts';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.ts';
 import { HostRunEnds } from './core-run-end.ts';
 import {
@@ -20,8 +19,7 @@ import {
 import {
   acceptHostRunStop,
   assertHostCommandAdmissible,
-  hostRunSettlementFailed,
-  joinHostRunOwner,
+  joinHostRunResources,
   queueHostAdmission,
   recoverHostRuns,
   rejectHostRunAdmission,
@@ -44,7 +42,7 @@ import { type Json, jsonValue } from './json-value.ts';
 import { HostLogProjections } from './log-projections.ts';
 import { HostMcpAppCalls } from './mcp-app-calls.ts';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.ts';
-import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.ts';
+import type { HostClientOrigin, HostPlatform, HostRunAdmission } from './ports.ts';
 import { HostProjectionRewrites } from './projection-rewrites.ts';
 import {
   type HostEvent,
@@ -63,7 +61,6 @@ import {
   hostMcpUnavailableEvents,
   hostReferencedFileEvents,
   hostRunCommandRequest,
-  openHostRunOwner,
 } from './run-admission.ts';
 import {
   admittedHostRun,
@@ -176,7 +173,7 @@ export class HostCore {
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
   private admission: Promise<void> = Promise.resolve();
-  /** A run's end: its terminal commit, memory settlement, then the next run or wake. */
+  /** A run's end: its terminal commit, its resources' settlement, then the next run or wake. */
   private readonly ends = new HostRunEnds({
     admit: (threadId, perform) => this.admit(threadId, perform),
     admitWake: (method, params, origin, record) => {
@@ -185,7 +182,7 @@ export class HostCore {
     },
     appendTerminal: (items, beforePublish) => this.appendAcross(items, 'full', beforePublish),
     children: this.children,
-    closeOwner: (run) => this.closeRunOwner(run),
+    closeResources: (run) => this.closeRunResources(run),
     closing: () => this.closing,
     commitStart: (record, runId, events) =>
       this.accept(record.threadId, 'run/start', record, { runId }, events, this.foldRows),
@@ -426,7 +423,7 @@ export class HostCore {
 
   /**
    * A command that opens the thread's next run or rewrites its history first
-   * joins the memory its finished runs are still settling, outside the shared
+   * joins the resources its finished runs are still settling, outside the shared
    * admission queue so other threads never wait on it. A replay opens nothing.
    * An edit, regenerate or rewind first ends the turns it leaves (`fork`).
    */
@@ -501,7 +498,7 @@ export class HostCore {
       {
         admission,
         children,
-        closeRunOwner: (run) => this.closeRunOwner(run),
+        closeRunResources: (run) => this.closeRunResources(run),
         closing: () => this.closing,
         deletions,
         erase: this.store.deleteThread?.bind(this.store),
@@ -578,16 +575,6 @@ export class HostCore {
     const fork = hostRunFork(this.runs, params);
     const admit = () => this.admitRun('run/regenerate', params, origin, position);
     return this.settledCommand('run/regenerate', params, admit, fork);
-  }
-
-  /** Memory readiness for the next run: read-only, never queued (`core-memory-read.ts`). */
-  readThreadMemory(
-    params: HostParams<'thread/memory/read'>,
-    origin?: HostClientOrigin
-  ): Promise<HostResults['thread/memory/read']> {
-    const { children, deletions, platform, runs, threads, workspaces } = this;
-    const context = { children, deletions, origin, runs, threads, workspaces };
-    return readHostThreadMemory(platform, params, context);
   }
 
   /** One admission per new run; restart folds its committed branch the same way. */
@@ -715,9 +702,10 @@ export class HostCore {
       foldRows: this.foldRows,
       intake: (run) => this.children.intake(run, this.runs),
       mcpInputs: this.mcpInputs,
-      openRun: (run) => this.openRun(run),
       origins: this.store,
       platform: this.platform,
+      readCommittedRows: (run) =>
+        this.projections.readRunnable(this.catalog, new Set([run.threadId]), run.threadId),
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
       rewrites: this.rewrites,
@@ -756,15 +744,15 @@ export class HostCore {
     };
   }
 
-  /** A user stop of one run: abort it, join its owner, then commit `stopped`. */
+  /** A user stop of one run: abort it, join its resources, then commit `stopped`. */
   private async stopRun(run: Run, reason: unknown): Promise<void> {
     run.stopped = true;
-    // A finished run has nothing to abort; its memory settles undisturbed.
+    // A finished run has nothing to abort.
     if (run.terminal) {
       return;
     }
     run.controller.abort(reason);
-    await joinHostRunOwner(run, (owned) => this.closeRunOwner(owned));
+    await joinHostRunResources(run, (owned) => this.closeRunResources(owned));
     await this.ends.finish(run, 'stopped');
   }
 
@@ -910,7 +898,6 @@ export class HostCore {
       dispatch: (action, input, resumeData) => this.dispatch(run, action, input, resumeData),
       finish: (outcome, detail) => this.ends.finish(run, outcome, detail),
       loop: (model) => this.loop(run, model),
-      openRun: () => this.openRun(run),
       platform: this.platform,
     });
   }
@@ -957,21 +944,10 @@ export class HostCore {
     );
   }
 
-  private openRun(run: Run): Promise<HostRunOwner | undefined> {
-    return openHostRunOwner(this.platform, run, {
-      append: (threadId, events) => this.append(threadId, events, 'full'),
-      readCommittedRows: (ids) => this.projections.readRunnable(this.catalog, ids, run.threadId),
-    });
-  }
-
-  private closeRunOwner(run: Run): Promise<void> {
+  private closeRunResources(run: Run): Promise<void> {
     // The title request uses the run's admission: it is joined before the admission closes.
-    run.ownerClose ??= this.presentations.join(run).then(() =>
-      closeHostRunResources(run, async (failure) => {
-        await this.append(run.threadId, [hostRunSettlementFailed(run, failure)], 'full');
-      })
-    );
-    return run.ownerClose;
+    run.resourcesClose ??= this.presentations.join(run).then(() => closeHostRunResources(run));
+    return run.resourcesClose;
   }
 
   private startNextRun(next: HostNextRun, origin: HostClientOrigin | undefined): Promise<boolean> {
@@ -998,8 +974,8 @@ export class HostCore {
     await this.hydrated.catch(() => undefined);
     const outcomes = await retireHostCoreRuns({
       admission: () => this.admission,
-      closeOwner: (owned) => this.closeRunOwner(owned),
       closePlatform: () => this.platform.close(),
+      closeResources: (owned) => this.closeRunResources(owned),
       failedAdmissions: () => [...this.failedAdmissions.values()],
       finish: (owned) => this.ends.finish(owned, 'interrupted', 'Host is closing'),
       pendingAdmissions: this.pendingAdmissions.keys(),

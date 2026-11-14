@@ -14,7 +14,7 @@
         "Thought done",
         "Read done",
         "Thought done",
-        "Updated memory done",
+        "Used updateWorkingMemory failed",
         "Thought done"
       ],
       "steps": [

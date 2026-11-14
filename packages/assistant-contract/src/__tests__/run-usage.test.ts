@@ -7,8 +7,6 @@ describe('run-usage contract', () => {
       'chat',
       'subagent',
       'compaction-summary',
-      'om-observation',
-      'om-reflection',
       'thread-title',
       'auto-review',
     ]);
@@ -17,15 +15,13 @@ describe('run-usage contract', () => {
   it('accepts well-formed child usage with and without attribution fields', () => {
     expect(
       isAssistantChildRunUsage({
-        estimated: true,
         inputTokens: 24_000,
         outputTokens: 900,
-        source: 'om-observation',
+        source: 'thread-title',
       })
     ).toBe(true);
     expect(
       isAssistantChildRunUsage({
-        estimated: false,
         inputTokens: 1200,
         model: 'gpt-5.2',
         outputTokens: 180,
@@ -35,7 +31,6 @@ describe('run-usage contract', () => {
     ).toBe(true);
     expect(
       isAssistantChildRunUsage({
-        estimated: false,
         inputTokens: 42,
         model: 'gpt-5.2',
         outputTokens: 7,
@@ -55,7 +50,6 @@ describe('run-usage contract', () => {
     };
     const usage = {
       delegation,
-      estimated: false,
       inputTokens: 2,
       outputTokens: 3,
       personaId: 'explore',
@@ -70,13 +64,12 @@ describe('run-usage contract', () => {
         isAssistantChildRunUsage({ ...usage, delegation: { ...delegation, [key]: ' ' } })
       ).toBe(false);
     }
-    expect(isAssistantChildRunUsage({ ...usage, source: 'om-observation' })).toBe(false);
+    expect(isAssistantChildRunUsage({ ...usage, source: 'thread-title' })).toBe(false);
   });
 
   it('rejects chat as a child source and malformed payloads (never coerced)', () => {
     expect(
       isAssistantChildRunUsage({
-        estimated: false,
         inputTokens: 1,
         outputTokens: 1,
         source: 'chat',
@@ -84,27 +77,24 @@ describe('run-usage contract', () => {
     ).toBe(false);
     expect(
       isAssistantChildRunUsage({
-        estimated: true,
         inputTokens: -1,
         outputTokens: 1,
-        source: 'om-reflection',
+        source: 'auto-review',
       })
     ).toBe(false);
     expect(
       isAssistantChildRunUsage({
-        estimated: true,
         inputTokens: Number.NaN,
         outputTokens: 0,
-        source: 'om-observation',
+        source: 'thread-title',
       })
     ).toBe(false);
     expect(
       isAssistantChildRunUsage({
-        estimated: true,
         inputTokens: 1,
         model: '',
         outputTokens: 1,
-        source: 'om-observation',
+        source: 'thread-title',
       })
     ).toBe(false);
     expect(isAssistantChildRunUsage(null)).toBe(false);

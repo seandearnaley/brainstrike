@@ -32,9 +32,6 @@ describe('ProviderSettingsPanel number fields', () => {
     expect(screen.getByLabelText('Input tokens')).toHaveAccessibleDescription(
       /input tokens.*step/iu
     );
-    expect(screen.getByLabelText('Recent messages')).toHaveAccessibleDescription(
-      /recent messages.*0.*off/iu
-    );
     expect(
       screen.getByRole('spinbutton', { name: 'Output token limit' })
     ).toHaveAccessibleDescription(/output tokens.*step.*auto/iu);
@@ -116,7 +113,7 @@ describe('ProviderSettingsPanel number fields', () => {
       <ProviderSettingsPanel
         onSettingsChange={onSettingsChange}
         providerId="openai"
-        settings={{ agentInputTokenLimit: 32_000, agentMaxSteps: 8, memoryLastMessages: 40 }}
+        settings={{ agentInputTokenLimit: 32_000, agentMaxSteps: 8 }}
       />
     );
     const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
@@ -133,14 +130,6 @@ describe('ProviderSettingsPanel number fields', () => {
     await user.tab();
     expect(screen.getAllByRole('alert')[1]).toHaveTextContent(
       'Enter a whole number of input tokens from 4,096 to 256,000.'
-    );
-
-    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
-    await user.clear(memory);
-    await user.type(memory, '2.5');
-    await user.tab();
-    expect(screen.getAllByRole('alert')[2]).toHaveTextContent(
-      'Enter a whole number of messages from 0 to 200.'
     );
     expect(onSettingsChange).not.toHaveBeenCalled();
   });
@@ -171,31 +160,15 @@ describe('ProviderSettingsPanel number fields', () => {
       <ProviderSettingsPanel
         onSettingsChange={onSettingsChange}
         providerId="openai"
-        settings={{ memoryLastMessages: 40 }}
+        settings={{ agentMaxSteps: 8 }}
       />
     );
-    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
-    await user.clear(memory);
-    await user.type(memory, '12{Escape}');
-    expect(memory).toHaveValue(40);
+    const steps = screen.getByRole('spinbutton', { name: 'Max steps' });
+    await user.clear(steps);
+    await user.type(steps, '12{Escape}');
+    expect(steps).toHaveValue(8);
     await user.tab();
     expect(onSettingsChange).not.toHaveBeenCalled();
-  });
-
-  it('a cleared memory field commits the default (unset), as before', async () => {
-    const user = userEvent.setup();
-    const onSettingsChange = vi.fn();
-    render(
-      <ProviderSettingsPanel
-        onSettingsChange={onSettingsChange}
-        providerId="openai"
-        settings={{ memoryLastMessages: 12 }}
-      />
-    );
-    const memory = screen.getByRole('spinbutton', { name: 'Recent messages' });
-    await user.clear(memory);
-    await user.tab();
-    expect(onSettingsChange.mock.calls).toEqual([['openai', { memoryLastMessages: undefined }]]);
   });
 
   it('switching a limit off discards its refused draft', async () => {

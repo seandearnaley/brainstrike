@@ -24,7 +24,6 @@ import type {
 } from '@brainstrike/assistant-contract';
 import type { McpCatalogInstallRequest } from '@brainstrike/assistant-contract/mcp-catalog';
 import {
-  hasDurableAssistantUsageCapability,
   resetAssistantThreadStore,
   useAssistantThreadGroupsStore,
 } from '@brainstrike/assistant-data';
@@ -51,7 +50,6 @@ import {
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
-  createAssistantMemorySettingsCategory,
   createFactoryResetSettingsCategory,
   createHooksSettingsCategory,
   createPermissionSettingsCategory,
@@ -276,10 +274,6 @@ export default function SettingsPageContent() {
     }
     return deprecated;
   }, [assistantAvailability]);
-  const assistantProviderKeySources =
-    assistantAvailability.state === 'enabled'
-      ? assistantAvailability.providerKeySources
-      : undefined;
   // Subagents may run on the providers the composer's picker offers.
   const subagentProviderSource = useMemo(
     () => resolveAssistantProviderSource(assistantAvailability),
@@ -523,10 +517,6 @@ export default function SettingsPageContent() {
         layout: 'workspace',
         title: 'Model Catalog',
       },
-      createAssistantMemorySettingsCategory({
-        assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
-        ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
-      }),
       {
         content: <DesktopLoggingSettings />,
         description: 'Set log levels and manage log files for troubleshooting.',
@@ -628,7 +618,6 @@ export default function SettingsPageContent() {
   }, [
     accurateRuntimeAvailable,
     apiKeyStatus,
-    assistantProviderKeySources,
     browserOrigins,
     devInlineFixtureEnabled,
     hookReviewRoots,
