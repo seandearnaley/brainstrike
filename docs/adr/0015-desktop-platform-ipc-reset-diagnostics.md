@@ -127,6 +127,8 @@ Three desktop platform contracts carry rulings that outlive the reset.
     - With Chromium's lowest-priority tasks turned off (`--disable-best-effort-tasks`),
       `clearData()` never answered, nor did `clearData` for the cache type alone. Every other
       clear finished in under 80 ms. A trace showed only the network-history step unfinished.
+      With the same flag in the app's launch, Factory Reset's E2E spec stayed on "Resetting…"
+      until its timeout on the old clear, and passed in 13 s on the new one.
   - The build (BST-2515):
     - The reset awaits every clear a page or the reopened profile can read: `clearStorageData`,
       `clearCache`, `clearCodeCaches`, `clearSharedDictionaryCache`, `clearHostResolverCache`,
@@ -138,8 +140,30 @@ Three desktop platform contracts carry rulings that outlive the reset.
       calls one at a time, so an awaited one would wait behind the network history's write.
       Measured with lowest-priority tasks off: a `clearData` for cookies alone waited behind a
       pending `clearData()`.
-    - The reset has answered by the time the unawaited clear can fail, and no window takes an
-      outcome after that. Main logs the failure at error, with its session.
+    - Main logs a failure of the unawaited clear at error, with its session, and tells the person
+      (next bullet).
+  - Late failures reach the person (build decision by the coordinator, 2026-11-14, BST-2515).
+    - The replacement window takes the reset's outcome once, as it starts
+      (`db:takeResetOutcome`). A failure Main knows by then rides that outcome.
+    - A later failure, or one after a reset that failed and kept its window, Main pushes to every
+      window as a reset outcome: a new method, `db:resetOutcome`, on the existing push envelope
+      (`brainstrike:push`). It adds no channel and no owner. The window listens before it takes,
+      so neither path misses a failure.
+    - The person sees a persistent "Factory reset could not clear some browsing data" notice: some
+      sites' HSTS settings and connection hints may remain, and running Factory Reset again
+      clears them.
+  - Not built: deleting the persistent sessions' `TransportSecurity` and `Network Persistent
+    State` files at the next launch when the clear did not finish. A reviewer proposed it to close
+    the crash window.
+    - It would write inside `session-data`, which the session-ownership amendment leaves to
+      Chromium alone. That is an ownership change.
+    - Its marker would have to outlive the userData purge, which runs after the clear starts.
+      Every folder that survives the purge (`session-data`, `logs`, Crashpad's database and the
+      profile lock) has another owner.
+    - On Windows, the network service sandbox moves those files under `Network/`, so their paths
+      depend on the platform.
+    - It would close the window for those two files only, not for the other stores the same clear
+      reaches, such as the Reporting and Network Error Logging caches.
 
 ## Consequences
 

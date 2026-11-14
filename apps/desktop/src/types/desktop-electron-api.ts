@@ -5,6 +5,11 @@ import type {
 } from '@brainstrike/types';
 
 interface DesktopFactoryResetBridge {
+  /**
+   * ADR-0015, BST-2515: what a reset did that Main learned after this window took the outcome:
+   * Chromium's own clear of the browsing data, which it finishes after the reset, failed.
+   */
+  onResetOutcome: (listener: (outcome: ResetOutcome) => void) => () => void;
   resetLocal: () => Promise<{
     managedWorktrees?: WorktreeResetOutcome;
     message?: string;
@@ -37,6 +42,7 @@ const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
   'getUserDataPath',
 ]);
 const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
+  'onResetOutcome',
   'resetLocal',
   'takeResetOutcome',
   'unavailableReason',

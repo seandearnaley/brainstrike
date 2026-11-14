@@ -153,6 +153,13 @@ export async function routeAgentBrowserSession(
   return agentSession;
 }
 
+/** Chromium's own clear of one session's browsing data failed, after the reset went on. */
+export interface BackgroundClearFailure {
+  readonly error: unknown;
+  /** `default`, or the session's partition. */
+  readonly session: string;
+}
+
 /**
  * Starts `clearData()` for every type of browsing data, and does not wait for it (BST-2515,
  * ADR-0015). It alone reaches the network history (HSTS, alt-svc) and the types Electron does not
@@ -160,15 +167,20 @@ export async function routeAgentBrowserSession(
  * cleared network history is on disk, written by a task it runs at its lowest priority
  * (`BEST_EFFORT`, `BLOCK_SHUTDOWN`), which a busy Mac starves (background QoS): waiting held
  * Factory Reset for as long as the load lasted. Chromium finishes the write on its own schedule,
- * and before its network service exits. The reset has answered by then, so a failure has no
- * window to reach: Main's log records it, with its session.
+ * and before its network service exits. A failure is logged and handed to `onFailed`, which tells
+ * the person.
  */
-function startClearingEveryDataType(name: string, owned: Session): void {
+function startClearingEveryDataType(
+  name: string,
+  owned: Session,
+  onFailed: (failure: BackgroundClearFailure) => void
+): void {
   owned.clearData().catch((error: unknown) => {
     logger.error('Factory reset could not clear the browsing data, network history included', {
       error,
       session: name,
     });
+    onFailed({ error, session: name });
   });
 }
 
@@ -180,12 +192,14 @@ function startClearingEveryDataType(name: string, owned: Session): void {
  *
  * Resolves once every clear a page or the reopened profile can read has finished, and fails when
  * one of them fails. The network history finishes on Chromium's schedule
- * ({@link startClearingEveryDataType}). None of the awaited clears is a `clearData` call: Chromium
- * runs one session's `clearData` calls one at a time, so any of them would wait behind the
- * network history's write.
+ * ({@link startClearingEveryDataType}), and `onBackgroundClearFailed` hears if it fails. None of
+ * the awaited clears is a `clearData` call: Chromium runs one session's `clearData` calls one at a
+ * time, so any of them would wait behind the network history's write.
  * https://www.electronjs.org/docs/latest/api/session#sescleardataoptions
  */
-export async function clearDesktopBrowserSessions(): Promise<void> {
+export async function clearDesktopBrowserSessions(
+  onBackgroundClearFailed: (failure: BackgroundClearFailure) => void
+): Promise<void> {
   const sessions = [
     { name: 'default', owned: session.defaultSession },
     { name: BROWSER_PANE_PARTITION, owned: session.fromPartition(BROWSER_PANE_PARTITION) },
@@ -193,7 +207,7 @@ export async function clearDesktopBrowserSessions(): Promise<void> {
   ];
   const results = await Promise.allSettled(
     sessions.map(async ({ name, owned }) => {
-      startClearingEveryDataType(name, owned);
+      startClearingEveryDataType(name, owned, onBackgroundClearFailed);
       // Every storage type, for every origin: clearData skips origins outside the web schemes,
       // so the app's own `brainstrike-app:` localStorage, IndexedDB and CacheStorage would
       // survive it (Electron 45).

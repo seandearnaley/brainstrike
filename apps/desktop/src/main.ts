@@ -575,6 +575,14 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
   prepareDatabaseProfileReset: () => profileReset.prepare(),
+  // ADR-0015, BST-2515: a failure Chromium reports after the replacement window took its outcome.
+  publishResetOutcome: (outcome) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        pushToRenderer(window.webContents, DESKTOP_IPC_CHANNELS.db.resetOutcome, outcome);
+      }
+    }
+  },
   resetLocalDatabase: (lease) => profileReset.clear(lease),
   resumeAfterReset: createDesktopResetResume({
     resumeMcp: (outcome) => resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome),

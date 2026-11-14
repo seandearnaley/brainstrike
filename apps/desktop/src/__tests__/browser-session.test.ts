@@ -69,7 +69,7 @@ beforeEach(async () => {
 
 it('clears the app, pane and agent sessions through Electron without origin exclusions', async () => {
   const { clearDesktopBrowserSessions } = await import('../browser/browser-session');
-  await clearDesktopBrowserSessions();
+  await clearDesktopBrowserSessions(vi.fn());
   for (const owned of [fixture.app, fixture.pane, fixture.agent]) {
     expect(owned.clearData).toHaveBeenCalledExactlyOnceWith();
     expect(owned.clearStorageData).toHaveBeenCalledExactlyOnceWith();
@@ -88,7 +88,7 @@ it.each(['app', 'pane', 'agent'] as const)(
     const failure = new Error(`${name} browser storage could not be cleared`);
     fixture[name].clearStorageData.mockRejectedValueOnce(failure);
     const { clearDesktopBrowserSessions } = await import('../browser/browser-session');
-    await expect(clearDesktopBrowserSessions()).rejects.toMatchObject({ errors: [failure] });
+    await expect(clearDesktopBrowserSessions(vi.fn())).rejects.toMatchObject({ errors: [failure] });
     expect(fixture.app.clearStorageData).toHaveBeenCalledOnce();
     expect(fixture.pane.clearStorageData).toHaveBeenCalledOnce();
     expect(fixture.agent.clearStorageData).toHaveBeenCalledOnce();
