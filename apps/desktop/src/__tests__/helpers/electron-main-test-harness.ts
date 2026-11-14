@@ -8,6 +8,22 @@ const { default: electronTestStub } = await vi.importActual<
 
 const mockAllWebContents: unknown[] = [];
 
+/** A session whose every clear resolves at once. */
+const sessionMock = () => ({
+  clearAuthCache: vi.fn(async () => undefined),
+  clearCache: vi.fn(async () => undefined),
+  clearCodeCaches: vi.fn(async (_options: object) => undefined),
+  clearData: vi.fn(async () => undefined),
+  clearHostResolverCache: vi.fn(async () => undefined),
+  clearSharedDictionaryCache: vi.fn(async () => undefined),
+  clearStorageData: vi.fn(async () => undefined),
+  closeAllConnections: vi.fn(async () => undefined),
+  on: vi.fn(),
+  setPermissionCheckHandler: vi.fn(),
+  setPermissionRequestHandler: vi.fn(),
+  webRequest: { onHeadersReceived: vi.fn() },
+});
+
 /**
  * Main's one IPC dispatcher registers here (`desktop-ipc-registry.ts`); find it
  * and call a method through it with `invokeDesktopIpc` from
@@ -68,26 +84,8 @@ const electronMainMockSurface = {
   },
   session: {
     ...electronTestStub.session,
-    defaultSession: {
-      clearAuthCache: vi.fn(async () => undefined),
-      clearData: vi.fn(async () => undefined),
-      clearStorageData: vi.fn(async () => undefined),
-      closeAllConnections: vi.fn(async () => undefined),
-      on: vi.fn(),
-      setPermissionCheckHandler: vi.fn(),
-      setPermissionRequestHandler: vi.fn(),
-      webRequest: { onHeadersReceived: vi.fn() },
-    },
-    fromPartition: vi.fn(() => ({
-      clearAuthCache: vi.fn(async () => undefined),
-      clearData: vi.fn(async () => undefined),
-      clearStorageData: vi.fn(async () => undefined),
-      closeAllConnections: vi.fn(async () => undefined),
-      on: vi.fn(),
-      setPermissionCheckHandler: vi.fn(),
-      setPermissionRequestHandler: vi.fn(),
-      webRequest: { onHeadersReceived: vi.fn() },
-    })),
+    defaultSession: sessionMock(),
+    fromPartition: vi.fn(sessionMock),
   },
   shell: {
     ...electronTestStub.shell,
@@ -144,16 +142,7 @@ function restoreOwnedMockImplementations(): void {
   electronMainMock.screen.getPrimaryDisplay.mockImplementation(() => ({
     workArea: { height: 1080, width: 1920, x: 0, y: 0 },
   }));
-  electronMainMock.session.fromPartition.mockImplementation(() => ({
-    clearAuthCache: vi.fn(async () => undefined),
-    clearData: vi.fn(async () => undefined),
-    clearStorageData: vi.fn(async () => undefined),
-    closeAllConnections: vi.fn(async () => undefined),
-    on: vi.fn(),
-    setPermissionCheckHandler: vi.fn(),
-    setPermissionRequestHandler: vi.fn(),
-    webRequest: { onHeadersReceived: vi.fn() },
-  }));
+  electronMainMock.session.fromPartition.mockImplementation(sessionMock);
   electronMainMock.shell.openPath.mockResolvedValue('');
   electronMainMock.webContents.getAllWebContents.mockImplementation(() => [...mockAllWebContents]);
 }

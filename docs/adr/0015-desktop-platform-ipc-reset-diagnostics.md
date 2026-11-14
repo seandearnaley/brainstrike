@@ -1,6 +1,6 @@
 # ADR-0015: Desktop IPC authorization, the factory-reset registry and diagnostics
 
-- **Status:** Accepted, with six amendments below.
+- **Status:** Accepted, with seven amendments below.
   - Its "existing shutdown deadlines" language is superseded by
     [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) (joined quit, no global
     deadline).
@@ -106,6 +106,40 @@ Three desktop platform contracts carry rulings that outlive the reset.
   - One outcome path for both resets: Main keeps the reset's mode, worktrees and scratch
     folders, and the replacement window takes them once (`db:takeResetOutcome`). The Clear
     content dialog says what happens to both before the person confirms.
+- **Network history clears on Chromium's schedule (approved by Sean, 2026-11-14, BST-2515).**
+  - Factory Reset no longer waits for Chromium to write the cleared network history (HSTS and
+    alt-svc entries) to disk. That changes the session-ownership guarantee for the network
+    history only: Chromium writes it on its own schedule.
+  - The cost: a crash after the reset and before Chromium's write can bring those entries back.
+    A normal quit cannot, since Chromium finishes the write before its network service exits.
+  - The cause. Under heavy load (load average 100 to 350 on 10 cores) the reset stalled in the
+    session clear, and the new window loaded only when the app quit.
+    - Only `session.clearData()` stalled, and only on the persistent sessions. Its cache type
+      clears the network history, and Chromium answers only once that history is on disk.
+    - Chromium writes it with a task it runs at its lowest priority (`BEST_EFFORT`,
+      `BLOCK_SHUTDOWN`), for both the `TransportSecurity` and `Network Persistent State` files.
+      On macOS that priority runs at background QoS, at most two tasks at a time, which a busy
+      machine starves. Shutdown runs such tasks at normal priority, which is why quitting
+      finished the reset.
+    - Measured: at load 77 to 97, `clearData()` took 4.9 to 33.5 s on the default and pane
+      sessions, and Factory Reset's E2E spec failed 3 of 10 runs. In the same runs the in-memory
+      agent session took 10 ms or less, and `clearStorageData` under 90 ms.
+    - With Chromium's lowest-priority tasks turned off (`--disable-best-effort-tasks`),
+      `clearData()` never answered, nor did `clearData` for the cache type alone. Every other
+      clear finished in under 80 ms. A trace showed only the network-history step unfinished.
+  - The build (BST-2515):
+    - The reset awaits every clear a page or the reopened profile can read: `clearStorageData`,
+      `clearCache`, `clearCodeCaches`, `clearSharedDictionaryCache`, `clearHostResolverCache`,
+      `clearAuthCache` and `closeAllConnections`. A failure of any of them still fails the reset.
+    - It starts the full `clearData()` and does not wait for it. That call alone reaches the
+      network history and the data types Electron does not name, such as the Reporting and
+      Network Error Logging caches.
+    - None of the awaited clears is a `clearData` call. Chromium runs one session's `clearData`
+      calls one at a time, so an awaited one would wait behind the network history's write.
+      Measured with lowest-priority tasks off: a `clearData` for cookies alone waited behind a
+      pending `clearData()`.
+    - The reset has answered by the time the unawaited clear can fail, and no window takes an
+      outcome after that. Main logs the failure at error, with its session.
 
 ## Consequences
 

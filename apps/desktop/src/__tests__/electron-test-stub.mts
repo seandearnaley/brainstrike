@@ -92,7 +92,11 @@ export const screen = {
 
 const makePartitionSession = () => ({
   clearAuthCache: () => Promise.resolve(),
+  clearCache: () => Promise.resolve(),
+  clearCodeCaches: () => Promise.resolve(),
   clearData: () => Promise.resolve(),
+  clearHostResolverCache: () => Promise.resolve(),
+  clearSharedDictionaryCache: () => Promise.resolve(),
   clearStorageData: () => Promise.resolve(),
   closeAllConnections: () => Promise.resolve(),
   on: makeFn(),
