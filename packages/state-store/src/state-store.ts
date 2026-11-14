@@ -666,9 +666,16 @@ export class StateStore implements MemoryDomainPort {
   workspaceRoots(request: WorkspaceRootRequest): Promise<WorkspaceRootReply> {
     const execute = async (): Promise<WorkspaceRootReply> => {
       const reply = await this.call({ op: 'workspace-roots', request });
-      return { roots: reply['roots'] as WorkspaceRootReply['roots'] };
+      const projects = reply['projects'] as WorkspaceRootReply['projects'];
+      return {
+        roots: reply['roots'] as WorkspaceRootReply['roots'],
+        ...(projects === undefined ? {} : { projects }),
+      };
     };
-    return request.operation === 'list' ? execute() : this.run(execute);
+    // Reads are not writes: they skip the write chain.
+    return request.operation === 'list' || request.operation === 'repository-projects'
+      ? execute()
+      : this.run(execute);
   }
 
   health(): { stateDamage: string | null; visibleErrors: Unreadable[] } {

@@ -84,6 +84,8 @@ function entry(id: string, name: string): WorktreeListEntry {
     name,
     path: `/managed/app/${name}`,
     primary: false,
+    projectId: null,
+    projectName: null,
     provenance: 'both',
     remedy: null,
     repoCommonDir: '/work/app/.git',

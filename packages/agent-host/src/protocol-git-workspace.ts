@@ -324,6 +324,9 @@ const WorktreeListSchema = Schema.Array(
     name: Text,
     path: Text,
     primary: Schema.Boolean,
+    // BST-2511: the project of a repository found inside an open folder, on its own checkout.
+    projectId: NullableText,
+    projectName: NullableText,
     provenance: WorktreeProvenanceSchema,
     remedy: Schema.NullOr(Schema.Literal('grant-access')),
     repoCommonDir: Text,
