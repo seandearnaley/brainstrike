@@ -12,14 +12,25 @@
  * update is, rather than waiting for the run to end: the run keeps the binding it was admitted
  * with, at a place the folder had already left, and its thread's next run is admitted at the new
  * place.
+ *
+ * Each rewrite reads the thread's binding again in its own admission slot and commits there
+ * (`held`): a where-control change queued before it may have moved the thread to another folder,
+ * and the patch carries only the hints, so it must never land on that folder's binding. A thread
+ * deleted meanwhile has no next run, so it is no failure.
  */
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
-import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, fault, isBoundaryRefusal } from '@brainstrike/assistant-contract';
 import type { HostCore } from './core.ts';
 import type { HostOpenRoot } from './protocol-workspace-roots.ts';
 
-type HostLocateCore = Pick<HostCore, 'hydrated' | 'listThreads' | 'updateWorkspaceBinding'>;
+type HostLocateCore = Pick<
+  HostCore,
+  'admitted' | 'hydrated' | 'listThreads' | 'readWorkspaceBinding' | 'updateWorkspaceBinding'
+>;
+
+/** Core's refusals for a thread that is gone, or going, by the time its slot comes. */
+const GONE = new Set(['thread.deleting', 'thread.unknown']);
 
 /** Rewrites the folder hints of every thread working in `root`, now at its located place. */
 export async function rebindLocatedRoot(core: HostLocateCore, root: HostOpenRoot): Promise<void> {
@@ -28,16 +39,29 @@ export async function rebindLocatedRoot(core: HostLocateCore, root: HostOpenRoot
     operatingRootDisplayName: basename(root.path) || root.path,
     operatingRootPath: root.path,
   };
+  const worksHere = (threadId: string): boolean =>
+    core.readWorkspaceBinding(threadId).binding?.operatingRootId === root.rootId;
   const bound = core
     .listThreads()
     .filter(({ binding }) => binding?.operatingRootId === root.rootId);
   const results = await Promise.allSettled(
     bound.map(({ threadId }) =>
-      core.updateWorkspaceBinding({ commandId: randomUUID(), patch, threadId })
+      core.admitted(threadId, async () => {
+        if (worksHere(threadId)) {
+          await core.updateWorkspaceBinding(
+            { commandId: randomUUID(), patch, threadId },
+            undefined,
+            true
+          );
+        }
+      })
     )
   );
   const failures = results.flatMap((result) =>
-    result.status === 'rejected' ? [result.reason] : []
+    result.status === 'rejected' &&
+    !(isBoundaryRefusal(result.reason) && GONE.has(result.reason.failure.code))
+      ? [result.reason]
+      : []
   );
   if (failures.length > 0) {
     // The record is at the new place, while these threads still name the old one.

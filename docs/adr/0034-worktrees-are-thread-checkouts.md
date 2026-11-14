@@ -244,6 +244,11 @@ supersede the decisions above where they differ.
       to end as Turn into a project… does. That run keeps the binding it was
       admitted with, at a place the folder had already left, so nothing it
       holds changes, and the thread's next run is admitted at the new place.
+      Each rewrite reads the thread's binding again in its own admission slot
+      and commits there: a where-control change queued before it may have
+      moved the thread to another folder, and the hints must never land on
+      that folder's binding. A thread deleted meanwhile is skipped, not
+      counted as a failure.
       A rewrite that fails is a fault the panel shows, naming what to do. A
       path hint that still disagrees with the mount is refused as
       `workspace.binding-root-moved`: "This thread's folder is no longer at

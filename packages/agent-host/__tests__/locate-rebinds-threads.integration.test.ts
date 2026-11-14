@@ -166,6 +166,60 @@ test('every thread that works in the located folder follows it, and a thread els
   expect(hosted.core.readWorkspaceBinding(elsewhere).binding).toEqual(openBinding);
 });
 
+test('a thread the where-control moves elsewhere while Locate runs keeps the folder it moved to', async () => {
+  const hosted = await scratchThreadHost(model(), cleanup);
+  const { place, threadIds } = await threadsInFolder(hosted, 1);
+  const [threadId = ''] = threadIds;
+  await hosted.open();
+  const project = {
+    operatingRootDisplayName: 'project',
+    operatingRootId: 'open-root',
+    operatingRootPath: join(hosted.base, 'project'),
+  };
+  const moved = join(hosted.base, 'survey-moved');
+  await rename(place, moved);
+  let moving: Promise<unknown> = Promise.resolve();
+  const client = await desktopClient(hosted, async (params) => {
+    const answer = await locatedAt(hosted, moved)(params);
+    // The person picks another folder for the thread while the picker answers, so that change is
+    // queued before Locate's rewrite and still unsettled when Locate lists the threads.
+    moving = hosted.core.updateWorkspaceBinding({
+      commandId: randomUUID(),
+      patch: project,
+      threadId,
+    });
+    return answer;
+  });
+
+  await client.request('workspace/roots/locate', { rootId: ROOT_ID });
+  await moving;
+
+  expect(hosted.core.readWorkspaceBinding(threadId).binding).toEqual(project);
+});
+
+test('a thread deleted while Locate runs is not reported as left at the old place', async () => {
+  const hosted = await scratchThreadHost(model(), cleanup);
+  const { place, threadIds } = await threadsInFolder(hosted, 2);
+  const [deleted = '', kept = ''] = threadIds;
+  const moved = join(hosted.base, 'survey-moved');
+  await rename(place, moved);
+  let deleting: Promise<unknown> = Promise.resolve();
+  const client = await desktopClient(hosted, async (params) => {
+    const answer = await locatedAt(hosted, moved)(params);
+    deleting = hosted.core.deleteThread({ threadId: deleted });
+    return answer;
+  });
+
+  await expect(client.request('workspace/roots/locate', { rootId: ROOT_ID })).resolves.toEqual({
+    root: expect.objectContaining({ path: moved, rootId: ROOT_ID }),
+  });
+  await deleting;
+  expect(hosted.core.readWorkspaceBinding(kept).binding).toMatchObject({
+    operatingRootId: ROOT_ID,
+    operatingRootPath: moved,
+  });
+});
+
 test('a cancelled picker leaves every binding as it was', async () => {
   const hosted = await scratchThreadHost(model(), cleanup);
   const { place, threadIds } = await threadsInFolder(hosted, 1);
