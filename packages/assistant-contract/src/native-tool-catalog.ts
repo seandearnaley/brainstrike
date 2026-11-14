@@ -74,3 +74,19 @@ export function isNativeToolId(value: string): value is NativeToolId {
 export function isSkillNativeToolId(value: string): value is SkillNativeToolId {
   return SKILL_NATIVE_TOOL_ID_SET.has(value);
 }
+
+/**
+ * ADR-0040: the catalog tools whose output is content from the web (search,
+ * extract and browser pages): every tool searchable in the `web` namespace.
+ */
+const WEB_CONTENT_TOOL_ID_SET: ReadonlySet<string> = new Set(
+  DESKTOP_NATIVE_TOOL_IDS.filter((id) => {
+    const definition = NATIVE_TOOL_REGISTRIES.byId[id];
+    return 'discovery' in definition && definition.discovery.namespace === 'web';
+  })
+);
+
+/** Whether a catalog tool's output is web content, which a note it led to cannot be trusted for. */
+export function isWebContentToolId(value: string): boolean {
+  return WEB_CONTENT_TOOL_ID_SET.has(value);
+}

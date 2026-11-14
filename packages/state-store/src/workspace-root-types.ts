@@ -140,6 +140,11 @@ export interface WorkspaceRepositoryProject {
 }
 
 export interface WorkspaceRootReply {
+  /**
+   * `join-project` answers the project it deleted when the folder it moved was that project's
+   * last (ADR-0040: the host then removes that project's memory); no other request does.
+   */
+  readonly deletedProjectIds?: readonly string[];
   /** `repository-projects` answers the projects it found here; no other request does. */
   readonly projects?: readonly WorkspaceRepositoryProject[];
   readonly roots: readonly WorkspaceRootRecord[];

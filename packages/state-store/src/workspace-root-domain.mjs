@@ -557,11 +557,13 @@ function repositoryProjects(db, canonicalPaths) {
 /**
  * Moves the folder at `canonicalPath` from the project `leftProjectId` into `projectId`, and
  * deletes the project it left once no folder is in it. Nothing else is written: a folder's trust
- * and its approved hooks stay keyed by its own path.
+ * and its approved hooks stay keyed by its own path. Answers the projects it deleted, so the host
+ * retires what it keeps for them (ADR-0040: a project's memory).
  * @param {import('better-sqlite3').Database} db
  * @param {string} canonicalPath
  * @param {string | null} leftProjectId
  * @param {string} projectId
+ * @returns {string[]}
  */
 function moveFolderToProject(db, canonicalPath, leftProjectId, projectId) {
   db.prepare(`INSERT INTO project_folders (canonical_path, project_id) VALUES (?, ?)
@@ -570,12 +572,13 @@ function moveFolderToProject(db, canonicalPath, leftProjectId, projectId) {
     projectId
   );
   if (leftProjectId !== null && leftProjectId !== projectId) {
-    db.prepare(`DELETE FROM projects WHERE id = ?
-      AND NOT EXISTS (SELECT 1 FROM project_folders WHERE project_id = ?)`).run(
-      leftProjectId,
-      leftProjectId
-    );
+    const deleted = db
+      .prepare(`DELETE FROM projects WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM project_folders WHERE project_id = ?)`)
+      .run(leftProjectId, leftProjectId);
+    return deleted.changes > 0 ? [leftProjectId] : [];
   }
+  return [];
 }
 
 /**
@@ -634,8 +637,9 @@ function joinRepositoryProject(db, projection, { canonicalPath, projectId }, pat
         .pluck()
         .get(canonicalPath)
     );
-    moveFolderToProject(db, canonicalPath, left ?? null, projectId);
+    const deletedProjectIds = moveFolderToProject(db, canonicalPath, left ?? null, projectId);
     return {
+      deletedProjectIds,
       roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
         db
           .prepare(`SELECT ${projection} FROM roots WHERE canonical_path = ? AND kind = 'path'`)
@@ -680,8 +684,14 @@ function joinProject(db, projection, { projectId, rootId }) {
     if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
       throw unknownProject();
     }
-    moveFolderToProject(db, root.canonicalPath, root.projectId, projectId);
+    const deletedProjectIds = moveFolderToProject(
+      db,
+      root.canonicalPath,
+      root.projectId,
+      projectId
+    );
     return {
+      deletedProjectIds,
       roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
         select.all(rootId)
       ),

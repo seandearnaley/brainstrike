@@ -124,6 +124,15 @@ export {
   selectRewindComposerText,
 } from './message-rewind-action';
 export {
+  PROJECT_MEMORY_NOTE_DATA_NAME,
+  type ProjectMemoryNote,
+} from './project-memory-note';
+export {
+  ProjectMemoryNoteCard,
+  type ProjectMemoryUndo,
+  ProjectMemoryUndoProvider,
+} from './project-memory-note-card';
+export {
   type RewindComposerState,
   useRewindComposerStore,
 } from './rewind-composer-store';

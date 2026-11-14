@@ -45,6 +45,10 @@ import {
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
+import {
+  hostProjectMemory,
+  readRunProjectMemory,
+} from '@brainstrike/host-capabilities/project-memory';
 import { createProviderCredentialReader } from '@brainstrike/host-capabilities/provider-credentials';
 import { hostWorkspaceDiscovery } from '@brainstrike/host-capabilities/workspace-context';
 import {
@@ -363,7 +367,9 @@ export async function createDesktopHostConfiguration(
       return saved ? hostPermissionGate(saved) : undefined;
     },
     // ADR-0032: the roots whose instructions, skills and personas a run may load.
-    (roots) => trustedHostWorkspaceRoots(startup.store, roots)
+    (roots) => trustedHostWorkspaceRoots(startup.store, roots),
+    // ADR-0040: a run in a trusted project loads that project's memory.
+    (input) => readRunProjectMemory({ ...input, store: startup.store })
   );
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
@@ -431,6 +437,8 @@ export async function createDesktopHostConfiguration(
     mcpContent: mcpHost.content,
     mcpPresentation: mcpHost.presentation,
     mcpSettings: mcpHost.settings,
+    // ADR-0040: Undo of a memory write, in this host's data root.
+    projectMemory: hostProjectMemory(startup.store.root),
     providers: host.providers,
     readConfiguration: async (admission) => {
       const selected = await runAdmission.readConfiguration(admission);
@@ -465,6 +473,7 @@ export async function createDesktopHostConfiguration(
         appPaths: platformOptions?.appPaths,
         freshRoots: () => selected.freshWorkspaceRoots(),
         gitWorkspace: gitWorkspace.tools,
+        ...(selected.projectMemory ? { projectMemory: selected.projectMemory } : {}),
         readFileCursorRegistry,
         request,
         resolveTavilyApiKey: host.resolveTavilyApiKey,

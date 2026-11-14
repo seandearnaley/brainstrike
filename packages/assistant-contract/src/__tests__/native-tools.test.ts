@@ -79,6 +79,7 @@ describe('NATIVE_TOOLS catalog', () => {
         "brainstrike.manageCommandSession",
         "brainstrike.manageTaskList",
         "brainstrike.manageWorktree",
+        "brainstrike.memory",
         "brainstrike.queryDiagnostics",
         "brainstrike.readToolOutputArtifact",
         "brainstrike.readWorkspaceContext",
@@ -100,7 +101,7 @@ describe('NATIVE_TOOLS catalog', () => {
   });
 
   it('partitions desktop (brainstrike.*) and skill ids exactly, with no duplicates', () => {
-    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(33);
+    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(34);
     expect(SKILL_NATIVE_TOOL_IDS).toEqual(['skill', 'skill_read', 'skill_search']);
     expect(NATIVE_TOOL_IDS).toEqual([...DESKTOP_NATIVE_TOOL_IDS, ...SKILL_NATIVE_TOOL_IDS]);
     expect(new Set(NATIVE_TOOL_IDS).size).toBe(NATIVE_TOOL_IDS.length);

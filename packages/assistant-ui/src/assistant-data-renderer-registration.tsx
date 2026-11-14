@@ -23,6 +23,8 @@ import {
   readHostContextCompaction,
 } from './compaction-summary-message';
 import { PersonInputDataPart } from './person-input-data-part';
+import { PROJECT_MEMORY_NOTE_DATA_NAME, readProjectMemoryNote } from './project-memory-note';
+import { ProjectMemoryNoteCard } from './project-memory-note-card';
 
 const assistantRunTimelineDataUI = {
   name: ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -99,6 +101,16 @@ const personInputDataUI = {
   render: PersonInputDataPart,
 } satisfies AssistantDataUIProps;
 
+// ADR-0040: a project memory write is a card of its own in the thread.
+const ProjectMemoryNoteDataPart: DataMessagePartComponent = ({ data }) => (
+  <ProjectMemoryNoteCard note={readProjectMemoryNote(data)} />
+);
+
+const projectMemoryNoteDataUI = {
+  name: PROJECT_MEMORY_NOTE_DATA_NAME,
+  render: ProjectMemoryNoteDataPart,
+} satisfies AssistantDataUIProps;
+
 export const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantDiscoveryErrorDataUI);
@@ -110,6 +122,7 @@ export const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantChildRunUsageDataUI);
   useAssistantDataUI(hostContextCompactedDataUI);
   useAssistantDataUI(personInputDataUI);
+  useAssistantDataUI(projectMemoryNoteDataUI);
 
   return null;
 };

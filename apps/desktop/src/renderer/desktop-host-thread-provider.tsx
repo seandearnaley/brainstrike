@@ -21,6 +21,8 @@ import {
   DebugBundleProvider,
   EditCheckpointProvider,
   GenerationDetailsProvider,
+  type ProjectMemoryUndo,
+  ProjectMemoryUndoProvider,
   RunVerdictProvider,
   SubagentChildRunContext,
   useRewindContext,
@@ -326,6 +328,19 @@ function HostThread({
     }
     return createHostDebugBundleBinding(client, threadId, diagnostics);
   }, [client, threadId]);
+  // ADR-0040: a memory card's Undo asks the host, which restores what the write replaced.
+  const undoMemory = useMemo<ProjectMemoryUndo>(
+    () =>
+      async ({ runId, toolCallId }) => {
+        await client.request('memory/undo', {
+          commandId: crypto.randomUUID(),
+          runId,
+          threadId,
+          toolCallId,
+        });
+      },
+    [client, threadId]
+  );
   // A waiting file approval's card reads the change from the host (ADR-0036).
   const readApprovalChange = useMemo(
     () => (conversation ? hostApprovalChange(client, conversation) : null),
@@ -336,48 +351,50 @@ function HostThread({
       <div className="flex h-full min-h-0 flex-col">
         {child ? <HostChildDetails key={threadId} source={conversation.source} /> : null}
         <div className="min-h-0 flex-1">
-          <CommittedCheckpoints checkpoints={conversation.checkpoints}>
-            <CommittedVerdicts verdicts={conversation.verdicts}>
-              <GenerationDetailsProvider value={generations}>
-                <BudgetGuardrailProvider value={budgetGuardrail}>
-                  <DebugBundleProvider value={debugBundle}>
-                    <HostApprovalHistoryProvider tree={conversation.approvals}>
-                      {/* Each delegation card reads its child's run from the tree's own follow of the child's log. */}
-                      <SubagentChildRunContext value={conversation.approvals}>
-                        <ApprovalChangeProvider value={readApprovalChange}>
-                          <HostChildConversations revision={effects} threadId={threadId}>
-                            <ChildChangesGate child={child}>
-                              <CommittedAssistantConversation
-                                {...withFoldersGate(presentation, reopening)}
-                                agentColor={conversationColor}
-                                approvalStrip={
-                                  <HostApprovalStrip
-                                    client={client}
-                                    self={child ? label : undefined}
-                                    tree={conversation.approvals}
-                                  />
-                                }
-                                commands={conversation.commands}
-                                {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                                label={label}
-                                onRunningChange={onRunningChange}
-                                onSendActiveInput={child ? conversation.sendInput : undefined}
-                                onSteer={conversation.steer}
-                                {...(reconnect === undefined ? {} : { reconnect })}
-                                rewind={child ? null : rewind}
-                                store={conversation.store}
-                                workspaceBar={workspaceBar(child, threadId)}
-                              />
-                            </ChildChangesGate>
-                          </HostChildConversations>
-                        </ApprovalChangeProvider>
-                      </SubagentChildRunContext>
-                    </HostApprovalHistoryProvider>
-                  </DebugBundleProvider>
-                </BudgetGuardrailProvider>
-              </GenerationDetailsProvider>
-            </CommittedVerdicts>
-          </CommittedCheckpoints>
+          <ProjectMemoryUndoProvider undo={undoMemory}>
+            <CommittedCheckpoints checkpoints={conversation.checkpoints}>
+              <CommittedVerdicts verdicts={conversation.verdicts}>
+                <GenerationDetailsProvider value={generations}>
+                  <BudgetGuardrailProvider value={budgetGuardrail}>
+                    <DebugBundleProvider value={debugBundle}>
+                      <HostApprovalHistoryProvider tree={conversation.approvals}>
+                        {/* Each delegation card reads its child's run from the tree's own follow of the child's log. */}
+                        <SubagentChildRunContext value={conversation.approvals}>
+                          <ApprovalChangeProvider value={readApprovalChange}>
+                            <HostChildConversations revision={effects} threadId={threadId}>
+                              <ChildChangesGate child={child}>
+                                <CommittedAssistantConversation
+                                  {...withFoldersGate(presentation, reopening)}
+                                  agentColor={conversationColor}
+                                  approvalStrip={
+                                    <HostApprovalStrip
+                                      client={client}
+                                      self={child ? label : undefined}
+                                      tree={conversation.approvals}
+                                    />
+                                  }
+                                  commands={conversation.commands}
+                                  {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                                  label={label}
+                                  onRunningChange={onRunningChange}
+                                  onSendActiveInput={child ? conversation.sendInput : undefined}
+                                  onSteer={conversation.steer}
+                                  {...(reconnect === undefined ? {} : { reconnect })}
+                                  rewind={child ? null : rewind}
+                                  store={conversation.store}
+                                  workspaceBar={workspaceBar(child, threadId)}
+                                />
+                              </ChildChangesGate>
+                            </HostChildConversations>
+                          </ApprovalChangeProvider>
+                        </SubagentChildRunContext>
+                      </HostApprovalHistoryProvider>
+                    </DebugBundleProvider>
+                  </BudgetGuardrailProvider>
+                </GenerationDetailsProvider>
+              </CommittedVerdicts>
+            </CommittedCheckpoints>
+          </ProjectMemoryUndoProvider>
         </div>
         {/* Core-owned MCP input: the dialog portals; status and alerts sit under the conversation. */}
         <CommittedHostMcpInputView input={conversation.mcpInput} />

@@ -128,6 +128,7 @@ export const VERB_FAMILIES = [
   'canvas',
   'delegate',
   'edit',
+  'memory',
   'other',
   'read',
   'run',

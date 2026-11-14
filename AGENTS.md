@@ -106,6 +106,7 @@ A step past its stop line is a defect: stop, tell the owner the measured time an
 | --- | --- |
 | Host and storage | [State store](docs/agents/state-store.md), [host lease](docs/agents/host-lease.md); ADRs 0011, 0017, 0035 |
 | Assistant runs, persistence, providers and MCP | [Runtime](docs/agents/assistant-runtime.md), [persistence](docs/agents/assistant-persistence.md), [providers](docs/agents/assistant-providers.md), [provider cassettes](docs/agents/provider-cassettes.md), [MCP](docs/agents/mcp-conformance.md) |
+| Project memory | [Project memory](docs/agents/project-memory.md); ADR 0040 |
 | UI and workspace behavior | [UI conventions](docs/agents/ui-conventions.md), [workspace context](docs/agents/workspace-context.md), [explorer, search and context map](docs/agents/explorer-search-context-map.md); ADR 0021 |
 | Execution and reset | [Code execution](docs/agents/code-execution.md), [platform contracts](docs/agents/platform-contracts.md) |
 | Product tickets | [Issue tracker](docs/agents/issue-tracker.md); Linear is the product tracker |

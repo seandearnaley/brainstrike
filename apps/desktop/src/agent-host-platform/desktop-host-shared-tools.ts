@@ -9,6 +9,7 @@ import {
   getEditDiagnostics,
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
+import type { ProjectMemoryNotes } from '@brainstrike/host-capabilities/project-memory';
 import { Schema } from 'effect';
 import { agentNavigationTarget } from '../browser/browser-url';
 import {
@@ -40,6 +41,8 @@ export function desktopHostSharedTools(options: {
   readonly freshRoots: () => Promise<unknown>;
   /** The host's worktree services, for the worktree tools and shell correlation. */
   readonly gitWorkspace: HostWorktreeServices;
+  /** ADR-0040: the run's project notes, which its memory tool reads and writes. */
+  readonly projectMemory?: ProjectMemoryNotes | undefined;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
   /** The host's own Tavily key owner, never Main's view of the store. */
@@ -78,6 +81,7 @@ export function desktopHostSharedTools(options: {
         onExcessProperty: 'error',
       })(await options.freshRoots()),
     ids,
+    ...(options.projectMemory ? { projectMemory: options.projectMemory } : {}),
     readFileCursorRegistry: options.readFileCursorRegistry,
     resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),
     runtime,
