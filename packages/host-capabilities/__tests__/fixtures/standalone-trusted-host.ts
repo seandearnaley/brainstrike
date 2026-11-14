@@ -146,7 +146,9 @@ export type StandaloneHost = Awaited<ReturnType<typeof standaloneHost>>;
  */
 export async function trustedPlatformModule(
   provider: string,
-  calls: readonly { readonly input: unknown; readonly toolId: string }[] = []
+  calls: readonly { readonly input: unknown; readonly toolId: string }[] = [],
+  /** The rest of the trusted composition, beside its model. */
+  composition: { readonly inputTokenLimit?: number } = {}
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'bs-trusted-model-module-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
@@ -168,7 +170,7 @@ const model = {
   supportedUrls: fixture.supportedUrls,
 };
 export const createHostPlatform = (options, startup, launch) =>
-  standalone(options, startup, launch, { models: [{ budgets: 'openai::gpt-6-luna', model }] });
+  standalone(options, startup, launch, { ...${JSON.stringify(composition)}, models: [{ budgets: 'openai::gpt-6-luna', model }] });
 `
   );
   return module;

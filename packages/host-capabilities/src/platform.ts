@@ -439,22 +439,56 @@ function runSelection(
   return { auth, catalog, provider, selected };
 }
 
+/** A run's input budget: its model's own, or a trusted composition's pin within it. */
+function runInputTokenLimit(pinned: number | undefined, model: number | undefined): number {
+  if (!model) {
+    throw new Error('The selected model has no canonical input token budget');
+  }
+  if (pinned !== undefined && pinned > model) {
+    throw refusalError(
+      'configuration',
+      'run.capabilities-unavailable',
+      `The pinned input budget ${pinned} exceeds the model’s own, ${model}`,
+      'Pin a budget within the selected model’s input budget.'
+    );
+  }
+  return pinned ?? model;
+}
+
+/** What a trusted `--platform` module composes the standalone host with. */
+export interface StandaloneTrustedComposition {
+  /**
+   * Pins every run's input budget below its model's own, so a thread crosses
+   * the compaction trigger at a fraction of the model's window (an eval).
+   */
+  readonly inputTokenLimit?: number;
+  /** With trusted models, the host runs only those. */
+  readonly models?: readonly StandaloneTrustedModel[];
+}
+
 /**
  * Root and its canonical writer have already been acquired by startAgentHost.
  * `trusted` is reachable only from a module composing this function: the CLI's
  * process entry passes three arguments, and no flag, env var or run input
- * names a trusted model. With trusted models, the host runs only those.
+ * names a trusted model or pins a budget.
  */
 export async function createHostPlatform(
   options: HostStartOptions,
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions,
-  trusted?: { readonly models: readonly StandaloneTrustedModel[] }
+  trusted?: StandaloneTrustedComposition
 ): Promise<HostPlatform> {
   if (options.root !== startup.store.root) {
     throw new Error('Standalone platform must borrow its acquired canonical Root');
   }
-  const trustedModels = trusted && trustedModelIndex(trusted.models);
+  const trustedModels = trusted?.models && trustedModelIndex(trusted.models);
+  const pinnedInputTokenLimit = trusted?.inputTokenLimit;
+  if (
+    pinnedInputTokenLimit !== undefined &&
+    !(Number.isInteger(pinnedInputTokenLimit) && pinnedInputTokenLimit > 0)
+  ) {
+    throw new Error('A trusted composition’s pinned input budget must be a positive whole number');
+  }
   const workspaceRoots = await standaloneWorkspaceRoots(platformOptions?.workspaceRoots);
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
@@ -531,14 +565,14 @@ export async function createHostPlatform(
         ...selected,
         ...(modelSettings ? { modelSettings } : {}),
       };
-      const inputTokenLimit = deriveAgentLoopInputTokenLimit(
-        catalog.definition,
-        provider,
-        configuration.modelSettings?.maxOutputTokens
+      const inputTokenLimit = runInputTokenLimit(
+        pinnedInputTokenLimit,
+        deriveAgentLoopInputTokenLimit(
+          catalog.definition,
+          provider,
+          configuration.modelSettings?.maxOutputTokens
+        )
       );
-      if (!inputTokenLimit) {
-        throw new Error('The selected model has no canonical input token budget');
-      }
       // Coordinator-approved stateless CLI policy: explicit selection is separate
       // from Main's saved enabled-model preference. Existing hosts keep their owner.
       const intent = wireDecoder(Schema.Record(Schema.String, Schema.MutableJson), {
