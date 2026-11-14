@@ -54,7 +54,13 @@ describe('readHostContextCompaction', () => {
     expect(readHostContextCompaction(trim)).toEqual(trim);
   });
 
+  it('reads a compaction a person asked for, with what they asked it to keep (BST-2536)', () => {
+    const requested = { ...part, focus: 'Keep the parser decision.', reason: 'requested' };
+    expect(readHostContextCompaction(requested)).toEqual(requested);
+  });
+
   it.each([
+    ['with an empty focus', { ...part, focus: '' }],
     ['without its reason', { ...part, reason: undefined }],
     ['with no compacted turns', { ...part, turnsCompacted: 0 }],
     ['with no compacted steps', { ...part, stepsCompacted: 0, turnsCompacted: 0 }],

@@ -1,13 +1,22 @@
 /**
- * What a `context.compacted` event says a compaction covers and why (ADR-0039,
- * BST-2527, BST-2531), without its run, its type and its usage receipt.
+ * A `context.compacted` event: what a compaction covers and why (ADR-0039,
+ * BST-2527, BST-2531), and `thread/compact`, the compaction a person asks for
+ * (BST-2536).
  */
 import { Schema } from 'effect';
+import type { JsonSchemaFactory } from './json-value.ts';
 import { WorkspaceRelativePath } from './workspace-wire.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Prompt = Schema.String;
 const Seq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+
+/** BST-2536: the most a person writes for a compaction to keep, in code points. */
+export const COMPACTION_FOCUS_MAX_CODE_POINTS = 500;
+/** The person's own words for what a compaction they asked for should keep. */
+const Focus = Schema.String.check(Schema.isPattern(/\S/u)).check(
+  Schema.isMaxCodePoints(COMPACTION_FOCUS_MAX_CODE_POINTS)
+);
 
 export const HostContextCompactedFields = {
   /**
@@ -31,13 +40,16 @@ export const HostContextCompactedFields = {
       })
     )
   ),
+  /** BST-2536: what the person asked a compaction they requested to keep, in their words. */
+  focus: Schema.optional(Focus),
   kind: Schema.Literals(['agentic', 'deterministic']),
   modelId: Schema.optional(Id),
   /**
-   * Before a request, after a provider's overflow, or the provider
-   * request's own trim of a request still over its budget (BST-2531).
+   * Before a request, after a provider's overflow, the provider request's
+   * own trim of a request still over its budget (BST-2531), or because a
+   * person asked for it between runs (`thread/compact`, BST-2536).
    */
-  reason: Schema.Literals(['pre-request', 'context-overflow', 'request-trim']),
+  reason: Schema.Literals(['pre-request', 'context-overflow', 'request-trim', 'requested']),
   /**
    * A deterministic fallback's reason: the agentic summarizer's typed
    * failure code, and the reference its cause is logged under (BST-2204).
@@ -75,3 +87,42 @@ export const HostContextCompactedFields = {
   ),
   toolsLoaded: Schema.mutable(Schema.Array(Id)),
 };
+
+/** The committed `context.compacted` event, with its run and the summary call's usage receipt. */
+export function hostContextCompactedSchema(json: JsonSchemaFactory) {
+  return Schema.Struct({
+    runId: Id,
+    type: Schema.Literal('context.compacted'),
+    ...HostContextCompactedFields,
+    usage: Schema.optional(json()),
+  }).check(
+    Schema.makeFilter((event) =>
+      event.compactedRunIds.length > 0 || event.through !== undefined
+        ? undefined
+        : { issue: 'A compaction replaces at least one turn or step', path: [] }
+    )
+  );
+}
+
+export const COMPACTION_METHOD_SCHEMAS = {
+  /**
+   * BST-2536: compact the thread's branch now, between runs, with the
+   * summary the thread's next request would ask for. The branch ends with
+   * `parentMessageId`, the run the person's view ends with, as `run/start`
+   * names it; absent, the run the thread's next message would follow.
+   * Refused while a run is active or another compaction runs, while the
+   * thread is rewound, when nothing is droppable, when the thread's model
+   * cannot be admitted and when the summary fails; a refusal commits nothing.
+   */
+  'thread/compact': Schema.Struct({
+    commandId: Id,
+    focus: Schema.optional(Focus),
+    parentMessageId: Schema.optional(Schema.NullOr(Id)),
+    threadId: Id,
+  }),
+} as const;
+
+export const COMPACTION_RESULT_SCHEMAS = {
+  /** The committed compaction. */
+  'thread/compact': hostContextCompactedSchema(() => Schema.MutableJson),
+} as const;

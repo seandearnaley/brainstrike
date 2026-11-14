@@ -32,6 +32,7 @@
   the run's compaction cap, whichever is less, and reclaims toward 7/9 of that trigger.
   - The cap defaults to 200,000 tokens. A person can change it (the setting follows in BST-2526).
   - `deriveContextCompactionThreshold` in `context-budget.ts` is the one derivation.
+  - A person can also compact a thread between runs (Compact now, BST-2536): the same compaction without waiting for the trigger.
 - **Size.** The request is sized by what was last reported: the provider's input tokens on the
   branch's latest step, else the host's own count of its latest prepared request, each plus an
   estimate of what was committed after it. With nothing reported, the estimate includes the run's

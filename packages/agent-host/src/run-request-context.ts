@@ -13,8 +13,10 @@ import {
   type HostCompactedContext,
   type HostCompactionLedgerReader,
   type HostContextSummarizer,
+  type HostRequestedBranch,
   overflowCompaction,
   prepareCompactedContext,
+  requestedCompaction,
 } from './context-compaction.ts';
 import { hostContextNotes } from './context-notes.ts';
 import type { HostRequestExtras } from './context-size.ts';
@@ -39,6 +41,8 @@ import { hostRunAncestors, hostRunContext } from './run-branch.ts';
 import { hostProviderHistory } from './run-history.ts';
 import { hostSideRequestBoundary } from './run-provider-request.ts';
 
+type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
+
 type Ports = Pick<
   HostRunExecutionPorts,
   | 'append'
@@ -50,6 +54,9 @@ type Ports = Pick<
   | 'rewrites'
   | 'runs'
 >;
+
+/** Core's seams a request's context reads and commits through. */
+export type HostRequestContextPorts = Ports;
 
 /** Encloses the step's model in the run's provider request boundary, when the run has one. */
 type HostRequestBoundary = ((model: LanguageModel) => LanguageModel) | undefined;
@@ -106,13 +113,15 @@ export async function hostStepRequest(
  * BST-2532: the compaction's summary, asked on the run's next request. The
  * request is built as the run's step builds it, over the branch's committed
  * history, and goes through the same provider request boundary, so it opens
- * with the prefix the run's last request cached.
+ * with the prefix the run's last request cached. `focus` is what a person who
+ * asked for the compaction wants it to keep (BST-2536).
  */
 function summarizeRunContext(
   ports: Ports,
   run: Run,
   admission: HostRunAdmission,
-  model: LanguageModel
+  model: LanguageModel,
+  focus?: string
 ): HostContextSummarizer {
   return async (context) => {
     const rows = ports.readCommittedRows(run);
@@ -133,7 +142,8 @@ function summarizeRunContext(
         }),
       },
       run,
-      run.controller.signal
+      run.controller.signal,
+      focus
     );
   };
 }
@@ -279,5 +289,45 @@ export async function prepareRunContext(
     signal: run.controller.signal,
     summarize: summarizeRunContext(ports, run, admission, model),
     unrewritten: healed,
+  });
+}
+
+/**
+ * BST-2536: the branch that ends with `tip` as the thread's next request
+ * reads it, before its rewrites' policy runs: healed, with the committed
+ * tool-output rewrites, and the thread's compactions.
+ */
+export function requestedRunBranch(ports: Ports, tip: Run): HostRequestedBranch {
+  const chain = [...hostRunAncestors(ports.runs, tip), tip];
+  const healed = healInterruptedRunHistory(hostRunContext(ports.runs, tip), chain, tip.threadId);
+  return {
+    chain,
+    compactions: ports.compactions.read(tip.threadId),
+    messages: applyProjectionRewrites(healed, ports.rewrites.read(tip.threadId)),
+  };
+}
+
+/**
+ * BST-2536: a compaction a person asked for between runs, of the branch that
+ * ends with `tip`. Its summary is asked on the request the thread's next run
+ * sends first: `next` holds that request's admission (the thread's selected
+ * model and settings) under the tip's identity, so the request reads the
+ * tip's branch, its tools and its cached prefix. The event belongs to the tip.
+ */
+export async function compactRequestedBranch(
+  ports: Ports,
+  tip: Run,
+  next: Run,
+  admission: HostRunAdmission,
+  focus: string | undefined
+): Promise<Compacted> {
+  const branch = requestedRunBranch(ports, tip);
+  return await requestedCompaction({
+    ...branch,
+    classify: (cause) => resolveProviderError(cause, admission.configuration).failure,
+    focus,
+    readLedger: readRunLedger(ports, tip, branch.chain, admission),
+    signal: next.controller.signal,
+    summarize: summarizeRunContext(ports, next, admission, admission.model, focus),
   });
 }

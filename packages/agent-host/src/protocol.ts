@@ -29,7 +29,11 @@ import {
   CHATGPT_SIGN_IN_METHOD_SCHEMAS,
   CHATGPT_SIGN_IN_RESULT_SCHEMAS,
 } from './protocol-chatgpt-sign-in.ts';
-import { HostContextCompactedFields } from './protocol-context-compaction.ts';
+import {
+  COMPACTION_METHOD_SCHEMAS,
+  COMPACTION_RESULT_SCHEMAS,
+  hostContextCompactedSchema,
+} from './protocol-context-compaction.ts';
 import {
   HostChildDeliverySchema,
   HostNoticeSchema,
@@ -322,6 +326,7 @@ const Provider = { provider: Id };
 export const HOST_METHOD_SCHEMAS = {
   ...CANVAS_METHOD_SCHEMAS,
   ...CHATGPT_SIGN_IN_METHOD_SCHEMAS,
+  ...COMPACTION_METHOD_SCHEMAS,
   ...GIT_WORKSPACE_METHOD_SCHEMAS,
   ...HOOK_TRUST_METHOD_SCHEMAS,
   ...MCP_CONTENT_METHOD_SCHEMAS,
@@ -788,18 +793,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
           )
         ).check(Schema.isMinLength(1)),
       }),
-      Schema.Struct({
-        type: Schema.Literal('context.compacted'),
-        ...RunFields,
-        ...HostContextCompactedFields,
-        usage: Schema.optional(json()),
-      }).check(
-        Schema.makeFilter((event) =>
-          event.compactedRunIds.length > 0 || event.through !== undefined
-            ? undefined
-            : { issue: 'A compaction replaces at least one turn or step', path: [] }
-        )
-      ),
+      hostContextCompactedSchema(json),
       Schema.Struct({
         type: Schema.Literal('workspace.edit.recorded'),
         ...RunFields,
@@ -927,6 +921,7 @@ export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
   ...CANVAS_RESULT_SCHEMAS,
   ...CHATGPT_SIGN_IN_RESULT_SCHEMAS,
+  ...COMPACTION_RESULT_SCHEMAS,
   ...GIT_WORKSPACE_RESULT_SCHEMAS,
   ...HOOK_TRUST_RESULT_SCHEMAS,
   ...MCP_CONTENT_RESULT_SCHEMAS,

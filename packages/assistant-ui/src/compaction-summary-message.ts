@@ -10,9 +10,14 @@ export const HOST_CONTEXT_COMPACTED_DATA_NAME = 'brainstrike.context-compacted';
 
 /**
  * Why the host compacted: before a request over its budget, after a provider
- * overflow, or because the provider request still left messages out (BST-2531).
+ * overflow, because the provider request still left messages out (BST-2531),
+ * or because a person asked for it (BST-2536).
  */
-type HostContextCompactionReason = 'pre-request' | 'context-overflow' | 'request-trim';
+type HostContextCompactionReason =
+  | 'pre-request'
+  | 'context-overflow'
+  | 'request-trim'
+  | 'requested';
 
 /** A summarizer side call's provider-reported tokens. */
 interface HostContextCompactionUsage {
@@ -45,6 +50,8 @@ export interface HostContextCompactionLists {
 }
 
 export interface HostContextCompaction extends HostContextCompactionLists {
+  /** What the person who asked for the compaction wanted it to keep, in their words (BST-2536). */
+  readonly focus?: string;
   readonly kind: CompactionSummaryPayload['fallbackKind'];
   /** The summarizer's catalog model, when one ran. */
   readonly modelId?: string;
@@ -63,7 +70,12 @@ export interface HostContextCompaction extends HostContextCompactionLists {
 }
 
 function isReason(value: unknown): value is HostContextCompactionReason {
-  return value === 'pre-request' || value === 'context-overflow' || value === 'request-trim';
+  return (
+    value === 'pre-request' ||
+    value === 'context-overflow' ||
+    value === 'request-trim' ||
+    value === 'requested'
+  );
 }
 
 function isCount(value: unknown): value is number {
@@ -72,6 +84,17 @@ function isCount(value: unknown): value is number {
 
 function isText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/** A requested compaction's focus as committed, or why it cannot be read. */
+function readFocus(value: unknown): Pick<HostContextCompaction, 'focus'> {
+  if (value === undefined) {
+    return {};
+  }
+  if (isText(value)) {
+    return { focus: value };
+  }
+  throw new Error('Committed compaction has an unreadable focus.');
 }
 
 /** A recorded summarizer failure, or why it cannot be read. */
@@ -158,7 +181,8 @@ function readLists(value: Readonly<Record<string, unknown>>): HostContextCompact
 export function committedHostCompaction(
   event: Readonly<Record<string, unknown>>
 ): HostContextCompaction {
-  const { compactedRunIds, kind, modelId, reason, summarizerFailure, summary, usage } = event;
+  const { compactedRunIds, focus, kind, modelId, reason, summarizerFailure, summary, usage } =
+    event;
   if (kind !== 'agentic' && kind !== 'deterministic') {
     throw new Error('Committed compaction has an unsupported kind.');
   }
@@ -181,6 +205,7 @@ export function committedHostCompaction(
   }
   return {
     ...readLists(event),
+    ...readFocus(focus),
     kind,
     ...(modelId === undefined ? {} : { modelId }),
     reason,
@@ -209,6 +234,7 @@ export function readHostContextCompaction(data: unknown): HostContextCompaction 
   ) {
     return {
       ...readLists(data),
+      ...readFocus(data['focus']),
       kind: data['kind'],
       ...(data['modelId'] === undefined ? {} : { modelId: data['modelId'] }),
       reason: data['reason'],

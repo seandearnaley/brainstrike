@@ -10,6 +10,7 @@ import {
 } from './assistant-conversation-panel';
 import type { CommittedAssistantSnapshot } from './committed-assistant-store';
 import { LiveShellOutputContext } from './live-shell-outputs';
+import { type ThreadCompaction, ThreadCompactionProvider } from './thread-compaction';
 import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import {
   type CommittedAssistantRuntimeOptions,
@@ -22,6 +23,8 @@ export type CommittedAssistantConversationProps = Omit<
   'runtime' | 'threadKey'
 > &
   Omit<CommittedAssistantRuntimeOptions, 'onCommandError'> & {
+    /** The owner's Compact now (BST-2536); absent, the context meter offers none. */
+    readonly compact?: ThreadCompaction | undefined;
     readonly onCommandError?: (cause: unknown) => void;
     /**
      * The owner's reconnection (BST-2004): `'automatic'` while its one automatic
@@ -70,6 +73,7 @@ function BoundCommittedAssistantConversation({
   store,
   commands,
   adapters,
+  compact,
   onCommandError,
   reconnect,
   ...presentation
@@ -128,14 +132,16 @@ function BoundCommittedAssistantConversation({
             </Button>
           </div>
         )}
-        <CommittedRuntimePanel
-          {...presentation}
-          adapters={adapters}
-          commands={commands}
-          disabledReason={error ?? (unavailable ? UNAVAILABLE : presentation.disabledReason)}
-          onCommandError={reportCommandError}
-          store={store}
-        />
+        <ThreadCompactionProvider compact={compact} store={store}>
+          <CommittedRuntimePanel
+            {...presentation}
+            adapters={adapters}
+            commands={commands}
+            disabledReason={error ?? (unavailable ? UNAVAILABLE : presentation.disabledReason)}
+            onCommandError={reportCommandError}
+            store={store}
+          />
+        </ThreadCompactionProvider>
       </div>
     </LiveShellOutputContext>
   );
