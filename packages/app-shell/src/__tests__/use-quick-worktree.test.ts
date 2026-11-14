@@ -157,6 +157,16 @@ describe('New worktree… in one click', () => {
     expect(toastSpy).not.toHaveBeenCalled();
   });
 
+  // The mode is memoized: a new one-click handler each render would rebuild it every render.
+  it('keeps one handler while nothing it reads changes', async () => {
+    const { rerender, result } = await renderReady();
+    const first = result.current?.onQuickCreate;
+
+    rerender();
+
+    expect(result.current?.onQuickCreate).toBe(first);
+  });
+
   // The sheet says where uncommitted changes stay; with no sheet, the person is told once it moved.
   it('says the folder’s uncommitted changes stayed behind, once the thread is in the new worktree', async () => {
     const { result } = await renderReady({ ...ARGS, uncommittedChanges: true });

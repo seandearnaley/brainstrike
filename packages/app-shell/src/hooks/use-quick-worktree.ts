@@ -23,6 +23,7 @@ import {
   type WorktreeCreateContext,
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
+import { useCallback } from 'react';
 
 export interface UseQuickWorktreeArgs {
   /** Creates, mounts and binds, with the create sheet's checks and toasts. */
@@ -41,7 +42,8 @@ export function useQuickWorktree({
   readCreateContext,
   uncommittedFolderName,
 }: UseQuickWorktreeArgs): () => Promise<WorkspaceBarQuickCreateOutcome> {
-  return async () => {
+  // One function while its inputs hold, so the mode `useWorktreeMode` memoizes keeps its identity.
+  return useCallback(async () => {
     const { repositorySetup, suggestedName } = await readCreateContext();
     if (repositorySetup?.decision === null) {
       return { needsSheet: true };
@@ -58,5 +60,5 @@ export function useQuickWorktree({
       });
     }
     return { needsSheet: false };
-  };
+  }, [onCreate, readCreateContext, uncommittedFolderName]);
 }
