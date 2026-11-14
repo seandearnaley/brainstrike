@@ -1043,6 +1043,16 @@ covered neither.
   closed the host, and the next one starts after the window is replaced.
   A clear that fails after the archive leaves the worktrees archived and
   every scratch folder in place.
+- **Desktop E2E never reaches the system Trash (BST-2507).** In test mode
+  (the folder picker's check), Main moves a scratch folder it trashes, a
+  deleted thread's or a cleared one, into the folder
+  `BRAINSTRIKE_E2E_TRASH_DIR` names (`scratch-trash-destination.ts`); the
+  guard in `scratch-folder-trash.ts` still decides which folder may move.
+  The Electron fixture names a disposable folder for every test, so a spec
+  reads what moved there. A test-mode launch that names none, or a
+  relative path, starts as before, and each move refuses with why: the
+  folder stays and is named in the outcome, never sent to the machine's
+  Trash instead.
 
 ## Consequences
 

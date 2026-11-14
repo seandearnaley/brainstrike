@@ -53,18 +53,24 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
     const workspaceRoot = await realpath(
       await mkdtemp(path.join(os.tmpdir(), 'brainstrike-e2e-workspace-'))
     );
+    // The test's Trash (ADR-0034): a scratch folder Main trashes moves here, never to the machine's.
+    const trashDirectory = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), 'brainstrike-e2e-trash-'))
+    );
     const harness = new ElectronHarness(
       undefined,
       userDataDir,
       electronEnv,
       modelProvider,
-      workspaceRoot
+      workspaceRoot,
+      trashDirectory
     );
     try {
       await use(harness);
     } finally {
       await tearDownElectronTest(harness, testInfo, userDataDir, [
         workspaceRoot,
+        trashDirectory,
         ...harness.directoriesRemovedAfterClose(),
       ]);
     }

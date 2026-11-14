@@ -25,6 +25,8 @@ export class ElectronHarness {
   private readonly modelProvider: ModelProviderShim | undefined;
   /** The real folder every launch's folder picker mounts by default, restarts included. */
   private readonly workspaceRoot: string | undefined;
+  /** The folder every launch's Main moves a trashed scratch folder into, restarts included. */
+  private readonly trashDirectory: string | undefined;
   private readonly removedAfterClose = new Set<string>();
 
   constructor(
@@ -32,13 +34,15 @@ export class ElectronHarness {
     userDataDir?: string,
     electronEnv?: Readonly<Record<string, string>>,
     modelProvider?: ModelProviderShim,
-    workspaceRoot?: string
+    workspaceRoot?: string,
+    trashDirectory?: string
   ) {
     this.debugPort = debugPort;
     this.userDataDir = userDataDir;
     this.electronEnv = electronEnv;
     this.modelProvider = modelProvider;
     this.workspaceRoot = workspaceRoot;
+    this.trashDirectory = trashDirectory;
   }
 
   /** The running app's main window, if it has one; the fixture screenshots it before closing. */
@@ -52,6 +56,17 @@ export class ElectronHarness {
       throw new Error('Electron harness requires a disposable workspace root.');
     }
     return this.workspaceRoot;
+  }
+
+  /**
+   * The test's Trash (`BRAINSTRIKE_E2E_TRASH_DIR`): test mode's Main moves a scratch folder it
+   * trashes into it, never into the machine's Trash. The fixture removes it after the app closes.
+   */
+  getTrashDirectory(): string {
+    if (!this.trashDirectory) {
+      throw new Error('Electron harness requires a disposable Trash folder.');
+    }
+    return this.trashDirectory;
   }
 
   /**
@@ -258,12 +273,19 @@ export class ElectronHarness {
   ): Promise<ElectronAppContext> {
     const { launchElectronApp } = await loadElectronHelpers();
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
+      // The harness's Trash goes after the spec's env: a spec never points Main at another one.
+      env: {
+        ...this.electronEnv,
+        ...(this.trashDirectory
+          ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            { BRAINSTRIKE_E2E_TRASH_DIR: this.trashDirectory }
+          : {}),
+      },
       onAppAcquired: (app) => {
         this.app = app;
         this.exitGuard.observe(app.process());
         onAppAcquired?.(app);
       },
-      ...(this.electronEnv ? { env: this.electronEnv } : {}),
       ...(this.modelProvider ? { modelProvider: this.modelProvider } : {}),
       ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
     });
