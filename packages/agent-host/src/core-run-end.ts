@@ -53,6 +53,8 @@ export interface HostRunEndPorts {
     runId: string,
     events: readonly HostEvent[]
   ) => Promise<unknown>;
+  /** BST-2536: the thread is compacting; a wake leaves what it would deliver queued. */
+  readonly compacting: (threadId: string) => boolean;
   readonly deletions: ReadonlyMap<string, unknown>;
   readonly foldRows: (rows: readonly HostLogRow[]) => void;
   /** Commit a notice on `threadId` and fold it. */
@@ -218,6 +220,10 @@ export class HostRunEnds {
       }
       const { admitWake, children, runs, selections, tip } = this.ports;
       await this.ports.admit(threadId, async () => {
+        // A compacting thread takes nothing yet, and its compaction wakes it when it ends.
+        if (this.ports.compacting(threadId)) {
+          return;
+        }
         // Read in the queue: a wake admitted ahead of this one may have delivered it all.
         const wake = children.wakeParams(threadId, runs(), selections, tip(threadId));
         if (wake?.input) {

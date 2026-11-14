@@ -25,6 +25,7 @@ const REASON_LABELS: Record<CompactionSummaryDetails['reason'], string> = {
   'context-overflow': 'After the provider reported a context overflow',
   'pre-request': 'Before the request, to keep it inside the context budget',
   'request-trim': 'Left out of a request over the context budget',
+  requested: 'Requested',
 };
 
 function counted(count: number, noun: string): string {
@@ -62,6 +63,7 @@ function kindLabel(
 function CompactionDetails({ details }: { readonly details: CompactionSummaryDetails }) {
   const rows: { id: string; label: string; value: string }[] = [
     { id: 'reason', label: 'Reason', value: REASON_LABELS[details.reason] },
+    ...(details.focus === undefined ? [] : [{ id: 'focus', label: 'Focus', value: details.focus }]),
     { id: 'turns', label: 'Compacted', value: compactedLabel(details) },
     ...(details.modelId === undefined
       ? []

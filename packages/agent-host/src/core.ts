@@ -90,9 +90,10 @@ import {
 import { userRunVerdict } from './run-verdicts.ts';
 import { HostTelemetryReplay } from './telemetry-replay.ts';
 import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
+import { HostThreadCompactions } from './thread-compaction.ts';
 import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
-import { HostThreadRewinds } from './thread-rewind.ts';
+import { type HostThreadRewindPorts, HostThreadRewinds } from './thread-rewind.ts';
 import { bindHostScratch, turnHostScratchIntoProject } from './thread-scratch.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
 import { HostThreadTrees } from './thread-summary.ts';
@@ -103,6 +104,9 @@ import { hostWorktreeEntry } from './worktree-binding.ts';
 
 export type { HostEventStore } from './thread-catalog.ts';
 
+/** What an accepted command answers; a settled MCP server input answers its status too. */
+const ACCEPTED = { accepted: true } as const;
+const ACCEPTED_SETTLEMENT = { ...ACCEPTED, status: 'accepted' } as const;
 /** What Core is opened over: its store, platform and run retention. */
 type HostCoreOwners = [store: HostEventStore, platform: HostPlatform, retainRun: () => () => void];
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
@@ -130,14 +134,7 @@ export class HostCore {
       await this.append(threadId, events, 'normal', this.foldRows);
     },
     update: (params, event) =>
-      this.accept(
-        params.threadId,
-        'thread/update',
-        params,
-        { accepted: true },
-        [event],
-        this.foldRows
-      ),
+      this.accept(params.threadId, 'thread/update', params, ACCEPTED, [event], this.foldRows),
   });
   private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
     this.accept(
@@ -187,6 +184,7 @@ export class HostCore {
     closing: () => this.closing,
     commitStart: (record, runId, events) =>
       this.accept(record.threadId, 'run/start', record, { runId }, events, this.foldRows),
+    compacting: (threadId) => this.compactNow.isCompacting(threadId),
     deletions: this.deletions,
     foldRows: (rows) => this.foldRows(rows),
     post: (threadId, notice) => this.notify(threadId, { notice, type: 'notice.posted' }),
@@ -198,13 +196,32 @@ export class HostCore {
   });
   /** The Artifacts gallery's canvas reads, across every thread Core holds. */
   readonly canvases = hostCanvases(this.records, this.children, this.threads);
+  /** A command and its events, committed with a full sync and folded as Core's own rows. */
+  private readonly acceptFull: HostThreadRewindPorts['accept'] = (...args) =>
+    this.accept(...args, this.foldRows, 'full');
   /** Restore to before a message (`thread-rewind.ts`): preview, rewind, and redo. */
   readonly rewinds = new HostThreadRewinds({
-    accept: (threadId, method, params, result, events) =>
-      this.accept(threadId, method, params, result, events, this.foldRows, 'full'),
+    accept: this.acceptFull,
     append: (threadId, events) => this.append(threadId, events, 'full', this.foldRows),
-    command: (method, params, perform, fork) => this.settledCommand(method, params, perform, fork),
+    command: (method, params, perform, fork) =>
+      this.settledCommand(method, params, this.compactNow.guard(params, perform), fork),
     owner: () => ({ pending: this.pendingAdmissions, platform: this.platform, runs: this.runs }),
+  });
+  /** BST-2536: a person's Compact now, between runs (`thread-compaction.ts`). */
+  readonly compactNow = new HostThreadCompactions({
+    accept: this.acceptFull,
+    children: this.children,
+    commands: this.commands,
+    context: () => this.executionPorts(),
+    ends: this.ends,
+    owner: () => ({
+      failed: this.failedAdmissions,
+      pending: this.pendingAdmissions,
+      runs: this.runs,
+    }),
+    rewinds: this.rewinds,
+    selections: this.selections,
+    workspaces: this.workspaces,
   });
   /** A notice no person typed, queued: a thread being deleted or a closing host takes none. */
   private readonly notify = (threadId: string, event: HostEvent): Promise<HostLogRow[]> =>
@@ -599,6 +616,7 @@ export class HostCore {
     try {
       this.catalog.assertRunnable(params.threadId);
       assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
+      this.compactNow.assertNotCompacting(params.threadId);
       // ADR-0019: a wake admits fresh from the thread's selection, with no user prompt.
       admission = await acquireHostRunAdmission(this.platform, {
         ...hostRunCommandRequest(
@@ -808,7 +826,7 @@ export class HostCore {
         runs: this.runs.values(),
         storeRoot: this.store.root,
       });
-      await this.accept(params.threadId, method, params, result, events, this.foldRows, 'full');
+      await this.acceptFull(params.threadId, method, params, result, events);
       return result;
     });
   }
@@ -821,15 +839,7 @@ export class HostCore {
       const rows = this.projections.readRunnable(this.catalog, threads, params.threadId);
       const undone = await undoHostMemoryChange(params, rows, this.platform);
       const result = { undone: true } as const;
-      await this.accept(
-        params.threadId,
-        'memory/undo',
-        params,
-        result,
-        [undone],
-        this.foldRows,
-        'full'
-      );
+      await this.acceptFull(params.threadId, 'memory/undo', params, result, [undone]);
       return result;
     });
   }
@@ -859,15 +869,7 @@ export class HostCore {
           params,
           client,
           (event) =>
-            this.accept(
-              run.threadId,
-              'mcp/input/settle',
-              params,
-              { accepted: true, status: 'accepted' },
-              [event],
-              this.foldRows,
-              'full'
-            ),
+            this.acceptFull(run.threadId, 'mcp/input/settle', params, ACCEPTED_SETTLEMENT, [event]),
           (event) => this.append(run.threadId, [event], 'full', this.foldRows),
           (work) => retainHostRunWork(run, work)
         );
