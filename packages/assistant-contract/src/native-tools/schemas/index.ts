@@ -15,6 +15,7 @@ export * from './schemas-artifacts.ts';
 export * from './schemas-browser.ts';
 export * from './schemas-diagnostics.ts';
 export * from './schemas-execution.ts';
+export * from './schemas-memory.ts';
 export * from './schemas-search.ts';
 export * from './schemas-tasks.ts';
 export * from './schemas-workspace.ts';

@@ -43,6 +43,7 @@ import { HostLogProjections } from './log-projections.ts';
 import { HostMcpAppCalls } from './mcp-app-calls.ts';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.ts';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission } from './ports.ts';
+import { undoHostMemoryChange } from './project-memory-record.ts';
 import { HostProjectionRewrites } from './projection-rewrites.ts';
 import {
   type HostEvent,
@@ -808,6 +809,27 @@ export class HostCore {
         storeRoot: this.store.root,
       });
       await this.accept(params.threadId, method, params, result, events, this.foldRows, 'full');
+      return result;
+    });
+  }
+
+  /** ADR-0040: restore what one memory write replaced; its card shows the undo. */
+  undoMemoryChange(params: HostParams<'memory/undo'>): Promise<HostResults['memory/undo']> {
+    return this.command('memory/undo', params, async () => {
+      this.runs.requireForThread(params.threadId, params.runId);
+      const threads = new Set([params.threadId]);
+      const rows = this.projections.readRunnable(this.catalog, threads, params.threadId);
+      const undone = await undoHostMemoryChange(params, rows, this.platform);
+      const result = { undone: true } as const;
+      await this.accept(
+        params.threadId,
+        'memory/undo',
+        params,
+        result,
+        [undone],
+        this.foldRows,
+        'full'
+      );
       return result;
     });
   }

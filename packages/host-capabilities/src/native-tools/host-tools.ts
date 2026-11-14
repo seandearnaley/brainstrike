@@ -15,6 +15,7 @@ import {
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
+import type { ProjectMemoryNotes } from '../project-memory/memory-notes.ts';
 import {
   type NativeToolBuildContext,
   type NativeToolDefinition,
@@ -101,6 +102,8 @@ export interface SharedNativeHostToolsOptions {
   readonly freshRoots?: (signal: AbortSignal) => Promise<readonly RuntimeWorkspaceRoot[]>;
   /** The admitted host-executed tools, by canonical catalog id. */
   readonly ids: readonly string[];
+  /** ADR-0040: the run's project notes, which its memory tool reads and writes. */
+  readonly projectMemory?: ProjectMemoryNotes | undefined;
   /** One host-lifetime registry; its handles are scoped to the calling thread. */
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
@@ -119,9 +122,10 @@ function unavailableAtAdmission(): never {
 /** Ports bound to one Core-dispatched execution: its edit tracker and thread state. */
 function executionPorts(
   context: HostToolContext,
-  diagnostics: FileMutationPorts['diagnostics']
+  diagnostics: FileMutationPorts['diagnostics'],
+  notes: ProjectMemoryNotes | undefined
 ): NativeToolPorts {
-  const { edits, state } = context;
+  const { edits, memory, state } = context;
   if (!(edits && state)) {
     throw new Error('Core supplied no edit or state capability to a shared native tool');
   }
@@ -130,6 +134,7 @@ function executionPorts(
     canvas: hostCanvasStore(state),
     ...(context.enterWorktree ? { enterWorktree: context.enterWorktree } : {}),
     fileMutations: { ...(diagnostics ? { diagnostics } : {}), edits: () => edits },
+    ...(notes && memory ? { projectMemory: { notes, record: memory } } : {}),
     ...(context.shellWorktrees ? { shellWorktrees: context.shellWorktrees } : {}),
     taskList: hostTaskListStore(state),
   };
@@ -241,7 +246,7 @@ export function createSharedNativeHostTools(
                 threadId: context.threadId,
               },
             },
-            executionPorts(context, options.diagnostics)
+            executionPorts(context, options.diagnostics, options.projectMemory)
           ).tools[name];
           if (!executor || executor.identity !== tool.identity) {
             throw new Error('Shared native executor changed after admission');

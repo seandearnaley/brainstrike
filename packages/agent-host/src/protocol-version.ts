@@ -166,5 +166,7 @@
 // folder, whether or not an open folder holds it now.
 // v32 (2026-11-14): Mastra memory is retired (ADR-0039, BST-2533). `thread/memory/read` and the
 // `memory.usage`, `memory.cycle`, `memory.observation.withheld` and `memory.settlement.failed`
-// events are removed. Removing a method is why this is a version bump.
+// events are removed. Removing a method is why this is a version bump. Additive since (ADR-0040,
+// BST-2530): project memory's `memory.changed`, `memory.refused` and `memory.undone` events and
+// the `memory/undo` method, new variants and a new method.
 export const AGENT_HOST_PROTOCOL_VERSION = 32;

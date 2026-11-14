@@ -16,6 +16,7 @@ export {
   type KeyringNativeBackend,
 } from './adapters/keyring-native-worker.ts';
 export { createMcpHostToolAdapter } from './adapters/mcp.ts';
+export { hostAnsweringFolder, hostFolderIdentity } from './answering-folder.ts';
 export { hostChildCallSign } from './child-presentation.ts';
 export {
   type HostCliDefaults,

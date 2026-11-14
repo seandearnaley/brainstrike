@@ -55,6 +55,11 @@ import {
   PERMISSION_POLICY_RESULT_SCHEMAS,
 } from './protocol-permission-policy.ts';
 import {
+  PROJECT_MEMORY_EVENT_SCHEMAS,
+  PROJECT_MEMORY_METHOD_SCHEMAS,
+  PROJECT_MEMORY_RESULT_SCHEMAS,
+} from './protocol-project-memory.ts';
+import {
   REWIND_EVENT_SCHEMAS,
   REWIND_METHOD_SCHEMAS,
   REWIND_RESULT_SCHEMAS,
@@ -109,6 +114,7 @@ export * from './protocol-mcp-content.ts';
 export * from './protocol-mcp-presentation.ts';
 export * from './protocol-mcp-settings.ts';
 export * from './protocol-permission-policy.ts';
+export * from './protocol-project-memory.ts';
 export * from './protocol-rewind.ts';
 export * from './protocol-search.ts';
 export * from './protocol-selection.ts';
@@ -321,6 +327,7 @@ export const HOST_METHOD_SCHEMAS = {
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
   ...PERMISSION_POLICY_METHOD_SCHEMAS,
+  ...PROJECT_MEMORY_METHOD_SCHEMAS,
   ...TERMINAL_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
@@ -584,6 +591,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
   return Schema.Union(
     [
       ...THREAD_WORKSPACE_EVENT_SCHEMAS,
+      ...PROJECT_MEMORY_EVENT_SCHEMAS,
       Schema.Struct({
         ...McpOrigin,
         handle: McpTaskHandleSchema,
@@ -962,6 +970,7 @@ export const HOST_RESULT_SCHEMAS = {
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   ...PERMISSION_POLICY_RESULT_SCHEMAS,
+  ...PROJECT_MEMORY_RESULT_SCHEMAS,
   ...TERMINAL_RESULT_SCHEMAS,
   'auth/credential/delete': Schema.Struct({ deleted: Schema.Boolean }),
   'auth/credential/set': Schema.Struct({ stored: Schema.Literal(true) }),

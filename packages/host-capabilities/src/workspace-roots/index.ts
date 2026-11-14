@@ -24,6 +24,7 @@ import { createLogger } from '@brainstrike/logging';
 import { type StateStore, StateStoreReadOnlyError } from '@brainstrike/state-store';
 import type { RootDescriptor } from '@brainstrike/types';
 import { runningRunRootIds } from '../git-workspace/worktree-host-activity.ts';
+import { removeProjectMemory } from '../project-memory/memory-notes.ts';
 import { createWorkspaceRootResolver, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 
 const logger = createLogger('HostRootRegistry');
@@ -34,7 +35,7 @@ const logger = createLogger('HostRootRegistry');
  */
 export type HostRootRegistryStore = Pick<
   StateStore,
-  'deleteSetting' | 'getSetting' | 'setSetting' | 'stateDamage' | 'workspaceRoots'
+  'deleteSetting' | 'getSetting' | 'root' | 'setSetting' | 'stateDamage' | 'workspaceRoots'
 >;
 
 export interface HostRootRegistryOptions {
@@ -197,7 +198,7 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     // refusals (a name too long, an unknown project or folder, a thread's own folder) are typed.
     'projects/join': async (request) => {
       refuseWhenReadOnly();
-      await store.workspaceRoots(
+      const { deletedProjectIds = [] } = await store.workspaceRoots(
         'rootId' in request
           ? { operation: 'join-project', projectId: request.projectId, rootId: request.rootId }
           : {
@@ -206,6 +207,10 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
               operation: 'join-project',
               projectId: request.projectId,
             }
+      );
+      // ADR-0040: a project the join emptied and deleted takes its memory with it.
+      await Promise.all(
+        deletedProjectIds.map((projectId) => removeProjectMemory(store.root, projectId))
       );
       return null;
     },

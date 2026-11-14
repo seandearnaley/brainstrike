@@ -27,6 +27,7 @@ import { manageCanvas } from './definitions/manage-canvas.ts';
 import { manageCommandSession } from './definitions/manage-command-session.ts';
 import { manageTaskList } from './definitions/manage-task-list.ts';
 import { manageWorktree } from './definitions/manage-worktree.ts';
+import { memory } from './definitions/memory.ts';
 import { queryDiagnostics } from './definitions/query-diagnostics.ts';
 import { readToolOutputArtifact } from './definitions/read-tool-output-artifact.ts';
 import { readWorkspaceContext } from './definitions/read-workspace-context.ts';
@@ -70,6 +71,7 @@ export const NATIVE_TOOLS = [
   manageCommandSession,
   manageTaskList,
   manageWorktree,
+  memory,
   queryDiagnostics,
   readToolOutputArtifact,
   readWorkspaceContext,

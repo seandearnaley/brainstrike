@@ -8,7 +8,13 @@ import { expect, test } from 'vitest';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
 import { capturedIntent, everyRootTrusted, mainReads } from './fixtures/desktop-admission-reads';
 
-const admission = createDesktopRunAdmission(mainReads(), async () => undefined, everyRootTrusted);
+const admission = createDesktopRunAdmission(
+  mainReads(),
+  async () => undefined,
+  everyRootTrusted,
+  // ADR-0040: these folders have no project, so no project memory.
+  async () => undefined
+);
 
 function send(agentLoop: { readonly compactionTokenCap?: number }): HostRunAdmissionRequest {
   return {

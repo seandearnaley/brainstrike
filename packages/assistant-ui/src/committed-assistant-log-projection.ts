@@ -69,6 +69,7 @@ import {
   HOST_CONTEXT_COMPACTED_DATA_NAME,
 } from './compaction-summary-message';
 import { committedContextUsage, type ThreadTokenUsage } from './context-usage-store';
+import { committedMemoryPart } from './project-memory-note';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
 export interface CommittedAssistantLogRow {
@@ -734,6 +735,12 @@ export class CommittedAssistantLogProjection {
         committedHostCompaction(event, this.compactedSteps),
         HOST_CONTEXT_COMPACTED_DATA_NAME
       );
+      return;
+    }
+    // ADR-0040: a memory write's card, one per call; Undo marks it undone.
+    const memory = committedMemoryPart(event);
+    if (memory) {
+      this.part(run, memory.key, memory.update);
       return;
     }
     if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
