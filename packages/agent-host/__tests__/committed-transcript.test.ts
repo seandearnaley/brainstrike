@@ -8,8 +8,8 @@ import { MessageList } from '@mastra/core/agent';
 import { Schema } from 'effect';
 import { expect, test, vi } from 'vitest';
 import { z } from 'zod';
-import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { committedRowAddress } from '../src/committed-identities.js';
+import { committedTranscript } from '../src/committed-transcript.js';
 import { type HostLogRow, HostLogRowSchema } from '../src/protocol.js';
 
 function decodeRows(recorded: unknown): HostLogRow[] {
@@ -42,7 +42,7 @@ function approvalRequests(rows: readonly HostLogRow[]): Map<string, boolean> {
 
 /** Every converted part of one call, across the committed segments that carry it. */
 function invocations(rows: readonly HostLogRow[], toolCallId: string): unknown[] {
-  return committedMemoryTranscript(rows, 'recorded-resource')
+  return committedTranscript(rows, 'recorded-resource')
     .flatMap((message) => message.content.parts)
     .filter(
       (part) => part.type === 'tool-invocation' && part.toolInvocation.toolCallId === toolCallId
@@ -94,7 +94,7 @@ test('a result committed in a later row than its call converts with that call', 
   if (!result) {
     throw new Error('The recorded run commits no result in a row of its own');
   }
-  const segment = committedMemoryTranscript(rows, 'recorded-resource').find(
+  const segment = committedTranscript(rows, 'recorded-resource').find(
     (message) => message.id === committedRowAddress(result)
   );
   expect(segment?.content.parts).toContainEqual(
@@ -170,7 +170,7 @@ function convertedMessages(steps: number): number {
   const rows = longRun(steps);
   const add = vi.spyOn(MessageList.prototype, 'add');
   try {
-    expect(committedMemoryTranscript(rows, 'recorded-resource')).toHaveLength(steps + 1);
+    expect(committedTranscript(rows, 'recorded-resource')).toHaveLength(steps + 1);
     return add.mock.calls.reduce(
       (count, [messages]) => count + (Array.isArray(messages) ? messages.length : 1),
       0
@@ -181,8 +181,8 @@ function convertedMessages(steps: number): number {
 }
 
 /**
- * Memory reads the whole transcript several times a step, so the work of one
- * read decides how a long run slows down. Converting each row once handed the
+ * The host reads the whole transcript on each step, so the work of one read
+ * decides how a long run slows down. Converting each row once handed the
  * converter every earlier segment of its run again: a read converted the
  * square of the run's steps, and a 100-step run spent 26 of its 37 seconds
  * here. A read now converts each row's own messages: eight times the steps

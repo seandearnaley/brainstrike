@@ -5,8 +5,8 @@ import {
   type ToolApprovalRequest,
   type ToolApprovalResponse,
 } from 'ai';
-import { committedRowAddress, committedRunIdentity } from '../committed-identities.ts';
-import type { HostLogRow } from '../protocol.ts';
+import { committedRowAddress, committedRunIdentity } from './committed-identities.ts';
+import type { HostLogRow } from './protocol.ts';
 
 type CommittedModelRow = HostLogRow & {
   readonly event: Extract<HostLogRow['event'], { type: 'model.step' | 'model.messages' }>;
@@ -150,7 +150,7 @@ function toolCallIds(
   return ids;
 }
 
-/** One committed model segment, as Memory stores it: one assistant message. */
+/** One committed model segment, in Mastra's stored form: one assistant message. */
 function assistantSegment(
   row: CommittedModelRow,
   id: string,
@@ -205,7 +205,7 @@ function assistantSegment(
   return segment;
 }
 
-/** The user message a step's notices commit, as Memory stores it. */
+/** The user message a step's notices commit, in Mastra's stored form. */
 function intakeSegment(
   row: CommittedModelRow,
   id: string,
@@ -230,7 +230,7 @@ function intakeSegment(
   return segment;
 }
 
-/** One run's committed model segments, as Memory stores them, in commit order. */
+/** One run's committed model segments, in Mastra's stored form, in commit order. */
 function runSegments(
   segments: readonly CommittedModelRow[],
   committed: ReadonlyMap<HostLogRow, ModelMessage[]>,
@@ -290,8 +290,12 @@ function committedModelMessages(row: CommittedModelRow): ModelMessage[] {
   return structuredClone([...messages]);
 }
 
-/** Immutable native segments address existing rows; there is no message-ID writer. */
-export function committedMemoryTranscript(
+/**
+ * The committed conversation in Mastra's stored form, which tool discovery and
+ * the provider request's provenance read. Each segment addresses its existing
+ * row; there is no message-ID writer.
+ */
+export function committedTranscript(
   rows: readonly HostLogRow[],
   resourceId: string
 ): MastraDBMessage[] {

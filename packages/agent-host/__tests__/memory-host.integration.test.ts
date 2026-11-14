@@ -9,9 +9,9 @@ import { MessageList } from '@mastra/core/agent';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
-import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { StateStoreHostMemory } from '../src/adapters/state-store-host-memory.js';
 import { committedRowAddress, committedRunIdentity } from '../src/committed-identities.js';
+import { committedTranscript } from '../src/committed-transcript.js';
 import { HostCore } from '../src/core.js';
 import { readHostRow } from '../src/event-storage.js';
 import type { HostPlatform } from '../src/ports.js';
@@ -190,7 +190,7 @@ test.each([
       const { runId } = await core.startRun(command);
       expect((await firstPause).event.type).toBe('interaction.requested');
       const before = await core.read(threadId, 0);
-      const beforeTranscript = committedMemoryTranscript(before, resourceId);
+      const beforeTranscript = committedTranscript(before, resourceId);
       const pending = before.find((row) => row.event.type === 'interaction.requested')?.event;
       if (pending?.type !== 'interaction.requested') {
         throw new Error('Actual Memory-composed host did not commit approval');
@@ -238,7 +238,7 @@ test.each([
         parentMessageId: null,
         userMessageId: command.commandId,
       });
-      const transcript = committedMemoryTranscript(committed, resourceId);
+      const transcript = committedTranscript(committed, resourceId);
       expect(
         transcript.filter((message) => beforeTranscript.some((prior) => prior.id === message.id))
       ).toEqual(beforeTranscript);
@@ -300,7 +300,7 @@ test.each([
       core = await HostCore.open(store, platform, () => () => undefined);
       const replay = await core.read(threadId, 0);
       expect(replay).toEqual(committed);
-      expect(committedMemoryTranscript(replay, resourceId)).toEqual(transcript);
+      expect(committedTranscript(replay, resourceId)).toEqual(transcript);
       expect(await store.memory({ operation: 'read', resourceId })).toEqual(nativeSnapshot);
       await expect(core.startRun({ ...command, commandId: runId })).rejects.toThrow(/collides/u);
       expect(await core.startRun(command)).toEqual({ runId });

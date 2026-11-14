@@ -1,46 +1,23 @@
-import {
-  createProviderRequestMiddleware,
-  healInterruptedModelMessages,
-  type ProviderRequestContext,
-  preparedPromptBreakdown,
-  preparedPromptToolCalls,
-} from '@brainstrike/agent/provider-request';
-import {
-  applyPromptToolCallWindow,
-  diffPromptToolCallWindow,
-  type PromptToolCall,
-} from '@brainstrike/assistant-contract/context-breakdown';
+import type { ProviderRequestContext } from '@brainstrike/agent/provider-request';
 import { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { MessageList } from '@mastra/core/agent';
 import { MastraCompositeStore } from '@mastra/core/storage';
-import {
-  type LanguageModel,
-  type LanguageModelMiddleware,
-  type ModelMessage,
-  modelMessageSchema,
-  wrapLanguageModel,
-} from 'ai';
-import { withHostDeliveryLedger } from '../child-delivery.ts';
+import { type LanguageModel, type ModelMessage, modelMessageSchema } from 'ai';
 import {
   committedRowAddress,
-  committedRunAncestors,
   committedRunIdentity,
   committedThreadBranches,
 } from '../committed-identities.ts';
-import { compactedRunIds } from '../context-compaction.ts';
-import type {
-  HostPreparedStep,
-  HostProjectionRewrite,
-  HostRunContext,
-  HostRunOwner,
-} from '../ports.ts';
+import { committedTranscript } from '../committed-transcript.ts';
+import type { HostPreparedStep, HostRunContext, HostRunOwner } from '../ports.ts';
 import { committedRewrites } from '../projection-rewrites.ts';
 import type { HostLogRow } from '../protocol.ts';
 import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.ts';
+import { committedRunHistory, hostProviderHistory } from '../run-history.ts';
+import { HostProviderRequest } from '../run-provider-request.ts';
 import { isHostTurnInput } from '../turn-input.ts';
-import { committedMemoryTranscript } from './committed-memory-transcript.ts';
 import {
   HostMemory,
   type HostMemoryCapabilities,
@@ -112,11 +89,6 @@ export interface StateStoreHostMemoryOptions {
 /** The existing run owner encloses public Memory and its borrowed writer domain. */
 export class StateStoreHostMemory implements HostRunOwner {
   private closing: Promise<void> | undefined;
-  private preparedProviderHistory: readonly MastraDBMessage[] | undefined;
-  /** Committed tool-output rewrites as of this step's history read. */
-  private preparedRewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
-  /** The tool calls this run's previous provider request carried; none before its first. */
-  private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
   /**
    * Memory's context as the run's first step read it: its system text, the
    * earlier turns it selected and its continuation hint, kept together. Every
@@ -142,7 +114,8 @@ export class StateStoreHostMemory implements HostRunOwner {
   private readonly storage: MastraCompositeStore;
   /** The given threads' committed rows, or the whole resource's without them. */
   private readonly readRows: (threadIds?: ReadonlySet<string>) => Promise<HostLogRow[]>;
-  private readonly providerContext: ProviderRequestContext | undefined;
+  /** The run's provider request boundary, when its admission selected a provider. */
+  private readonly request: HostProviderRequest | undefined;
   private readonly released: (() => void) | undefined;
 
   private constructor(
@@ -159,7 +132,16 @@ export class StateStoreHostMemory implements HostRunOwner {
     this.domain = domain;
     this.storage = storage;
     this.readRows = readRows;
-    this.providerContext = providerContext;
+    this.request =
+      providerContext &&
+      new HostProviderRequest(providerContext, identity.recordProviderRequest, async (prepared) => {
+        try {
+          await this.memory.recordPrompt(prepared.params);
+        } catch (cause) {
+          // Memory's own failure inside the chat model call: never a provider error.
+          throw this.stepFailure('accounting', cause);
+        }
+      });
     this.released = released;
   }
 
@@ -185,7 +167,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     const readRows = (threadIds?: ReadonlySet<string>): Promise<HostLogRow[]> =>
       readMemoryRows(context, options, threadIds);
     const readTranscript = async (threadIds?: ReadonlySet<string>): Promise<MastraDBMessage[]> =>
-      committedMemoryTranscript(await readRows(threadIds), options.resourceId);
+      committedTranscript(await readRows(threadIds), options.resourceId);
     const ownThread = new Set([context.threadId]);
     const identity = { ...context, resourceId: options.resourceId };
     const domain = new StateStoreMemoryStorage(
@@ -270,58 +252,7 @@ export class StateStoreHostMemory implements HostRunOwner {
   }
 
   prepareHostModel(model: LanguageModel): LanguageModel {
-    const selected = this.providerContext;
-    if (!selected) {
-      return model;
-    }
-    if (typeof model === 'string') {
-      throw new Error('Host provider preparation requires the selected concrete model');
-    }
-    const middleware = createProviderRequestMiddleware({
-      context: async () => {
-        const history = this.preparedProviderHistory;
-        if (history === undefined) {
-          throw new Error('Provider request requires its prepared Memory selection');
-        }
-        return { ...selected, history, rewrites: this.preparedRewrites };
-      },
-      onPrepared: async (prepared) => {
-        if (!this.identity.recordProviderRequest) {
-          throw new Error('Provider preparation requires the host-owned receipt writer');
-        }
-        const toolCalls = preparedPromptToolCalls(prepared);
-        const toolCallWindow = diffPromptToolCallWindow(this.previousRequestToolCalls, toolCalls);
-        await this.identity.recordProviderRequest({
-          accounting: prepared.accounting,
-          breakdown: preparedPromptBreakdown(prepared, toolCalls),
-          modelId: model.modelId,
-          provider: selected.provider,
-          toolCallWindow,
-        });
-        // Only a committed receipt becomes the next window's base.
-        this.previousRequestToolCalls = applyPromptToolCallWindow(
-          this.previousRequestToolCalls,
-          toolCallWindow
-        );
-        try {
-          await this.memory.recordPrompt(prepared.params);
-        } catch (cause) {
-          // Memory's own failure inside the chat model call: never a provider error.
-          throw this.stepFailure('accounting', cause);
-        }
-      },
-    });
-    return wrapLanguageModel({
-      // Both pins implement the public V4 primitive. The older provider's
-      // declaration omits readonly JSON, while the installed SDK permits it.
-      // Keep this DTO type bridge here; adding ai 7 to the legacy agent package
-      // would change its separate Mastra/ai 6 peer closure. Joined tests compare
-      // the prepared public params to the actual SDK model call without copies.
-      // https://github.com/vercel/ai/tree/main/packages/provider
-      // Remove this type bridge when both existing declaration pins agree.
-      middleware: middleware as unknown as LanguageModelMiddleware,
-      model,
-    });
+    return this.request?.wrap(model) ?? model;
   }
 
   async prepareHostStep(request: {
@@ -339,7 +270,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
   }): Promise<HostPreparedStep> {
-    this.preparedProviderHistory = undefined;
+    this.request?.clear();
     const currentUser = request.messages.findLastIndex(isHostTurnInput);
     if (currentUser < 0) {
       throw new Error('Memory preparation has no current committed user input');
@@ -374,9 +305,10 @@ export class StateStoreHostMemory implements HostRunOwner {
   }
 
   /**
-   * The step's request from the committed log, over Memory's native selection.
-   * Core rebuilds it after committing a compaction (ADR-0013), so
-   * the compacted turns leave it without Memory preparing its step again.
+   * The step's request from the committed log (`committedRunHistory`), over
+   * Memory's native selection. Core rebuilds it after committing a compaction
+   * (ADR-0013), so the compacted turns leave it without Memory preparing its
+   * step again.
    */
   private async assembleStep(native: {
     readonly active: readonly ModelMessage[];
@@ -384,95 +316,19 @@ export class StateStoreHostMemory implements HostRunOwner {
     readonly selected: ReadonlySet<string>;
     readonly system: string;
   }): Promise<HostPreparedStep> {
-    const { selected } = native;
-    this.preparedProviderHistory = undefined;
+    this.request?.clear();
     const rows = await this.readRows(new Set([this.identity.threadId]));
-    const historical: ModelMessage[] = [];
-    const historicalIds = new Set<string>();
-    const historyRunIds = new Set<string>();
-    // In this thread only the selected branch is history: a sibling branch's
-    // turns never enter the request, even when native Memory selects them.
-    const path = new Set(committedRunAncestors(rows, this.identity.runId));
-    // A committed compaction replaces whole earlier turns: the native history
-    // window does not re-add one (Core adds the note).
-    const compacted = compactedRunIds(rows);
-    this.preparedRewrites = committedRewrites(rows);
-    for (const started of rows) {
-      if (
-        started.event.type !== 'run.started' ||
-        started.event.runId === this.identity.runId ||
-        compacted.has(started.event.runId) ||
-        !path.has(started.event.runId)
-      ) {
-        continue;
-      }
-      const previousRunId = started.event.runId;
-      const previous = committedRunIdentity(rows, previousRunId);
-      // BST-1977's ordinary second turn failed when the bounded native history
-      // window started inside an older turn. Its assistant tail cannot be a
-      // standalone provider conversation, so only a selected question anchors
-      // its committed turn.
-      if (!selected.has(previous.userMessageId)) {
-        continue;
-      }
-      historical.push(
-        withHostDeliveryLedger(
-          { content: started.event.prompt, role: 'user' },
-          started.event.delivery
-        )
-      );
-      historicalIds.add(previous.userMessageId);
-      historyRunIds.add(previousRunId);
-      if (
-        !rows.some(
-          (row) =>
-            'runId' in row.event &&
-            row.event.runId === previousRunId &&
-            selected.has(committedRowAddress(row))
-        )
-      ) {
-        continue;
-      }
-      const committed = rows.flatMap((row) => {
-        const event = row.event;
-        if (
-          row.threadId === started.threadId &&
-          (event.type === 'model.step' || event.type === 'model.messages') &&
-          event.runId === previousRunId
-        ) {
-          historicalIds.add(committedRowAddress(row));
-          return event.messages.map((message) => modelMessageSchema.parse(message));
-        }
-        return [];
-      });
-      const interrupted = rows.flatMap(({ event }) =>
-        event.type === 'run.finished' &&
-        event.runId === previousRunId &&
-        (event.outcome === 'interrupted' || event.outcome === 'stopped')
-          ? [event.outcome]
-          : []
-      )[0];
-      if (interrupted) {
-        const calls = new Set(
-          committed.flatMap((message) =>
-            message.role === 'assistant' && typeof message.content !== 'string'
-              ? message.content.flatMap((part) =>
-                  part.type === 'tool-call' ? [part.toolCallId] : []
-                )
-              : []
-          )
-        );
-        historical.push(...healInterruptedModelMessages(committed, calls, interrupted));
-      } else {
-        historical.push(...committed);
-      }
-    }
+    const rewrites = committedRewrites(rows);
+    const history = committedRunHistory(rows, this.identity, native.selected);
     const { continuation, system } = native;
-    this.captureProviderHistory(rows, historicalIds, continuation.get.all.db());
+    this.request?.prepare(
+      hostProviderHistory(rows, this.identity, history.ids, continuation.get.all.db()),
+      rewrites
+    );
     return {
-      historyRunIds,
+      historyRunIds: history.runIds,
       messages: [
-        ...historical,
+        ...history.messages,
         ...continuation.get.all.aiV5.model().map((message) => modelMessageSchema.parse(message)),
         ...native.active,
       ],
@@ -483,37 +339,9 @@ export class StateStoreHostMemory implements HostRunOwner {
           throw this.stepFailure('context', cause);
         }
       },
-      rewrites: this.preparedRewrites,
+      rewrites,
       ...(system ? { system } : {}),
     };
-  }
-
-  private captureProviderHistory(
-    rows: readonly HostLogRow[],
-    historicalIds: ReadonlySet<string>,
-    continuation: readonly MastraDBMessage[]
-  ): void {
-    // Provenance borrows the exact committed occurrences emitted above. A
-    // resource-wide queue can lose a selected known call when an omitted
-    // unknown turn reuses its SDK ID. The active SDK suffix includes this run's
-    // committed continuations; historical truth stays intact.
-    const currentIds = new Set<string>();
-    currentIds.add(committedRunIdentity(rows, this.identity.runId).userMessageId);
-    for (const row of rows) {
-      if (
-        row.threadId === this.identity.threadId &&
-        'runId' in row.event &&
-        row.event.runId === this.identity.runId
-      ) {
-        currentIds.add(committedRowAddress(row));
-      }
-    }
-    const native = committedMemoryTranscript(rows, this.identity.resourceId);
-    this.preparedProviderHistory = [
-      ...native.filter((message) => historicalIds.has(message.id)),
-      ...continuation,
-      ...native.filter((message) => currentIds.has(message.id)),
-    ];
   }
 
   async commitHostStep(): Promise<void> {
@@ -535,7 +363,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       )
     );
     currentIds.add(committed.userMessageId);
-    const current = committedMemoryTranscript(rows, this.identity.resourceId).filter((message) =>
+    const current = committedTranscript(rows, this.identity.resourceId).filter((message) =>
       currentIds.has(message.id)
     );
     await this.memory.commitStep(current);

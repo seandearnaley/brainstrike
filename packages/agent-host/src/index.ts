@@ -10,7 +10,6 @@ export {
   type AgentHostToolBindings,
   createAgentHostToolBindings,
 } from './adapters/canonical-tool-bindings.ts';
-export { committedMemoryTranscript } from './adapters/committed-memory-transcript.ts';
 export { hostToolDiscoveryEnabled } from './adapters/host-tool-discovery.ts';
 export {
   createKeyringNativeBackend,
@@ -42,6 +41,7 @@ export {
   committedRowAddress,
   committedRunIdentity,
 } from './committed-identities.ts';
+export { committedTranscript } from './committed-transcript.ts';
 export { bindHostConnection } from './connection.ts';
 export { HostCore, type HostEventStore } from './core.ts';
 export { readHostRow } from './event-storage.ts';
