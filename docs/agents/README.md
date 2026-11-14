@@ -13,6 +13,7 @@ task touches.
 | Logs, hydration and accounting | [Persistence](assistant-persistence.md) |
 | Providers, credentials and MCP | [Providers](assistant-providers.md), [provider cassettes](provider-cassettes.md) |
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
+| Notes a later thread in the same project knows | [Project memory](project-memory.md) |
 | Agent eval tasks | [Evals](agent-evals.md) |
 | Canonical SQLite state, its search index and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |

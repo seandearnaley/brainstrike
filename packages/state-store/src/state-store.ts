@@ -52,6 +52,11 @@ import type { WorktreeLedgerReply, WorktreeLedgerRequest } from './worktree-ledg
 
 export const STATE_DB = 'state.db';
 export const BLOBS_DIR = 'blobs';
+/**
+ * ADR-0040: each project's memory, `<root>/project-memory/<project id>/`. The host's memory module
+ * writes it; it is content, so Clear Database removes it with the rows.
+ */
+export const PROJECT_MEMORY_DIR = 'project-memory';
 export const sha256Hex = (b: Buffer | string): string =>
   createHash('sha256').update(b).digest('hex');
 /** Every entry the store creates in its data root besides the lock directory, which the lock removes itself. */
@@ -539,9 +544,13 @@ export class StateStore {
     const execute = async (): Promise<WorkspaceRootReply> => {
       const reply = await this.call({ op: 'workspace-roots', request });
       const projects = reply['projects'] as WorkspaceRootReply['projects'];
+      const deletedProjectIds = reply[
+        'deletedProjectIds'
+      ] as WorkspaceRootReply['deletedProjectIds'];
       return {
         roots: reply['roots'] as WorkspaceRootReply['roots'],
         ...(projects === undefined ? {} : { projects }),
+        ...(deletedProjectIds === undefined ? {} : { deletedProjectIds }),
       };
     };
     // Reads are not writes: they skip the write chain.
@@ -641,6 +650,8 @@ export class StateStore {
     const clearing = this.run(async () => {
       await this.indexer?.reset();
       await this.call({ op: 'clear-content' });
+      // Project memory is content of the projects just deleted (ADR-0040), removed under the lock.
+      rmSync(join(this.root, PROJECT_MEMORY_DIR), { force: true, recursive: true });
       await this.shutdownWriter();
       this.lock.release();
     });

@@ -75,7 +75,9 @@ async function admit(flow: Flow) {
       liveWorkspaceRoots: async () => live,
     }),
     async () => undefined,
-    everyRootTrusted
+    everyRootTrusted,
+    // ADR-0040: these folders have no project, so no project memory.
+    async () => undefined
   );
   const request: HostRunAdmissionRequest = {
     configuration: {

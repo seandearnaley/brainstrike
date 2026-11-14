@@ -106,6 +106,8 @@ export interface ProductionHostPlatformOptions {
   readonly mcpPresentation?: HostPlatform['mcpPresentation'];
   /** The desktop's MCP settings authority (BST-1930 c5a). */
   readonly mcpSettings?: HostPlatform['mcpSettings'];
+  /** ADR-0040: the project memory files, for Undo. */
+  readonly projectMemory?: HostPlatform['projectMemory'];
   /** Provider reads from the same credential store. */
   readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
@@ -276,6 +278,12 @@ type ProductionClientService =
   | 'providers'
   | 'terminals'
   | 'workspaceDiscovery';
+/** ADR-0040: the memory files Undo restores through, where the platform keeps project memory. */
+function productionProjectMemory(
+  options: Pick<ProductionHostPlatformOptions, 'projectMemory'>
+): Pick<HostPlatform, 'projectMemory'> {
+  return options.projectMemory ? { projectMemory: options.projectMemory } : {};
+}
 /** The services clients call on the host directly; each is absent where the platform has none. */
 function productionClientServices(
   options: Pick<ProductionHostPlatformOptions, ProductionClientService>
@@ -596,6 +604,7 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...(options.mcp ? { mcp: options.mcp } : {}),
     searchState: (request) => index.search(request),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
+    ...productionProjectMemory(options),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),
     ...(options.selectProjectionRewrites

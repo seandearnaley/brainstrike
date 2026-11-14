@@ -31,6 +31,7 @@ const KNOWN_DISAGREEMENTS: Partial<Record<NativeToolId, Record<string, unknown>>
   // Action-specific keys are a cross-field check the schema states only in prose.
   'brainstrike.manageCanvas': { action: 'create' },
   'brainstrike.manageWorktree': { action: 'create' },
+  'brainstrike.memory': { command: 'view' },
   // Value rules the schema could state as a `pattern` but does not.
   'brainstrike.readToolOutputArtifact': { cursor: ' ' },
   // `path` or `cursor`, by the same kind of check.

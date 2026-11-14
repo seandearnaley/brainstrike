@@ -59,7 +59,9 @@ async function admit(trustedRoots: DesktopTrustedRoots) {
       liveWorkspaceRoots: async () => [cloned],
     }),
     async () => undefined,
-    trustedRoots
+    trustedRoots,
+    // ADR-0040: these folders have no project, so no project memory.
+    async () => undefined
   );
   const request: HostRunAdmissionRequest = {
     configuration: {

@@ -70,6 +70,7 @@
     "mcp/tools/server/set",
     "mcp/tools/set",
     "mcp/tools/stats",
+    "memory/undo",
     "permissions/origins/read",
     "permissions/origins/remove",
     "permissions/policy/read",
