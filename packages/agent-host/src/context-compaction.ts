@@ -6,12 +6,20 @@ import {
   type BoundaryFailure,
   BoundaryFailureError,
   denormalizeNativeToolName,
+  deriveContextCompactionThreshold,
   fault,
   INTERNAL_FAULT,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { generateText, type LanguageModel, type ModelMessage } from 'ai';
+import {
+  chars4,
+  estimateTokens,
+  type HostContextRewrites,
+  type HostRequestExtras,
+  measureHostContext,
+} from './context-size.ts';
 import type { HostRunState } from './core-state.ts';
 import { correlatedFailure } from './failure-correlation.ts';
 import { type Json, jsonValue } from './json-value.ts';
@@ -24,52 +32,6 @@ import { isHostTurnInput } from './turn-input.ts';
 const logger = createLogger('AgentHost');
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
-
-/**
- * Compact once the estimated prompt reaches 90% of the input-token limit, and
- * reclaim down toward 70% of it.
- */
-const CONTEXT_COMPACTION_TRIGGER_RATIO = 0.9;
-const CONTEXT_COMPACTION_TARGET_RATIO = 0.7;
-
-function chars4(value: unknown): number {
-  const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
-  return Math.ceil(text.length / 4);
-}
-
-type ContentPart = Exclude<ModelMessage['content'], string>[number];
-
-/**
- * Visible-part token estimate over SDK parts: chars/4 of text, tool input and
- * output; an attachment counts as its label, never its inline bytes.
- */
-function estimatePart(part: ContentPart): number {
-  switch (part.type) {
-    case 'text':
-    case 'reasoning':
-      return chars4(part.text);
-    case 'tool-call':
-      return chars4(part.input);
-    case 'tool-result':
-      return chars4(part.output);
-    case 'file':
-    case 'image':
-      return chars4(`[attachment ${part.mediaType ?? 'unknown'}]`);
-    default:
-      return 0;
-  }
-}
-
-function estimateTokens(messages: readonly ModelMessage[]): number {
-  let total = 0;
-  for (const message of messages) {
-    total +=
-      typeof message.content === 'string'
-        ? chars4(message.content)
-        : message.content.reduce((sum, part) => sum + estimatePart(part), 0);
-  }
-  return total;
-}
 
 /** Every run whose turn a committed `context.compacted` replaced, from the log alone. */
 export function compactedRunIds(rows: readonly HostLogRow[]): Set<string> {
@@ -384,18 +346,26 @@ function deterministicEvent(
   };
 }
 
+/** The run's bounds and what sizes its next request, as its admission and branch give them. */
+interface CompactionBounds extends HostContextRewrites {
+  readonly chain: readonly HostRunState[];
+  readonly compactions: readonly Compacted[];
+  /** The run's compaction cap; absent, its budget alone bounds it. */
+  readonly compactionTokenCap?: number | undefined;
+  readonly inputTokenLimit: number | undefined;
+  /** The branch's committed context, rewritten as the request carries it. */
+  readonly messages: readonly ModelMessage[];
+  /** The run's instructions and tool definitions, read only when no size was reported. */
+  readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
+}
+
 /**
  * Deterministic overflow recovery: after the provider reported a
  * context overflow, drop the oldest droppable turns toward the target (at
  * least one). Undefined when no turn is droppable or no input budget is
  * known, so the run fails as reported and nothing claims headroom.
  */
-export function overflowCompaction(input: {
-  readonly chain: readonly HostRunState[];
-  readonly compactions: readonly Compacted[];
-  readonly inputTokenLimit: number | undefined;
-  readonly messages: readonly ModelMessage[];
-}): Compacted | undefined {
+export async function overflowCompaction(input: CompactionBounds): Promise<Compacted | undefined> {
   const run = input.chain.at(-1);
   const limit = input.inputTokenLimit;
   if (!run || limit === undefined) {
@@ -407,8 +377,16 @@ export function overflowCompaction(input: {
   if (candidates.length === 0) {
     return;
   }
-  const current = estimateTokens(applyOverlay(turns, input.compactions));
-  const reclaim = Math.max(1, current - CONTEXT_COMPACTION_TARGET_RATIO * limit);
+  const current = await measureHostContext({
+    chain: input.chain,
+    estimate: () => estimateTokens(applyOverlay(turns, input.compactions)),
+    messages: input.messages,
+    readRequestExtras: input.readRequestExtras,
+    rewrites: input.rewrites,
+    unrewritten: input.unrewritten,
+  });
+  const { target } = deriveContextCompactionThreshold(limit, input.compactionTokenCap);
+  const reclaim = Math.max(1, current - target);
   return deterministicEvent(
     run.id,
     select(candidates, reclaim),
@@ -432,27 +410,52 @@ function estimateStep(step: HostPreparedStep): number {
 }
 
 /**
- * Before the first provider request of a run: past the trigger ratio, commit a
+ * How far the run's next request is past its compaction trigger, which is how
+ * much compaction reclaims to reach its target; undefined below the trigger.
+ */
+async function reclaimPastTrigger(
+  input: CompactionBounds,
+  inputTokenLimit: number,
+  estimate: () => number
+): Promise<number | undefined> {
+  const { target, trigger } = deriveContextCompactionThreshold(
+    inputTokenLimit,
+    input.compactionTokenCap
+  );
+  const current = await measureHostContext({
+    chain: input.chain,
+    estimate,
+    messages: input.messages,
+    readRequestExtras: input.readRequestExtras,
+    rewrites: input.rewrites,
+    unrewritten: input.unrewritten,
+  });
+  return current >= trigger ? current - target : undefined;
+}
+
+/**
+ * Before the first provider request of a run: once its request reaches 90% of
+ * its input budget or its compaction cap, whichever is less, commit a
  * compaction of the droppable earlier turns, then apply every committed
  * compaction of this branch. Below the trigger nothing is committed.
  *
- * With Memory, the trigger measures the request Memory builds, not the branch,
- * and only this branch's turns that request holds are compacted; Memory then
- * rebuilds it without them (ADR-0013).
+ * The request is sized by what its provider last reported (`measureHostContext`).
+ * With Memory, a reported count is of the request Memory built; with nothing
+ * reported, the trigger measures the request Memory builds, not the branch.
+ * Either way only this branch's turns that request holds are compacted, and
+ * Memory then rebuilds it without them (ADR-0013).
  */
-export async function prepareCompactedContext(input: {
-  readonly chain: readonly HostRunState[];
-  /** The run's reading of a summarizer failure, recorded on its fallback. */
-  readonly classify?: (cause: unknown) => BoundaryFailure;
-  readonly commit: (event: Compacted) => Promise<void>;
-  readonly compactions: readonly Compacted[];
-  readonly inputTokenLimit: number | undefined;
-  readonly messages: readonly ModelMessage[];
-  /** The run's Memory: the request it builds over the overlaid branch. */
-  readonly prepareStep?: (messages: readonly ModelMessage[]) => Promise<HostPreparedStep>;
-  readonly signal: AbortSignal;
-  readonly summarize: (transcript: string) => Promise<HostContextSummary>;
-}): Promise<{
+export async function prepareCompactedContext(
+  input: CompactionBounds & {
+    /** The run's reading of a summarizer failure, recorded on its fallback. */
+    readonly classify?: (cause: unknown) => BoundaryFailure;
+    readonly commit: (event: Compacted) => Promise<void>;
+    /** The run's Memory: the request it builds over the overlaid branch. */
+    readonly prepareStep?: (messages: readonly ModelMessage[]) => Promise<HostPreparedStep>;
+    readonly signal: AbortSignal;
+    readonly summarize: (transcript: string) => Promise<HostContextSummary>;
+  }
+): Promise<{
   readonly messages: ModelMessage[];
   readonly note?: string;
   /** Memory's request, after any compaction this call committed. */
@@ -464,17 +467,23 @@ export async function prepareCompactedContext(input: {
   const limit = input.inputTokenLimit;
   const run = input.chain.at(-1);
   if (run && limit !== undefined) {
-    const current = step ? estimateStep(step) : estimateTokens(applyOverlay(turns, compactions));
     const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
     const held = step?.historyRunIds;
     const candidates = droppable(turns, compacted).filter(
       (turn) => held === undefined || held.has(turn.run.id)
     );
-    if (current >= CONTEXT_COMPACTION_TRIGGER_RATIO * limit && candidates.length > 0) {
+    const memoryStep = step;
+    const reclaim =
+      candidates.length === 0
+        ? undefined
+        : await reclaimPastTrigger(input, limit, () =>
+            memoryStep ? estimateStep(memoryStep) : estimateTokens(applyOverlay(turns, compactions))
+          );
+    if (reclaim !== undefined) {
       const event = await compactionEvent({
         candidates,
         ...(input.classify ? { classify: input.classify } : {}),
-        reclaim: current - CONTEXT_COMPACTION_TARGET_RATIO * limit,
+        reclaim,
         run,
         signal: input.signal,
         summarize: input.summarize,

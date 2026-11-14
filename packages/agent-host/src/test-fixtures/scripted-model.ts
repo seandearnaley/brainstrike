@@ -107,11 +107,22 @@ function messageText(message: Prompt[number] | undefined): string {
     : '';
 }
 
+/** What a provider would report for a request: its serialized size at four characters a token. */
+function reportedUsage(request: {
+  readonly prompt: Prompt;
+  readonly tools?: unknown;
+}): typeof usage {
+  const total = Math.ceil(JSON.stringify([request.prompt, request.tools ?? []]).length / 4);
+  return { ...usage, inputTokens: { ...usage.inputTokens, noCache: total, total } };
+}
+
 /**
  * A thread of several turns. A request whose latest user message holds a
  * turn's prompt plays that turn's steps, then its answer; call ids are the
  * turn's own (`turn-T-call-N`), so no two turns share one. A non-streaming
- * call (the host's compaction summarizer) answers `summary`.
+ * call (the host's compaction summarizer) answers `summary`. Each response
+ * reports its request's size as input tokens, as a provider does, so the host
+ * sizes the thread from it.
  */
 export function scriptedTurns(
   turns: readonly ScriptedTurn[],
@@ -127,18 +138,19 @@ export function scriptedTurns(
     };
   });
   return new MockLanguageModelV4({
-    doGenerate: async () => {
+    doGenerate: async (options) => {
       if (summary === undefined) {
         throw new Error('The scripted thread has no summary for a non-streaming call');
       }
       return {
         content: [{ text: summary, type: 'text' }],
         finishReason: { raw: 'stop', unified: 'stop' },
-        usage,
+        usage: reportedUsage(options),
         warnings: [],
       };
     },
     doStream: async (options) => {
+      const usage = reportedUsage(options);
       const latestUser = options.prompt.findLastIndex((message) => message.role === 'user');
       const asked = messageText(options.prompt[latestUser]);
       // The longest prompt the message holds: one turn's prompt may open another's.

@@ -1,6 +1,5 @@
 import {
   resolveAssistantResilienceConfig,
-  resolveProviderError,
   ToolExecutions,
 } from '@brainstrike/agent/provider-runtime';
 import { wouldTruncateMcpModelOutput } from '@brainstrike/agent/tool-runtime';
@@ -18,16 +17,10 @@ import {
   type HostWorktreeEnter,
   startHostEdit,
 } from './checkout-isolation.ts';
-import {
-  type HostContextCompactions,
-  overflowCompaction,
-  prepareCompactedContext,
-  summarizeHostContext,
-} from './context-compaction.ts';
+import type { HostContextCompactions } from './context-compaction.ts';
 import { hostContextNotes } from './context-notes.ts';
 import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.ts';
 import type { HostRunState as Run } from './core-state.ts';
-import { healInterruptedRunHistory } from './interrupted-history.ts';
 import { jsonValue } from './json-value.ts';
 import type { HostMcpInputState } from './mcp-input-state.ts';
 import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.ts';
@@ -40,11 +33,7 @@ import type {
   HostRunOwner,
   HostTool,
 } from './ports.ts';
-import {
-  applyProjectionRewrites,
-  type HostProjectionRewrites,
-  prepareProjectionRewrites,
-} from './projection-rewrites.ts';
+import type { HostProjectionRewrites } from './projection-rewrites.ts';
 import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
   combineHostSystemContext,
@@ -61,6 +50,11 @@ import { hostRunAttemptEvent } from './run-attempts.ts';
 import { hostRunAncestors, hostRunContext } from './run-branch.ts';
 import { commitHostModelMessages, resolveHostApprovalInput } from './run-continuation.ts';
 import { HostRunOutcome } from './run-outcome.ts';
+import {
+  prepareRunContext,
+  recoverHostContextOverflow,
+  rewriteRunContext,
+} from './run-request-context.ts';
 import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.ts';
 import { hostTelemetry } from './telemetry/host-telemetry.ts';
 import { hostArtifactReader } from './tool-artifacts.ts';
@@ -368,100 +362,6 @@ async function runRegisteredTool(
         { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
       ]);
     },
-  });
-}
-
-async function commitContextEvent(
-  ports: HostRunExecutionPorts,
-  run: Run,
-  event: HostEvent
-): Promise<void> {
-  await ports.append(run.threadId, [event], 'full', (rows) => ports.foldRows(rows));
-}
-
-/** Committed tool-output rewrites, plus the policy's new ones, on this step's messages. */
-function rewriteRunContext(
-  ports: HostRunExecutionPorts,
-  run: Run,
-  ancestors: readonly Run[],
-  messages: readonly ModelMessage[]
-): Promise<ModelMessage[]> {
-  return prepareProjectionRewrites({
-    commit: (event) => commitContextEvent(ports, run, event),
-    existing: ports.rewrites.read(run.threadId),
-    messages,
-    outputs: new Map([...ancestors, run].flatMap((turn) => [...turn.outputs])),
-    runId: run.id,
-    select: ports.platform.selectProjectionRewrites?.bind(ports.platform),
-  });
-}
-
-/**
- * After a context overflow: commit the legacy deterministic compaction of the
- * run's branch, as its next attempt would see it. False when nothing was
- * droppable, so no recovery is claimed.
- */
-async function recoverHostContextOverflow(
-  ports: HostRunExecutionPorts,
-  run: Run
-): Promise<boolean> {
-  const ancestors = hostRunAncestors(ports.runs, run);
-  const healed = healInterruptedRunHistory(
-    hostRunContext(ports.runs, run),
-    ancestors,
-    run.threadId
-  );
-  const event = overflowCompaction({
-    chain: [...ancestors, run],
-    compactions: ports.compactions.read(run.threadId),
-    inputTokenLimit: run.admission?.inputTokenLimit,
-    messages: applyProjectionRewrites(healed, ports.rewrites.read(run.threadId)),
-  });
-  if (!event) {
-    return false;
-  }
-  await commitContextEvent(ports, run, event);
-  return true;
-}
-
-/**
- * The run's first request context: heal interrupted history, apply committed
- * tool-output rewrites (and the policy's new ones), then the compaction
- * overlay (and a new compaction past the trigger), in the legacy order. With
- * Memory, the trigger measures the request Memory builds (ADR-0013), and that
- * request is the first step's.
- */
-async function prepareRunContext(
-  ports: HostRunExecutionPorts,
-  run: Run,
-  ancestors: readonly Run[],
-  admission: HostRunAdmission,
-  messages: readonly ModelMessage[],
-  owner: HostRunOwner | undefined
-): Promise<{
-  readonly messages: ModelMessage[];
-  readonly note?: string;
-  readonly step?: HostPreparedStep;
-}> {
-  const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
-  const rewritten = await rewriteRunContext(ports, run, ancestors, healed);
-  const prepareStep = owner?.prepareHostStep?.bind(owner);
-  return await prepareCompactedContext({
-    chain: [...ancestors, run],
-    classify: (cause) => resolveProviderError(cause, admission.configuration).failure,
-    commit: (event) => commitContextEvent(ports, run, event),
-    compactions: ports.compactions.read(run.threadId),
-    inputTokenLimit: admission.inputTokenLimit,
-    ...(prepareStep
-      ? {
-          prepareStep: (overlaid: readonly ModelMessage[]) =>
-            prepareStep({ messages: overlaid, stepNumber: run.steps }),
-        }
-      : {}),
-    messages: rewritten,
-    signal: run.controller.signal,
-    summarize: (transcript) =>
-      summarizeHostContext(admission.model, run, transcript, run.controller.signal),
   });
 }
 

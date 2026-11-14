@@ -3,7 +3,9 @@ import {
   CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS,
   CONTEXT_BUDGET_SAFETY_MARGIN_MIN,
   CONTEXT_BUDGET_SAFETY_MARGIN_RATIO,
+  CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP,
   deriveAgentLoopInputTokenLimit,
+  deriveContextCompactionThreshold,
   deriveEffectiveInputBudget,
   deriveMaxOutputTokensWithinBudget,
 } from '../context-budget.js';
@@ -112,5 +114,41 @@ describe('deriveMaxOutputTokensWithinBudget (BST-1810)', () => {
   it('throws for a window that cannot fit any output', () => {
     expect(() => deriveMaxOutputTokensWithinBudget(1025)).toThrow(/cannot fit any output/u);
     expect(() => deriveMaxOutputTokensWithinBudget(0)).toThrow(/positive number/u);
+  });
+});
+
+describe('deriveContextCompactionThreshold (BST-2526)', () => {
+  it('triggers at 90% of a budget below the cap and reclaims toward 70% of it', () => {
+    // A 200K window's budget: 185,904.
+    const threshold = deriveContextCompactionThreshold(
+      deriveEffectiveInputBudget(200_000),
+      CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP
+    );
+    expect(threshold.trigger).toBeCloseTo(167_313.6, 6);
+    expect(threshold.target).toBeCloseTo(130_132.8, 6);
+  });
+
+  it('triggers at the cap on a budget whose 90% passes it, and reclaims toward 7/9 of the cap', () => {
+    // A 1M window's budget: 945,904.
+    const threshold = deriveContextCompactionThreshold(
+      deriveEffectiveInputBudget(1_000_000),
+      CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP
+    );
+    expect(CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP).toBe(200_000);
+    expect(threshold.trigger).toBe(200_000);
+    expect(threshold.target).toBeCloseTo(155_555.56, 2);
+  });
+
+  it('is bounded by the budget alone when the run carries no cap', () => {
+    const threshold = deriveContextCompactionThreshold(945_904, undefined);
+    expect(threshold.trigger).toBeCloseTo(851_313.6, 6);
+    expect(threshold.target).toBeCloseTo(662_132.8, 6);
+  });
+
+  it('refuses a budget or cap that is not a positive number (never a nonsense threshold)', () => {
+    for (const invalid of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => deriveContextCompactionThreshold(invalid, 200_000)).toThrow(/inputTokenLimit/u);
+      expect(() => deriveContextCompactionThreshold(185_904, invalid)).toThrow(/tokenCap/u);
+    }
   });
 });
