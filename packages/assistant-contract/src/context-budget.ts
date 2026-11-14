@@ -8,6 +8,7 @@
  * Throws (never clamps) when the window cannot fit output + margin — a model
  * misconfiguration must surface loudly, not produce a nonsense budget.
  */
+import { Schema } from 'effect';
 
 export const CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 export const CONTEXT_BUDGET_SAFETY_MARGIN_MIN = 1024;
@@ -112,6 +113,27 @@ export function deriveAgentLoopInputTokenLimit(
  * thread compacts by this many tokens even when its budget is far larger.
  */
 export const CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP = 200_000;
+
+/** The least compaction cap a person may set (BST-2539). */
+export const CONTEXT_COMPACTION_MIN_TOKEN_CAP = 64_000;
+
+/**
+ * A compaction cap a person set (`agentLoop.compactionTokenCap`): a whole
+ * number of at least 64,000 tokens. No upper bound: above 90% of a model's
+ * budget the budget rule triggers first.
+ */
+export const ContextCompactionTokenCapSchema = Schema.Int.check(
+  Schema.isGreaterThanOrEqualTo(CONTEXT_COMPACTION_MIN_TOKEN_CAP)
+);
+
+/**
+ * The cap a run compacts at: the person's setting, else the default. The one
+ * place an unset cap becomes a number: the production admission resolves a
+ * run's cap with it, and Settings and the context meter show the same one.
+ */
+export function resolveContextCompactionTokenCap(setting: number | undefined): number {
+  return setting ?? CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP;
+}
 
 /** Share of the input budget a thread's request reaches before it compacts. */
 const CONTEXT_COMPACTION_BUDGET_RATIO = 0.9;

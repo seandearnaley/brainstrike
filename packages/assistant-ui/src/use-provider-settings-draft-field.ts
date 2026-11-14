@@ -1,7 +1,8 @@
 import { type DraftField, type DraftInput, useDraftField } from '@brainstrike/ui';
 
 interface IntegerRange {
-  readonly max: number;
+  /** Absent, the setting has no upper bound. */
+  readonly max?: number;
   readonly min: number;
   /** What the number counts, for the refusal message ("steps"). */
   readonly noun: string;
@@ -18,9 +19,13 @@ function readIntegerDraft(
     return { value: undefined };
   }
   const value = badInput ? Number.NaN : Number(text);
-  if (!Number.isInteger(value) || value < range.min || value > range.max) {
+  const { max, min, noun } = range;
+  if (!Number.isSafeInteger(value) || value < min || (max !== undefined && value > max)) {
     return {
-      refusal: `Enter a whole number of ${range.noun} from ${numberFormatter.format(range.min)} to ${numberFormatter.format(range.max)}.`,
+      refusal:
+        max === undefined
+          ? `Enter a whole number of ${noun}, at least ${numberFormatter.format(min)}.`
+          : `Enter a whole number of ${noun} from ${numberFormatter.format(min)} to ${numberFormatter.format(max)}.`,
     };
   }
   return { value };

@@ -14,7 +14,11 @@ vi.mock('@assistant-ui/react', () => ({
   ) => selector({ thread: { isRunning: false, messages: [] } }),
 }));
 
-const props = { contextWindow: 200_000, effectiveInputBudget: 126_000, threadKey: 't1' };
+const props = {
+  compactionTrigger: 113_400,
+  contextWindow: 200_000,
+  threadKey: 't1',
+};
 
 function seed(window: boolean): void {
   const rows: CommittedAssistantLogRow[] = [];
@@ -104,8 +108,8 @@ describe('ContextUsageMeter workspace files row', () => {
   it("publishes the ring's figure for the Context tab, and nothing while the ring is hidden", () => {
     const { rerender } = render(<ContextUsageMeter {...props} estimatedTokens={4000} />);
     expect(useThreadContextStore.getState().ringByThread['t1']).toEqual({
-      budgetTokens: 126_000,
       isEstimated: true,
+      triggerTokens: 113_400,
       usedTokens: 4000,
     });
     resetThreadContextStore();
