@@ -79,3 +79,38 @@ test('a trusted model that claims a catalog provider identity fails host start',
   expect(host.started.code).toBe(1);
   expect(host.started.stderr).toMatch(/must not claim a catalog provider's identity/u);
 });
+
+test('a trusted composition pins the input budget below the model’s own', {
+  timeout: 120_000,
+}, async () => {
+  const module = await trustedPlatformModule('trusted-fixture', [], { inputTokenLimit: 20_000 });
+  const host = await standaloneHost({}, module);
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  const pinned = await host.run('trusted-fixture::probe');
+  expect(pinned.result, pinned.result.stderr).toMatchObject({ code: 0 });
+  expect(pinned.rows?.find((row) => row.event.type === 'run.started')?.event).toMatchObject({
+    snapshot: { configuration: { intent: { agentLoop: { inputTokenLimit: 20_000 } } } },
+  });
+});
+
+test('a pin above the model’s own input budget refuses the run', {
+  timeout: 120_000,
+}, async () => {
+  const module = await trustedPlatformModule('trusted-fixture', [], {
+    inputTokenLimit: 900_000_000,
+  });
+  const host = await standaloneHost({}, module);
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  const refused = await host.run('trusted-fixture::probe');
+  expect(refused.result.code).toBe(1);
+  expect(refused.result.stderr).toMatch(/pinned input budget.*exceeds/u);
+});
+
+test('a pin that is not a positive whole number fails host start', {
+  timeout: 120_000,
+}, async () => {
+  const module = await trustedPlatformModule('trusted-fixture', [], { inputTokenLimit: 0 });
+  const host = await standaloneHost({}, module);
+  expect(host.started.code).toBe(1);
+  expect(host.started.stderr).toMatch(/pinned input budget must be a positive whole number/u);
+});

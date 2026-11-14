@@ -3,7 +3,15 @@ import { createRequire } from 'node:module';
 import { HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import { Schema } from 'effect';
 import { describe, expect, test } from 'vitest';
-import { type EvalAttempt, readRunFromLog, scoreEvalAttempt } from '../src/scoring.js';
+import {
+  type EvalAttempt,
+  type EvalRunSummary,
+  gradeProbe,
+  readRunFromLog,
+  readThreadFromLog,
+  scoreEvalAttempt,
+  threadMetrics,
+} from '../src/scoring.js';
 
 const require = createRequire(import.meta.url);
 
@@ -179,5 +187,209 @@ describe('scoreEvalAttempt', () => {
     expect(
       reasonOf({ ...completed, hostError: 'attach failed', verifier: { exitCode: 1, output: '' } })
     ).toMatch(/^attach failed/u);
+  });
+});
+
+describe('readThreadFromLog', () => {
+  /** The fixture's run under an eval's own model id: every eval run names a `provider::model`. */
+  async function scriptedRun() {
+    const { rows, runId } = await approvedRun();
+    return {
+      rows: rows.map((row) =>
+        row.event.type === 'run.started'
+          ? { ...row, event: { ...row.event, modelId: 'scripted::fix-failing-test' } }
+          : row
+      ),
+      runId,
+    };
+  }
+
+  /** That thread with more committed rows for its run. */
+  async function withEvents(events: (runId: string) => readonly object[]) {
+    const { rows, runId } = await scriptedRun();
+    const last = rows.at(-1)!;
+    const added = events(runId).map((event, index) => ({
+      event,
+      seq: last.seq + index + 1,
+      threadId: last.threadId,
+      ts: last.ts! + index + 1,
+    }));
+    return {
+      rows: Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema))([...rows, ...added]),
+      runId,
+    };
+  }
+
+  test("reads each turn's final answer, in turn order", async () => {
+    const { rows, runId } = await approvedRun();
+    expect(readThreadFromLog(rows, [runId])).toMatchObject({
+      answers: ['Host run completed.'],
+      compactions: { agentic: 0, deterministic: 0 },
+      runs: [{ runId, verdict: { outcome: 'completed' } }],
+    });
+  });
+
+  test('counts committed compactions by whether a model summarized them', async () => {
+    const compacted = (runId: string, kind: 'agentic' | 'deterministic') => ({
+      compactedRunIds: [runId],
+      kind,
+      reason: 'pre-request',
+      runId,
+      summary: 'Goal:\nNone.',
+      type: 'context.compacted',
+    });
+    const { rows, runId } = await withEvents((id) => [
+      compacted(id, 'agentic'),
+      compacted(id, 'agentic'),
+      compacted(id, 'deterministic'),
+    ]);
+    expect(readThreadFromLog(rows, [runId]).compactions).toEqual({ agentic: 2, deterministic: 1 });
+  });
+
+  test('spend counts every call the thread paid for, by what the call was for', async () => {
+    const { rows, runId } = await withEvents((id) => [
+      {
+        compactedRunIds: [id],
+        kind: 'agentic',
+        modelId: 'openai::gpt-6-luna',
+        reason: 'pre-request',
+        runId: id,
+        summary: 'Goal:\nNone.',
+        type: 'context.compacted',
+        usage: {
+          inputTokenDetails: { cacheReadTokens: 40, cacheWriteTokens: 0, noCacheTokens: 60 },
+          inputTokens: 100,
+          outputTokens: 20,
+        },
+      },
+    ]);
+    const { spend } = readThreadFromLog(rows, [runId]);
+    expect(spend.bySource['chat']).toMatchObject({ inputTokens: 2, outputTokens: 2 });
+    expect(spend.bySource['compaction-summary']).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+    expect(spend.cacheReadTokens).toBe(40);
+    // The summarizer ran on a catalog model, so its call has a list price.
+    expect(spend.bySource['compaction-summary']?.costUsd).toBeGreaterThan(0);
+  });
+
+  test('a thread with an unpriced call has no total cost, rather than a partial one', async () => {
+    const { rows, runId } = await scriptedRun();
+    // A scripted model has no list price.
+    expect(readThreadFromLog(rows, [runId]).spend.costUsd).toBeNull();
+  });
+});
+
+describe('gradeProbe', () => {
+  const probe = { facts: ['8443', 'src/server.ts'] };
+
+  test('an answer that states every fact misses none', () => {
+    expect(gradeProbe('We settled on port 8443, set in src/server.ts.', probe)).toEqual({
+      missing: [],
+    });
+  });
+
+  test('names each fact the answer leaves out', () => {
+    expect(gradeProbe('We settled on port 8443.', probe)).toEqual({ missing: ['src/server.ts'] });
+  });
+
+  test('reads a fact whatever its letter case', () => {
+    expect(gradeProbe('See SRC/Server.ts on 8443', probe)).toEqual({ missing: [] });
+  });
+});
+
+describe('scoring a thread of several turns', () => {
+  const done = { verdict: { outcome: 'completed' as const } };
+  const thread = (answers: string[], compactions = { agentic: 0, deterministic: 0 }) => ({
+    answers,
+    compactions,
+    runs: answers.map(() => done),
+  });
+  const base: EvalAttempt = {
+    boundary: { refusals: [], unserved: [] },
+    followUps: [{}, { probe: { facts: ['8443'] } }],
+    run: done,
+    verifier: { exitCode: 0, output: '' },
+  };
+
+  test('passes when every turn completed and the probe is answered', () => {
+    expect(scoreEvalAttempt({ ...base, thread: thread(['ok', 'ok', 'Port 8443.']) })).toEqual({
+      pass: true,
+    });
+  });
+
+  test('fails a follow-up turn that did not complete, naming the turn', () => {
+    const failed = { verdict: { detail: 'provider 500', outcome: 'failed' as const } };
+    expect(reasonOf({ ...base, thread: { ...thread(['ok', '']), runs: [done, failed] } })).toMatch(
+      /Turn 2 failed: provider 500/u
+    );
+  });
+
+  test('fails a follow-up turn that never ran', () => {
+    expect(reasonOf({ ...base, thread: thread(['ok', 'ok']) })).toMatch(/Turn 3 never ran/u);
+  });
+
+  test('fails a probe whose answer leaves a fact out, naming the turn and the fact', () => {
+    expect(reasonOf({ ...base, thread: thread(['ok', 'ok', 'I do not recall.']) })).toMatch(
+      /Turn 3's answer leaves out: 8443/u
+    );
+  });
+
+  test('an expect block holds the thread to a number of compactions', () => {
+    const expecting = { ...base, expect: { compactions: { atLeast: 2 } } };
+    const answers = ['ok', 'ok', 'Port 8443.'];
+    expect(
+      scoreEvalAttempt({ ...expecting, thread: thread(answers, { agentic: 1, deterministic: 1 }) })
+    ).toEqual({ pass: true });
+    expect(
+      reasonOf({ ...expecting, thread: thread(answers, { agentic: 1, deterministic: 0 }) })
+    ).toMatch(/expects at least 2 compaction\(s\); the thread committed 1/u);
+  });
+});
+
+describe('threadMetrics', () => {
+  const run = (metrics: Partial<EvalRunSummary['metrics']>): EvalRunSummary => ({
+    metrics: {
+      approvals: 1,
+      inputTokens: 10,
+      maxStepCallsByTool: {},
+      outputTokens: 5,
+      steps: 2,
+      toolCalls: {},
+      wallMs: 100,
+      ...metrics,
+    },
+    modelId: 'scripted::fix-failing-test',
+    runId: 'run',
+    verdict: { outcome: 'completed' },
+  });
+
+  test("sums every turn's counts and keeps the widest step of any turn", () => {
+    expect(
+      threadMetrics([
+        run({ maxStepCallsByTool: { read: 3 }, toolCalls: { read: 3, write: 1 } }),
+        run({ maxStepCallsByTool: { read: 1, write: 2 }, toolCalls: { write: 2 } }),
+      ])
+    ).toEqual({
+      approvals: 2,
+      inputTokens: 20,
+      maxStepCallsByTool: { read: 3, write: 2 },
+      outputTokens: 10,
+      steps: 4,
+      toolCalls: { read: 3, write: 3 },
+      wallMs: 200,
+    });
+  });
+
+  test('a turn that reported no tokens leaves the thread total unknown', () => {
+    expect(threadMetrics([run({}), run({ inputTokens: null })])).toMatchObject({
+      inputTokens: null,
+      outputTokens: 10,
+    });
+  });
+
+  test('a thread with no run has no metrics', () => {
+    expect(threadMetrics([])).toBeUndefined();
   });
 });

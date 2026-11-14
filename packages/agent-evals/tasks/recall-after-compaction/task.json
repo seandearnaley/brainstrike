@@ -1,0 +1,46 @@
+{
+  "expect": {
+    "compactions": {
+      "atLeast": 1
+    }
+  },
+  "followUps": [
+    {
+      "prompt": "Write the notes for release 1 to notes/release-1.md: one line per change, at least 700 lines, each line naming the change and the file it touched. Use a workspace-relative path and do not pass a root."
+    },
+    {
+      "prompt": "Write the notes for release 2 to notes/release-2.md: one line per change, at least 700 lines, each line naming the change and the file it touched. Use a workspace-relative path and do not pass a root."
+    },
+    {
+      "prompt": "Write the notes for release 3 to notes/release-3.md: one line per change, at least 700 lines, each line naming the change and the file it touched. Use a workspace-relative path and do not pass a root."
+    },
+    {
+      "prompt": "Write the notes for release 4 to notes/release-4.md: one line per change, at least 700 lines, each line naming the change and the file it touched. Use a workspace-relative path and do not pass a root."
+    },
+    {
+      "prompt": "Write the notes for release 5 to notes/release-5.md: one line per change, at least 700 lines, each line naming the change and the file it touched. Use a workspace-relative path and do not pass a root."
+    },
+    {
+      "probe": {
+        "facts": [
+          "8443",
+          "src/server.ts"
+        ]
+      },
+      "prompt": "Without opening any file: which port did we settle on at the start, and which file sets it?"
+    }
+  ],
+  "id": "recall-after-compaction",
+  "inputTokenLimit": 30000,
+  "model": "openai::gpt-6-luna",
+  "prompt": "Read docs/decisions.md, then change the port in src/server.ts to the one it settles on. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Recall a first-turn decision after the turns that made it are compacted away",
+  "verify": {
+    "command": [
+      "node",
+      "--test",
+      ".verify/recall.hidden.test.ts"
+    ]
+  }
+}

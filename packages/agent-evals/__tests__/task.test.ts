@@ -8,6 +8,7 @@ import {
   loadEvalTask,
   loadEvalTasks,
   scriptSteps,
+  scriptTurns,
 } from '../src/task.js';
 
 const VALID = {
@@ -54,6 +55,82 @@ describe('decodeEvalTask', () => {
     ['an id that is not a slug', { ...VALID, id: 'Fix Failing' }],
   ])('refuses %s, naming the file', (_name, value) => {
     expect(() => decodeEvalTask(value, 'tasks/x/task.json')).toThrow(/tasks\/x\/task\.json/u);
+  });
+});
+
+describe('a task that continues its thread', () => {
+  const FOLLOW_UPS = [
+    { prompt: 'Now add the retry.' },
+    { probe: { facts: ['8443', 'src/server.ts'] }, prompt: 'Which port did we settle on?' },
+  ];
+
+  test('decodes follow-up turns, a probe, a pinned input budget and a compaction expectation', () => {
+    const task = {
+      ...VALID,
+      expect: { compactions: { atLeast: 2 } },
+      followUps: FOLLOW_UPS,
+      inputTokenLimit: 24_000,
+    };
+    expect(decodeEvalTask(task, 'task.json')).toEqual(task);
+  });
+
+  test.each([
+    ['no follow-up turns', { ...VALID, followUps: [] }],
+    ['a follow-up without a prompt', { ...VALID, followUps: [{ probe: { facts: ['a'] } }] }],
+    ['a probe with no facts', { ...VALID, followUps: [{ probe: { facts: [] }, prompt: 'Q?' }] }],
+    ['a non-positive input budget', { ...VALID, inputTokenLimit: 0 }],
+    ['a compaction expectation below one', { ...VALID, expect: { compactions: { atLeast: 0 } } }],
+  ])('refuses %s, naming the file', (_name, value) => {
+    expect(() => decodeEvalTask(value, 'tasks/x/task.json')).toThrow(/tasks\/x\/task\.json/u);
+  });
+
+  test('a script gives each follow-up turn its own calls and answer, and the compaction summary', () => {
+    const read = (path: string) => ({ input: { path }, toolId: 'brainstrike_readWorkspaceFile' });
+    const script = decodeEvalScript(
+      {
+        answer: 'Port 8443 it is.',
+        calls: [read('a.md')],
+        followUps: [{ calls: [read('b.md')] }, { answer: 'We settled on 8443.' }],
+        summary: 'Goal:\nNone.',
+      },
+      'script.json'
+    );
+    expect(scriptTurns(script)).toEqual([
+      { answer: 'Port 8443 it is.', steps: [[read('a.md')]] },
+      { steps: [[read('b.md')]] },
+      { answer: 'We settled on 8443.', steps: [] },
+    ]);
+  });
+
+  test('a script input spells a long text as one line repeated, and the model sends it whole', () => {
+    const script = decodeEvalScript(
+      {
+        calls: [
+          {
+            input: { content: { $repeat: { text: 'note\n', times: 3 } }, path: 'notes.md' },
+            toolId: 'brainstrike_writeWorkspaceFile',
+          },
+        ],
+      },
+      'script.json'
+    );
+    expect(scriptTurns(script)[0]?.steps).toEqual([
+      [
+        {
+          input: { content: 'note\nnote\nnote\n', path: 'notes.md' },
+          toolId: 'brainstrike_writeWorkspaceFile',
+        },
+      ],
+    ]);
+  });
+
+  test('refuses a script whose follow-up turns do not match the task', async () => {
+    const dir = await taskDir('fix-failing-test', {
+      'repo/a.txt': 'a',
+      'script.json': JSON.stringify({ calls: [{ input: {}, toolId: 'tool' }] }),
+      'task.json': JSON.stringify({ ...VALID, followUps: FOLLOW_UPS }),
+    });
+    await expect(loadEvalTask(dir)).rejects.toThrow(/2 follow-up turn\(s\).*script\.json has 0/u);
   });
 });
 
