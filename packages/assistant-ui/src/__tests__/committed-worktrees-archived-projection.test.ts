@@ -1,6 +1,8 @@
 // @vitest-environment node
 // ADR-0034 decision 7: the idle worktrees the cap archived after a worktree
 // was made for this thread are named in its transcript, with how to get them back.
+// BST-2504: so are the worktrees it made whose branches add nothing the default
+// branch lacks.
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { expect, it } from 'vitest';
 import { isAlwaysVisibleRunEvent } from '../assistant-run-event-derivation';
@@ -14,12 +16,15 @@ const runId = 'run-1';
 const createdAt = new Date('2026-11-12T12:00:00.000Z');
 const archivedAt = Date.parse('2026-11-12T12:05:00.000Z');
 
-function notices(worktrees: readonly Record<string, unknown>[]) {
+function notices(
+  worktrees: readonly Record<string, unknown>[],
+  archive: Record<string, unknown> = { limit: 15, reason: 'idle-cap' }
+) {
   const rows: readonly CommittedAssistantLogRow[] = [
     { event: { modelId: 'scripted', prompt: 'Fix the build.', runId, type: 'run.started' } },
     { event: { outcome: 'completed', runId, type: 'run.finished' } },
     // Committed after the run ended: the person made a worktree between runs.
-    { event: { limit: 15, runId, type: 'worktrees.archived', worktrees }, ts: archivedAt },
+    { event: { ...archive, runId, type: 'worktrees.archived', worktrees }, ts: archivedAt },
   ].map((row, index) => ({ ...row, seq: index + 1, threadId }));
   const projection = new CommittedAssistantLogProjection({
     identifyRun: () => ({
@@ -79,6 +84,54 @@ it('names each worktree when several were archived, a detached one by its name a
   expect(notice?.label).toBe('Archived 2 idle worktrees');
   expect(notice?.detail).toBe(
     'This repository had more than 15 worktrees that no thread is using, so the oldest were archived: swift-badger (branch bs/swift-badger), calm-otter (detached). The uncommitted changes of each are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1, refs/brainstrike/worktree-archive/wt-2), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore one, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.'
+  );
+});
+
+// A v25 to v29 host committed the cap's archive with no reason.
+it('shows an archive committed with no reason as the idle cap’s', () => {
+  expect(notices([BADGER], { limit: 15 })).toEqual(notices([BADGER]));
+});
+
+const MERGED = { defaultBranch: 'origin/main', reason: 'merged' };
+
+it('says its branch added nothing new, what was kept and deleted, and how to restore it', () => {
+  const [notice] = notices([BADGER], MERGED);
+
+  expect(notice).toMatchObject({
+    detail:
+      'The branch bs/swift-badger adds nothing that origin/main doesn’t already have, so its worktree swift-badger was archived. Its uncommitted changes are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore it, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.',
+    label: 'Archived worktree swift-badger, whose branch adds nothing new',
+    metadata: { defaultBranch: 'origin/main', reason: 'merged', worktrees: [BADGER] },
+    runId,
+    status: 'info',
+    timestamp: new Date(archivedAt).toISOString(),
+  });
+  expect(isAlwaysVisibleRunEvent(notice)).toBe(true);
+});
+
+it('names each worktree with its branch when several branches added nothing new', () => {
+  const [notice] = notices(
+    [
+      BADGER,
+      {
+        branch: 'bs/calm-otter',
+        name: 'calm-otter',
+        snapshotRef: 'refs/brainstrike/worktree-archive/wt-2',
+        worktreeId: 'wt-2',
+      },
+    ],
+    MERGED
+  );
+
+  expect(notice?.label).toBe('Archived 2 worktrees whose branches add nothing new');
+  expect(notice?.detail).toBe(
+    'The branches of these worktrees add nothing that origin/main doesn’t already have, so they were archived: swift-badger (branch bs/swift-badger), calm-otter (branch bs/calm-otter). The uncommitted changes of each are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1, refs/brainstrike/worktree-archive/wt-2), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore one, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.'
+  );
+});
+
+it('refuses an archive notice with a reason it does not know', () => {
+  expect(() => notices([BADGER], { limit: 15, reason: 'tidied' })).toThrow(
+    'Committed worktree archive has an unsupported reason.'
   );
 });
 

@@ -87,6 +87,8 @@ export interface WorktreeWorkspace {
   close(): Promise<void>;
   /** The inventory, started on first use: its watchers arm with it. */
   inventory(): GitInventoryService;
+  /** Every live managed worktree the ledger records. */
+  listActiveWorktrees(): Promise<readonly ManagedWorktreeRow[]>;
   /** A repository's managed worktrees as the ledger records them, archived ones too. */
   listRepositoryWorktrees(repoCommonDir: string): Promise<readonly ManagedWorktreeRow[]>;
   readonly loadRoots: () => Promise<{ id: string; path: string }[]>;
@@ -186,6 +188,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
         }
       })()),
     inventory,
+    listActiveWorktrees: () => ledger.listActive(),
     listRepositoryWorktrees: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
     loadRoots,
     readSettings,
@@ -246,15 +249,19 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
   let attached: HostThreadReads | undefined;
   let snapshotMaintenance: { stop(): Promise<void> } | undefined;
   let closing: Promise<void> | undefined;
-  // Nothing here runs before the host reports ready: the git-metadata watchers
-  // and the snapshot startup GC start on the first window subscription or the
-  // first inventory read, both of which reach a host that is already serving.
+  // Nothing here runs before the host reports ready: the git-metadata watchers,
+  // the snapshot startup GC and archive on merge's pass start on the first
+  // window subscription or the first inventory read, both of which reach a host
+  // that is already serving.
   let started = false;
   // ADR-0034 decision 7: after a creation for a thread, its repository's oldest idle worktrees
-  // beyond the cap are archived and Core tells that thread.
+  // beyond the cap are archived and Core tells that thread. Before the count, and once after
+  // the host opens, idle worktrees whose branches have merged are archived and Core tells the
+  // threads that made them (BST-2504).
   const archiveListeners = new Set<(archive: HostIdleWorktreeArchive) => void>();
   const idleCap = createIdleWorktreeCap({
     archive: (params) => workspace.worktrees.archive(params),
+    listActive: () => workspace.listActiveWorktrees(),
     listRepository: (repoCommonDir) => workspace.listRepositoryWorktrees(repoCommonDir),
     publish: (archive) => {
       if (archiveListeners.size === 0) {
@@ -274,6 +281,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
         hasRun: latestRun !== undefined,
         threadId,
       })),
+    run: (params) => workspace.run(params),
   });
   const workspace = createWorktreeWorkspace({
     afterCreate: (worktree, params) => {
@@ -326,6 +334,8 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
       snapshotsBaseDir,
       workspaceRoots: store,
     });
+    // BST-2504: archive on merge, once, in each repository with live worktrees.
+    void idleCap.afterOpen();
   };
   const inventory = (): GitInventoryService => workspace.inventory();
 

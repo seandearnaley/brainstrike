@@ -7,6 +7,9 @@ const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
 
+/** A worktree a `worktrees.archived` names, besides its branch. */
+const ArchivedWorktree = { name: Id, snapshotRef: Id, worktreeId: Id };
+
 /** A thread's committed workspace events: its binding, and a folder it shares with another writer. */
 export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
   Schema.Struct({
@@ -51,26 +54,43 @@ export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
     type: Schema.Literal('checkout.shared'),
   }),
   /**
-   * ADR-0034 decision 7: a worktree created for this thread took its repository past `limit`
-   * idle managed worktrees, so the oldest beyond it were archived. Each keeps its archive
-   * snapshot and its branch. `runId` is the run the notice shows with: the run that made the
-   * worktree, or the thread's latest run when the person made it.
+   * Managed worktrees were archived; each keeps its archive snapshot and its branch. `runId` is
+   * the run the notice shows with.
+   * - `idle-cap` (ADR-0034 decision 7): a worktree created for this thread took its repository
+   *   past `limit` idle managed worktrees, so the oldest beyond it were archived. The run is the
+   *   one that made the worktree, or the thread's latest when the person made it. A v25 to v29
+   *   host committed this shape with no `reason`, and it reads as `idle-cap`.
+   * - `merged` (ADR-0034 build decisions, BST-2504): worktrees this thread made, which no thread
+   *   is bound to, whose branches add nothing `defaultBranch` (e.g. `origin/main`) lacks. The
+   *   run is the thread's latest.
    */
-  Schema.Struct({
-    limit: Schema.Int.check(Schema.isGreaterThan(0)),
-    runId: Id,
-    type: Schema.Literal('worktrees.archived'),
-    worktrees: Schema.mutable(
-      Schema.Array(
+  Schema.StructWithRest(Schema.Struct({ type: Schema.Literal('worktrees.archived') }), [
+    Schema.Record(Schema.String, Schema.Unknown),
+  ]).pipe(
+    Schema.decodeTo(
+      Schema.Union([
         Schema.Struct({
-          branch: Schema.NullOr(Id),
-          name: Id,
-          snapshotRef: Id,
-          worktreeId: Id,
-        })
-      )
-    ).check(Schema.isMinLength(1)),
-  }),
+          limit: Schema.Int.check(Schema.isGreaterThan(0)),
+          reason: Schema.optional(Schema.Literal('idle-cap')),
+          runId: Id,
+          type: Schema.Literal('worktrees.archived'),
+          worktrees: Schema.mutable(
+            Schema.Array(Schema.Struct({ ...ArchivedWorktree, branch: Schema.NullOr(Id) }))
+          ).check(Schema.isMinLength(1)),
+        }),
+        Schema.Struct({
+          defaultBranch: Id,
+          reason: Schema.Literal('merged'),
+          runId: Id,
+          type: Schema.Literal('worktrees.archived'),
+          // A merged worktree is always on a branch.
+          worktrees: Schema.mutable(
+            Schema.Array(Schema.Struct({ ...ArchivedWorktree, branch: Id }))
+          ).check(Schema.isMinLength(1)),
+        }),
+      ])
+    )
+  ),
 ] as const;
 
 /** A thread's workspace: its root binding and the right-panel tabs saved with it. */

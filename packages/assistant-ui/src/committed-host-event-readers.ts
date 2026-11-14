@@ -216,10 +216,11 @@ function readArchivedWorktrees(event: Readonly<Record<string, unknown>>) {
 }
 
 /**
- * A committed `worktrees.archived` (ADR-0034 decision 7) as the run timeline's
- * always-visible notice: the idle worktrees the cap archived after a worktree
- * was made for this thread, each with its branch, where its work is kept, and
- * where the person restores one (the where-control's Other worktree… picker).
+ * A committed `worktrees.archived` as the run timeline's always-visible notice,
+ * by its reason: the idle worktrees the cap archived (ADR-0034 decision 7), or
+ * the worktrees this thread made whose branches add nothing the default branch
+ * lacks (`merged`, BST-2504). A row a v25 to v29 host committed names no reason
+ * and is the cap's.
  */
 function worktreesArchivedNotice(
   event: Readonly<Record<string, unknown>>,
@@ -227,33 +228,109 @@ function worktreesArchivedNotice(
   runId: string,
   timestamp: string
 ): AssistantRunEvent {
+  const worktrees = readArchivedWorktrees(event);
+  const notice = { id: `run-event-${row.threadId}-${row.seq}`, runId, timestamp };
+  switch (event['reason']) {
+    case undefined:
+    case 'idle-cap':
+      return idleCapArchiveNotice(event, worktrees, notice);
+    case 'merged':
+      return mergedArchiveNotice(event, worktrees, notice);
+    default:
+      throw new Error('Committed worktree archive has an unsupported reason.');
+  }
+}
+
+type ArchivedWorktrees = ReturnType<typeof readArchivedWorktrees>;
+
+/** Where a notice sits: its id, its run, and its own time. */
+interface ArchiveNoticeAddress {
+  readonly id: string;
+  readonly runId: string;
+  readonly timestamp: string;
+}
+
+/**
+ * What every archive notice ends with, whatever archived the worktrees: what the archive kept,
+ * that it deleted the files git ignores, and where the person restores one.
+ */
+function archiveKeptAndRestore(worktrees: ArchivedWorktrees): string {
+  const only = worktrees.length === 1;
+  const snapshots = worktrees.map(({ snapshotRef }) => snapshotRef).join(', ');
+  return `${
+    only ? 'Its uncommitted changes are' : 'The uncommitted changes of each are'
+  } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore ${
+    only ? 'it' : 'one'
+  }, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.`;
+}
+
+/**
+ * The idle worktrees the cap archived after a worktree was made for this thread, each with its
+ * branch, where its work is kept, and where the person restores one (the where-control's Other
+ * worktree… picker).
+ */
+function idleCapArchiveNotice(
+  event: Readonly<Record<string, unknown>>,
+  worktrees: ArchivedWorktrees,
+  notice: ArchiveNoticeAddress
+): AssistantRunEvent {
   const limit = event['limit'];
   if (typeof limit !== 'number') {
     throw new Error('Committed worktree archive has no limit.');
   }
-  const worktrees = readArchivedWorktrees(event);
   const [only] = worktrees.length === 1 ? worktrees : [];
   const named = worktrees
     .map(({ branch, name }) => `${name} (${branch === null ? 'detached' : `branch ${branch}`})`)
     .join(', ');
-  const snapshots = worktrees.map(({ snapshotRef }) => snapshotRef).join(', ');
   return {
     detail: `This repository had more than ${limit} worktrees that no thread is using, so the oldest ${
       only ? 'was' : 'were'
-    } archived: ${named}. ${
-      only ? 'Its uncommitted changes are' : 'The uncommitted changes of each are'
-    } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore ${
-      only ? 'it' : 'one'
-    }, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.`,
-    id: `run-event-${row.threadId}-${row.seq}`,
+    } archived: ${named}. ${archiveKeptAndRestore(worktrees)}`,
+    id: notice.id,
     kind: 'worktree.archived',
     label: only
       ? `Archived idle worktree ${only.name}`
       : `Archived ${worktrees.length} idle worktrees`,
     metadata: { limit, worktrees },
-    runId,
+    runId: notice.runId,
     status: 'info',
-    timestamp,
+    timestamp: notice.timestamp,
+  };
+}
+
+/**
+ * The worktrees this thread made whose branches add nothing the default branch lacks. It does
+ * not say "merged": a commit and its own revert add nothing either.
+ */
+function mergedArchiveNotice(
+  event: Readonly<Record<string, unknown>>,
+  worktrees: ArchivedWorktrees,
+  notice: ArchiveNoticeAddress
+): AssistantRunEvent {
+  const defaultBranch = requiredString(event, 'defaultBranch');
+  const [only] = worktrees.length === 1 ? worktrees : [];
+  const named = worktrees.map(({ branch, name }) => {
+    if (branch === null) {
+      throw new Error('Committed merged worktree archive names a worktree with no branch.');
+    }
+    return { branch, name };
+  });
+  const archived = only
+    ? `The branch ${only.branch} adds nothing that ${defaultBranch} doesn’t already have, so its worktree ${only.name} was archived.`
+    : `The branches of these worktrees add nothing that ${defaultBranch} doesn’t already have, so they were archived: ${named
+        .map(({ branch, name }) => `${name} (branch ${branch})`)
+        .join(', ')}.`;
+  return {
+    detail: `${archived} ${archiveKeptAndRestore(worktrees)}`,
+    id: notice.id,
+    kind: 'worktree.archived',
+    label: only
+      ? `Archived worktree ${only.name}, whose branch adds nothing new`
+      : `Archived ${worktrees.length} worktrees whose branches add nothing new`,
+    metadata: { defaultBranch, reason: 'merged', worktrees },
+    runId: notice.runId,
+    status: 'info',
+    timestamp: notice.timestamp,
   };
 }
 

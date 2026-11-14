@@ -214,6 +214,7 @@ describe('createGitWorkspace', () => {
     expect(told).toEqual([
       {
         limit: 15,
+        reason: 'idle-cap',
         runId: 'run-1',
         threadId: 't-1',
         worktrees: [

@@ -181,7 +181,7 @@ function splitLineRecords(value: string): readonly string[] {
   return records.map((record) => (record.endsWith('\r') ? record.slice(0, -1) : record));
 }
 
-function parseGitVersion(value: string): readonly [number, number, number] | null {
+export function parseGitVersion(value: string): readonly [number, number, number] | null {
   const match = /^git version (\d+)\.(\d+)(?:\.(\d+))?/u.exec(value);
   if (!match) {
     return null;
