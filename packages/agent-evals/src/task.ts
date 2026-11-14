@@ -221,6 +221,18 @@ export async function loadEvalTask(dir: string): Promise<LoadedEvalTask> {
       `${task.id} has ${turns} follow-up turn(s), but ${scriptPath} has ${scripted}: scripted mode plays one per turn`
     );
   }
+  if (script) {
+    // The scripted model knows a turn only by the prompt that opens it.
+    const prompts = [task.prompt, ...(task.followUps ?? []).map((followUp) => followUp.prompt)];
+    for (const [index, prompt] of prompts.entries()) {
+      const earlier = prompts.indexOf(prompt);
+      if (earlier !== index) {
+        throw new Error(
+          `${task.id}: turns ${earlier + 1} and ${index + 1} open with the same prompt, so its script cannot tell them apart`
+        );
+      }
+    }
+  }
   const verifyDir = join(dir, 'verify');
   return {
     ...(cassettePath ? { cassettePath } : {}),

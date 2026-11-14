@@ -51,6 +51,8 @@ export const EvalResultSchema = Schema.Struct({
         cacheReadTokens: Count,
         cacheWriteTokens: Count,
         costUsd: Schema.NullOr(Cost),
+        /** Calls the provider bills but never reported usage for; any makes the total unknown. */
+        unreportedCalls: Count,
       }),
       turns: Count,
     })

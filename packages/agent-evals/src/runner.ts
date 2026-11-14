@@ -298,6 +298,14 @@ async function runOnHost(
   };
 }
 
+/** The thread's metrics as one, when it has a run. */
+function threadWide(runs: EvalThreadSummary['runs']): {
+  metrics?: NonNullable<EvalResult['metrics']>;
+} {
+  const metrics = threadMetrics(runs);
+  return metrics ? { metrics } : {};
+}
+
 /** How many of the task's probes the thread's answers satisfied. */
 function probeCounts(
   loaded: LoadedEvalTask,
@@ -398,7 +406,7 @@ export async function attemptEvalTask(
       ...(loaded.task.followUps ? { followUps: loaded.task.followUps } : {}),
       ...(failures.length > 0 ? { hostError: failures.join('; ') } : {}),
       ...(runs[0] ? { run: runs[0] } : {}),
-      ...(stage.thread ? { thread: stage.thread } : {}),
+      ...(stage.thread ? { thread: { ...stage.thread, ...threadWide(runs) } } : {}),
       ...(stage.timedOut === undefined ? {} : { timedOut: stage.timedOut }),
       ...(verified.verifier ? { verifier: verified.verifier } : {}),
     },

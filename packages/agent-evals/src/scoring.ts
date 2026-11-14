@@ -142,8 +142,13 @@ export interface EvalThreadSpend {
   readonly bySource: Readonly<Record<string, EvalSourceSpend>>;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
-  /** Null when any call has no price: a partial total would read as the whole. */
+  /**
+   * Null when any call has no price, or the provider bills a call it never
+   * reported usage for: a partial total would read as the whole.
+   */
   readonly costUsd: number | null;
+  /** Calls a Stop, a timeout or a failure cut off that the provider bills but never reported. */
+  readonly unreportedCalls: number;
 }
 
 export interface EvalThreadSummary {
@@ -182,7 +187,16 @@ function readSpend(rows: readonly HostLogRow[]): EvalThreadSpend {
     cacheWriteTokens += usage.cacheCreationTokens;
     costUsd = addCost(costUsd, cost);
   }
-  return { bySource, cacheReadTokens, cacheWriteTokens, costUsd };
+  const unreportedCalls = fold
+    .read()
+    .runs.reduce((total, run) => total + run.unreportedCallCount, 0);
+  return {
+    bySource,
+    cacheReadTokens,
+    cacheWriteTokens,
+    costUsd: unreportedCalls > 0 ? null : costUsd,
+    unreportedCalls,
+  };
 }
 
 /** The text of the run's last step: what the person reads as the turn's answer. */
@@ -291,6 +305,8 @@ export interface EvalAttempt {
   readonly run?: Pick<EvalRunSummary, 'verdict'> & { readonly metrics?: EvalRunMetrics };
   /** The whole thread, the first turn included: each turn's run and answer, and its compactions. */
   readonly thread?: Pick<EvalThreadSummary, 'answers' | 'compactions'> & {
+    /** Every turn's metrics as one: what `expect.parallelCalls` is read from. */
+    readonly metrics?: EvalRunMetrics;
     readonly runs: readonly Pick<EvalRunSummary, 'verdict'>[];
   };
   /** The run did not finish within the task's `timeoutMs`. */
@@ -404,7 +420,8 @@ function unmetExpectation(attempt: EvalAttempt): string | undefined {
   if (expected === undefined) {
     return;
   }
-  const metrics = attempt.run?.metrics;
+  // Any turn may make the calls; a one-turn attempt has only its run's metrics.
+  const metrics = attempt.thread?.metrics ?? attempt.run?.metrics;
   if (metrics === undefined) {
     return 'The task expects parallel tool calls, but the run reported no metrics';
   }

@@ -124,6 +124,21 @@ describe('a task that continues its thread', () => {
     ]);
   });
 
+  test('refuses a scripted task that asks the same thing twice: the script could not tell the turns apart', async () => {
+    const dir = await taskDir('fix-failing-test', {
+      'repo/a.txt': 'a',
+      'script.json': JSON.stringify({
+        calls: [{ input: {}, toolId: 'tool' }],
+        followUps: [{ answer: 'First.' }, { answer: 'Second.' }],
+      }),
+      'task.json': JSON.stringify({
+        ...VALID,
+        followUps: [{ prompt: 'Which port?' }, { prompt: 'Which port?' }],
+      }),
+    });
+    await expect(loadEvalTask(dir)).rejects.toThrow(/turns 2 and 3 open with the same prompt/u);
+  });
+
   test('refuses a script whose follow-up turns do not match the task', async () => {
     const dir = await taskDir('fix-failing-test', {
       'repo/a.txt': 'a',

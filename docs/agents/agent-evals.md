@@ -24,7 +24,8 @@ A task is `packages/agent-evals/tasks/<id>/` (folder name is the id), decoded by
 - `script.json`: scripted tool calls, one per step; `{ "parallel": [...] }` puts
   several in one step.
   - `answer` is the first turn's final text. `followUps: [{ calls?, answer? }]` scripts each later
-    turn, one entry per task follow-up.
+    turn, one entry per task follow-up. The scripted model knows a turn by the prompt that opens
+    it, so a scripted task's prompts must all differ.
   - `summary` is what the scripted model answers a compaction's summarizer with. Without one the
     summarizer fails and the host compacts deterministically.
   - `{ "$repeat": { "text", "times" } }` inside an input stands for the text repeated, so a
@@ -89,7 +90,7 @@ the reason:
 6. verifier did not run or exit 0
 7. unmet `expect`
    - `parallelCalls: { toolId, atLeast }` requires that many calls of the tool in
-     one step
+     one step, in any turn
    - `compactions: { atLeast }` requires that many committed compactions on the thread
 8. a probe whose answer leaves out a fact
 
@@ -101,7 +102,9 @@ the reason:
   - `spend` is the host's own cost ledger folded over the thread: tokens and cost by usage kind
     (`chat`, `compaction-summary`, `thread-title`, the observer kinds), cache read and write
     tokens, and a total.
-  - A cost is null when a call has no list price, as every scripted call has.
+  - A cost is null when a call has no list price, as every scripted call has. The total is also
+    null when the provider bills a call it never reported usage for (a Stop, a timeout or a failure
+    mid-stream); `unreportedCalls` counts those.
 - Results append one JSON line per run of a task to
   `packages/agent-evals/results/<UTC date>-<mode>.jsonl` (gitignored) and print a summary; with
   `--trials`, the summary ends with each task's share of passing trials.

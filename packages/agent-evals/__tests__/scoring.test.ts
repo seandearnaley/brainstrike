@@ -274,6 +274,60 @@ describe('readThreadFromLog', () => {
     expect(spend.bySource['compaction-summary']?.costUsd).toBeGreaterThan(0);
   });
 
+  test('a call the provider bills but never reported leaves the total unknown, and is counted', async () => {
+    const { rows, runId } = await approvedRun();
+    const finished = rows.at(-1)!;
+    // A priced run whose last request was sent, then stopped before any usage came back.
+    const cutOff = Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema))([
+      ...rows
+        .slice(0, -1)
+        .map((row) =>
+          row.event.type === 'run.started'
+            ? { ...row, event: { ...row.event, modelId: 'anthropic::claude-haiku-4-5' } }
+            : row
+        ),
+      {
+        event: {
+          accounting: {
+            measurement: {
+              charactersPerToken: 4,
+              mode: 'deterministic-serialized-character-backstop',
+            },
+            promptTokens: 10,
+            removedMessages: 0,
+            toolTokens: 5,
+            totalTokens: 15,
+            usedBackstop: false,
+          },
+          breakdown: {
+            attachmentsCount: 0,
+            historyMessagesTokens: 5,
+            provenance: 'heuristic',
+            systemInstructionsTokens: 5,
+            toolCallsByTool: [],
+            toolCallsTokens: 0,
+            toolDefinitionsProvenance: 'heuristic',
+            toolDefinitionsTokens: 5,
+          },
+          modelId: 'claude-haiku-4-5',
+          provider: 'anthropic',
+          runId,
+          toolCallWindow: { base: 'previous', removed: [], upserted: [] },
+          type: 'provider.request.prepared',
+        },
+        seq: finished.seq,
+        threadId: finished.threadId,
+        ts: finished.ts,
+      },
+      { ...finished, event: { ...finished.event, outcome: 'stopped' }, seq: finished.seq + 1 },
+    ]);
+    const { spend } = readThreadFromLog(cutOff, [runId]);
+    expect(spend.unreportedCalls).toBe(1);
+    expect(spend.costUsd).toBeNull();
+    // The calls that did report still have their price.
+    expect(spend.bySource['chat']?.costUsd).toBeGreaterThan(0);
+  });
+
   test('a thread with an unpriced call has no total cost, rather than a partial one', async () => {
     const { rows, runId } = await scriptedRun();
     // A scripted model has no list price.
@@ -334,6 +388,34 @@ describe('scoring a thread of several turns', () => {
     expect(reasonOf({ ...base, thread: thread(['ok', 'ok', 'I do not recall.']) })).toMatch(
       /Turn 3's answer leaves out: 8443/u
     );
+  });
+
+  test('an expect block reads parallel calls from any turn of the thread', () => {
+    const metrics = (maxStepCallsByTool: Record<string, number>) => ({
+      approvals: 0,
+      inputTokens: 1,
+      maxStepCallsByTool,
+      outputTokens: 1,
+      steps: 2,
+      toolCalls: {},
+      wallMs: 1,
+    });
+    const expecting: EvalAttempt = {
+      ...base,
+      expect: { parallelCalls: { atLeast: 2, toolId: 'read' } },
+      // Turn 1 read one file at a time.
+      run: { ...done, metrics: metrics({ read: 1 }) },
+    };
+    const answers = ['ok', 'ok', 'Port 8443.'];
+    expect(
+      scoreEvalAttempt({
+        ...expecting,
+        thread: { ...thread(answers), metrics: metrics({ read: 2 }) },
+      })
+    ).toEqual({ pass: true });
+    expect(
+      reasonOf({ ...expecting, thread: { ...thread(answers), metrics: metrics({ read: 1 }) } })
+    ).toMatch(/at least 2 read calls in one step; the run made at most 1/u);
   });
 
   test('an expect block holds the thread to a number of compactions', () => {

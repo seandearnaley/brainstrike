@@ -38,6 +38,7 @@ const PASSED: EvalResult = {
       cacheReadTokens: 300,
       cacheWriteTokens: 0,
       costUsd: 0.0123,
+      unreportedCalls: 0,
     },
     turns: 3,
   },
