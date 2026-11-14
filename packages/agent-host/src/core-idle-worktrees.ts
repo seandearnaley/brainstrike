@@ -3,7 +3,8 @@
  * after a worktree was created for a thread. Core tells that thread in a
  * committed row (`worktrees.archived`) that its transcript shows with the run
  * that made the worktree, or with the thread's latest run when the person
- * made it between runs.
+ * made it between runs. Archive on merge (BST-2504) tells the thread that made
+ * each merged worktree the same way, with its latest run.
  */
 import { createLogger } from '@brainstrike/logging';
 import type { HostRunMap } from './core-state.ts';
@@ -47,6 +48,7 @@ export class HostIdleWorktreeNotices {
 
   private tell(archive: HostIdleWorktreeArchive): void {
     const context = {
+      reason: archive.reason,
       runId: archive.runId ?? null,
       threadId: archive.threadId,
       worktreeIds: archive.worktrees.map(({ worktreeId }) => worktreeId),
@@ -58,20 +60,27 @@ export class HostIdleWorktreeNotices {
     }
     const run = made?.threadId === archive.threadId ? made : runs.ofThread(archive.threadId).at(-1);
     if (!run) {
-      logger.error(
-        'Idle worktrees were archived for a thread with no run to show them with',
-        context
-      );
+      logger.error('Worktrees were archived for a thread with no run to show them with', context);
       return;
     }
-    const event: HostWorktreesArchived = {
-      limit: archive.limit,
-      runId: run.id,
-      type: 'worktrees.archived',
-      worktrees: [...archive.worktrees],
-    };
+    const event: HostWorktreesArchived =
+      archive.reason === 'merged'
+        ? {
+            defaultBranch: archive.defaultBranch,
+            reason: 'merged',
+            runId: run.id,
+            type: 'worktrees.archived',
+            worktrees: [...archive.worktrees],
+          }
+        : {
+            limit: archive.limit,
+            reason: 'idle-cap',
+            runId: run.id,
+            type: 'worktrees.archived',
+            worktrees: [...archive.worktrees],
+          };
     const posted = this.ports.post(archive.threadId, event).catch((cause: unknown) => {
-      logger.error('Could not tell a thread its idle worktrees were archived', {
+      logger.error('Could not tell a thread its worktrees were archived', {
         ...context,
         cause,
       });

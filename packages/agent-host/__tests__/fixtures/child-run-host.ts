@@ -132,6 +132,8 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** Core hands the platform its thread reads at each open, as the desktop's git cluster takes them. */
+  readonly attachThreadReads?: HostPlatform['attachThreadReads'];
   /** ADR-0037: the platform's run configuration for a child on another model. */
   readonly childConfiguration?: HostPlatform['childConfiguration'];
   /** The command sessions the host's runs start that end by themselves. */
@@ -175,6 +177,7 @@ function fixturePlatform(
   fixture: ChildRunFixture = {}
 ): HostPlatform {
   return {
+    ...(fixture.attachThreadReads ? { attachThreadReads: fixture.attachThreadReads } : {}),
     ...(fixture.childConfiguration ? { childConfiguration: fixture.childConfiguration } : {}),
     close: async () => undefined,
     ...(fixture.commandSessionExits ? { commandSessionExits: fixture.commandSessionExits } : {}),

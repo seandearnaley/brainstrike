@@ -9,7 +9,8 @@
  * the snapshot keeps the work, the branch stays, and the ignored files'
  * deletion is confirmed with the archive preview's own token. Factory Reset
  * and Clear Database archive every worktree through it too, with none bound
- * (`worktree-reset-archive.ts`).
+ * (`worktree-reset-archive.ts`). Archive on merge (BST-2504) goes through it
+ * as well, and asks again in this turn whether the branch has merged.
  */
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ManagedWorktreeRow, WorktreeArchiveResult } from '@brainstrike/types';
@@ -33,6 +34,7 @@ export const IDLE_ARCHIVE_LEFT_IN_PLACE: ReadonlySet<string> = new Set([
   'worktree.locked',
   'worktree.nested-repositories',
   'worktree.not-active',
+  'worktree.not-merged',
   'worktree.run-active',
 ]);
 
@@ -106,6 +108,13 @@ export async function archiveIdleWorktree(
   const refusal = await leftInPlace(service, row, idleCap.isBound);
   if (refusal) {
     return refusal;
+  }
+  if (idleCap.isMerged && !(await idleCap.isMerged())) {
+    return gitRefused(
+      'conflict',
+      'worktree.not-merged',
+      "This worktree's branch no longer counts as merged."
+    );
   }
   const preview = await inspectWorktreeArchivePreviewForPath({
     inspectSafety: () => service.inspectArchiveRow(row),
