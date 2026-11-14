@@ -12,6 +12,15 @@ import type { WorktreeProvenance } from './changeset.ts';
 
 export const WORKTREE_LEDGER_TABLE = 'brainstrike_worktrees';
 
+/**
+ * The defaults a worktree is made with when nobody chose otherwise (ADR-0034):
+ * Automatic isolation's, the where-control's one-click New worktree…, and the
+ * create sheet's first choices. It starts from the checkout's last commit, on
+ * the branch `bs/<name>`, where the host suggests the name.
+ */
+export const DEFAULT_WORKTREE_BASE_REF = 'HEAD';
+export const WORKTREE_BRANCH_PREFIX = 'bs/';
+
 /** Who asked for the worktree. Mirrors the ledger CHECK constraint. */
 export type ManagedWorktreeCreator = 'agent' | 'user';
 

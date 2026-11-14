@@ -21,6 +21,7 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
     onHandOffToLocal: undefined,
     onOpenCreateSheet: vi.fn(() => Promise.resolve()),
     onOpenPicker: vi.fn(),
+    onQuickCreate: vi.fn(() => Promise.resolve({ needsSheet: false })),
     pending: false,
     picker: {
       error: null,

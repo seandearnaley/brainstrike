@@ -15,11 +15,12 @@ import type { ElectronHarness } from './fixtures/electron-harness';
 import { readHostRoot } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { chooseThreadFolder } from './utils/choose-thread-folder';
+import { createAndUseWorktree } from './utils/create-worktree';
 import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
-import { openWhereMenu, whereChip } from './utils/where-control';
+import { whereChip } from './utils/where-control';
 
 const API_KEY = 'test-key-thread-reopens-as-left';
 const MODEL = 'anthropic/claude-sonnet-4.6';
@@ -214,15 +215,7 @@ async function reopenWorktreeThread(
     await enableChatModel(page);
     await ensureAssistantShellVisible(page);
     await chooseThreadFolder(page, path.basename(root));
-    await openWhereMenu(page);
-    await page.getByTestId('workspace-bar-mode-new-worktree').click();
-    const dialog = page.getByTestId('worktree-create-dialog');
-    await expect(dialog).toBeVisible({ timeout: 30_000 });
-    const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
-    await dialog.getByTestId('worktree-create-submit').click();
-    await expect(whereChip(page)).toContainText(name, {
-      timeout: 90_000,
-    });
+    const { name } = await createAndUseWorktree(page);
     await send(page, 'STEP_1');
     const tabId = (await selectedThreadTab(page).getAttribute('id')) ?? '';
     await openOtherFolder(page, electronApp, other);
