@@ -103,11 +103,12 @@ test('a run past its budget part-way through compacts its older steps behind a c
   await expect(card.getByTestId('compaction-summary-turns').locator('dd')).toHaveText(
     /^\d+ steps$/u
   );
-  // BST-2527: a tool the run loaded in a replaced step is listed; the run's own
-  // question is still in its requests, so no earlier request is.
-  if (calls?.[0]?.name === 'load_tool') {
-    await expect(card.getByRole('list', { name: 'Tools loaded' })).toContainText(READ);
-  }
+  // BST-2527: the card lists a tool only when the run loaded one in a replaced
+  // step (the read tool is offered upfront here, so none); the run's own
+  // question is still in its requests, so no earlier request is listed.
+  await expect(card.getByRole('list', { name: 'Tools loaded' })).toHaveCount(
+    calls?.[0]?.name === 'load_tool' ? 1 : 0
+  );
   await expect(card.getByRole('list', { name: 'Earlier requests' })).toHaveCount(0);
 
   // Every request after it keeps the question and leaves the replaced reads out.

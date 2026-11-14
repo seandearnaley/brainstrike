@@ -38,7 +38,7 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
   - A step ends where the next begins (`HostRunState.stepEnds`), so it holds the approval results and notices committed after it; a run's newest step has not ended and is never replaced.
   - Among the replaced steps, one that loaded a skill or holds an `askUser` or `submitPlan` result stays word for word, by the same predicate that protects a whole turn. It does not stop the cut: the steps around it are still replaced. The event records it in `through.kept`, so what a compaction replaced stays one committed fact.
   - A row without `through` covers whole turns only. `compactedRunIds` is empty when its summary covers only steps.
-  - A compaction belongs to a branch that holds every run it names, `through`'s included; a regenerated sibling of that run never sees it.
+  - A compaction belongs to the run that made it and the runs that follow it. A sibling branch never reads it, even for turns they share: it keeps those in full until a run of its own compacts them.
   - The overlay, the note, the request's provenance (`hostProviderHistory`), the summarizer's transcript, the fallback drop, the host's lists, the card's step count and the context fold all read `through` and its `kept` steps. Tool discovery reads the whole committed branch, so a tool loaded in a replaced step stays loaded.
 - What a compaction tells the model (BST-2527): a branch carries one current summary.
   - The model writes `Goal`, `Constraints`, `Decisions`, `Errors and fixes`, `State` and `Next` (`hasCompactionSummarySchema`). A new compaction gives the summarizer the branch's current summary with the newly dropped messages and commits one merged summary.
@@ -46,7 +46,7 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
     - `Files edited`: each path the covered calls edited (`workspace.edit.recorded`) and its count of edits.
     - `Tools loaded`: what the run's own discovery reads as loaded in the covered messages.
     - `Earlier requests`: each wholly covered turn's prompt, the person's own words only, cut at 1,000 characters with `[truncated]`, the newest kept within 4,000. A step-level compaction adds none: the run's user message is still sent.
-  - The event lists every turn it covers and the newest step cut, with every step of that run any compaction kept (`through`); no event is rewritten. Cuts are the union of the branch's compactions; the note reads one: the branch's compaction that covers the most turns, the newest of those.
+  - The event lists every turn it covers and the newest step cut, with every step of that run any compaction kept (`through`); no event is rewritten. Cuts are the union of the branch's compactions; the note reads one: the branch's newest, which merged the summaries before it.
   - A deterministic fallback (failed summary, overflow recovery, request trim) carries the host's lists, keeps the current summary as it was and adds its drop line.
 - Each request passes the provider request boundary (`run-provider-request.ts`), which filters, measures and limits the prompt against the run's provenance (`run-history.ts`) and commits a `provider.request.prepared` receipt.
   - When it still has to drop the oldest messages to fit, the same commit carries a deterministic `context.compacted` with reason `request-trim` naming the turns and steps it left out, so the thread shows a card. With the every-step check this should not happen in ordinary use.

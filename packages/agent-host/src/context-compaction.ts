@@ -49,17 +49,14 @@ export type HostCompactionLedgerReader = (
 ) => Promise<HostCompactionLedger>;
 
 /**
- * A compaction summarized one branch, so it belongs to a branch only when
- * every turn it covers is on it, and the run whose steps it covers (BST-2531).
- * A sibling branch that shares some of those turns keeps them in full: the
- * summary also tells of turns it never had (BST-2528).
+ * A compaction belongs to the run that made it and the runs that follow it.
+ * That run summarized its own branch, so every turn and step the compaction
+ * covers is on a branch that holds the run (BST-2528, BST-2531). A sibling
+ * branch never reads it, though they share turns: it keeps those in full
+ * until a run of its own compacts them.
  */
 function onBranch(compactions: readonly Compacted[], branch: ReadonlySet<string>): Compacted[] {
-  return compactions.filter(
-    (event) =>
-      event.compactedRunIds.every((id) => branch.has(id)) &&
-      (event.through === undefined || branch.has(event.through.runId))
-  );
+  return compactions.filter((event) => branch.has(event.runId));
 }
 
 function chainIds(chain: readonly HostRunState[]): Set<string> {
@@ -67,20 +64,11 @@ function chainIds(chain: readonly HostRunState[]): Set<string> {
 }
 
 /**
- * The branch's current summary (BST-2527): of its compactions, the one that
- * covers the most of its turns, the newest of those. Each compaction covers
- * everything the branch's earlier ones did, so on one branch that is the
- * newest; a newer one a sibling branch made of only their shared turns covers
- * less, and is not read.
+ * The branch's current summary (BST-2527): its newest compaction, which
+ * merged the summary of every one the branch made before it.
  */
 function currentCompaction(compactions: readonly Compacted[]): Compacted | undefined {
-  return compactions.reduce<Compacted | undefined>(
-    (current, event) =>
-      current === undefined || event.compactedRunIds.length >= current.compactedRunIds.length
-        ? event
-        : current,
-    undefined
-  );
+  return compactions.at(-1);
 }
 
 /** Where the committed `context.compacted` events of `branch` cut it. */

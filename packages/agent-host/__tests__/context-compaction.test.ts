@@ -760,7 +760,8 @@ describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
     expect(compactionCuts(rows, new Set(['run-0', 'run-1', 'run-2'])).runs).toEqual(
       new Set(['run-0'])
     );
-    expect(compactionCuts(rows, new Set(['run-0', 'run-1', 'run-9'])).runs).toEqual(
+    // The sibling's compaction reaches the branch that holds the run that made it.
+    expect(compactionCuts(rows, new Set(['run-0', 'run-1', 'run-9', 'run-10'])).runs).toEqual(
       new Set(['run-0', 'run-1', 'run-9'])
     );
   });
@@ -913,17 +914,34 @@ describe('a thread carries one current summary (BST-2527)', () => {
     expect(past.committed.map((event) => event.compactedRunIds)).toEqual([sixRuns.slice(0, 4)]);
   });
 
-  it('reads the compaction that covers the most of its branch, though a newer one covers less', async () => {
-    // A sibling branch later compacted run-0, which this branch also holds.
-    const own = compaction('run-4', ['run-0', 'run-1', 'run-2'], 'Goal: this branch.');
-    const sibling = compaction('run-y', ['run-0'], 'Goal: the first turn only.');
-    const { prepared } = await pastTrigger({
+  /** This branch's request, below its trigger, with `own` and a later compaction a sibling's run made. */
+  const besideSibling = (own: Compacted, sibling: Compacted) =>
+    pastTrigger({
       chain: chain(5),
       compactions: [own, sibling],
       inputTokenLimit: 20_000,
       messages: turns(5, 10),
     });
+
+  it.each([
+    ['fewer of', ['run-0']],
+    ['the same of', ['run-0', 'run-1', 'run-2']],
+  ])(
+    'reads its own summary when a sibling branch later compacted %s their shared turns',
+    async (_, shared) => {
+      const own = compaction('run-4', ['run-0', 'run-1', 'run-2'], 'Goal: this branch.');
+      const sibling = compaction('run-y', shared, 'Goal: the sibling branch.');
+      const { prepared } = await besideSibling(own, sibling);
+      expect(prepared.note).toBe('[Earlier conversation compacted]\nGoal: this branch.');
+      expect(prepared.messages[0]).toEqual({ content: 'question 3', role: 'user' });
+    }
+  );
+
+  it('keeps the shared turns a sibling branch compacted and this branch did not', async () => {
+    const own = compaction('run-4', ['run-0'], 'Goal: this branch.');
+    const sibling = compaction('run-y', ['run-0', 'run-1', 'run-2'], 'Goal: the sibling branch.');
+    const { prepared } = await besideSibling(own, sibling);
     expect(prepared.note).toBe('[Earlier conversation compacted]\nGoal: this branch.');
-    expect(prepared.messages[0]).toEqual({ content: 'question 3', role: 'user' });
+    expect(prepared.messages[0]).toEqual({ content: 'question 1', role: 'user' });
   });
 });
