@@ -9,7 +9,7 @@ import {
 } from '@assistant-ui/react';
 import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { cleanup, render, renderHook, screen } from '@testing-library/react';
 import { memo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CommittedAssistantConversation } from '../committed-assistant-conversation';
@@ -18,7 +18,6 @@ import {
   selectCommittedAssistantMessage,
   selectCommittedAssistantTool,
 } from '../committed-assistant-store';
-import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { ToolFallback } from '../tool-fallback';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import {
@@ -249,166 +248,6 @@ describe('production external store binding', () => {
     expect(setMessages).toHaveBeenCalledTimes(2);
     expect(runtime.thread.export().headId).toBe(other.id);
     expect(source.getSnapshot().repository).toBe(repository);
-  });
-
-  it('shows a withheld observational memory reason in the committed thread meter', async () => {
-    const source = new PublishedConversation('root', [viewMessage('answer', 'Answer')]);
-    source.publish({ observationWithheld: 'branched-thread' });
-    render(
-      <TooltipProvider>
-        <CommittedAssistantConversation
-          commands={{ onNew: vi.fn() }}
-          contextWindow={128_000}
-          effectiveInputBudget={100_000}
-          label="Conversation"
-          store={source}
-        />
-      </TooltipProvider>
-    );
-    fireEvent.click(await screen.findByTestId('context-usage-trigger'));
-    expect(await screen.findByTestId('context-usage-om-note')).toHaveTextContent(
-      /paused.*branches/iu
-    );
-  });
-
-  it('shows a compaction that fell back as the compaction card in the committed thread', async () => {
-    const summary =
-      'Deterministic fallback: dropped 3 earlier turns (6 messages) after an agentic summarizer failure; no summarization model ran.';
-    const source = new PublishedConversation('root', [
-      viewMessage('answer', [
-        {
-          data: { kind: 'deterministic', reason: 'pre-request', summary, turnsCompacted: 3 },
-          name: HOST_CONTEXT_COMPACTED_DATA_NAME,
-          type: 'data',
-        },
-        { text: 'Answer', type: 'text' },
-      ]),
-    ]);
-    render(
-      <TooltipProvider>
-        <CommittedAssistantConversation
-          commands={{ onNew: vi.fn() }}
-          label="Conversation"
-          store={source}
-        />
-      </TooltipProvider>
-    );
-    const card = await screen.findByTestId('compaction-summary-card');
-    expect(card).toHaveAttribute('data-compaction-fallback', 'deterministic');
-    expect(card).toHaveTextContent('Deterministic compaction (no summarization model ran)');
-    expect(card).toHaveTextContent(summary);
-  });
-
-  it('shows why a compaction ran, the turns it compacted, and its summarizer’s model and usage', async () => {
-    const source = new PublishedConversation('root', [
-      viewMessage('overflow', [
-        {
-          data: {
-            kind: 'deterministic',
-            reason: 'context-overflow',
-            summary: 'Deterministic fallback: dropped 1 earlier turns.',
-            turnsCompacted: 1,
-          },
-          name: HOST_CONTEXT_COMPACTED_DATA_NAME,
-          type: 'data',
-        },
-        { text: 'Answer after compaction', type: 'text' },
-      ]),
-      viewMessage('budget', [
-        {
-          data: {
-            kind: 'agentic',
-            modelId: 'openai::gpt-6-sol',
-            reason: 'pre-request',
-            summary: '## Goal\nShip it.',
-            turnsCompacted: 3,
-            usage: { inputTokens: 12_400, outputTokens: 310 },
-          },
-          name: HOST_CONTEXT_COMPACTED_DATA_NAME,
-          type: 'data',
-        },
-        { text: 'Answer after summary', type: 'text' },
-      ]),
-      // The summarizer answered outside its schema: deterministic, with its receipt.
-      viewMessage('refused', [
-        {
-          data: {
-            kind: 'deterministic',
-            modelId: 'openai::gpt-6-sol',
-            reason: 'pre-request',
-            summary: 'Deterministic fallback: dropped 2 earlier turns.',
-            turnsCompacted: 2,
-            usage: { inputTokens: 900, outputTokens: 40 },
-          },
-          name: HOST_CONTEXT_COMPACTED_DATA_NAME,
-          type: 'data',
-        },
-        { text: 'Answer after fallback', type: 'text' },
-      ]),
-      // The summarizer's provider call failed: the fallback names its code and reference.
-      viewMessage('failed', [
-        {
-          data: {
-            kind: 'deterministic',
-            reason: 'pre-request',
-            summarizerFailure: {
-              code: 'provider.auth-failed',
-              correlationId: '0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11',
-            },
-            summary: 'Deterministic fallback: dropped 2 earlier turns.',
-            turnsCompacted: 2,
-          },
-          name: HOST_CONTEXT_COMPACTED_DATA_NAME,
-          type: 'data',
-        },
-        { text: 'Answer after failed summary', type: 'text' },
-      ]),
-    ]);
-    render(
-      <TooltipProvider>
-        <CommittedAssistantConversation
-          commands={{ onNew: vi.fn() }}
-          label="Conversation"
-          store={source}
-        />
-      </TooltipProvider>
-    );
-    const [overflow, budget, refused, failed] =
-      await screen.findAllByTestId('compaction-summary-card');
-    if (!(overflow && budget && refused && failed)) {
-      throw new Error('Expected four compaction cards');
-    }
-    expect(failed).toHaveTextContent('Deterministic compaction (the summarizer failed)');
-    expect(within(failed).getByTestId('compaction-summary-summarizer-failure')).toHaveTextContent(
-      'provider.auth-failed · Reference: 0b6a1f4e-6f1c-4d4b-9a51-2f0f6e0b9c11'
-    );
-    expect(
-      within(overflow).queryByTestId('compaction-summary-summarizer-failure')
-    ).not.toBeInTheDocument();
-    expect(overflow).toHaveTextContent('Deterministic compaction (no summarization model ran)');
-    expect(refused).toHaveTextContent(
-      'Deterministic compaction (the summarizer’s answer did not match the required format)'
-    );
-    expect(within(refused).getByTestId('compaction-summary-usage')).toHaveTextContent(
-      '900 in · 40 out'
-    );
-    expect(within(overflow).getByTestId('compaction-summary-reason')).toHaveTextContent(
-      'After the provider reported a context overflow'
-    );
-    expect(within(overflow).getByTestId('compaction-summary-turns')).toHaveTextContent('1 turn');
-    // No summarizer ran: no model or usage is claimed.
-    expect(within(overflow).queryByTestId('compaction-summary-model')).not.toBeInTheDocument();
-    expect(within(overflow).queryByTestId('compaction-summary-usage')).not.toBeInTheDocument();
-    expect(within(budget).getByTestId('compaction-summary-reason')).toHaveTextContent(
-      'Before the request, to keep it inside the context budget'
-    );
-    expect(within(budget).getByTestId('compaction-summary-turns')).toHaveTextContent('3 turns');
-    expect(within(budget).getByTestId('compaction-summary-model')).toHaveTextContent(
-      'openai::gpt-6-sol'
-    );
-    expect(within(budget).getByTestId('compaction-summary-usage')).toHaveTextContent(
-      '12,400 in · 310 out'
-    );
   });
 
   it('observes asynchronous tool-resume failures without changing a pending interaction', async () => {

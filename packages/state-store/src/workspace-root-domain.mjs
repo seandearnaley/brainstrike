@@ -528,14 +528,30 @@ function refuseRepositoryPath(db, canonicalPath, paths) {
 
 /**
  * The projects kept for `canonicalPaths` (ADR-0034 build decisions, BST-2520): a read for the
- * host's worktree listing, which never makes a project. A state DB that opened damaged from
- * before projects, or before their names, answers none, or none named.
+ * host's worktree listing.
  * @param {import('better-sqlite3').Database} db
  * @param {readonly string[]} canonicalPaths
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
  */
 function repositoryProjects(db, canonicalPaths) {
-  if (canonicalPaths.length === 0 || !hasTable(db, 'project_folders')) {
+  return canonicalPaths.length === 0
+    ? { projects: [], roots: [] }
+    : projectFolders(db, 'folder.canonical_path IN (SELECT value FROM json_each(?))', [
+        JSON.stringify(canonicalPaths),
+      ]);
+}
+
+/**
+ * The project folders `where` selects, each with its project, by canonical path. A read that
+ * never makes a project; a state DB that opened damaged from before projects, or before their
+ * names, answers none, or none named.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} where
+ * @param {readonly unknown[]} values
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function projectFolders(db, where, values) {
+  if (!hasTable(db, 'project_folders')) {
     return { projects: [], roots: [] };
   }
   const name = hasColumn(db, 'projects', 'name') ? 'project.name' : 'NULL';
@@ -545,10 +561,10 @@ function repositoryProjects(db, canonicalPaths) {
         .prepare(
           `SELECT folder.canonical_path AS canonicalPath, project.id AS id, ${name} AS name
           FROM project_folders AS folder JOIN projects AS project ON project.id = folder.project_id
-          WHERE folder.canonical_path IN (SELECT value FROM json_each(?))
+          WHERE ${where}
           ORDER BY folder.canonical_path`
         )
-        .all(JSON.stringify(canonicalPaths))
+        .all(...values)
     ),
     roots: [],
   };
@@ -557,11 +573,13 @@ function repositoryProjects(db, canonicalPaths) {
 /**
  * Moves the folder at `canonicalPath` from the project `leftProjectId` into `projectId`, and
  * deletes the project it left once no folder is in it. Nothing else is written: a folder's trust
- * and its approved hooks stay keyed by its own path.
+ * and its approved hooks stay keyed by its own path. Answers the projects it deleted, so the host
+ * retires what it keeps for them (ADR-0040: a project's memory).
  * @param {import('better-sqlite3').Database} db
  * @param {string} canonicalPath
  * @param {string | null} leftProjectId
  * @param {string} projectId
+ * @returns {string[]}
  */
 function moveFolderToProject(db, canonicalPath, leftProjectId, projectId) {
   db.prepare(`INSERT INTO project_folders (canonical_path, project_id) VALUES (?, ?)
@@ -570,12 +588,13 @@ function moveFolderToProject(db, canonicalPath, leftProjectId, projectId) {
     projectId
   );
   if (leftProjectId !== null && leftProjectId !== projectId) {
-    db.prepare(`DELETE FROM projects WHERE id = ?
-      AND NOT EXISTS (SELECT 1 FROM project_folders WHERE project_id = ?)`).run(
-      leftProjectId,
-      leftProjectId
-    );
+    const deleted = db
+      .prepare(`DELETE FROM projects WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM project_folders WHERE project_id = ?)`)
+      .run(leftProjectId, leftProjectId);
+    return deleted.changes > 0 ? [leftProjectId] : [];
   }
+  return [];
 }
 
 /**
@@ -634,8 +653,9 @@ function joinRepositoryProject(db, projection, { canonicalPath, projectId }, pat
         .pluck()
         .get(canonicalPath)
     );
-    moveFolderToProject(db, canonicalPath, left ?? null, projectId);
+    const deletedProjectIds = moveFolderToProject(db, canonicalPath, left ?? null, projectId);
     return {
+      deletedProjectIds,
       roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
         db
           .prepare(`SELECT ${projection} FROM roots WHERE canonical_path = ? AND kind = 'path'`)
@@ -680,8 +700,14 @@ function joinProject(db, projection, { projectId, rootId }) {
     if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
       throw unknownProject();
     }
-    moveFolderToProject(db, root.canonicalPath, root.projectId, projectId);
+    const deletedProjectIds = moveFolderToProject(
+      db,
+      root.canonicalPath,
+      root.projectId,
+      projectId
+    );
     return {
+      deletedProjectIds,
       roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
         select.all(rootId)
       ),
@@ -784,6 +810,9 @@ export function executeWorkspaceRootRequest(db, request, paths) {
   }
   if (request.operation === 'repository-projects') {
     return repositoryProjects(db, request.canonicalPaths);
+  }
+  if (request.operation === 'project-folders') {
+    return projectFolders(db, 'project.id = ?', [request.projectId]);
   }
   const projection = rootProjection(db);
   switch (request.operation) {

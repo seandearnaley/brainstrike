@@ -30,6 +30,11 @@ import {
   CHATGPT_SIGN_IN_RESULT_SCHEMAS,
 } from './protocol-chatgpt-sign-in.ts';
 import {
+  COMPACTION_METHOD_SCHEMAS,
+  COMPACTION_RESULT_SCHEMAS,
+  hostContextCompactedSchema,
+} from './protocol-context-compaction.ts';
+import {
   HostChildDeliverySchema,
   HostNoticeSchema,
   HostStepDeliverySchema,
@@ -50,16 +55,15 @@ import {
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.ts';
 import {
-  HostMemoryCycleEventSchema,
-  HostMemoryModelsSchema,
-  HostObservationalMemoryStateSchema,
-  hostUsageEventSchemas,
-} from './protocol-memory.ts';
-import {
   HostBrowserOriginSchema,
   PERMISSION_POLICY_METHOD_SCHEMAS,
   PERMISSION_POLICY_RESULT_SCHEMAS,
 } from './protocol-permission-policy.ts';
+import {
+  PROJECT_MEMORY_EVENT_SCHEMAS,
+  PROJECT_MEMORY_METHOD_SCHEMAS,
+  PROJECT_MEMORY_RESULT_SCHEMAS,
+} from './protocol-project-memory.ts';
 import {
   REWIND_EVENT_SCHEMAS,
   REWIND_METHOD_SCHEMAS,
@@ -114,8 +118,8 @@ export * from './protocol-hook-trust.ts';
 export * from './protocol-mcp-content.ts';
 export * from './protocol-mcp-presentation.ts';
 export * from './protocol-mcp-settings.ts';
-export * from './protocol-memory.ts';
 export * from './protocol-permission-policy.ts';
+export * from './protocol-project-memory.ts';
 export * from './protocol-rewind.ts';
 export * from './protocol-search.ts';
 export * from './protocol-selection.ts';
@@ -322,12 +326,14 @@ const Provider = { provider: Id };
 export const HOST_METHOD_SCHEMAS = {
   ...CANVAS_METHOD_SCHEMAS,
   ...CHATGPT_SIGN_IN_METHOD_SCHEMAS,
+  ...COMPACTION_METHOD_SCHEMAS,
   ...GIT_WORKSPACE_METHOD_SCHEMAS,
   ...HOOK_TRUST_METHOD_SCHEMAS,
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
   ...PERMISSION_POLICY_METHOD_SCHEMAS,
+  ...PROJECT_MEMORY_METHOD_SCHEMAS,
   ...TERMINAL_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
@@ -451,16 +457,6 @@ export const HOST_METHOD_SCHEMAS = {
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': Schema.Struct(Thread),
   'thread/list': Schema.Record(Schema.String, Schema.Never),
-  /**
-   * Memory readiness for the thread's next run: the admission `run/start`
-   * makes with these fields, released at once. Nothing is committed.
-   */
-  'thread/memory/read': Schema.Struct({
-    ...Thread,
-    configuration: Schema.optional(Schema.Record(Schema.String, Schema.MutableJson)),
-    modelId: Id,
-    ...PlanMode,
-  }),
   'thread/read': Schema.Struct({ ...Thread, fromSeq: Seq }),
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
@@ -601,6 +597,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
   return Schema.Union(
     [
       ...THREAD_WORKSPACE_EVENT_SCHEMAS,
+      ...PROJECT_MEMORY_EVENT_SCHEMAS,
       Schema.Struct({
         ...McpOrigin,
         handle: McpTaskHandleSchema,
@@ -692,17 +689,17 @@ export function hostEventSchema(json: JsonSchemaFactory) {
         delivery: Schema.optional(HostStepDeliverySchema),
         messages: Schema.mutable(Schema.Array(json())),
       }),
-      ...hostUsageEventSchemas(json),
-      HostMemoryCycleEventSchema,
+      /**
+       * A run's model calls outside its steps, each costed under the model it
+       * ran on: the run's thread title, Auto-reviews and a requested
+       * compaction's summary that was refused (BST-2536).
+       */
       Schema.Struct({
-        type: Schema.Literal('memory.observation.withheld'),
+        type: Schema.Literal('model.usage'),
         ...RunFields,
-        reason: Schema.Literal('branched-thread'),
-      }),
-      Schema.Struct({
-        type: Schema.Literal('memory.settlement.failed'),
-        ...RunFields,
-        detail: Schema.String.check(Schema.isMinCodePoints(1)),
+        kind: Schema.Literals(['thread-title', 'auto-review', 'compaction-summary']),
+        modelId: Id,
+        usage: json(),
       }),
       Schema.Struct({
         type: Schema.Literal('provider.request.prepared'),
@@ -797,26 +794,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
           )
         ).check(Schema.isMinLength(1)),
       }),
-      Schema.Struct({
-        type: Schema.Literal('context.compacted'),
-        ...RunFields,
-        compactedRunIds: Schema.mutable(Schema.Array(Id)).check(Schema.isMinLength(1)),
-        kind: Schema.Literals(['agentic', 'deterministic']),
-        modelId: Schema.optional(Id),
-        reason: Schema.Literals(['pre-request', 'context-overflow']),
-        /**
-         * A deterministic fallback's reason: the agentic summarizer's typed
-         * failure code, and the reference its cause is logged under (BST-2204).
-         */
-        summarizerFailure: Schema.optional(
-          Schema.Struct({
-            code: Id,
-            correlationId: Schema.optional(Schema.String.check(Schema.isUUID())),
-          })
-        ),
-        summary: Schema.String.check(Schema.isMinCodePoints(1)),
-        usage: Schema.optional(json()),
-      }),
+      hostContextCompactedSchema(json),
       Schema.Struct({
         type: Schema.Literal('workspace.edit.recorded'),
         ...RunFields,
@@ -944,12 +922,14 @@ export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
   ...CANVAS_RESULT_SCHEMAS,
   ...CHATGPT_SIGN_IN_RESULT_SCHEMAS,
+  ...COMPACTION_RESULT_SCHEMAS,
   ...GIT_WORKSPACE_RESULT_SCHEMAS,
   ...HOOK_TRUST_RESULT_SCHEMAS,
   ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   ...PERMISSION_POLICY_RESULT_SCHEMAS,
+  ...PROJECT_MEMORY_RESULT_SCHEMAS,
   ...TERMINAL_RESULT_SCHEMAS,
   'auth/credential/delete': Schema.Struct({ deleted: Schema.Boolean }),
   'auth/credential/set': Schema.Struct({ stored: Schema.Literal(true) }),
@@ -1049,20 +1029,6 @@ export const HOST_RESULT_SCHEMAS = {
       )
     ),
   }),
-  // Not ready: the reason `run/start` would fail with; the observation needs an admission.
-  'thread/memory/read': Schema.Union([
-    Schema.Struct({
-      admission: Schema.Struct({ ready: Schema.Literal(true) }),
-      models: Schema.optional(HostMemoryModelsSchema),
-      observational: HostObservationalMemoryStateSchema,
-    }),
-    Schema.Struct({
-      admission: Schema.Struct({
-        ready: Schema.Literal(false),
-        reason: Schema.String.check(Schema.isMinCodePoints(1)),
-      }),
-    }),
-  ]),
   'thread/read': Schema.Struct({ rows: Schema.mutable(Schema.Array(HostLogRowSchema)) }),
   'thread/tree': Schema.Struct({
     /** Every thread delegated beneath it, each parent before its children. */

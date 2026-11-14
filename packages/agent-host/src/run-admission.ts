@@ -1,7 +1,6 @@
 import { modelStepFields } from '@brainstrike/agent/provider-runtime';
 import { resolveRunPythonExecutionContext } from '@brainstrike/agent/tool-runtime';
 import {
-  type BoundaryFailure,
   intersectChildPermissionCeilings,
   isPermissionDenied,
   NATIVE_TOOL_ID,
@@ -12,7 +11,7 @@ import {
   type ToolRiskCategory,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import type { StepResult, ToolSet } from 'ai';
+import type { LanguageModel, StepResult, ToolSet } from 'ai';
 import { Schema } from 'effect';
 import { leaseHostAdmission } from './admission-lease.ts';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.ts';
@@ -28,7 +27,6 @@ import {
 } from './browser-origin-answers.ts';
 import { withHostDelegationTools } from './child-runs.ts';
 import {
-  createHostRunContext,
   type HostConsent,
   type HostRunState,
   type HostThreadGrants,
@@ -48,7 +46,6 @@ import type {
   HostRunAdmission,
   HostRunAdmissionRequest,
   HostRunIntentRequest,
-  HostRunOwner,
   HostTool,
 } from './ports.ts';
 import type { HostEvent } from './protocol.ts';
@@ -56,7 +53,7 @@ import { HostRunSnapshotSchema } from './protocol.ts';
 import { createHostSdkTools } from './sdk-tools.ts';
 import { settleHostToolOutputs } from './tool-artifacts.ts';
 import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.ts';
-/** Provider instructions and public Memory context share the same SDK system input. */
+/** Provider instructions and the host's context notes share the same SDK system input. */
 export function combineHostSystemContext(...context: readonly (string | undefined)[]): {
   readonly system?: string;
 } {
@@ -65,15 +62,16 @@ export function combineHostSystemContext(...context: readonly (string | undefine
 }
 export function prepareHostProviderStep(
   provider: HostPreparedModelRequest,
-  memorySystem: string | undefined,
-  owner: HostRunOwner | undefined,
+  hostSystem: string | undefined,
+  /** Encloses the model in the run's provider request boundary, when the run has one. */
+  boundary: ((model: LanguageModel) => LanguageModel) | undefined,
   hookContext?: string
 ): HostPreparedModelRequest {
   return {
     ...provider,
-    model: owner?.prepareHostModel?.(provider.model) ?? provider.model,
+    model: boundary?.(provider.model) ?? provider.model,
     // A UserPromptSubmit hook's context joins the run's instructions.
-    ...combineHostSystemContext(provider.system, memorySystem, hookContext),
+    ...combineHostSystemContext(provider.system, hostSystem, hookContext),
   };
 }
 /** Distinguish rejected selection from a resource owner that failed to join. */
@@ -81,31 +79,6 @@ export class HostRunAdmissionCleanupError extends AggregateError {
   constructor(cause: unknown, cleanup: unknown) {
     super([cause, cleanup], 'Run selection and cleanup failed');
     this.name = 'HostRunAdmissionCleanupError';
-  }
-}
-/**
- * A run owner joined all of its work, and these failures are the run's outcome.
- * Only this releases a run whose owner close rejected; any other rejection is
- * opaque and keeps the run, its writer and Root owned.
- */
-export class HostRunOwnerFailure extends AggregateError {
-  readonly failure: BoundaryFailure | undefined;
-
-  /**
-   * @param failure - The outcome's typed failure, when its owner typed it
-   *   (BST-2202); the joined failures stay the logged cause.
-   */
-  constructor(failures: readonly unknown[], message: string, failure?: BoundaryFailure) {
-    super(failures, message);
-    this.failure = failure;
-    this.name = 'HostRunOwnerFailure';
-  }
-}
-/** A run owner's open acquired resources and then failed to join them. */
-export class HostRunOwnerCleanupError extends AggregateError {
-  constructor(cause: unknown, cleanup: unknown, message = 'Run owner open and cleanup failed') {
-    super([cause, cleanup], message);
-    this.name = 'HostRunOwnerCleanupError';
   }
 }
 /** Copy data records; credentials/functions and native capabilities stay process-local. */
@@ -321,117 +294,18 @@ async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown
   }
   throw cause;
 }
-/**
- * The run's owner (its public Memory), opened once over its admission. A run
- * whose owner close has begun is never reopened: Core releases a joined owner.
- */
-export function openHostRunOwner(
-  platform: HostPlatform,
-  run: HostRunState,
-  sources: {
-    /** Core's sole writer, for the run's receipts. */
-    readonly append: Parameters<typeof createHostRunContext>[1];
-    readonly readCommittedRows: Parameters<typeof createHostRunContext>[2];
-  }
-): Promise<HostRunOwner | undefined> {
-  if (run.ownerClose !== undefined) {
-    return Promise.reject(new Error('The run owner is already closed'));
-  }
-  run.owner ??= ensureHostRunAdmission(platform, run).then((admission) => {
-    const open = admission.openRun ?? platform.openRun?.bind(platform);
-    return open?.({
-      ...createHostRunContext(run, sources.append, sources.readCommittedRows),
-      ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
-    });
-  });
-  return run.owner;
-}
-/**
- * The owner's work joined before the run's end. Only an owner with a
- * foreground phase (`endTurn`) settles the rest after it; any other owner, a
- * failed open and a run without one join whole first, as every run did.
- */
-export async function endHostRunTurn(
-  run: HostRunState,
-  closeOwner: (run: HostRunState) => Promise<void>
-): Promise<void> {
-  let owner: HostRunOwner | undefined;
-  try {
-    owner = await run.owner;
-  } catch {
-    return closeOwner(run);
-  }
-  if (!owner?.endTurn) {
-    return closeOwner(run);
-  }
-  try {
-    await owner.endTurn();
-  } catch (cause) {
-    if (!(cause instanceof HostRunOwnerFailure)) {
-      throw cause;
+/** The Core retains this promise: the run's admission closes once, after its last holder. */
+export async function closeHostRunResources(run: HostRunState): Promise<void> {
+  await Promise.resolve(run.admissionTask ?? run.admission).then(
+    (admission) => admission?.close?.(),
+    (cause: unknown) => {
+      // A rejected selection has already joined its acquired resources.
+      if (cause instanceof HostRunAdmissionCleanupError) {
+        throw cause;
+      }
     }
-    run.ownerFailure ??= cause;
-  }
-}
-/**
- * The Core retains this promise; both owners are attempted even when one join
- * fails. A joined failure after `run.finished` is the settlement's own fact.
- */
-export async function closeHostRunResources(
-  run: HostRunState,
-  reportSettlementFailure: (failure: HostRunOwnerFailure) => Promise<void>
-): Promise<void> {
-  const joined = await Promise.allSettled([
-    Promise.resolve(run.owner).then(
-      async (owner) => {
-        try {
-          await owner?.close();
-        } catch (cause) {
-          // A joined failure (a failed memory step) is the run's outcome and
-          // releases it; any other rejection keeps the run owned.
-          if (!(cause instanceof HostRunOwnerFailure)) {
-            throw cause;
-          }
-          if (run.terminal) {
-            await reportSettlementFailure(cause);
-          } else {
-            run.ownerFailure ??= cause;
-          }
-        }
-      },
-      (cause: unknown) => {
-        // A failed or aborted open has nothing to close, and its failure is
-        // already the run's outcome. Only an unjoined partial acquisition is a
-        // cleanup failure; an admission's own failure stays with that branch.
-        if (cause instanceof HostRunOwnerCleanupError) {
-          throw cause;
-        }
-      }
-    ),
-    Promise.resolve(run.admissionTask ?? run.admission).then(
-      (admission) => admission?.close?.(),
-      (cause: unknown) => {
-        // A rejected selection has already joined its acquired resources.
-        if (cause instanceof HostRunAdmissionCleanupError) {
-          throw cause;
-        }
-      }
-    ),
-  ]);
-  const failures = joined.filter((result) => result.status === 'rejected');
-  if (failures.length === 1) {
-    throw failures[0]?.reason;
-  }
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures.map((result) => result.reason),
-      'Run resource cleanup failed'
-    );
-  }
-  // Core keeps every run of the process; a joined owner (public Memory, its
-  // observational memory and their WebAssembly hashers) must not outlive it.
-  run.owner = undefined;
-  run.ownerJoined = true;
+  );
+  run.resourcesJoined = true;
   releaseSettledRunAdmission(run);
 }
 /**

@@ -175,9 +175,8 @@ export interface RecordRunUsageInput {
   readonly runId: string;
   /**
    * Which kind of model call produced this row (BST-953). Defaults to 'chat'
-   * (the parent assistant turn); child rows ('subagent', 'om-observation',
-   * 'om-reflection') carry the parent run's id so the Task Ledger's per-run
-   * totals include them.
+   * (the parent assistant turn); child rows (such as 'subagent') carry the
+   * parent run's id so the Task Ledger's per-run totals include them.
    */
   readonly runKind?: AssistantRunUsageKind;
   readonly threadId: string;

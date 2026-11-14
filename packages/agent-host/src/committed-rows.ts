@@ -4,8 +4,9 @@ import type { HostLogRow } from './protocol.ts';
 /**
  * Each thread's committed rows that the hydration read keeps, as Core decoded
  * them at hydration and at commit, so both paths hold the same rows. A run's
- * Memory reads its resource's history here and never scans and re-decodes the
- * whole store; the streamed text deltas left out are the thread view's alone.
+ * provider request reads its thread's history here and never scans and
+ * re-decodes the whole store; the streamed text deltas left out are the thread
+ * view's alone.
  * Derived from the log only.
  */
 export class HostCommittedRows {

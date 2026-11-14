@@ -8,7 +8,6 @@ import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   encodeFileMentionId,
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
@@ -52,11 +51,11 @@ import {
 } from './helpers/retire-owned-test-processes';
 
 const desktop = resolve(import.meta.dirname, '../..');
-// A send's admission (MCP discovery, memory resolution) and each model step
+// A send's admission (MCP discovery) and each model step
 // take seconds, not expect.poll's one-second default.
 const RUN_PROGRESS_POLL = { timeout: 30_000 } as const;
 // The meter leads with the thread's committed total; context occupancy moves to the ring.
-const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% of input budget$/u;
+const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% to compaction$/u;
 
 /**
  * The host pids of the command started in `workspace`. On Linux the OS sandbox
@@ -88,11 +87,7 @@ async function commandHostPids(
   return pids;
 }
 
-export type OrdinaryAppOwnedHostFault =
-  | 'human-interactions'
-  | 'normal'
-  | 'normal-om'
-  | 'utility-loss';
+export type OrdinaryAppOwnedHostFault = 'human-interactions' | 'normal' | 'utility-loss';
 
 export function testOrdinaryAppOwnedHost(fault: OrdinaryAppOwnedHostFault): void {
   test(`ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen (${fault})`, {
@@ -123,25 +118,12 @@ setInterval(() => {}, 1000);
     );
     const fixture = await startStatefulMcpHostServer();
     const providerRequests: ModelProviderRequest[] = [];
-    const observerRequests: ModelProviderRequest[] = [];
-    const withObserver =
+    const withTitle =
       (
         select: (request: ModelProviderRequest) => ModelProviderScript
       ): ((request: ModelProviderRequest) => ModelProviderScript) =>
       (request) => {
-        if (
-          // The recorded provider request resolves the saved catalog alias
-          // to this dated model ID before dispatch.
-          z.object({ model: z.literal('qwen/qwen3.8-max-0902') }).safeParse(request.requestBody)
-            .success
-        ) {
-          observerRequests.push(request);
-          return {
-            finalText:
-              '<observations>\n- The user requested an owned workspace operation.\n</observations>',
-          };
-        }
-        // Distinguish the tool-free title after the Qwen observer above.
+        // The thread's title is its one tool-free request.
         if (request.toolNames.length === 0) {
           return { finalText: 'Owned workspace task' };
         }
@@ -149,7 +131,7 @@ setInterval(() => {}, 1000);
       };
     let workspaceRootId: string | undefined;
     const model = await startModelProviderShim(
-      withObserver((request) => {
+      withTitle((request) => {
         providerRequests.push(request);
         // Hosted discovery defers the configured MCP probe and the context reader.
         const [mcp] = createSanitizedToolNameMap(['owned-mcp.host_lifecycle_probe']).keys();
@@ -273,7 +255,7 @@ setInterval(() => {}, 1000);
       await ensureAssistantShellVisible(page);
       await page.getByRole('textbox', { name: 'Message input' }).waitFor();
       await page.evaluate(
-        async ({ memory, version }) => {
+        async ({ version }) => {
           if (!window.modelCatalog) {
             throw new Error('The normal desktop model catalog bridge is missing');
           }
@@ -288,9 +270,7 @@ setInterval(() => {}, 1000);
                     agentInputTokenLimit: 24_000,
                     agentMaxSteps: 8,
                     maxOutputTokens: 900,
-                    memoryLastMessages: 7,
                     temperature: 0.2,
-                    workingMemoryEnabled: true,
                   },
                 },
                 selectedModel: 'openrouter::anthropic/claude-sonnet-4.6',
@@ -298,32 +278,8 @@ setInterval(() => {}, 1000);
               version,
             })
           );
-          window.localStorage.setItem(
-            'brainstrike:assistant-memory-preferences.v1',
-            JSON.stringify({
-              state: {
-                ...memory,
-                observationalMemory: { ...memory.observationalMemory },
-              },
-              version: 2,
-            })
-          );
         },
-        {
-          memory: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-            observationalMemory: {
-              ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-              enabled: fault === 'normal-om',
-              messageTokens: 30,
-              modelTarget: 'openrouter/qwen/qwen3.8-max',
-              observationTokens: 50_000,
-              retrievalMode: 'off',
-              scope: 'thread',
-            },
-          },
-          version: ASSISTANT_PREFERENCES_STORE_VERSION,
-        }
+        { version: ASSISTANT_PREFERENCES_STORE_VERSION }
       );
       await page.reload();
       await ensureAssistantShellVisible(page);
@@ -473,14 +429,6 @@ setInterval(() => {}, 1000);
       expect(JSON.stringify(system)).toContain('M3 activated skill sentinel 8521.');
       expect(providerRequests[0]?.toolNames).toContain('skill');
       expect(started.snapshot?.configuration['system']).toBeTypeOf('string');
-      if (fault === 'normal-om') {
-        expect(observerRequests.length).toBeGreaterThan(0);
-        expect(
-          committed.some(
-            ({ event }) => event.type === 'memory.usage' && event.kind === 'observation'
-          )
-        ).toBe(true);
-      }
       await expect
         .poll(async () => panel.getByTestId('context-usage-trigger').getAttribute('aria-label'))
         .toMatch(THREAD_USAGE_LABEL);
@@ -574,7 +522,7 @@ setInterval(() => {}, 1000);
         checkpoint('ordinary-canonical-question-plan-answered-after-reload');
       }
       model.setScript(
-        withObserver((request) => {
+        withTitle((request) => {
           providerRequests.push(request);
           return {
             finalText: 'The denied file was not written.',
@@ -616,7 +564,7 @@ setInterval(() => {}, 1000);
       checkpoint('ordinary-denied-effect-refused');
 
       model.setScript(
-        withObserver((request) => {
+        withTitle((request) => {
           providerRequests.push(request);
           return {
             finalText: 'The owned command completed.',

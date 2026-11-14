@@ -2604,6 +2604,11 @@ describe('ThreadsPanel folders', () => {
           }
         }),
         locate: vi.fn<AssistantHostProjects['locate']>(async () => null),
+        memory: vi.fn<AssistantHostProjects['memory']>(() => ({
+          delete: vi.fn(async () => undefined),
+          list: vi.fn(async () => []),
+          write: vi.fn(async () => Promise.reject(new Error('Nothing is written here'))),
+        })),
         rename: vi.fn<AssistantHostProjects['rename']>(async (project, name) => {
           const projectId = 'projectId' in project ? project.projectId : null;
           for (const row of rootRows.filter((candidate) => candidate['projectId'] === projectId)) {
@@ -2718,6 +2723,43 @@ describe('ThreadsPanel folders', () => {
       expect(
         within(headers()[0] as HTMLElement).getByTestId('thread-folder-count')
       ).toHaveTextContent('2');
+    });
+
+    // BST-2534: a project's Memory opens from its section's menu, with that project's notes.
+    it("opens a project's Memory from its section's menu, and Escape gives focus back to the menu", async () => {
+      bindThreadToRoot('thread-a');
+      bindThreadToRoot('thread-b', OTHER_ROOT);
+      const list = vi.fn(async () => [
+        {
+          modifiedAt: Date.parse('2026-11-14T12:00:00.000Z'),
+          path: '/memories/test-runtime.md',
+          text: '# Test runtime\nThe tests need Node 26.\n',
+          title: 'Test runtime',
+          untrusted: false,
+        },
+      ]);
+      const memory = vi.fn<AssistantHostProjects['memory']>(() => ({
+        delete: vi.fn(),
+        list,
+        write: vi.fn(),
+      }));
+      const { host } = hostWithProjects({ memory });
+      await showProjects(host);
+
+      await openProjectActions('workspace-b');
+      fireEvent.click(await screen.findByRole('button', { name: 'Memory' }));
+
+      const panel = await screen.findByRole('dialog', { name: 'workspace-b · Memory' });
+      expect(memory).toHaveBeenCalledWith('project-workspace-b');
+      expect(await within(panel).findByRole('option', { name: /Test runtime/u })).toBeVisible();
+      expect(within(panel).getByRole('textbox', { name: 'Note' })).toHaveValue(
+        '# Test runtime\nThe tests need Node 26.\n'
+      );
+      fireEvent.keyDown(within(panel).getByRole('textbox', { name: 'Note' }), { key: 'Escape' });
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
+      expect(screen.getByRole('button', { name: 'Project actions workspace-b' })).toHaveFocus();
     });
 
     // ADR-0034 build decisions (BST-2511, BST-2520): a repository found inside an open folder has no

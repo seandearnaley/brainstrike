@@ -125,6 +125,8 @@ export function getGoogleThinkingLevels(
 }
 
 export interface AssistantProviderSettings {
+  /** The request size at which a thread compacts (BST-2539); unset is the 200,000-token default. */
+  agentCompactionTokenCap?: number;
   /** Optional hard cap for request input tokens. Values are normalized to positive integers at runtime. */
   agentInputTokenLimit?: number;
   /** Optional Mastra agent loop step cap. Values are normalized to positive integers at runtime. */
@@ -145,7 +147,6 @@ export interface AssistantProviderSettings {
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
   maxOutputTokens?: number;
-  memoryLastMessages?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
   /**
@@ -164,10 +165,10 @@ export interface AssistantProviderSettings {
    * escape hatches and win when explicitly set.
    */
   reasoningVisible?: boolean;
-  workingMemoryEnabled?: boolean;
 }
 
 export const assistantProviderSettingKeys = [
+  'agentCompactionTokenCap',
   'agentInputTokenLimit',
   'agentMaxSteps',
   'anthropicEffort',
@@ -176,11 +177,9 @@ export const assistantProviderSettingKeys = [
   'googleIncludeThoughts',
   'googleThinkingLevel',
   'maxOutputTokens',
-  'memoryLastMessages',
   'reasoningEffort',
   'reasoningSummary',
   'reasoningVisible',
-  'workingMemoryEnabled',
 ] as const satisfies readonly (keyof AssistantProviderSettings)[];
 
 const assertNoMissingAssistantProviderSettingKeys = <_MissingKeys extends never>(): void =>

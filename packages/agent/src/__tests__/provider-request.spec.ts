@@ -514,6 +514,34 @@ describe('canonical provider request preparation', () => {
     ).rejects.toBeInstanceOf(ProviderRequestContextOverflowError);
   });
 
+  it('keeps the leading note its caller names, as it keeps the system text (BST-2532)', async () => {
+    const system = { content: 'instructions', role: 'system' as const };
+    const note = user('Earlier conversation, summarized.');
+    const latest = user('latest');
+    const prompt = [
+      system,
+      note,
+      user('a'.repeat(2400)),
+      { content: [{ text: 'old answer', type: 'text' as const }], role: 'assistant' as const },
+      latest,
+    ];
+    const kept = await prepare(prompt, { inputTokenLimit: 100, leadingNote: true });
+    expect(kept.params.prompt).toEqual([system, note, latest]);
+    // The note is never counted as left out.
+    expect(kept.accounting.removedMessages).toBe(2);
+    // Without a note, the same request trims as before: its first message goes too.
+    const plain = await prepare(prompt, { inputTokenLimit: 100 });
+    expect(plain.params.prompt).toEqual([system, latest]);
+    expect(plain.accounting.removedMessages).toBe(3);
+    // The note and the newest turn alone over the limit: the request is refused.
+    await expect(
+      prepare([system, user('n'.repeat(1000)), latest], {
+        inputTokenLimit: 100,
+        leadingNote: true,
+      })
+    ).rejects.toBeInstanceOf(ProviderRequestContextOverflowError);
+  });
+
   it('retains the selected settings over the request options', async () => {
     const params = {
       prompt: [user('start')],

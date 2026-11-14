@@ -362,7 +362,6 @@ export function bindHostConnection(
   handleCore('thread/tree', (params) => core.trees.read(params.threadId));
   handleCore('thread/delete', (params) => core.deleteThread(params));
   handleCore('thread/update', (params) => core.updateThread(params));
-  handleCore('thread/memory/read', (params) => core.readThreadMemory(params, origin));
   handleCore('thread/read', async (params) => ({
     rows: await core.published.read(params.threadId, params.fromSeq),
   }));
@@ -406,6 +405,8 @@ export function bindHostConnection(
   handleCore('run/input', (params) => core.input(params));
   handleCore('run/stop', (params) => core.stop(params));
   handleCore('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handleCore('memory/undo', (params) => core.undoMemoryChange(params));
+  handleCore('thread/compact', (params) => core.compactNow.compact(params, origin));
   handleCore('thread/rewind/preview', (params) => core.rewinds.preview(params));
   handleCore('thread/rewind', (params) => core.rewinds.rewind(params));
   handleCore('thread/rewind/redo', (params) => core.rewinds.redo(params));

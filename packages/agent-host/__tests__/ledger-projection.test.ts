@@ -134,16 +134,19 @@ test('a committed log folds into ledger runs and per-call usage', () => {
   });
 });
 test("a compaction summarizer's side call counts within its run and as a provider call", () => {
-  // Core commits it before the run's first request, in memory.usage's shape:
-  // the run's own model and the SDK totalUsage as reported.
+  // Core commits it before the run's first request: the run's own model and
+  // the SDK totalUsage as reported.
   const { runs, usage } = folded(
     insertAfterStart({
       compactedRunIds: [runId],
+      earlierRequests: [],
+      filesEdited: [],
       kind: 'agentic',
       modelId: MODEL,
       reason: 'pre-request',
       runId,
       summary: 'State: earlier turns were summarized.',
+      toolsLoaded: [],
       type: 'context.compacted',
       usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
     })
@@ -364,11 +367,14 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
     const { perModel } = folded(
       insertAfterStart({
         compactedRunIds: [runId],
+        earlierRequests: [],
+        filesEdited: [],
         kind: 'agentic',
         modelId: MODEL,
         reason: 'pre-request',
         runId,
         summary: 'State: earlier turns were summarized.',
+        toolsLoaded: [],
         type: 'context.compacted',
         usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
       })
@@ -377,33 +383,6 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
       { inputTokens: 42, outputTokens: 9, runKind: 'compaction-summary' },
       { inputTokens: 4, outputTokens: 100, runKind: 'chat' },
     ]);
-  });
-  test('observer usage under a catalog model is an observation source; any other id is not costed', () => {
-    const observation = {
-      kind: 'observation',
-      modelId: 'openrouter::google/gemini-2.5-flash',
-      runId,
-      type: 'memory.usage',
-      usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
-    };
-    // The memory provider reports the SDK model's own id, which names no provider.
-    const unattributed = { ...observation, kind: 'reflection', modelId: 'gemini-2.5-flash' };
-    const { perModel, runs } = folded(insertAfterStart(observation, unattributed));
-    expect(perModel).toMatchObject([
-      {
-        inputTokens: 300,
-        model: 'google/gemini-2.5-flash',
-        outputTokens: 40,
-        provider: 'openrouter',
-        runKind: 'om-observation',
-      },
-      { runKind: 'chat' },
-    ]);
-    // Both calls count within their run.
-    expect(runs.find((run) => run.runId === runId)).toMatchObject({
-      inputTokens: 602,
-      outputTokens: 130,
-    });
   });
 });
 describe("the Task Ledger's and cost views' share of a host run", () => {
@@ -541,62 +520,6 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       ['root-b', null],
     ]);
   });
-  test("an observer call costs under the catalog id it commits, not its run's resolved target", () => {
-    const costedSources = (modelId: string) => {
-      const at = rows.indexOf(first);
-      // The run still records the observer target its admission resolved.
-      const observing = Schema.decodeUnknownSync(HostLogRowSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })({
-        ...first,
-        event: {
-          ...first.event,
-          snapshot: {
-            configuration: {
-              memoryResolution: {
-                observationalMemory: 'resolved',
-                observerTarget: 'openai/gpt-4.1-mini',
-              },
-            },
-            maxSteps: 12,
-            toolIdentities: {},
-          },
-        },
-      });
-      const observation = {
-        kind: 'observation',
-        modelId,
-        runId,
-        type: 'memory.usage',
-        usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
-      };
-      return folded(
-        [
-          ...rows.slice(0, at),
-          observing,
-          { event: observation, seq: 0, threadId },
-          ...rows.slice(at + 1),
-        ].map((row, index) =>
-          Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
-            ...row,
-            seq: index + 1,
-            ts: BASE + (index + 1) * 1000,
-          })
-        )
-      ).perModel.map(({ model, provider, runKind }) => [provider, model, runKind]);
-    };
-    // Core commits the observer's catalog id (BST-1929).
-    expect(costedSources('openai::gpt-4.1-mini')).toEqual([
-      ['openai', 'gpt-4.1-mini', 'om-observation'],
-      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
-    ]);
-    // An SDK model id, as rows committed before BST-1929 carry, names no
-    // provider: it is not costed, though it matches the run's resolved target.
-    expect(costedSources('gpt-4.1-mini')).toEqual([
-      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
-    ]);
-  });
 });
 describe('each provider call is priced on its own', () => {
   // Claude Haiku 5.5 lists $0.10 input / $0.50 output per million tokens, with
@@ -606,10 +529,10 @@ describe('each provider call is priced on its own', () => {
     folded(
       insertAfterStart(
         ...usages.map((usage) => ({
-          kind: 'observation',
+          kind: 'auto-review',
           modelId: 'anthropic::claude-haiku-5-5',
           runId,
-          type: 'memory.usage',
+          type: 'model.usage',
           usage,
         }))
       )
@@ -618,7 +541,7 @@ describe('each provider call is priced on its own', () => {
     const call = { inputTokens: 60_000, outputTokens: 1000, totalTokens: 61_000 };
     const { perModel, runs, usage } = observed(call, call);
     // $0.0065 a call; pricing the 120,000-token sum as one request would read $0.065.
-    expect(perModel.find((entry) => entry.runKind === 'om-observation')).toMatchObject({
+    expect(perModel.find((entry) => entry.runKind === 'auto-review')).toMatchObject({
       estimatedCostUsd: expect.closeTo(0.013, 12),
       inputTokens: 120_000,
     });
@@ -626,7 +549,7 @@ describe('each provider call is priced on its own', () => {
       expect.closeTo(0.0065, 12),
       expect.closeTo(0.0065, 12),
     ]);
-    // The run's total prices its observer calls under the observer's model.
+    // The run's total prices its side calls under the model they ran on.
     expect(runs.find((run) => run.runId === runId)?.estimatedCostUsd).toBeCloseTo(
       0.013 + (2 * 3 + 50 * 15) / 1e6,
       12
@@ -644,7 +567,7 @@ describe('each provider call is priced on its own', () => {
       totalTokens: 61_000,
     });
     // $0.002 with the cache against $0.0065 without it.
-    expect(perModel.find((entry) => entry.runKind === 'om-observation')).toMatchObject({
+    expect(perModel.find((entry) => entry.runKind === 'auto-review')).toMatchObject({
       cacheSavingsUsd: expect.closeTo(0.0045, 12),
       estimatedCostUsd: expect.closeTo(0.002, 12),
     });
@@ -653,10 +576,10 @@ describe('each provider call is priced on its own', () => {
     // Gemini 4 Argon lists $2 input / $10 output per million tokens until
     // 2026-12-01, then $4 / $20.
     const log = insertAfterStart({
-      kind: 'observation',
+      kind: 'auto-review',
       modelId: 'google::gemini-4-argon',
       runId,
-      type: 'memory.usage',
+      type: 'model.usage',
       usage: { inputTokens: 100_000, outputTokens: 1000, totalTokens: 101_000 },
     });
     const DEC_2_2026 = Date.parse('2026-12-02T12:00:00Z');
@@ -667,17 +590,15 @@ describe('each provider call is priced on its own', () => {
   test('a call under a model with no list price leaves every total it joins unpriced', () => {
     const { perModel, runs, usage } = folded(
       insertAfterStart({
-        kind: 'observation',
+        kind: 'auto-review',
         modelId: 'openai::not-in-the-catalog',
         runId,
-        type: 'memory.usage',
+        type: 'model.usage',
         usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11 },
       })
     );
     expect(usage[0]?.costUsd).toBeNull();
-    expect(
-      perModel.find((entry) => entry.runKind === 'om-observation')?.estimatedCostUsd
-    ).toBeNull();
+    expect(perModel.find((entry) => entry.runKind === 'auto-review')?.estimatedCostUsd).toBeNull();
     expect(runs.find((run) => run.runId === runId)?.estimatedCostUsd).toBeNull();
   });
 });
@@ -744,10 +665,10 @@ describe('a call OpenRouter billed costs what it billed', () => {
   test("another provider's usage is never read as a bill", () => {
     const { runs } = folded(
       insertAfterStart({
-        kind: 'observation',
+        kind: 'auto-review',
         modelId: 'anthropic::claude-haiku-5-5',
         runId,
-        type: 'memory.usage',
+        type: 'model.usage',
         usage: { inputTokens: 10, outputTokens: 1, raw: { cost: 1 } },
       })
     );

@@ -61,9 +61,14 @@ export async function standaloneHost(
   platformModule?: string,
   files: Readonly<Record<string, string>> = {},
   /** Runs before `host start`, while nothing holds the data root. */
-  prepare?: (paths: { readonly dataRoot: string; readonly workspace: string }) => Promise<void>
+  prepare?: (paths: { readonly dataRoot: string; readonly workspace: string }) => Promise<void>,
+  /**
+   * Another host's data root, once that host has stopped: this host starts on it with a launch
+   * root of its own, and the first host's cleanup removes it.
+   */
+  shared?: { readonly dataRoot: string }
 ) {
-  const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-trusted-model-data-'));
+  const dataRoot = shared?.dataRoot ?? (await mkdtemp(join(tmpdir(), 'bs-m3-trusted-model-data-')));
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-trusted-model-ws-')));
   for (const [name, text] of Object.entries(files)) {
     await writeFile(join(workspace, name), text);
@@ -99,7 +104,9 @@ export async function standaloneHost(
       await expect.poll(() => processStartTime(pid), { timeout: 30_000 }).toBeNull();
     }
     await rm(workspace, { force: true, recursive: true });
-    await removeFixtureRoot(dataRoot);
+    if (!shared) {
+      await removeFixtureRoot(dataRoot);
+    }
   });
   await prepare?.({ dataRoot, workspace });
   const started = await command([
@@ -135,7 +142,7 @@ export async function standaloneHost(
     }
     return { result, rows: await threadRows(identity.data.threadId) };
   };
-  return { command, run, started, threadRows, workspace };
+  return { command, dataRoot, run, started, threadRows, workspace };
 }
 
 export type StandaloneHost = Awaited<ReturnType<typeof standaloneHost>>;
@@ -143,12 +150,15 @@ export type StandaloneHost = Awaited<ReturnType<typeof standaloneHost>>;
 /**
  * A trusted `--platform` module: the standalone platform with the scripted
  * fixture as `provider::probe`, which makes `calls` one step each, then answers.
+ * With `summary`, `run`'s prompt plays the calls and a compaction's summary
+ * call answers `summary`.
  */
 export async function trustedPlatformModule(
   provider: string,
   calls: readonly { readonly input: unknown; readonly toolId: string }[] = [],
   /** The rest of the trusted composition, beside its model. */
-  composition: { readonly inputTokenLimit?: number } = {}
+  composition: { readonly inputTokenLimit?: number } = {},
+  summary?: string
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'bs-trusted-model-module-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
@@ -159,8 +169,16 @@ export async function trustedPlatformModule(
   await writeFile(
     module,
     `import { createHostPlatform as standalone } from ${JSON.stringify(platform)};
-import { scriptedToolSequence } from ${JSON.stringify(scripted)};
-const fixture = scriptedToolSequence(${JSON.stringify(calls)});
+import { scriptedToolSequence, scriptedTurns } from ${JSON.stringify(scripted)};
+const calls = ${JSON.stringify(calls)};
+const summary = ${JSON.stringify(summary ?? null)};
+const fixture =
+  summary === null
+    ? scriptedToolSequence(calls)
+    : scriptedTurns(
+        [{ answer: 'Host run completed.', prompt: 'Say hello.', steps: calls.map((call) => [call]) }],
+        summary
+      );
 const model = {
   doGenerate: (options) => fixture.doGenerate(options),
   doStream: (options) => fixture.doStream(options),

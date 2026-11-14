@@ -729,8 +729,8 @@ export class HostChildRuns {
     const invoked = children.filter((notice) => !notice.entry.followUp);
     const continued = children.filter((notice) => notice.entry.followUp);
     const turns = new Set(invoked.map((notice) => notice.turnId));
-    // The ledger is the one message the parent's model is sure to read, and an
-    // earlier wake's can leave Memory's window: each settled outcome is in it,
+    // The ledger is the one message the parent's model is sure to read, and a
+    // compaction can replace an earlier wake's: each settled outcome is in it,
     // in full when first delivered and by its opening after that.
     const settled = this.notices
       .of(threadId)

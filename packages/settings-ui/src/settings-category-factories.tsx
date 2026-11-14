@@ -1,17 +1,5 @@
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
-import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { ThemeSettings } from '@brainstrike/ui';
-import {
-  Bot,
-  BrainCircuit,
-  FolderTree,
-  Palette,
-  Settings,
-  ShieldCheck,
-  Sigma,
-  Webhook,
-} from 'lucide-react';
-import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
+import { Bot, FolderTree, Palette, Settings, ShieldCheck, Sigma, Webhook } from 'lucide-react';
 import { SubagentModelsSection } from './settings/models/subagent-models-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
 import type { ClearContentProps } from './settings/system/clear-content-panel';
@@ -226,40 +214,6 @@ export function createPermissionSettingsCategory(options?: {
       'sites the agent may open',
     ],
     title: 'Permissions',
-  };
-}
-
-export interface CreateAssistantMemorySettingsCategoryOptions {
-  readonly assistantMemoryBackendAvailable: boolean;
-  readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
-}
-
-export function createAssistantMemorySettingsCategory({
-  assistantMemoryBackendAvailable,
-  providerKeySources,
-}: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
-  return {
-    content: (
-      <AssistantMemorySettingsSection
-        assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
-        {...(providerKeySources ? { providerKeySources } : {})}
-      />
-    ),
-    description: 'Configure the assistant’s observational memory.',
-    icon: BrainCircuit,
-    id: 'assistant-memory',
-    keywords: [
-      'memory',
-      'observations',
-      'mastra',
-      'observational memory',
-      'enable observations',
-      'observation scope',
-      'observe messages after',
-      'reflect observations after',
-      'retrieval mode',
-    ],
-    title: 'Assistant Memory',
   };
 }
 

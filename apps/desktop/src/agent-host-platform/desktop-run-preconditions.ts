@@ -8,27 +8,19 @@ import {
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import {
   DEFAULT_PERMISSION_POLICIES,
-  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
   isSupportedProvider,
-  listAutoObservationalMemoryCandidates,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
-import type { DesktopAdmissionReads, DesktopRunSelection } from './desktop-run-admission';
+import type { DesktopAdmissionReads } from './desktop-run-admission';
 import {
   PlatformClientConfigurationSchema,
   type PlatformModelConfigurationSchema,
 } from './platform-wire';
-/**
- * A desktop run's preconditions (BST-1930 stage e): the catalog model, the
- * captured intent, the observer the memory settings resolve to, and the
- * memory selection. A run admission and thread/memory/read both start here.
- */
+/** A desktop run's preconditions (BST-1930 stage e): the catalog model and the captured intent. */
 export interface DesktopCatalogSelection {
   readonly definition: NonNullable<ReturnType<typeof findLlmModelDefinition>>;
   readonly model: string;
@@ -131,11 +123,6 @@ export async function readDesktopIntent(
   })(
     captured ?? {
       enabledNativeToolIds: DESKTOP_NATIVE_TOOLS.map((tool) => tool.id),
-      memoryOptions: {
-        lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-        workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-      },
-      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
       modelConfiguration: {
         model: catalog.model,
         provider: catalog.provider,
@@ -148,83 +135,4 @@ export async function readDesktopIntent(
       workspaceInstructionsPreference: { masterEnabled: true, oversizedOptInByRootId: {} },
     }
   );
-}
-/** The chat provider's own auto-observer candidates, in preference order (never another provider). */
-function autoObserverCandidates(provider: string): readonly string[] {
-  return listAutoObservationalMemoryCandidates({
-    chatProvider: provider,
-    providersWithKeys: [provider],
-  });
-}
-/**
- * The auto-observer candidates the model catalog has enabled: provider and
- * model rows enabled and the model an LLM, the gate the memory settings
- * dropdown applies (main's resolveEffectiveObservationalMemorySettings).
- */
-async function readEnabledObserverCandidates(
-  reads: DesktopAdmissionReads,
-  candidates: readonly string[],
-  signal: AbortSignal
-): Promise<ReadonlySet<string>> {
-  if (candidates.length === 0) {
-    return new Set();
-  }
-  return new Set(await reads.enabledObservers(candidates, signal));
-}
-/** A disabled observer resolves no target, so the catalog is read only for an enabled auto one. */
-export function readEnabledObservers(
-  reads: DesktopAdmissionReads,
-  intent: (typeof PlatformClientConfigurationSchema)['Type'],
-  provider: string,
-  signal: AbortSignal
-): Promise<ReadonlySet<string>> {
-  const observation = intent.memorySettings.observationalMemory;
-  return observation.enabled && observation.modelTarget === 'auto'
-    ? readEnabledObserverCandidates(reads, autoObserverCandidates(provider), signal)
-    : Promise.resolve(new Set());
-}
-export function resolveDesktopMemorySettings(
-  intent: (typeof PlatformClientConfigurationSchema)['Type'],
-  provider: string,
-  enabledObservers: ReadonlySet<string>
-): {
-  memorySettings: (typeof PlatformClientConfigurationSchema)['Type']['memorySettings'];
-  observerTarget: string | null;
-} {
-  const observation = intent.memorySettings.observationalMemory;
-  // Auto picks the first enabled candidate of the chat provider; none waits, disabled.
-  const observerTarget =
-    observation.modelTarget === 'auto'
-      ? (autoObserverCandidates(provider).find((candidate) => enabledObservers.has(candidate)) ??
-        null)
-      : observation.modelTarget;
-  const memorySettings = {
-    ...intent.memorySettings,
-    observationalMemory:
-      observerTarget === null
-        ? { ...observation, enabled: false }
-        : { ...observation, modelTarget: observerTarget },
-  };
-  return { memorySettings, observerTarget };
-}
-/**
- * The admitted Memory selection. Observations wait when 'auto' resolved no
- * observer, for the reason legacy's settings resolver gives: the chat provider
- * has no auto candidate, or none of its candidates is enabled in the catalog.
- */
-export function desktopMemorySelection(
-  intent: (typeof PlatformClientConfigurationSchema)['Type'],
-  provider: string,
-  settings: (typeof PlatformClientConfigurationSchema)['Type']['memorySettings'],
-  observerTarget: string | null
-): DesktopRunSelection['memory'] {
-  const awaiting =
-    autoObserverCandidates(provider).length === 0 ? 'no-chat-provider' : 'model-not-eligible';
-  return {
-    ...(intent.memorySettings.observationalMemory.enabled && observerTarget === null
-      ? { observerAwaiting: awaiting }
-      : {}),
-    options: intent.memoryOptions,
-    settings,
-  };
 }

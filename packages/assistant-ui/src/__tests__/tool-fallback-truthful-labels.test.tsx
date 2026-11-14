@@ -1,7 +1,7 @@
 /**
  * Live QA 2026-10-16 (OpenRouter GLM/Muse/Qwen): activity rows that named a
- * raw id, showed memory markdown as a target, called a create an update,
- * claimed a declined call ran, and hid a failure's reason.
+ * raw id, called a create an update, claimed a declined call ran, and hid a
+ * failure's reason.
  */
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
@@ -29,20 +29,6 @@ function renderTool(props: LooseProps<ComponentProps<typeof ToolFallback>>) {
 
 const row = () => screen.getByTestId('activity-step-row');
 const targetChip = () => row().querySelector('.bs-step-row-target');
-
-it('names a working-memory update by what it did, with no markdown and no raw id as its target', () => {
-  const memory = '# Session\n- **Active task**: ship the activity-row fix';
-  renderTool({
-    args: { memory },
-    argsText: JSON.stringify({ memory }),
-    result: { success: true },
-    status: { type: 'complete' },
-    toolName: 'updateWorkingMemory',
-  });
-  expect(row()).toHaveTextContent('Updated memory');
-  expect(row()).not.toHaveTextContent('Used updateWorkingMemory');
-  expect(targetChip()).toBeNull();
-});
 
 it('names a tool load by the tool it loaded', () => {
   renderTool({

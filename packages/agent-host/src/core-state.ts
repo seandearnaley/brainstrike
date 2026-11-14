@@ -4,9 +4,10 @@ import type { ModelMessage, Tool } from 'ai';
 import { Schema } from 'effect';
 import { recordRawToolInputs } from './approval-input.ts';
 import type { HostCheckoutMove } from './checkout-isolation.ts';
+import { type HostReportedContext, reportedStepTokens } from './context-size.ts';
 import { canonical, type Json, jsonValue } from './json-value.ts';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.ts';
-import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.ts';
+import type { HostClientOrigin, HostRunAdmission } from './ports.ts';
 import {
   HOST_METHOD_SCHEMAS,
   type HostChildDelivery,
@@ -20,6 +21,8 @@ import {
   type HostRunSnapshot,
   type HostStepDelivery,
 } from './protocol.ts';
+import type { HostProviderRequest, HostProviderRequestReceipt } from './run-provider-request.ts';
+import { isHostEarlierInput } from './turn-input.ts';
 /**
  * HostCore alone folds and writes accepted command records. The committed
  * payload is canonicalized only when its command ID is submitted again, never
@@ -264,7 +267,7 @@ export interface HostRunBranch {
   readonly userMessageId: string;
 }
 export interface HostRunState {
-  /** The run's admitted tools and instructions; released once it has ended and its owner joined. */
+  /** The run's admitted tools and instructions; released once it has ended and its resources joined. */
   admission?: HostRunAdmission | undefined;
   admissionTask?: Promise<HostRunAdmission> | undefined;
   /** A child's root permission policy at admission; only its denies stay frozen (ADR-0010). */
@@ -354,13 +357,6 @@ export interface HostRunState {
   /** When each output committed (its row time), for artifact retention. */
   readonly outputCommittedAt: Map<string, number>;
   readonly outputs: Map<string, Json>;
-  /** The run's open owner (its public Memory); released once its close joins. */
-  owner?: Promise<HostRunOwner | undefined> | undefined;
-  ownerClose?: Promise<void>;
-  /** The owner joined all of its work, but some failed: this run's failed outcome. */
-  ownerFailure?: unknown;
-  /** Every owner tail joined; no receipt of this run arrives after it. */
-  ownerJoined?: true;
   paused: boolean;
   /** Side-call usage (an Auto-review's) waiting for this run's next committed step. */
   readonly pendingUsage: HostEvent[];
@@ -371,12 +367,24 @@ export interface HostRunState {
   policyThreadId?: string;
   /** A UserPromptSubmit hook's committed context, part of the run's instructions. */
   promptContext?: string;
+  /** The run's provider request boundary, once its admission selected a provider. */
+  providerRequest?: HostProviderRequest | undefined;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
+  /**
+   * BST-2526: what this run's requests reported about their size, folded from
+   * the committed `model.step` and `provider.request.prepared`; a committed
+   * compaction of its thread clears it.
+   */
+  reportedContext?: HostReportedContext | undefined;
+  /** Its admission's close and title request, joined once: the run's resources. */
+  resourcesClose?: Promise<void>;
+  /** Every resource of the run joined; no receipt of this run arrives after it. */
+  resourcesJoined?: true;
   readonly responses: Set<string>;
   /**
-   * After `run.finished`: the owner's background memory still joining. The
-   * thread's next run or rewind waits for it; an unjoined owner keeps it set.
+   * After `run.finished`: the run's resources still joining. The thread's next
+   * run or rewind waits for it; a resource that never joined keeps it set.
    */
   settlement?: Promise<void> | undefined;
   /**
@@ -386,6 +394,14 @@ export interface HostRunState {
   sharedByWorkers?: Set<string>;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
+  /**
+   * BST-2531: where each committed step ends among the run's own messages
+   * after its user message (a person's earlier message read before it is
+   * not among them): where its next step begins, so a step keeps the tool
+   * results and notices committed after it. The newest step has no end yet.
+   * A compaction can replace the steps up to one that ended.
+   */
+  readonly stepEnds: Map<number, number>;
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
@@ -413,17 +429,20 @@ export interface HostRunState {
   turnStarting?: Promise<void>;
 }
 /**
- * Core keeps every run of the process. Once a run has ended and its owner has
- * joined, nothing reads its admission again: the run's tools, their executors
- * and validators, and the instructions it was admitted with are let go. Either
- * can come first (a Stop joins the owner before the run's end commits, and its
+ * Core keeps every run of the process. Once a run has ended and its resources
+ * have joined, nothing reads its admission again: the run's tools, their executors
+ * and validators, the instructions it was admitted with and its provider request
+ * are let go. Either
+ * can come first (a Stop joins them before the run's end commits, and its
  * Stop hooks and turn end still read the admission), so both call this.
  */
 export function releaseSettledRunAdmission(run: HostRunState): void {
-  if (run.terminal && run.ownerJoined) {
+  if (run.terminal && run.resourcesJoined) {
     run.admission = undefined;
     run.admissionTask = undefined;
     run.nativeWebSearch = undefined;
+    // It holds the branch's whole committed transcript as its last step read it.
+    run.providerRequest = undefined;
   }
 }
 /**
@@ -525,6 +544,7 @@ export function createHostRunState(
     rawInputs: new Map(),
     responses: new Set(),
     started: new Set(),
+    stepEnds: new Map(),
     steps: 0,
     stopped: false,
     terminal: false,
@@ -578,7 +598,22 @@ export function foldHostRunMessages(
     run.messageIndexes.add(previousLength + index);
   }
   if (event.type === 'model.step') {
+    // The run's previous step ends where this one begins.
+    if (run.steps > 0) {
+      run.stepEnds.set(
+        run.steps - 1,
+        run.messages.filter((message) => !isHostEarlierInput(message)).length
+      );
+    }
     run.steps = event.stepNumber + 1;
+    // The step's request held the branch up to its own messages.
+    const tokens = reportedStepTokens(event.usage);
+    if (tokens !== undefined) {
+      run.reportedContext = {
+        ...run.reportedContext,
+        step: { after: previousLength, rewritten: [], tokens },
+      };
+    }
   }
   recordRawToolInputs(run.rawInputs, messages);
   for (const message of messages) {
@@ -595,64 +630,34 @@ export function foldHostRunMessages(
     }
   }
 }
-/** Receipts use the caller's existing FULL publisher, with no queue/store of their own. */
-export function createHostRunContext(
+/** A run's request receipts use the caller's existing FULL publisher, with no queue/store of their own. */
+export function recordHostProviderRequest(
   run: HostRunState,
-  publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>,
-  readCommittedRows: HostRunContext['readCommittedRows']
-): HostRunContext {
-  return {
-    readCommittedRows,
-    recordMemoryCycle: async (cycle) => {
-      // A buffered cycle settles after the run's end; it is still the run's.
-      if (run.ownerJoined) {
-        throw new Error('Memory cycle arrived after the run lifetime joined');
-      }
-      await publish(run.threadId, [{ ...cycle, runId: run.id, type: 'memory.cycle' }]);
-    },
-    recordObservationWithheld: async (reason) => {
-      await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
-    },
-    recordObserverUsage: async (receipt) => {
-      // Buffered observation settles after the run's end; its spend is still the run's.
-      if (run.ownerJoined) {
-        throw new Error('Memory receipt arrived after the run lifetime joined');
-      }
-      await publish(run.threadId, [
-        {
-          kind: receipt.kind,
-          modelId: receipt.modelId,
-          runId: run.id,
-          type: 'memory.usage',
-          usage: jsonValue(receipt.usage),
-        },
-      ]);
-    },
-    recordProviderRequest: async (receipt) => {
-      if (run.terminal) {
-        throw new Error('Provider receipt arrived after the run lifetime joined');
-      }
-      await publish(run.threadId, [
-        {
-          accounting: jsonValue(receipt.accounting),
-          breakdown: Schema.decodeUnknownSync(HostPromptBreakdownSchema, {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })(receipt.breakdown),
-          modelId: receipt.modelId,
-          provider: receipt.provider,
-          runId: run.id,
-          toolCallWindow: Schema.decodeUnknownSync(HostPromptToolCallWindowSchema, {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })(receipt.toolCallWindow),
-          type: 'provider.request.prepared',
-        },
-      ]);
-    },
-    runId: run.id,
-    signal: run.controller.signal,
-    threadId: run.threadId,
+  publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>
+): (receipt: HostProviderRequestReceipt) => Promise<void> {
+  return async (receipt) => {
+    if (run.terminal) {
+      throw new Error('Provider receipt arrived after the run lifetime joined');
+    }
+    await publish(run.threadId, [
+      {
+        accounting: jsonValue(receipt.accounting),
+        breakdown: Schema.decodeUnknownSync(HostPromptBreakdownSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(receipt.breakdown),
+        modelId: receipt.modelId,
+        provider: receipt.provider,
+        runId: run.id,
+        toolCallWindow: Schema.decodeUnknownSync(HostPromptToolCallWindowSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(receipt.toolCallWindow),
+        type: 'provider.request.prepared',
+      },
+      // BST-2531: a trim's compaction commits with the request it trimmed.
+      ...(receipt.trim ? [receipt.trim] : []),
+    ]);
   };
 }
 /** The workspace read is a clone of the existing host-owned committed projection. */

@@ -6,7 +6,6 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   BoundaryFailureError,
   DEFAULT_PERMISSION_POLICIES,
@@ -142,12 +141,8 @@ export interface ChildRunFixture {
   readonly holdAppend?: (items: readonly AppendItem[]) => Promise<void>;
   /** ADR-0034 decision 7: the idle worktrees the platform's cap archives. */
   readonly idleWorktreeArchives?: HostPlatform['idleWorktreeArchives'];
-  /** The production run owner over the fixture's own store, as the host platform opens it. */
-  readonly memory?: (store: StateStore) => HostPlatform['openRun'];
   /** ADR-0037: the models a delegation may name. */
   readonly models?: HostDelegation['models'];
-  /** The platform's run owner (Memory), opened with each run's context. */
-  readonly openRun?: HostPlatform['openRun'];
   readonly personas?: readonly AssistantPersonaDefinition[];
   /** The live root policy for `threadId`; defaults to read and edit allowed. */
   readonly policy?: HostPlatform['readPermissionPolicy'];
@@ -188,7 +183,6 @@ function fixturePlatform(
       settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, ...fixture.settings },
     },
     maxSteps: 4,
-    ...(fixture.openRun ? { openRun: fixture.openRun } : {}),
     readPermissionPolicy:
       fixture.policy ??
       (() => ({
@@ -297,17 +291,7 @@ export async function setupChildRunHost(
   admit?: (platform: HostPlatform) => HostPlatform['admitRun']
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m4-child-runs-'));
-  // Production Memory reads token counts through the writer's calculator module.
-  const store = await StateStore.open(
-    root,
-    fixture.memory
-      ? {
-          memoryCalculatorModule: fileURLToPath(
-            new URL('../../src/adapters/memory-storage-calculator.ts', import.meta.url)
-          ),
-        }
-      : undefined
-  );
+  const store = await StateStore.open(root);
   const batches: AppendItem[][] = [];
   const writer = () =>
     crashableStorePort(store, async (items) => {
@@ -316,8 +300,7 @@ export async function setupChildRunHost(
     });
   let current = writer();
   const writes: string[] = [];
-  const openRun = fixture.memory?.(store) ?? fixture.openRun;
-  const base = fixturePlatform(model, writes, { ...fixture, ...(openRun ? { openRun } : {}) });
+  const base = fixturePlatform(model, writes, fixture);
   const admitRun = admit?.(base);
   const platform: HostPlatform = admitRun ? { ...base, admitRun } : base;
   let core = await HostCore.open(current.port, platform, () => () => undefined);

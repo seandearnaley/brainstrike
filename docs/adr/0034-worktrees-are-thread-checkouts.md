@@ -1230,7 +1230,7 @@ Sean's answers, and later work may revisit them:
     the folder open and the thread with none. Nothing retries or repairs them.
 - **The host method** is `thread/workspace/folder/new`, for the desktop's
   private client only (`workspace.folder-new-desktop-only`; host protocol
-  version 32), answering the new folder, or null when the person cancelled the
+  version 35), answering the new folder, or null when the person cancelled the
   picker. A worker is refused (`workspace.folder-worker`): it works in the
   folder of the thread that dispatched it.
 

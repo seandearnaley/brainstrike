@@ -121,6 +121,11 @@ export type WorkspaceRootRequest =
    * repositories the host's worktree listing found. A read: it never makes a project.
    */
   | { readonly canonicalPaths: readonly string[]; readonly operation: 'repository-projects' }
+  /**
+   * ADR-0040: the folders kept for one project, each with the project, by canonical path; none
+   * once the project is deleted (its last folder joined another). A read: it never makes one.
+   */
+  | { readonly operation: 'project-folders'; readonly projectId: string }
   | {
       readonly operation: 'disconnect-except';
       readonly mountedPaths: readonly string[];
@@ -140,7 +145,12 @@ export interface WorkspaceRepositoryProject {
 }
 
 export interface WorkspaceRootReply {
-  /** `repository-projects` answers the projects it found here; no other request does. */
+  /**
+   * `join-project` answers the project it deleted when the folder it moved was that project's
+   * last (ADR-0040: the host then removes that project's memory); no other request does.
+   */
+  readonly deletedProjectIds?: readonly string[];
+  /** `repository-projects` and `project-folders` answer the folders they found here; no other does. */
   readonly projects?: readonly WorkspaceRepositoryProject[];
   readonly roots: readonly WorkspaceRootRecord[];
 }

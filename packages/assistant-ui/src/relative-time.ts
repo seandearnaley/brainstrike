@@ -22,6 +22,13 @@ export function formatRelativeTime(timestampMs: number, now: number): string {
   return RELATIVE_TIME_FORMATTER.format(-Math.floor(elapsedMs / 1000), 'second');
 }
 
+const ABSOLUTE_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+
+/** The local date, e.g. "5 Nov 2026". */
+export function formatAbsoluteDate(timestampMs: number): string {
+  return ABSOLUTE_DATE_FORMATTER.format(timestampMs);
+}
+
 /** The full local date and time, e.g. "5 Nov 2026, 14:32". */
 export function formatAbsoluteTime(timestampMs: number): string {
   return ABSOLUTE_TIME_FORMATTER.format(timestampMs);

@@ -344,30 +344,9 @@ function mergedArchiveNotice(
 }
 
 /**
- * Memory the run launched (Mastra's buffered observation) failed after its
- * `run.finished`: the answer's outcome stands, so it is a notice of its own.
- */
-function memorySettlementFailedNotice(
-  event: Readonly<Record<string, unknown>>,
-  row: CommittedRowAddress,
-  runId: string,
-  timestamp: string
-): AssistantRunEvent {
-  return {
-    detail: requiredString(event, 'detail'),
-    id: `run-event-${row.threadId}-${row.seq}`,
-    kind: 'memory.observation.failed',
-    label: 'Background memory failed after this answer',
-    runId,
-    status: 'failed',
-    timestamp,
-  };
-}
-
-/**
  * A committed host event that is its run's timeline notice, else undefined.
- * Each sits at its run's creation, except a settlement failure and a worktree
- * archive, which can commit after the run's end and keep their own time.
+ * Each sits at its run's creation, except a worktree archive, which can commit
+ * after the run's end and keeps its own time.
  */
 export function committedRunNotice(
   event: Readonly<Record<string, unknown>>,
@@ -383,13 +362,6 @@ export function committedRunNotice(
       return mcpToolsUnavailableNotice(event, row, runId(), at);
     case 'worktree.created':
       return worktreeCreatedNotice(event, row, runId(), at);
-    case 'memory.settlement.failed':
-      return memorySettlementFailedNotice(
-        event,
-        row,
-        runId(),
-        new Date(row.ts ?? runCreatedAt.getTime()).toISOString()
-      );
     case 'worktrees.archived':
       return worktreesArchivedNotice(
         event,

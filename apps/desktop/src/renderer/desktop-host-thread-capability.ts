@@ -296,6 +296,16 @@ export function createWindowThreadCapability(
       },
       locate: async (rootId) =>
         (await (await client()).request('workspace/roots/locate', { rootId })).root,
+      // ADR-0040, BST-2534: a project's Memory panel reads and writes through the host's one writer.
+      memory: (projectId) => ({
+        delete: async (path) => {
+          await (await client()).request('projects/memory/delete', { path, projectId });
+        },
+        list: async () =>
+          (await (await client()).request('projects/memory/list', { projectId })).notes,
+        write: async (note) =>
+          await (await client()).request('projects/memory/write', { ...note, projectId }),
+      }),
       rename: async (project, name) => {
         await (await client()).request('projects/rename', { ...project, name });
       },

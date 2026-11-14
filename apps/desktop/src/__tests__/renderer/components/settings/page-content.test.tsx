@@ -200,7 +200,7 @@ describe('Desktop SettingsPageContent', () => {
     expect(within(toolsPane).queryByTestId('tool-row-skill_search')).not.toBeInTheDocument();
   });
 
-  it('renders Assistant Memory and the subagent budgets in their own categories', async () => {
+  it('renders the subagent budgets in their own category', async () => {
     render(
       <ThemeProvider>
         <TooltipProvider>
@@ -210,10 +210,6 @@ describe('Desktop SettingsPageContent', () => {
     );
 
     const nav = await screen.findByRole('navigation', { name: /settings categories/iu });
-    fireEvent.click(within(nav).getByRole('button', { name: /^Assistant Memory$/iu }));
-    const memoryPane = await screen.findByTestId('settings-category-assistant-memory');
-    expect(within(memoryPane).getByTestId('assistant-memory-settings-section')).toBeInTheDocument();
-
     fireEvent.click(within(nav).getByRole('button', { name: /^Subagents$/iu }));
     const subagentsPane = await screen.findByTestId('settings-category-subagents');
     expect(within(subagentsPane).getByTestId('subagent-settings-section')).toBeInTheDocument();

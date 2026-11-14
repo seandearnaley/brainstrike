@@ -164,9 +164,26 @@
 // `repositoryPath` in place of `projectId`. A repository's first rename or move makes its project,
 // and the listing only reads one, on the own checkout of any repository that is not an open
 // folder, whether or not an open folder holds it now.
-// v32 (2026-11-13): a thread with no folder of its own gets a new project folder (ADR-0034 build
+// v32 (2026-11-14): Mastra memory is retired (ADR-0039, BST-2533). `thread/memory/read` and the
+// `memory.usage`, `memory.cycle`, `memory.observation.withheld` and `memory.settlement.failed`
+// events are removed. Removing a method is why this is a version bump. Additive since (ADR-0040,
+// BST-2530): project memory's `memory.changed`, `memory.refused` and `memory.undone` events and
+// the `memory/undo` method, new variants and a new method.
+// v33 (2026-11-14): a thread carries one current compaction summary (BST-2527). Each
+// `context.compacted` covers everything its branch's earlier summary covered as well:
+// `compactedRunIds` lists every whole turn it covers and `through` the newest step cut. It
+// carries what the host wrote from the log, `filesEdited`, `toolsLoaded` and `earlierRequests`,
+// required. The required fields are why this is a version bump. Additive since (BST-2534): a
+// project's Memory panel's `projects/memory/list`, `projects/memory/write` and
+// `projects/memory/delete`, new methods.
+// v34 (2026-11-14): a person compacts a thread between runs (BST-2536). `thread/compact` is a new
+// method; the `context.compacted` it commits has reason `requested`, which an older client cannot
+// read, and carries the person's `focus`. A refused summary the provider billed commits its usage
+// as the run's `model.usage` of kind `compaction-summary`. The new reason and kind are why this is
+// a version bump.
+// v35 (2026-11-14): a thread with no folder of its own gets a new project folder (ADR-0034 build
 // decisions, BST-2513). `thread/workspace/folder/new`, for the desktop's private client, asks
 // Main's folder picker for a parent, makes a folder there named by the thread's title, opens it as
 // a folder of the person's with a project of its own and binds the thread to it; a new method.
 // Its refusals are typed (`workspace.folder-*`).
-export const AGENT_HOST_PROTOCOL_VERSION = 32;
+export const AGENT_HOST_PROTOCOL_VERSION = 35;

@@ -9,19 +9,11 @@ import { Predicate } from 'effect';
  * committed log. A `child-run-usage` StreamChunk may still reach
  * the renderer as a TRANSIENT `brainstrike.child-run-usage` aui-data part, for
  * display refresh only.
- *
- * TOKEN PROVENANCE HONESTY: subagent and compaction-summary figures are
- * provider-exact aggregate usage from their Mastra calls; OM figures are LOCAL
- * ESTIMATES (Mastra sizes observer input/output with tokenx, excluding the
- * observer's own system prompt) — `estimated` carries that distinction and the
- * UI must label OM rows as estimates, never present them as billed truth.
  */
 export const ASSISTANT_RUN_USAGE_KINDS = [
   'chat',
   'subagent',
   'compaction-summary',
-  'om-observation',
-  'om-reflection',
   'thread-title',
   'auto-review',
 ] as const;
@@ -43,18 +35,8 @@ export interface AssistantDelegatedUsageIdentity {
 
 export interface AssistantChildRunUsage {
   readonly delegation?: AssistantDelegatedUsageIdentity;
-  /**
-   * True when the token figures are local estimates (OM cycles), false when
-   * they are provider-reported (subagent or compaction-summary aggregate usage).
-   */
-  readonly estimated: boolean;
   readonly inputTokens: number;
-  /**
-   * Model/provider that served the child call. ABSENT when the emitter cannot
-   * attribute it (the desktop server then attributes OM rows from the run's
-   * resolved observer target; an unattributable row is DROPPED VISIBLY via a
-   * warn log, never written under a guessed model).
-   */
+  /** Model/provider that served the child call. ABSENT when the emitter cannot attribute it. */
   readonly model?: string;
   readonly outputTokens: number;
   /** Persona id for 'subagent' usage. */
@@ -89,7 +71,6 @@ export function isAssistantChildRunUsage(value: unknown): value is AssistantChil
     Predicate.isObject(value) &&
     (ASSISTANT_RUN_USAGE_KINDS as readonly string[]).includes(String(value['source'])) &&
     value['source'] !== 'chat' &&
-    typeof value['estimated'] === 'boolean' &&
     isCount(value['inputTokens']) &&
     isCount(value['outputTokens']) &&
     isOptionalNonEmptyString(value['model']) &&

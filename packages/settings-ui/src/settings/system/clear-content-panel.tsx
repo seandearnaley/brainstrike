@@ -42,7 +42,7 @@ export function ClearContentPanel({ clearContent, prepare, retireContent }: Clea
     <div className="border-destructive/40 space-y-2 rounded-md border p-4">
       <h4 className="text-sm font-medium">Clear content</h4>
       <p className="text-muted-foreground text-sm">
-        Deletes every chat, prompt, memory and folder, and the search index's data.
+        Deletes every chat, prompt and folder, and the search index's data.
       </p>
       <Button onClick={() => setOpen(true)} type="button" variant="outline">
         Clear content…
@@ -52,8 +52,8 @@ export function ClearContentPanel({ clearContent, prepare, retireContent }: Clea
           <DialogHeader>
             <DialogTitle>Clear content</DialogTitle>
             <DialogDescription>
-              This permanently deletes every chat, prompt, memory, run history, folder and the
-              search index's data. Settings, providers and keys stay. This cannot be undone.
+              This permanently deletes every chat, prompt, run history, folder and the search
+              index's data. Settings, providers and keys stay. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           {/* ADR-0034: the clear archives the managed worktrees, forcing past their ignored

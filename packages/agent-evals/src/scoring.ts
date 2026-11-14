@@ -138,7 +138,7 @@ export interface EvalSourceSpend {
 
 /** Every model call the thread paid for, as the host's own cost ledger folds its log. */
 export interface EvalThreadSpend {
-  /** By the ledger's usage kind: `chat`, `compaction-summary`, `om-observation` and the rest. */
+  /** By the ledger's usage kind: `chat`, `compaction-summary`, `thread-title` and the rest. */
   readonly bySource: Readonly<Record<string, EvalSourceSpend>>;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
@@ -294,7 +294,10 @@ export interface EvalAttempt {
   };
   /** The task's `expect` block, checked against the committed log. */
   readonly expect?: {
-    readonly compactions?: { readonly atLeast: number };
+    readonly compactions?: {
+      readonly atLeast: number;
+      readonly kind?: keyof EvalThreadSummary['compactions'];
+    };
     readonly parallelCalls?: { readonly atLeast: number; readonly toolId: string };
   };
   /** The task's follow-up turns, in order: turn 2 onwards. */
@@ -303,6 +306,8 @@ export interface EvalAttempt {
   readonly hostError?: string;
   /** The first turn's run. */
   readonly run?: Pick<EvalRunSummary, 'verdict'> & { readonly metrics?: EvalRunMetrics };
+  /** Why a live run's spend cap started none of the thread's later turns. */
+  readonly spendCapped?: string;
   /** The whole thread, the first turn included: each turn's run and answer, and its compactions. */
   readonly thread?: Pick<EvalThreadSummary, 'answers' | 'compactions'> & {
     /** Every turn's metrics as one: what `expect.parallelCalls` is read from. */
@@ -347,6 +352,10 @@ export function scoreEvalAttempt(attempt: EvalAttempt): EvalScore {
         : `The run ${verdict.outcome}${verdict.detail === undefined ? '' : `: ${verdict.detail}`}`
     );
   }
+  // The cap is why the later turns never ran.
+  if (attempt.spendCapped !== undefined) {
+    return fail(attempt.spendCapped);
+  }
   const turn = unfinishedFollowUp(attempt);
   if (turn !== undefined) {
     return fail(turn);
@@ -387,16 +396,23 @@ function unfinishedFollowUp(attempt: EvalAttempt): string | undefined {
   return;
 }
 
-/** Why the thread committed fewer compactions than the task's `expect` block asks for, if it did. */
+/**
+ * Why the thread's compactions fall short of the task's `expect` block, if
+ * they do: fewer than it asks for, or one of another kind than it names.
+ */
 function unmetCompactions(attempt: EvalAttempt): string | undefined {
   const expected = attempt.expect?.compactions;
   if (expected === undefined) {
     return;
   }
-  const { agentic = 0, deterministic = 0 } = attempt.thread?.compactions ?? {};
-  const committed = agentic + deterministic;
-  return committed < expected.atLeast
-    ? `The task expects at least ${expected.atLeast} compaction(s); the thread committed ${committed}`
+  const counts = { agentic: 0, deterministic: 0, ...attempt.thread?.compactions };
+  const committed = counts.agentic + counts.deterministic;
+  if (committed < expected.atLeast) {
+    return `The task expects at least ${expected.atLeast} compaction(s); the thread committed ${committed}`;
+  }
+  const other = expected.kind === 'agentic' ? 'deterministic' : 'agentic';
+  return expected.kind !== undefined && counts[other] > 0
+    ? `The task expects only ${expected.kind} compactions; the thread committed ${counts[other]} ${other}`
     : undefined;
 }
 

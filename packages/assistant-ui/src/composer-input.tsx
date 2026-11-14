@@ -10,6 +10,7 @@ import {
 } from './composer-access-mode-control';
 import { type ComposerRunActions, useComposerRunActions } from './composer-run-actions';
 import { ComposerRunControls } from './follow-up-queue';
+import { useThreadCompacting } from './thread-compaction-context';
 
 /**
  * Composer plan-mode toggle controls, threaded from the app-shell wrapper down
@@ -94,9 +95,12 @@ const ComposerInputRow = ({
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const runActions = useComposerRunActions({ canSteer });
   const budgetSendBlocked = useBudgetSendGate();
+  // BST-2536: a compacting thread takes no message, as one over its budget cap
+  // takes none: Send is disabled and the draft stays editable.
+  const compacting = useThreadCompacting();
   const inputId = useId();
   const stagingDisabled = isComposerDisabled || activeInput?.canSend === false;
-  const sendDisabled = stagingDisabled || budgetSendBlocked;
+  const sendDisabled = stagingDisabled || budgetSendBlocked || compacting;
   const InputFrame =
     attachmentsAvailability?.state === 'enabled' ? AttachmentPasteFrame : PlainInputFrame;
 

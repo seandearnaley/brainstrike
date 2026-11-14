@@ -23,8 +23,8 @@ function wrap(ui: ReactNode) {
 
 const baseEvent = {
   id: 'event-1',
-  kind: 'memory.configured',
-  label: 'Memory configured',
+  kind: 'run.step.finished',
+  label: 'Step finished',
   metadata: {
     resourceId: 'workspace-1',
     threadId: 'thread-1',
@@ -51,7 +51,7 @@ describe('AssistantRunTimeline', () => {
     wrap(<AssistantRunTimeline data={baseEvent} />);
 
     expect(screen.getByTestId('assistant-run-timeline')).toBeInTheDocument();
-    expect(screen.getByText('Memory configured')).toBeInTheDocument();
+    expect(screen.getByText('Step finished')).toBeInTheDocument();
     expect(screen.getByLabelText('Completed')).toBeInTheDocument();
     expect(screen.queryByText('threadId')).not.toBeInTheDocument();
   });
@@ -60,7 +60,7 @@ describe('AssistantRunTimeline', () => {
     // Real kinds from the closed union (BST-978: the inbound guard rejects
     // fabricated `run.${status}` kinds the old partial check waved through).
     const cases = [
-      ['memory.observation.started', 'running', 'Observing memory'],
+      ['run.step.started', 'running', 'Step started'],
       ['tool.failed', 'failed', 'Tool failed'],
       ['run.cancelled', 'cancelled', 'Run cancelled'],
       ['hook.notice', 'info', 'Hook notice'],
@@ -82,7 +82,7 @@ describe('AssistantRunTimeline', () => {
       ))
     );
 
-    expect(screen.getByText('Observing memory')).toBeInTheDocument();
+    expect(screen.getByText('Step started')).toBeInTheDocument();
     expect(screen.getByLabelText('Running')).toBeInTheDocument();
     expect(screen.getByText('Tool failed')).toBeInTheDocument();
     expect(screen.getByLabelText('Failed')).toBeInTheDocument();
@@ -385,8 +385,8 @@ describe('resolveAssistantRunEventStatus', () => {
     expect(
       resolveAssistantRunEventStatus([], {
         ...baseEvent,
-        id: 'memory-running',
-        kind: 'memory.configured',
+        id: 'setup-running',
+        kind: 'worktree.setup',
         status: 'running',
       })
     ).toBe('running');

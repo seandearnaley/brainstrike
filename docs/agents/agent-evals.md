@@ -35,21 +35,35 @@ A task is `packages/agent-evals/tasks/<id>/` (folder name is the id), decoded by
 
 The host decides when a thread compacts; a task only has to get there.
 
-- Compaction is checked before a run's first request, at 90% of the input budget, over an
-  estimate of the messages alone. The system prompt and tool definitions (about 6,000 tokens on
-  the standalone host) are not in that estimate but do count against the budget.
-- The newest turns up to 20,000 estimated tokens are never compacted, so a thread needs more than
-  that before anything is droppable.
+- Compaction is checked before every step of a run, once the next request reaches 90% of the
+  input budget or the 200,000-token cap, whichever is less (ADR-0039). It replaces earlier turns
+  and the run's own older steps (BST-2531).
+- The request is sized from the provider's last reported input tokens, which include the system
+  prompt and tool definitions (about 6,000 tokens on the standalone host). The scripted model
+  reports each request's serialized size as its input tokens, so a scripted thread compacts where
+  a provider-backed one would.
+- The newest turns, and the newest steps of a run, up to 20,000 estimated tokens are never
+  compacted, so a thread needs more than that before anything is droppable. With the fixed 6,000,
+  a pin of 30,000 leaves too little to drop when the trigger fires, so the request is trimmed
+  instead and every compaction is a deterministic `request-trim`. `recall-after-compaction` (eight
+  turns, two of them probes, five writes of about 12,700 tokens) pins 60,000: its request reaches
+  about 57,000 at the fourth write, above the 54,000 trigger and below the limit with the summary
+  instruction, and one agentic summary replaces the first three turns. No request is trimmed.
+- A compaction runs only when what it drops reaches the target or holds one protect window. Under a
+  small pin the protected 20,000 and the fixed 6,000 sit near the trigger, so a single run needs
+  room above them: `long-single-run` (one turn of 36 writes of about 5,000 tokens) pins 60,000 and
+  compacts five times.
+- The scripted model plays the step after the newest one whose results the request holds, so a
+  turn whose older steps were compacted carries on where it was.
 - One tool result is capped at 3,000 to 6,000 tokens, and old read results are pruned once they
   pass 60,000. Large write arguments are the compact way to grow a scripted thread.
-- A thread of mostly reads and command output needs a pin of about 64,000 or more: below that the
-  request reaches the budget before the estimate reaches the trigger. `recall-after-compaction`
-  pins 30,000 because its bulk is write arguments.
 
 ## Runner
 
 `pnpm --filter @brainstrike/agent-evals eval [--task <id>] [--mode scripted|replay|live] [--trials <n>]`
-builds first, then per task (`--trials` runs each task that many times, each in a fresh sandbox):
+(live also takes `--live --max-spend-usd <dollars> [--model anthropic::<model>]`, see
+[Live runs](#live-runs-and-the-spend-cap)) builds first, then per task (`--trials` runs each task
+that many times, each in a fresh sandbox):
 
 - copies `repo/` to a temp dir with a git baseline, and uses a fresh data root and
   `HOME` (always a disposable profile)
@@ -68,7 +82,7 @@ builds first, then per task (`--trials` runs each task that many times, each in 
 | --- | --- | --- |
 | `scripted` | agent-host `scripted-model` fixture plays `script.json` turn by turn as `scripted::<id>` | loopback boundary that refuses every request |
 | `replay` | the task's `model` via the real provider SDK | the task's cassette via `createProviderCassetteReplay` and the `*_BASE_URL` knobs |
-| `live` | the task's `model` with the owner's key | the real provider; needs `--live` and `BRAINSTRIKE_EVALS_LIVE=1`; refuses in CI |
+| `live` | `--model`, else the task's `model`; Anthropic only, with the owner's key | the real provider; needs `--live`, `BRAINSTRIKE_EVALS_LIVE=1` and `--max-spend-usd`; refuses in CI |
 
 - Scripted mode loads the trusted `--platform` module `src/scripted-platform.ts`.
   The script's model identity enters only through `createHostPlatform`'s trusted
@@ -76,6 +90,47 @@ builds first, then per task (`--trials` runs each task that many times, each in 
   `model.step` name the model that ran. The task's `model` still sets token budgets.
 - Replay without `--task` runs only tasks with a cassette and names those skipped.
   Only `parallel-read` has one (the shared `openai-parallel-tool-calls` fixture).
+
+### Live runs and the spend cap
+
+The owner's benchmark key is Anthropic's and has a hard total, so a live run names its model and a
+cap, and stops itself.
+
+- `--model <provider::model>` names a live run's model for every task; without it each task's own
+  `model` runs. A live run refuses any model that is not `anthropic::<model>`, the tasks' own
+  `openai::` models included. Scripted and replay runs refuse `--model`: a script plays as its own
+  model and a cassette replays the model it recorded.
+- The key comes from `BRAINSTRIKE_ANTHROPIC_API_KEY`, else `ANTHROPIC_API_KEY`, in the shell; it
+  reaches only the host process's environment, and the runner never prints or writes it.
+- `--max-spend-usd <dollars>` is required for a live run (refused without it, naming the flag).
+  Scripted and replay runs make no paid call and refuse it rather than ignore it.
+- The stop rule: the batch adds up each thread's spend as the host's ledger measured it (the
+  `cost $` the results print). Before each turn after the first, and before each trial and task,
+  it starts nothing more once that sum reaches the cap, or is unknown (a call the provider billed
+  but never reported, a call with no list price, or a run whose thread could not be read).
+  - The thread it stopped fails with the turn it did not start; each trial or task it did not start
+    is a failed `Not run:` line; the summary ends `Spend cap $<cap>: $<spent> measured; cut short,
+    <n> run(s) stopped or not run`; the command exits 1.
+- A request in flight is never interrupted for cost, so the cap bounds what starts: one turn can
+  pass it by at most the host's 100 steps, each request within the input budget (the task's
+  `inputTokenLimit` pin, else the model's own) and kept near the compaction trigger, plus its
+  output, until the task's `timeoutMs` ends the turn.
+- One cheap live trial, with the key exported earlier under a name of your own
+  (`EVAL_ANTHROPIC_API_KEY` here) and passed inline:
+
+  ```sh
+  BRAINSTRIKE_EVALS_LIVE=1 BRAINSTRIKE_ANTHROPIC_API_KEY="$EVAL_ANTHROPIC_API_KEY" \
+    pnpm --filter @brainstrike/agent-evals eval --mode live --live --task answer-question \
+    --model anthropic::claude-haiku-5-5 --max-spend-usd 1
+  ```
+
+  The inline name is the first one read, so it wins over any Anthropic key already in the shell.
+- `long-single-run` is a scripted task: live, the model asks a question an eval cannot answer, and
+  told not to, writes about 46,000 output tokens in three steps and times out before any
+  compaction. For a live compaction measurement use `read-heavy-run` (13 chapters read a page per
+  step at a 60,000 pin; scripted, two agentic compactions, the first replacing the chapter that
+  holds the answer): one passing trial on `anthropic::claude-haiku-5-5` cost $0.05 (41 steps, two
+  agentic compactions, 60 s).
 
 ## Scoring and results
 
@@ -86,12 +141,15 @@ the reason:
 2. refused provider request (including replay mismatch)
 3. timeout
 4. run verdict other than `completed` (the first turn, then each follow-up, named by turn)
+   - a thread the spend cap stopped fails with the cap's reason, naming the turn it did not start
 5. unserved cassette exchange
 6. verifier did not run or exit 0
 7. unmet `expect`
    - `parallelCalls: { toolId, atLeast }` requires that many calls of the tool in
      one step, in any turn
-   - `compactions: { atLeast }` requires that many committed compactions on the thread
+   - `compactions: { atLeast, kind? }` requires that many committed compactions on the thread;
+     `kind` holds every one to `agentic` or `deterministic`, so a task meant to measure a summary
+     fails when its thread is trimmed or its summary fails
 8. a probe whose answer leaves out a fact
 
 - Metrics come from the committed log, never CLI output: steps, tool calls by name,
@@ -105,21 +163,25 @@ the reason:
   - A cost is null when a call has no list price, as every scripted call has. The total is also
     null when the provider bills a call it never reported usage for (a Stop, a timeout or a failure
     mid-stream); `unreportedCalls` counts those.
-- Results append one JSON line per run of a task to
+- `modelId` is the model as `run.started` committed it (null on a line that never ran).
+- `spendCap` is null without a cap; a capped run's lines hold `capUsd`, `spentUsd` (the batch's
+  measured spend through that line, null once unknown) and `cutShort` (the cap stopped that line's
+  later turns, or the whole line).
+- Results append one JSON line per run of a task, or per run the spend cap did not start, to
   `packages/agent-evals/results/<UTC date>-<mode>.jsonl` (gitignored) and print a summary; with
-  `--trials`, the summary ends with each task's share of passing trials.
+  `--trials`, the summary ends with each task's share of passing trials, and a capped run's ends
+  with its spend.
 
 ## What it cannot measure yet
 
-- Observational memory. The standalone host runs with it off (`platform.ts`), so no eval arm can
-  turn it on; only the desktop host resolves an observer model.
 - Probe answers in scripted mode. The scripted model's answer is the script's own, so a scripted
   pass proves the plumbing. Recall is measured only in replay or live mode.
 
 ## Recording (owner only)
 
 `pnpm --filter @brainstrike/agent-evals record --task <id> --model <provider::model>`
-makes paid calls with the owner's key. Agents never run it; it refuses in CI.
+makes paid calls with the owner's key. Agents never run it; it refuses in CI. It takes no spend
+cap.
 
 - Runs live through `startProviderCassetteRecorder`.
 - Rejects a cassette containing a home path or key (`providerCassetteFindings`)

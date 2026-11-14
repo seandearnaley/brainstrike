@@ -21,7 +21,6 @@
           {
             "include": [
               "src/__tests__/host-permission-policy.test.ts",
-              "src/__tests__/memory-model-configuration.test.ts",
               "src/__tests__/agent-host-desktop-host-tools.test.ts",
               "src/__tests__/effect-transferred-ports.test.ts",
               "src/__tests__/host-thread-debug.test.ts",

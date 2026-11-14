@@ -6,6 +6,7 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Schema } from 'effect';
+import { usd } from './spend-cap.ts';
 import { fileDecoder } from './task.ts';
 
 export const EVAL_MODES = ['scripted', 'replay', 'live'] as const;
@@ -35,6 +36,16 @@ export const EvalResultSchema = Schema.Struct({
   modelId: Schema.NullOr(Text),
   pass: Schema.Boolean,
   reason: Schema.NullOr(Text),
+  /** A live run's hard spend cap and the batch's measured spend once this line ended; null without one. */
+  spendCap: Schema.NullOr(
+    Schema.Struct({
+      capUsd: Schema.Finite.check(Schema.isGreaterThan(0)),
+      /** The cap stopped this line's work: a later turn, or the whole run, never started. */
+      cutShort: Schema.Boolean,
+      /** This line's and every earlier line's measured spend; null once any of it is unknown. */
+      spentUsd: Schema.NullOr(Cost),
+    })
+  ),
   startedAt: Text,
   task: Text,
   /** The whole thread, every turn's run included; null when no run started. */
@@ -134,9 +145,23 @@ function trialLines(results: readonly EvalResult[]): string[] {
     : [];
 }
 
+/** A capped run's spend against its cap, and how many lines the cap cut short. */
+function spendCapLines(results: readonly EvalResult[]): string[] {
+  const last = results.at(-1)?.spendCap;
+  if (!last) {
+    return [];
+  }
+  const spent = last.spentUsd === null ? 'unknown spend' : `${usd(last.spentUsd)} measured`;
+  const cut = results.filter((result) => result.spendCap?.cutShort).length;
+  return [
+    `Spend cap ${usd(last.capUsd)}: ${spent}${cut > 0 ? `; cut short, ${cut} run(s) stopped or not run` : ''}`,
+  ];
+}
+
 /**
- * A plain-text table: one row per run of a task, then `<passed>/<total> passed`
- * and, when a task ran more than once, each task's share of passing trials.
+ * A plain-text table: one row per run of a task, then `<passed>/<total> passed`,
+ * when a task ran more than once each task's share of passing trials, and a
+ * capped run's spend.
  */
 export function formatEvalSummary(results: readonly EvalResult[]): string {
   const rows = results.map((result) => [
@@ -177,5 +202,6 @@ export function formatEvalSummary(results: readonly EvalResult[]): string {
     ...rows.map(line),
     `${passed}/${results.length} passed`,
     ...trialLines(results),
+    ...spendCapLines(results),
   ].join('\n');
 }

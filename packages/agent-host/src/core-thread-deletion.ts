@@ -24,7 +24,7 @@ const logger = createLogger('AgentHost');
 export interface HostThreadDeletionContext {
   readonly admission: Promise<void>;
   readonly children: Pick<HostChildRuns, 'subtree'>;
-  closeRunOwner(run: HostRunState): Promise<void>;
+  closeRunResources(run: HostRunState): Promise<void>;
   readonly closing: () => boolean;
   readonly deletions: Map<string, Deletion>;
   readonly erase: StateStore['deleteThread'] | undefined;
@@ -46,8 +46,8 @@ export interface HostThreadDeletionContext {
 }
 
 /**
- * BST-1977: raw StateStore deletion cannot retire active Memory/provider work,
- * so a deletion queues behind admission, joins its runs' owners, then erases.
+ * BST-1977: raw StateStore deletion cannot retire active provider work, so a
+ * deletion queues behind admission, joins its runs' resources, then erases.
  * BST-1932: a thread's child threads are deleted with it, through this same path.
  */
 export function deleteHostThread(context: HostThreadDeletionContext, threadId: string): Deletion {
@@ -82,7 +82,7 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
     const runs = [...context.runs.values()].filter((run) => subtree.includes(run.threadId));
     await joinHostThreadDeletion(
       runs,
-      (run) => context.closeRunOwner(run),
+      (run) => context.closeRunResources(run),
       (run) => context.finish(run)
     );
     for (const id of subtree) {

@@ -27,10 +27,7 @@ import {
   STANDALONE_WORKSPACE_CAPABILITY_ERROR,
 } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
-  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_PERMISSION_POLICIES,
-  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
@@ -41,7 +38,6 @@ import {
   SKILL_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
@@ -79,6 +75,8 @@ import {
   selectHostProjectionRewrites,
   skillToolExecutors,
 } from './native-tools/index.ts';
+import { type RunProjectMemory, readRunProjectMemory } from './project-memory/memory-admission.ts';
+import { hostProjectMemory } from './project-memory/memory-tool.ts';
 import { closeStandaloneOwners } from './standalone-close.ts';
 import { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.ts';
 import {
@@ -124,13 +122,18 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
  * (Windows) leaves it out of every run instead of asking the person to approve
  * a call that cannot run.
  */
-function standaloneToolIds(codeFence: boolean): {
+function standaloneToolIds(
+  codeFence: boolean,
+  projectMemory: boolean
+): {
   readonly native: string[];
   readonly workspace: string[];
 } {
   const workspace: string[] = [
     ...STANDALONE_WORKSPACE_TOOL_IDS,
     ...(codeFence ? [NATIVE_TOOL_ID.runPython] : []),
+    // ADR-0040: a run whose launch root has a project has its memory.
+    ...(projectMemory ? [NATIVE_TOOL_ID.memory] : []),
   ];
   return { native: [...STANDALONE_HUMAN_TOOL_IDS, ...workspace], workspace };
 }
@@ -324,6 +327,8 @@ async function standaloneWorkspaceContext(
   options: {
     /** ADR-0032: the launch roots the person trusted (`workspace trust`). */
     readonly configurationRoots: readonly RuntimeWorkspaceRoot[];
+    /** ADR-0040: the run's project memory, whose section ends the instructions. */
+    readonly memory?: Pick<RunProjectMemory, 'childSection' | 'section'> | undefined;
     readonly runtime: RuntimeData;
     readonly system: string;
   }
@@ -370,10 +375,12 @@ async function standaloneWorkspaceContext(
   // A child runs on its persona's instructions plus this shared workspace
   // context (instructions, skills catalog), never the parent's own prompt.
   const shared = joined([context.skillsCatalog, ...context.injected]);
+  // ADR-0040: the project's memory index follows the stable instructions.
+  const childSystem = joined([shared, options.memory?.childSection]);
   return {
-    childFields: shared === '' ? {} : { childSystem: shared },
+    childFields: childSystem === '' ? {} : { childSystem },
     referencedFileFailures: context.referencedFileFailures,
-    system: joined([options.system, shared]),
+    system: joined([options.system, shared, options.memory?.section]),
     workspaceSkills,
   };
 }
@@ -544,6 +551,8 @@ export async function createHostPlatform(
       closeStandaloneOwners({ commands: () => disposeStandaloneChildren(worktrees), host, mcp }),
     commandSessionExits: { subscribe: (listener) => hostCommandSessionManager().onExit(listener) },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    // ADR-0040: Undo of a memory write, in this host's data root.
+    projectMemory: hostProjectMemory(startup.store.root),
     providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
@@ -558,7 +567,16 @@ export async function createHostPlatform(
       }
       const { auth, catalog, provider, selected } = runSelection(request.modelId, trustedModels);
       codeFence ??= hostFencesCode();
-      const toolIds = standaloneToolIds(await codeFence);
+      // ADR-0032: a launch root's instructions, skills and personas load once the
+      // person trusts it (`workspace trust`); the home tiers always load.
+      const configurationRoots = await trustedHostWorkspaceRoots(startup.store, workspaceRoots);
+      // ADR-0040: the launch root's project memory, when another host recorded its project.
+      const projectMemory = await readRunProjectMemory({
+        configurationRoots,
+        roots: workspaceRoots,
+        store: startup.store,
+      });
+      const toolIds = standaloneToolIds(await codeFence, projectMemory !== undefined);
       const capabilities = standaloneCapabilities(toolIds.native, mcp !== undefined);
       const modelSettings = buildModelSettingsOption(selected).modelSettings;
       const configuration: RuntimeData = {
@@ -581,11 +599,6 @@ export async function createHostPlatform(
       })({
         agentLoop: { inputTokenLimit, maxSteps: DEFAULT_AGENT_MAX_STEPS },
         enabledNativeToolIds: toolIds.native,
-        memoryOptions: {
-          lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-          workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-        },
-        memorySettings: CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
         modelConfiguration: configuration,
         permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
         subagents,
@@ -617,9 +630,6 @@ export async function createHostPlatform(
       const resolvedToolResultBudget = resolveScaledToolResultBudget(
         catalog.definition.contextWindow
       );
-      // ADR-0032: a launch root's instructions, skills and personas load once the
-      // person trusts it (`workspace trust`); the home tiers always load.
-      const configurationRoots = await trustedHostWorkspaceRoots(startup.store, workspaceRoots);
       const contextRuntime = {
         ...configuration,
         workspaceInstructionsPreference: STANDALONE_WORKSPACE_INSTRUCTIONS,
@@ -627,6 +637,7 @@ export async function createHostPlatform(
       };
       const workspaceContext = await standaloneWorkspaceContext(request, {
         configurationRoots,
+        memory: projectMemory,
         runtime: contextRuntime,
         system,
       });
@@ -642,6 +653,7 @@ export async function createHostPlatform(
           ),
         },
         ids: toolIds.workspace,
+        ...(projectMemory ? { projectMemory: projectMemory.notes } : {}),
         readFileCursorRegistry,
         resolvedToolResultBudget,
         runtime: { ...configuration, workspaceRoots },
@@ -677,18 +689,6 @@ export async function createHostPlatform(
         // Core commits the hook files this run did not load (`hooks.skipped`).
         hookSkips: skipped,
         maxSteps: DEFAULT_AGENT_MAX_STEPS,
-        memory: {
-          native: {
-            options: {
-              lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-              observationalMemory: false,
-              workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-            },
-          },
-          // Core already commits the final prepared request accounting before this observer.
-          recordPrompt: async () => undefined,
-          resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-        },
         // A trusted model's request is shaped as its budgets model's provider shapes it.
         providerRequestContext: {
           inputTokenLimit,

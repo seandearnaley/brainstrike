@@ -1,4 +1,4 @@
-export { assertLiveAllowed } from './live-gate.ts';
+export { assertLiveAllowed, evalRunModel, evalSpendCap } from './live-gate.ts';
 export {
   appendEvalResults,
   EVAL_MODES,
@@ -10,8 +10,10 @@ export {
 } from './results.ts';
 export {
   attemptEvalTask,
+  type EvalBatchOptions,
   type EvalRunOptions,
   type EvalTaskOutcome,
+  runEvalBatch,
   runEvalTask,
   WORKSPACE_PLACEHOLDER,
 } from './runner.ts';

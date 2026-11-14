@@ -269,6 +269,7 @@ describe('host root registry', () => {
     const damaged: HostRootRegistryStore = {
       deleteSetting: async (key) => refuse(`delete ${key}`),
       getSetting: (key) => store.getSetting(key),
+      root: store.root,
       setSetting: async (key) => refuse(`set ${key}`),
       stateDamage: 'fixture damage',
       workspaceRoots: async (request: WorkspaceRootRequest) =>
@@ -763,6 +764,7 @@ describe('host root registry', () => {
     const failing: HostRootRegistryStore = {
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
+      root: store.root,
       setSetting: (key, value) => store.setSetting(key, value),
       stateDamage: null,
       workspaceRoots: async (request: WorkspaceRootRequest) => {

@@ -12,8 +12,12 @@ import {
   scoreEvalAttempt,
   threadMetrics,
 } from '../src/scoring.js';
+import { addThreadSpend, NOTHING_SPENT, spendCapCheck } from '../src/spend-cap.js';
 
 const require = createRequire(import.meta.url);
+
+/** A committed compaction's host-written lists, empty. */
+const NO_LISTS = { earlierRequests: [], filesEdited: [], toolsLoaded: [] };
 
 /** A real committed log: one approved write, then an answer. */
 async function approvedRun() {
@@ -162,7 +166,7 @@ describe('scoreEvalAttempt', () => {
       reasonOf({
         ...completed,
         ...expecting,
-        run: run({ brainstrike_readWorkspaceFile: 1, updateWorkingMemory: 1 }),
+        run: run({ brainstrike_manageTaskList: 1, brainstrike_readWorkspaceFile: 1 }),
       })
     ).toMatch(
       /at least 2 brainstrike_readWorkspaceFile calls in one step; the run made at most 1/u
@@ -231,6 +235,7 @@ describe('readThreadFromLog', () => {
 
   test('counts committed compactions by whether a model summarized them', async () => {
     const compacted = (runId: string, kind: 'agentic' | 'deterministic') => ({
+      ...NO_LISTS,
       compactedRunIds: [runId],
       kind,
       reason: 'pre-request',
@@ -249,6 +254,7 @@ describe('readThreadFromLog', () => {
   test('spend counts every call the thread paid for, by what the call was for', async () => {
     const { rows, runId } = await withEvents((id) => [
       {
+        ...NO_LISTS,
         compactedRunIds: [id],
         kind: 'agentic',
         modelId: 'openai::gpt-6-luna',
@@ -274,10 +280,10 @@ describe('readThreadFromLog', () => {
     expect(spend.bySource['compaction-summary']?.costUsd).toBeGreaterThan(0);
   });
 
-  test('a call the provider bills but never reported leaves the total unknown, and is counted', async () => {
+  /** A priced run whose last request was sent, then stopped before any usage came back. */
+  async function cutOffRun() {
     const { rows, runId } = await approvedRun();
     const finished = rows.at(-1)!;
-    // A priced run whose last request was sent, then stopped before any usage came back.
     const cutOff = Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema))([
       ...rows
         .slice(0, -1)
@@ -321,11 +327,30 @@ describe('readThreadFromLog', () => {
       },
       { ...finished, event: { ...finished.event, outcome: 'stopped' }, seq: finished.seq + 1 },
     ]);
-    const { spend } = readThreadFromLog(cutOff, [runId]);
+    return readThreadFromLog(cutOff, [runId]);
+  }
+
+  test('a call the provider bills but never reported leaves the total unknown, and is counted', async () => {
+    const { spend } = await cutOffRun();
     expect(spend.unreportedCalls).toBe(1);
     expect(spend.costUsd).toBeNull();
     // The calls that did report still have their price.
     expect(spend.bySource['chat']?.costUsd).toBeGreaterThan(0);
+  });
+
+  test('under a spend cap, an unreported call is unknown spend, and unknown spend stops the run', async () => {
+    const { spend } = await cutOffRun();
+    // Its reported calls alone sit far under the cap, but they are not the whole.
+    expect(spend.bySource['chat']?.costUsd).toBeLessThan(1);
+    expect(spendCapCheck(1, addThreadSpend(NOTHING_SPENT, spend, 'this thread'))).toEqual({
+      capUsd: 1,
+      stop: 'the spend is unknown: this thread has 1 call(s) the provider bills but never reported',
+    });
+    const reported = { ...spend, costUsd: 0.5, unreportedCalls: 0 };
+    expect(spendCapCheck(1, addThreadSpend(NOTHING_SPENT, reported, 'this thread'))).toEqual({
+      capUsd: 1,
+      spentUsd: 0.5,
+    });
   });
 
   test('a thread with an unpriced call has no total cost, rather than a partial one', async () => {
@@ -427,6 +452,21 @@ describe('scoring a thread of several turns', () => {
     expect(
       reasonOf({ ...expecting, thread: thread(answers, { agentic: 1, deterministic: 0 }) })
     ).toMatch(/expects at least 2 compaction\(s\); the thread committed 1/u);
+  });
+
+  test('an expect block can hold every compaction to one kind', () => {
+    const expecting = {
+      ...base,
+      expect: { compactions: { atLeast: 1, kind: 'agentic' as const } },
+    };
+    const answers = ['ok', 'ok', 'Port 8443.'];
+    expect(
+      scoreEvalAttempt({ ...expecting, thread: thread(answers, { agentic: 2, deterministic: 0 }) })
+    ).toEqual({ pass: true });
+    // A request trim (or a failed summary) commits a deterministic compaction.
+    expect(
+      reasonOf({ ...expecting, thread: thread(answers, { agentic: 1, deterministic: 2 }) })
+    ).toMatch(/expects only agentic compactions; the thread committed 2 deterministic/u);
   });
 });
 

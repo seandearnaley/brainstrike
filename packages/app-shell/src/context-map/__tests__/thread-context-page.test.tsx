@@ -53,7 +53,11 @@ vi.mock('../../open-host-child-tab', () => ({ openHostChildTab: vi.fn() }));
 
 const rootId = 'root-1';
 
-function rows(): CommittedAssistantLogRow[] {
+/**
+ * r1 reads a.ts; r2 reads b.ts after a compaction of r1's turn, or (`steps`)
+ * reads b.ts then c.ts and compacts its own step that read b.ts (BST-2531).
+ */
+function rows(steps = false): CommittedAssistantLogRow[] {
   const list: CommittedAssistantLogRow[] = [];
   const add = (event: Record<string, unknown>) =>
     list.push({ event, seq: list.length + 1, threadId: 'thread-1' });
@@ -96,25 +100,48 @@ function rows(): CommittedAssistantLogRow[] {
     type: 'provider.request.prepared',
   });
   add({ prompt: 'second', runId: 'r2', type: 'run.started' });
-  add({
+  const compacted = {
     compactedRunIds: ['r1'],
     kind: 'deterministic',
     reason: 'pre-request',
     runId: 'r2',
     summary: 's',
     type: 'context.compacted',
-  });
+  };
+  if (!steps) {
+    add(compacted);
+  }
+  const step = (id: string, stepNumber: number) =>
+    add({
+      messages: [
+        {
+          content: [
+            { input: {}, toolCallId: id, toolName: 'readWorkspaceFile', type: 'tool-call' },
+          ],
+          role: 'assistant',
+        },
+      ],
+      runId: 'r2',
+      stepNumber,
+      type: 'model.step',
+    });
+  step('b', 0);
   read('r2', 'b', 'src/b.ts', 1, 20);
+  if (steps) {
+    step('c', 1);
+    read('r2', 'c', 'src/c.ts', 1, 10);
+    add({ ...compacted, compactedRunIds: [], through: { runId: 'r2', stepNumber: 0 } });
+  }
   add({
     runId: 'r2',
-    toolCallWindow: diffPromptToolCallWindow(undefined, [sent('b', 200)]),
+    toolCallWindow: diffPromptToolCallWindow(undefined, [sent(steps ? 'c' : 'b', 200)]),
     type: 'provider.request.prepared',
   });
   return list;
 }
 
-function seed(): void {
-  const snapshot = new ThreadContextFold().accept(rows());
+function seed(steps = false): void {
+  const snapshot = new ThreadContextFold().accept(rows(steps));
   useThreadContextStore.getState().record('thread-1', { branchRunIds: ['r1', 'r2'], snapshot });
 }
 
@@ -179,11 +206,22 @@ describe('ThreadContextPage', () => {
     expect(screen.getAllByTestId('context-map-compaction-marker')).toHaveLength(1);
   });
 
-  it("shows the composer ring's figure with the files' share and the compaction tick", () => {
+  it('marks a compaction of a running turn’s steps on the scrubber, its file drawn as compacted (BST-2531)', async () => {
+    seed(true);
+    render(<Page />);
+    const [marker, ...others] = screen.getAllByTestId('context-map-compaction-marker');
+    expect(others).toHaveLength(0);
+    expect(marker?.getAttribute('title')).toBe('Compacted into a summary');
+    const files = screen.getAllByTestId('context-map-file');
+    const b = files.find((file) => within(file).queryByText('b.ts'));
+    await waitFor(() => expect(b?.querySelector('[data-state="gone"]')).toBeTruthy());
+  });
+
+  it("shows the composer ring's figure against its compaction trigger", () => {
     seed();
     useThreadContextStore
       .getState()
-      .recordRing('thread-1', { budgetTokens: 10_000, isEstimated: false, usedTokens: 4500 });
+      .recordRing('thread-1', { isEstimated: false, triggerTokens: 10_000, usedTokens: 4500 });
     render(<Page />);
     expect(screen.getByTestId('context-map-ring-total').textContent).toBe('4.5K / 10.0K tokens');
     expect(

@@ -303,6 +303,88 @@ describe('threadContextAt window states', () => {
     expect(stateAt(3)).toEqual({ a: ['compacted', 0, 505], b: ['in-window', 205, 205] });
   });
 
+  /** Run r1's steps, one read each: the model's call, then the host's run of it. */
+  const readSteps = (l: ReturnType<typeof log>, ids: readonly string[]) => {
+    l.run('r1');
+    for (const [stepNumber, id] of ids.entries()) {
+      l.add({
+        messages: [
+          {
+            content: [
+              { input: {}, toolCallId: id, toolName: 'readWorkspaceFile', type: 'tool-call' },
+            ],
+            role: 'assistant',
+          },
+        ],
+        runId: 'r1',
+        stepNumber,
+        type: 'model.step',
+      });
+      l.tool('r1', id, 'brainstrike.readWorkspaceFile', read(`src/${id}.ts`, 1, 10));
+    }
+  };
+  const compacted = (stepNumber: number, kept?: number[]) => ({
+    compactedRunIds: [],
+    kind: 'agentic',
+    reason: 'pre-request',
+    runId: 'r1',
+    summary: 's',
+    through: { ...(kept ? { kept } : {}), runId: 'r1', stepNumber },
+    type: 'context.compacted',
+  });
+
+  it('reads the calls of steps a compaction inside a run replaced as compacted (BST-2531)', () => {
+    const l = log();
+    readSteps(l, ['a', 'b', 'c']);
+    l.add(compacted(1));
+    l.request('r1', [sent('c')]);
+    const snapshot = fold(l.rows);
+    const states = Object.fromEntries(
+      threadContextAt(snapshot, linear(snapshot), 1).calls.map((c) => [c.call.toolCallId, c.state])
+    );
+    expect(states).toEqual({ a: 'compacted', b: 'compacted', c: 'in-window' });
+    expect(snapshot.runs.get('r1')?.compactions).toBe(1);
+  });
+
+  it('never reads a step a compaction kept word for word as compacted, across later compactions', () => {
+    const l = log();
+    readSteps(l, ['a', 'b', 'c', 'd']);
+    // The first kept step 0; the second replaced up to step 2 past it.
+    l.add(compacted(1, [0]));
+    l.add(compacted(2));
+    // A request without `a` (a trim left it out) shows it gone, not summarized.
+    l.request('r1', [sent('d')]);
+    const snapshot = fold(l.rows);
+    const states = Object.fromEntries(
+      threadContextAt(snapshot, linear(snapshot), 1).calls.map((c) => [c.call.toolCallId, c.state])
+    );
+    expect(states).toEqual({ a: 'dropped', b: 'compacted', c: 'compacted', d: 'in-window' });
+  });
+
+  it('counts each earlier turn a run’s summaries cover once, though each summary names it (BST-2527)', () => {
+    const l = log();
+    for (const id of ['r1', 'r2', 'r3']) {
+      l.run(id);
+    }
+    // r3 compacted r1 before its first step, then merged r2 in before a later one.
+    for (const compactedRunIds of [['r1'], ['r1', 'r2']]) {
+      l.add({
+        compactedRunIds,
+        earlierRequests: [],
+        filesEdited: [],
+        kind: 'agentic',
+        reason: 'pre-request',
+        runId: 'r3',
+        summary: 's',
+        toolsLoaded: [],
+        type: 'context.compacted',
+      });
+    }
+    const run = fold(l.rows).runs.get('r3');
+    expect(run?.compactions).toBe(2);
+    expect(run?.compactedRunIds).toEqual(['r1', 'r2']);
+  });
+
   it('keeps an attachment in the window for its own run only', () => {
     const l = log();
     l.run('r1', ':file[a.md]{name=root-1::docs/a.md}');

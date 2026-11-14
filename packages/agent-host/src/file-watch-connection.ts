@@ -91,6 +91,9 @@ export function bindHostRootRegistryMethods(
     });
   };
   serve('projects/join');
+  serve('projects/memory/delete');
+  serve('projects/memory/list');
+  serve('projects/memory/write');
   serve('projects/rename');
   serve('workspace/roots/add');
   handle('workspace/roots/locate', async (params) => {

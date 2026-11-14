@@ -19,8 +19,6 @@ export interface CommittedAssistantSnapshot {
   readonly isDisabled?: boolean | undefined;
   readonly isLoading: boolean;
   readonly isRunning: boolean;
-  /** The latest run received no observational memory, and why (a committed host reason). */
-  readonly observationWithheld?: 'branched-thread' | undefined;
   readonly repository: ExportedMessageRepository;
   readonly state?: ExternalStoreAdapter['state'];
 }

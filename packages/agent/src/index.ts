@@ -48,16 +48,6 @@ export {
   type ContextPackerResult,
   type PackedContextChunk,
 } from '@brainstrike/assistant-contract/context-packer';
-export {
-  CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  type RuntimeAssistantMemoryRetrievalMode,
-  type RuntimeAssistantMemoryScope,
-  type RuntimeAssistantMemorySettings,
-  type RuntimeAssistantObservationalMemorySettings,
-  resolveAutoObservationalMemoryModelTarget,
-} from '@brainstrike/assistant-contract/memory-settings';
 export type { ReadToolOutputArtifactCursorInput } from '@brainstrike/assistant-contract/native-tool-schemas';
 export {
   type AssistantPersonaDefinition,
@@ -203,8 +193,6 @@ export {
   ToolRegistry as McpToolRegistry,
   toolRegistry as mcpToolRegistry,
 } from './mcp/tool-registry.ts';
-// Memory store for early development
-export { InMemoryMemoryStore } from './memory/in-memory.ts';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
@@ -260,8 +248,6 @@ export {
   type ProviderAuthInput,
 } from './providers/provider-auth-input.ts';
 export {
-  type ConcreteLanguageModel,
-  createLanguageModelProvider,
   createProvider,
   getDefaultModel,
 } from './providers/provider-factory.ts';

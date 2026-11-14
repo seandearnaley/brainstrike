@@ -102,11 +102,39 @@ describe('the committed host event schema', () => {
       },
     ],
   };
+  const compacted = {
+    compactedRunIds: ['run-0'],
+    earlierRequests: ['Move the port.\nKeep the old default.'],
+    filesEdited: [{ edits: 2, path: 'src/server.ts' }],
+    kind: 'agentic',
+    reason: 'pre-request',
+    runId,
+    summary: 'Goal: g',
+    toolsLoaded: ['brainstrike_lspInspect'],
+    type: 'context.compacted',
+  };
   test.each([
     ['a prepared request measured before tool calls were attributed', prepared],
     [
       'a prepared request with its tool calls and window',
       { ...prepared, breakdown: { ...breakdown, ...toolCalls }, toolCallWindow },
+    ],
+    ['a compaction of earlier turns', compacted],
+    [
+      'a compaction of the steps of a running turn',
+      { ...compacted, compactedRunIds: [], through: { runId, stepNumber: 6 } },
+    ],
+    [
+      'a compaction of earlier turns and steps of a running turn',
+      { ...compacted, through: { runId, stepNumber: 0 } },
+    ],
+    [
+      'a compaction of steps that kept a skill load and an answer',
+      { ...compacted, through: { kept: [2, 5], runId, stepNumber: 10 } },
+    ],
+    [
+      'a request trim',
+      { ...compacted, kind: 'deterministic', reason: 'request-trim', summary: 'Dropped.' },
     ],
   ])('%s parses to itself', (_, event) => {
     expect(
@@ -148,6 +176,25 @@ describe('the committed host event schema', () => {
         runId,
         type: 'interaction.responded',
       },
+    ],
+    ['a compaction that replaces nothing', { ...compacted, compactedRunIds: [] }],
+    ['a compaction through a negative step', { ...compacted, through: { runId, stepNumber: -1 } }],
+    [
+      'a compaction that keeps the step it names as replaced',
+      { ...compacted, through: { kept: [10], runId, stepNumber: 10 } },
+    ],
+    [
+      'a compaction with an empty kept list',
+      { ...compacted, through: { kept: [], runId, stepNumber: 3 } },
+    ],
+    ['a compaction without its host-written lists', { ...compacted, toolsLoaded: undefined }],
+    [
+      'a compaction listing a file it did not edit',
+      { ...compacted, filesEdited: [{ edits: 0, path: 'src/server.ts' }] },
+    ],
+    [
+      'a compaction listing a file outside its root',
+      { ...compacted, filesEdited: [{ edits: 1, path: '../secrets.env' }] },
     ],
     ['a missing required field', { outcome: 'completed', type: 'run.finished' }],
     ['a value outside its enum', { outcome: 'done', runId, type: 'run.finished' }],

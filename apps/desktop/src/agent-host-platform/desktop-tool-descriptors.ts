@@ -25,6 +25,8 @@ export interface DesktopToolAdmission {
    */
   readonly codeFence: boolean;
   readonly enabledNativeToolIds: readonly string[];
+  /** ADR-0040: the run has a trusted project, whose memory its memory tool keeps. */
+  readonly projectMemory: boolean;
   /** The run's scanned workspace skills: the skill tools and runSkillScript exist only with them. */
   readonly skills: boolean;
 }
@@ -35,6 +37,9 @@ function admitted(id: string, admission: DesktopToolAdmission): boolean {
   }
   if (id === NATIVE_TOOL_ID.runSkillScript) {
     return admission.skills;
+  }
+  if (id === NATIVE_TOOL_ID.memory) {
+    return admission.projectMemory;
   }
   return true;
 }

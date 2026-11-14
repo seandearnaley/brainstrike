@@ -25,6 +25,7 @@ const PASSED: EvalResult = {
   modelId: 'scripted::fix-failing-test',
   pass: true,
   reason: null,
+  spendCap: null,
   startedAt: '2026-10-17T11:00:00.000Z',
   task: 'fix-failing-test',
   thread: {
@@ -58,6 +59,26 @@ const FAILED: EvalResult = {
   verifierExitCode: null,
 };
 
+/** A live run the spend cap stopped after its first turn. */
+const CUT_SHORT: EvalResult = {
+  ...PASSED,
+  mode: 'live',
+  modelId: 'anthropic::claude-haiku-5-5',
+  pass: false,
+  reason:
+    'The spend cap stopped the thread before turn 2: $1.0312 measured reaches the $1.0000 cap',
+  spendCap: { capUsd: 1, cutShort: true, spentUsd: 1.0312 },
+  verifierExitCode: null,
+};
+/** The trial after it, which the cap never started. */
+const NOT_RUN: EvalResult = {
+  ...FAILED,
+  mode: 'live',
+  reason: 'Not run: the spend cap stopped the batch: $1.0312 measured reaches the $1.0000 cap',
+  spendCap: { capUsd: 1, cutShort: true, spentUsd: 1.0312 },
+  trial: 2,
+};
+
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
@@ -75,9 +96,22 @@ describe('results writer', () => {
     roots.push(root);
     const file = join(root, 'nested', '2026-10-17-scripted.jsonl');
     await appendEvalResults(file, [PASSED, FAILED]);
-    await appendEvalResults(file, [PASSED]);
+    await appendEvalResults(file, [PASSED, CUT_SHORT, NOT_RUN]);
     const lines = (await readFile(file, 'utf8')).trimEnd().split('\n');
-    expect(lines.map((line) => JSON.parse(line))).toEqual([PASSED, FAILED, PASSED]);
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      PASSED,
+      FAILED,
+      PASSED,
+      CUT_SHORT,
+      NOT_RUN,
+    ]);
+  });
+
+  test('refuses a spend cap that is not a positive amount', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-evals-results-'));
+    roots.push(root);
+    const uncapped = { ...CUT_SHORT, spendCap: { capUsd: 0, cutShort: true, spentUsd: 1 } };
+    await expect(appendEvalResults(join(root, 'out.jsonl'), [uncapped])).rejects.toThrow(/capUsd/u);
   });
 
   test('refuses a result whose pass and reason disagree, writing nothing', async () => {
@@ -137,5 +171,22 @@ describe('formatEvalSummary', () => {
       'fix-failing-test: 2/3 trials passed',
       'rename-symbol: 0/1 trials passed',
     ]);
+  });
+
+  test('a capped run ends with its measured spend against the cap and what the cap cut short', () => {
+    const under = { ...PASSED, spendCap: { capUsd: 1, cutShort: false, spentUsd: 0.4 } };
+    expect(formatEvalSummary([under]).split('\n').at(-1)).toBe(
+      'Spend cap $1.0000: $0.4000 measured'
+    );
+    const lines = formatEvalSummary([CUT_SHORT, NOT_RUN]).split('\n');
+    expect(lines[2]).toMatch(/^rename-symbol\s+live\s+2\s+FAIL\s.*Not run: the spend cap/u);
+    expect(lines.slice(-2)).toEqual([
+      '0/2 passed',
+      'Spend cap $1.0000: $1.0312 measured; cut short, 2 run(s) stopped or not run',
+    ]);
+    const unknown = { ...NOT_RUN, spendCap: { capUsd: 1, cutShort: true, spentUsd: null } };
+    expect(formatEvalSummary([unknown]).split('\n').at(-1)).toBe(
+      'Spend cap $1.0000: unknown spend; cut short, 1 run(s) stopped or not run'
+    );
   });
 });

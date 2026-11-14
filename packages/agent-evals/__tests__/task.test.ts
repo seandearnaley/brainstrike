@@ -72,10 +72,16 @@ describe('a task that continues its thread', () => {
       inputTokenLimit: 24_000,
     };
     expect(decodeEvalTask(task, 'task.json')).toEqual(task);
+    const agentic = { ...task, expect: { compactions: { atLeast: 1, kind: 'agentic' } } };
+    expect(decodeEvalTask(agentic, 'task.json')).toEqual(agentic);
   });
 
   test.each([
     ['no follow-up turns', { ...VALID, followUps: [] }],
+    [
+      'a compaction kind the log never commits',
+      { ...VALID, expect: { compactions: { atLeast: 1, kind: 'summary' } } },
+    ],
     ['a follow-up without a prompt', { ...VALID, followUps: [{ probe: { facts: ['a'] } }] }],
     ['a probe with no facts', { ...VALID, followUps: [{ probe: { facts: [] }, prompt: 'Q?' }] }],
     ['a non-positive input budget', { ...VALID, inputTokenLimit: 0 }],

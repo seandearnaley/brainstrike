@@ -675,7 +675,7 @@ function responsesTurn(
       ...response,
       output: calls,
       status: 'completed',
-      usage: { ['input_tokens']: 4, ['output_tokens']: 0, ['total_tokens']: 4 },
+      usage: usage ?? { ['input_tokens']: 4, ['output_tokens']: 0, ['total_tokens']: 4 },
     },
     items: calls.flatMap((call, index) => [
       {

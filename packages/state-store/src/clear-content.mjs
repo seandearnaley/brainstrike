@@ -4,8 +4,6 @@
 const CONTENT_TABLES = [
   'brainstrike_mcp_tasks',
   'brainstrike_mcp_task_authorities',
-  'brainstrike_memory_entities',
-  'brainstrike_memory_scopes',
   'brainstrike_worktrees',
   'thread_pins',
   'thread_placements',

@@ -41,7 +41,8 @@
     "./provider-base-url": "./src/provider-base-url.ts",
     "./provider-credentials": "./src/provider-credentials.ts",
     "./provider-status": "./src/provider-status.ts",
-    "./provider-verification": "./src/provider-verification.ts"
+    "./provider-verification": "./src/provider-verification.ts",
+    "./project-memory": "./src/project-memory/index.ts"
   },
   "files": [
     "bin"

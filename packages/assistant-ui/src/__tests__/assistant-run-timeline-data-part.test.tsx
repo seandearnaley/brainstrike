@@ -84,8 +84,8 @@ const ordinaryToolFailedEvent = {
 
 const backgroundEvent = {
   id: 'event-background-1',
-  kind: 'memory.configured',
-  label: 'Memory configured',
+  kind: 'run.step.finished',
+  label: 'Step finished',
   runId: 'run-1',
   sequence: 2,
   status: 'completed',

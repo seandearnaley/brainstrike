@@ -1,7 +1,8 @@
 {
   "expect": {
     "compactions": {
-      "atLeast": 1
+      "atLeast": 1,
+      "kind": "agentic"
     }
   },
   "followUps": [
@@ -28,10 +29,20 @@
         ]
       },
       "prompt": "Without opening any file: which port did we settle on at the start, and which file sets it?"
+    },
+    {
+      "probe": {
+        "facts": [
+          "src/server.ts",
+          "notes/release-1.md",
+          "notes/release-5.md"
+        ]
+      },
+      "prompt": "Without opening any file: which files has this thread changed?"
     }
   ],
   "id": "recall-after-compaction",
-  "inputTokenLimit": 30000,
+  "inputTokenLimit": 60000,
   "model": "openai::gpt-6-luna",
   "prompt": "Read docs/decisions.md, then change the port in src/server.ts to the one it settles on. Use workspace-relative paths and do not pass a root.",
   "timeoutMs": 300000,

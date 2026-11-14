@@ -31,6 +31,8 @@ import {
 } from '@brainstrike/agent/tool-runtime';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import type { MemoryInput } from '@brainstrike/assistant-contract/native-tool-schemas';
+import { type ProjectMemoryPort, runProjectMemoryTool } from '../project-memory/memory-tool.ts';
 import { createArtifactReaderModelProjection } from './artifact-reader-model-projection.ts';
 import { SEARCH_NATIVE_TOOL_EXECUTORS } from './executors-search.ts';
 import {
@@ -73,6 +75,8 @@ export interface NativeToolPorts {
   /** Core's binding of a root run's thread to a worktree its call created; absent for a child. */
   readonly enterWorktree?: HostToolContext['enterWorktree'];
   readonly fileMutations: FileMutationPorts;
+  /** ADR-0040: the run's project notes and Core's record of the call; absent without a project. */
+  readonly projectMemory?: ProjectMemoryPort | undefined;
   /** Core's commit of the worktrees this call's shell command made (`worktree.created`). */
   readonly shellWorktrees?: HostToolContext['shellWorktrees'];
   /** Absent without an active thread; the tool then reports it. */
@@ -100,6 +104,7 @@ export const SHARED_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.manageCanvas,
   NATIVE_TOOL_ID.manageTaskList,
+  NATIVE_TOOL_ID.memory,
   NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
   NATIVE_TOOL_ID.readWorkspaceFile,
@@ -305,6 +310,19 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
     },
     id: NATIVE_TOOL_ID.manageTaskList,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
+  }),
+  // ADR-0040: the project's memory files; a thread without a project is refused.
+  [NATIVE_TOOL_ID.memory]: ({ ports }) => ({
+    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.memory],
+    execute: async (input: ToolExecuteInput<MemoryInput>) => {
+      const resolvedInput = parseToolExecuteInput(
+        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.memory],
+        input
+      );
+      return await runProjectMemoryTool(resolvedInput, ports.projectMemory);
+    },
+    id: NATIVE_TOOL_ID.memory,
+    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.memory],
   }),
   // Tavily /extract; the key resolves in the executing process and never
   // reaches the model, and refuseExtractUrl keeps internal URLs from leaving it.

@@ -37,20 +37,6 @@ export type {
   McpTaskScopeWire,
   McpTaskStatusWire,
 } from './mcp-task-types.ts';
-export { MemoryCalculatorError } from './memory-calculator.ts';
-export type {
-  MemoryCalculation,
-  MemoryDomainPort,
-  MemoryDomainRequest,
-  MemoryEntity,
-  MemoryEntityChange,
-  MemoryJson,
-  MemoryJsonObject,
-  MemoryNativeCalculator,
-  MemoryNativeMethod,
-  MemoryNativeRequest,
-  MemorySnapshot,
-} from './memory-types.ts';
 export type {
   ModelChoice,
   ModelChoicePort,
@@ -73,13 +59,7 @@ export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
 export { SCHEMA_VERSION } from './schema.mjs';
 export { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
-export {
-  type MemoryObservationRecord,
-  type MemoryThreadBinding,
-  type ReadItem,
-  readAll,
-  SqliteReader,
-} from './sqlite-reader.ts';
+export { type ReadItem, readAll, SqliteReader } from './sqlite-reader.ts';
 export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
@@ -87,6 +67,7 @@ export {
   type IndexerPort,
   largeText,
   PREVIEW_CHARS,
+  PROJECT_MEMORY_DIR,
   type PurgeReport,
   STATE_DB,
   STORE_ENTRIES,

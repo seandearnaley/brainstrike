@@ -19,7 +19,6 @@ describe('the thread cost breakdown', () => {
           bySource: [
             {
               costUsd: 11.5,
-              estimated: false,
               inputTokens: 900_000,
               kind: 'chat',
               models: [
@@ -30,9 +29,8 @@ describe('the thread cost breakdown', () => {
             },
             {
               costUsd: 0.000_42,
-              estimated: false,
               inputTokens: 4200,
-              kind: 'om-observation',
+              kind: 'thread-title',
               models: [model('gpt-5.4-mini', 'openai', 0.000_42, 4200)],
               outputTokens: 0,
             },
@@ -55,7 +53,7 @@ describe('the thread cost breakdown', () => {
       expect.stringMatching(/GPT-5\.6 Sol.*\$1\.50/u),
     ]);
     // A sub-cent cost stays visible instead of rounding to $0.00.
-    expect(screen.getByTestId('context-usage-source-om-observation')).toHaveTextContent('$0.00042');
+    expect(screen.getByTestId('context-usage-source-thread-title')).toHaveTextContent('$0.00042');
   });
 
   it('says a source is unpriced rather than showing $0', () => {
@@ -65,7 +63,6 @@ describe('the thread cost breakdown', () => {
           bySource: [
             {
               costUsd: 1,
-              estimated: false,
               inputTokens: 10,
               kind: 'chat',
               models: [model('claude-opus-5-5', 'anthropic', 1, 10)],
@@ -73,7 +70,6 @@ describe('the thread cost breakdown', () => {
             },
             {
               costUsd: null,
-              estimated: false,
               inputTokens: 10,
               kind: 'subagent',
               models: [model('vendor/uncatalogued', 'openrouter', null, 10)],

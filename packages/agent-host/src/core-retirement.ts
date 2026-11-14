@@ -13,12 +13,12 @@ export class HostCoreRetiredError extends AggregateError {
 
 /**
  * Host close: fence pending admissions and runs, wait out the admission tail,
- * join every run's task, effects and owner, then the platform. Returns the
+ * join every run's task, effects and resources, then the platform. Returns the
  * runs' retained outcomes once nothing failed to retire.
  */
 export async function retireHostCoreRuns(options: {
   readonly admission: () => Promise<void>;
-  readonly closeOwner: (run: HostRunState) => Promise<void>;
+  readonly closeResources: (run: HostRunState) => Promise<void>;
   readonly closePlatform: () => Promise<void>;
   readonly failedAdmissions: () => readonly unknown[];
   readonly finish: (run: HostRunState) => Promise<void>;
@@ -36,7 +36,7 @@ export async function retireHostCoreRuns(options: {
     run.controller.abort(new Error('Host is closing'));
   }
   const joined = await Promise.allSettled(
-    options.runs().map((run) => joinHostClosingRun(run, options.closeOwner, options.finish))
+    options.runs().map((run) => joinHostClosingRun(run, options.closeResources, options.finish))
   );
   const platform = await Promise.allSettled([options.closePlatform()]);
   const outcomes = hostRunClosingOutcomes(joined);

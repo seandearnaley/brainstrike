@@ -32,8 +32,6 @@ export {
   type ProviderAuthInput,
 } from './providers/provider-auth-input.ts';
 export {
-  type ConcreteLanguageModel,
-  createLanguageModelProvider,
   createProvider,
   type ProviderModelConfiguration,
 } from './providers/provider-factory.ts';
