@@ -12,6 +12,8 @@ import {
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
   isSupportedProvider,
+  refusalError,
+  resolveModelLabel,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
@@ -56,11 +58,20 @@ export async function readDesktopCatalogSelection(
   }
   // The UI composite is a selection key. The existing catalog owns the pair.
   const row = await reads.catalogModel({ model, provider }, signal);
+  // A person reaches these two: the composer sends whatever the thread holds.
   if (!row) {
-    throw new Error('The selected model is not in the model catalog');
+    throw refusalError(
+      'configuration',
+      'model.not-in-catalog',
+      `${model} is not in the model catalog; choose another model.`
+    );
   }
   if (!row.isEnabled) {
-    throw new Error('The selected catalog model is disabled');
+    throw refusalError(
+      'configuration',
+      'model.disabled',
+      `${resolveModelLabel(provider, model)} is switched off in Settings; switch it on or choose another model.`
+    );
   }
   if (row.providerId !== provider) {
     throw new Error('The selected model identity does not match its catalog provider');
