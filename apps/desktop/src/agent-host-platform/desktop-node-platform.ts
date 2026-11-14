@@ -509,6 +509,7 @@ export async function createDesktopHostConfiguration(
           }),
         childSystem: selected.childSystem,
         close: closeSelection,
+        compactionTokenCap: selected.compactionTokenCap,
         configuration,
         delegation: selected.delegation,
         durableConfiguration: selected.durableConfiguration,

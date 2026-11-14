@@ -88,6 +88,48 @@ describe('ProviderSettingsPanel number fields', () => {
     expect(onSettingsChange).toHaveBeenCalledTimes(1);
   });
 
+  it('the compaction cap shows its 200,000 default and stores what a person commits from 64,000 up', async () => {
+    const user = userEvent.setup();
+    let stored: AssistantProviderSettings = {};
+    function StatefulPanel() {
+      const [settings, setSettings] = useState<AssistantProviderSettings>({});
+      return (
+        <ProviderSettingsPanel
+          onSettingsChange={(_providerId, updates) =>
+            setSettings((current) => {
+              stored = mergeAssistantProviderSettings(current, updates);
+              return stored;
+            })
+          }
+          providerId="openai"
+          settings={settings}
+        />
+      );
+    }
+    render(<StatefulPanel />);
+    const cap = screen.getByRole('spinbutton', { name: 'Compact at' });
+    expect(cap).toHaveValue(200_000);
+
+    await user.clear(cap);
+    await user.type(cap, '63999{Enter}');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter a whole number of tokens, at least 64,000.'
+    );
+    expect(stored).toEqual({});
+
+    await user.clear(cap);
+    await user.type(cap, '100000');
+    await user.tab();
+    expect(stored).toEqual({ agentCompactionTokenCap: 100_000 });
+    expect(cap).toHaveValue(100_000);
+
+    // Cleared, the cap returns to its default.
+    await user.clear(cap);
+    await user.tab();
+    expect(stored).toEqual({});
+    expect(cap).toHaveValue(200_000);
+  });
+
   it('typing an input token limit never stores the clamped first keystroke', async () => {
     const user = userEvent.setup();
     const onSettingsChange = vi.fn();

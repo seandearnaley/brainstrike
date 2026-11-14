@@ -39,8 +39,9 @@ describe('ContextUsageMeter', () => {
   });
 
   const props = {
+    // 90% of the 126,000-token budget, under the default cap.
+    compactionTrigger: 113_400,
     contextWindow: 200_000,
-    effectiveInputBudget: 126_000,
     estimatedTokens: 4000,
     threadKey: 't1',
   };
@@ -86,25 +87,64 @@ describe('ContextUsageMeter', () => {
     expect(screen.getByText(/5\.5K/u)).toBeInTheDocument();
   });
 
-  it('applies warning state at >=75% of the effective budget and critical at >=90%', () => {
-    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 100_000, outputTokens: 0 }); // ~79%
+  it('applies warning state at >=75% of the compaction trigger and critical at >=90%', () => {
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 90_000, outputTokens: 0 }); // ~79%
     const { rerender } = render(<ContextUsageMeter {...props} />);
     expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'warning');
     expect(screen.getByTestId('context-ring')).toHaveAttribute('data-state', 'warning');
-    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 120_000, outputTokens: 0 }); // ~95%
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 108_000, outputTokens: 0 }); // ~95%
     rerender(<ContextUsageMeter {...props} />);
     expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'critical');
     expect(screen.getByTestId('context-ring')).toHaveAttribute('data-state', 'critical');
-    expect(screen.getByText(/older messages may be trimmed/iu)).toBeInTheDocument();
+    expect(screen.getByText(/older messages will be summarized/iu)).toBeInTheDocument();
   });
 
-  it('keeps the critical trimming-risk notice INLINE (visible without opening the popover)', () => {
-    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 120_000, outputTokens: 0 });
+  it('on a large budget, warns and turns critical as the thread nears its capped trigger, and is calm below', () => {
+    // A 1M window's 945,904-token budget, compacting at a 200,000-token cap.
+    const capped = {
+      ...props,
+      compactionTrigger: 200_000,
+      contextWindow: 1_000_000,
+    };
+    const stateAt = (inputTokens: number) => {
+      useContextUsageStore.getState().recordUsage('t1', { inputTokens, outputTokens: 0 });
+      const { unmount } = render(<ContextUsageMeter {...capped} />);
+      const state = screen.getByTestId('context-usage-meter').getAttribute('data-state');
+      unmount();
+      return state;
+    };
+    expect(stateAt(149_999)).toBe('ok');
+    expect(stateAt(150_000)).toBe('warning');
+    expect(stateAt(179_999)).toBe('warning');
+    expect(stateAt(180_000)).toBe('critical');
+  });
+
+  it('fills the ring toward the compaction trigger: 75% at 150K of a 200K trigger, full from 200K', () => {
+    // A 1M window's 945,904-token budget, compacting at 200,000.
+    const capped = {
+      ...props,
+      compactionTrigger: 200_000,
+      contextWindow: 1_000_000,
+    };
+    const ringAt = (inputTokens: number) => {
+      useContextUsageStore.getState().recordUsage('t1', { inputTokens, outputTokens: 0 });
+      const { unmount } = render(<ContextUsageMeter {...capped} />);
+      const ring = screen.getByTestId('context-ring').getAttribute('aria-label');
+      unmount();
+      return ring;
+    };
+    expect(ringAt(150_000)).toBe('Context usage 75%');
+    expect(ringAt(200_000)).toBe('Context usage 100%');
+    expect(ringAt(260_000)).toBe('Context usage 100%');
+  });
+
+  it('keeps the critical notice INLINE (visible without opening the popover)', () => {
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 108_000, outputTokens: 0 });
     render(<ContextUsageMeter {...props} />);
     // Popover closed — the notice must still be visible next to the ring.
     expect(screen.queryByTestId('context-usage-popover')).not.toBeInTheDocument();
     expect(screen.getByTestId('context-usage-critical-notice')).toHaveTextContent(
-      /older messages may be trimmed/iu
+      'Approaching compaction; older messages will be summarized.'
     );
   });
 
@@ -117,27 +157,30 @@ describe('ContextUsageMeter', () => {
     expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'warning');
   });
 
-  it('enters warning state at exactly 75% of the effective budget (>= semantics)', () => {
-    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 94_500, outputTokens: 0 }); // exactly 75% of 126_000
+  it('enters warning state at exactly 75% of the compaction trigger (>= semantics)', () => {
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 85_050, outputTokens: 0 }); // exactly 75% of 113_400
     render(<ContextUsageMeter {...props} />);
     expect(screen.getByTestId('context-usage-meter')).toHaveAttribute('data-state', 'warning');
   });
 
   it('renders nothing when no context window is known', () => {
     const { container } = render(
-      <ContextUsageMeter {...props} contextWindow={undefined} effectiveInputBudget={undefined} />
+      <ContextUsageMeter {...props} compactionTrigger={undefined} contextWindow={undefined} />
     );
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('uses effectiveInputBudget as the displayed denominator so ring row and popover tell one story', () => {
-    // effectiveInputBudget: 126_000 → "126.0K"; contextWindow: 200_000 stays out
+  it('uses the compaction trigger as the displayed denominator so ring row and popover tell one story', () => {
+    // compactionTrigger: 113_400 → "113.4K"; contextWindow: 200_000 stays out
     // of the compact row (it lives in the popover's model-window line + title).
     render(<ContextUsageMeter {...props} estimatedTokens={undefined} />);
-    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent('126.0K');
-    expect(screen.getByTestId('context-usage-trigger')).not.toHaveTextContent('200.0K');
+    const trigger = screen.getByTestId('context-usage-trigger');
+    expect(trigger).toHaveTextContent('113.4K');
+    expect(trigger).not.toHaveTextContent('200.0K');
+    expect(trigger).toHaveAccessibleName('Context usage: 0% to compaction');
+    expect(trigger).toHaveAttribute('title', 'context 0 / 113.4K · model window 200.0K tokens');
     openMeterPopover();
-    expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(/126\.0K tokens/u);
+    expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(/113\.4K tokens/u);
     expect(screen.getByTestId('context-usage-popover-window')).toHaveTextContent(
       /model window 200\.0K tokens/u
     );
@@ -239,8 +282,8 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
   });
 
   const props = {
+    compactionTrigger: 113_400,
     contextWindow: 200_000,
-    effectiveInputBudget: 126_000,
     threadKey: 't1',
   };
 
@@ -412,8 +455,8 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
   });
 
   const props = {
+    compactionTrigger: 113_400,
     contextWindow: 200_000,
-    effectiveInputBudget: 126_000,
     threadKey: 't1',
   };
 
@@ -526,8 +569,8 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
 
 describe('ThreadContextMeter', () => {
   const meterProps = {
+    compactionTrigger: 113_400,
     contextWindow: 200_000,
-    effectiveInputBudget: 126_000,
     threadKey: 'test-thread',
   };
 
@@ -640,8 +683,8 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
   });
 
   const props = {
+    compactionTrigger: 113_400,
     contextWindow: 200_000,
-    effectiveInputBudget: 126_000,
     threadKey: 't1',
   };
 

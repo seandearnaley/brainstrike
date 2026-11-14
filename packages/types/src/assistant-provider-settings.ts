@@ -125,6 +125,8 @@ export function getGoogleThinkingLevels(
 }
 
 export interface AssistantProviderSettings {
+  /** The request size at which a thread compacts (BST-2539); unset is the 200,000-token default. */
+  agentCompactionTokenCap?: number;
   /** Optional hard cap for request input tokens. Values are normalized to positive integers at runtime. */
   agentInputTokenLimit?: number;
   /** Optional Mastra agent loop step cap. Values are normalized to positive integers at runtime. */
@@ -166,6 +168,7 @@ export interface AssistantProviderSettings {
 }
 
 export const assistantProviderSettingKeys = [
+  'agentCompactionTokenCap',
   'agentInputTokenLimit',
   'agentMaxSteps',
   'anthropicEffort',

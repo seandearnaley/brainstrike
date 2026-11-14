@@ -15,8 +15,8 @@ import { startTokenCounter } from '@brainstrike/agent/token-counter';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   AUTO_REVIEW_MODEL_AUTO,
-  CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP,
   type PermissionToolGateSnapshot,
+  resolveContextCompactionTokenCap,
   resolveQuickModelTarget,
 } from '@brainstrike/assistant-contract';
 import { resolveTokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
@@ -49,6 +49,11 @@ export interface ProductionHostRunConfiguration {
   readonly childSystem?: string | undefined;
   /** Borrowed platform capabilities remain owned until every run tail joins. */
   readonly close?: () => Promise<void>;
+  /**
+   * BST-2539: the compaction cap the person set (desktop's
+   * `agentLoop.compactionTokenCap`); absent, the admission uses the default.
+   */
+  readonly compactionTokenCap?: number | undefined;
   readonly configuration: RuntimeData;
   /** BST-1932: the personas and subagent limits this admission may delegate with. */
   readonly delegation?: HostDelegation | undefined;
@@ -524,8 +529,8 @@ export async function createProductionHostPlatform<Configuration extends Product
             : {}),
           childSystem: selected.childSystem,
           close: release,
-          // Both hosts' runs compact at the default cap beside their input budget (BST-2526).
-          compactionTokenCap: CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP,
+          // The person's cap, else the default, beside the input budget (BST-2526, BST-2539).
+          compactionTokenCap: resolveContextCompactionTokenCap(selected.compactionTokenCap),
           configuration: selected.configuration,
           delegation: selected.delegation,
           ...(discovery ? { discovery: discovery.discovery } : {}),
