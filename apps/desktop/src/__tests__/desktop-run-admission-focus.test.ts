@@ -154,3 +154,43 @@ test('a changed model selection returns a typed refusal with a remedy', async ()
     },
   });
 });
+/** A send of `model` from an unbound chat, against Main's catalog row for it. */
+async function sendTo(
+  model: string,
+  row: { readonly isEnabled: boolean; readonly providerId: string } | null
+) {
+  return await createDesktopRunAdmission(
+    mainReads({ catalogModel: async () => row }),
+    async () => undefined,
+    everyRootTrusted,
+    async () => undefined
+  ).readConfiguration({
+    configuration: capturedIntent({ model, provider: 'openai' }),
+    modelId: `openai::${model}`,
+    runId: 'host-run',
+    signal: new AbortController().signal,
+    threadId: 'host-thread',
+  });
+}
+test('a send on a model switched off in Settings is refused with a sentence naming it', async () => {
+  const refused = sendTo('gpt-6-luna', { isEnabled: false, providerId: 'openai' });
+  await expect(refused).rejects.toMatchObject({
+    failure: {
+      code: 'model.disabled',
+      kind: 'refusal',
+      message: 'GPT-6 Luna is switched off in Settings; switch it on or choose another model.',
+    },
+  });
+  await expect(refused).rejects.not.toHaveProperty('failure.remedy');
+});
+test('a send on a model the catalog does not have is refused with a sentence naming it', async () => {
+  const refused = sendTo('gpt-not-in-catalog', null);
+  await expect(refused).rejects.toMatchObject({
+    failure: {
+      code: 'model.not-in-catalog',
+      kind: 'refusal',
+      message: 'gpt-not-in-catalog is not in the model catalog; choose another model.',
+    },
+  });
+  await expect(refused).rejects.not.toHaveProperty('failure.remedy');
+});
