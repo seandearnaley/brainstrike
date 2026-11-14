@@ -58,10 +58,11 @@ export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
    * the run the notice shows with.
    * - `idle-cap` (ADR-0034 decision 7): a worktree created for this thread took its repository
    *   past `limit` idle managed worktrees, so the oldest beyond it were archived. The run is the
-   *   one that made the worktree, or the thread's latest when the person made it.
+   *   one that made the worktree, or the thread's latest when the person made it. A v25 to v29
+   *   host committed this shape with no `reason`, and it reads as `idle-cap`.
    * - `merged` (ADR-0034 build decisions, BST-2504): worktrees this thread made, which no thread
-   *   is bound to, whose branches have merged into `defaultBranch` (e.g. `origin/main`). The run
-   *   is the thread's latest.
+   *   is bound to, whose branches add nothing `defaultBranch` (e.g. `origin/main`) lacks. The
+   *   run is the thread's latest.
    */
   Schema.StructWithRest(Schema.Struct({ type: Schema.Literal('worktrees.archived') }), [
     Schema.Record(Schema.String, Schema.Unknown),
@@ -70,7 +71,7 @@ export const THREAD_WORKSPACE_EVENT_SCHEMAS = [
       Schema.Union([
         Schema.Struct({
           limit: Schema.Int.check(Schema.isGreaterThan(0)),
-          reason: Schema.Literal('idle-cap'),
+          reason: Schema.optional(Schema.Literal('idle-cap')),
           runId: Id,
           type: Schema.Literal('worktrees.archived'),
           worktrees: Schema.mutable(

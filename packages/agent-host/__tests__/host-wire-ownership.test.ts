@@ -1,5 +1,6 @@
 import { Schema } from 'effect';
 import { expect, test } from 'vitest';
+import { decodeStoredHostEvent } from '../src/host-event-decoding.js';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_METHOD_SCHEMAS,
@@ -79,10 +80,30 @@ test('v30 worktree archives name their reason, and a merged one its default bran
   const merged = { ...archived, defaultBranch: 'origin/main', reason: 'merged' };
   expect(decode(idle)).toEqual(idle);
   expect(decode(merged)).toEqual(merged);
-  // A v29 archive named no reason.
-  expect(() => decode({ ...archived, limit: 15 })).toThrow();
   expect(() => decode({ ...archived, reason: 'merged' })).toThrow();
+  expect(() => decode({ ...merged, limit: 15 })).toThrow();
   expect(() => decode({ ...merged, worktrees: [{ ...worktree, branch: null }] })).toThrow();
+});
+
+// v25 to v29 hosts committed the cap's archive with no reason; a thread holding one still reads.
+test('a stored worktree archive with no reason reads as the idle cap’s', () => {
+  const v29 = {
+    limit: 15,
+    runId: 'run-1',
+    type: 'worktrees.archived',
+    worktrees: [
+      {
+        branch: null,
+        name: 'calm-otter',
+        snapshotRef: 'refs/brainstrike/worktree-archive/wt-2',
+        worktreeId: 'wt-2',
+      },
+    ],
+  };
+  expect(decodeStoredHostEvent(v29)).toEqual(v29);
+  // With neither a reason nor a limit it is neither archive.
+  const { limit: _, ...unlimited } = v29;
+  expect(() => decodeStoredHostEvent(unlimited)).toThrow();
 });
 
 test('the owned MCP settlement decoder keeps its original refusal', () => {

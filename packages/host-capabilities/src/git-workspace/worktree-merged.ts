@@ -4,9 +4,9 @@
  *
  * It has merged only when all of these hold:
  * - the worktree is on a branch (not detached) and has no uncommitted changes;
- * - the branch has commits of its own: its tip is not the commit it was created
- *   at, which is the oldest entry of the branch's reflog. With no reflog to read
- *   (`core.logAllRefUpdates` off, or expired) it has not merged;
+ * - the branch has commits of its own: its tip is not on the default branch's
+ *   first-parent history. A branch only moved along that history has none, and
+ *   neither has one merged by a fast-forward, which the idle cap is left to;
  * - the branch adds nothing the default branch lacks: `git merge-tree
  *   --write-tree <default> <branch>` merges cleanly and writes the default
  *   branch's own tree. That holds for a squash merge as well as an ordinary one.
@@ -33,7 +33,6 @@ const PERSON_SCOPES = new Set(['global', 'system']);
 /** Why a worktree's branch does not count as merged. */
 export type WorktreeNotMergedReason =
   | 'adds-to-default'
-  | 'creation-unknown'
   | 'detached'
   | 'no-commits-of-its-own'
   | 'uncommitted-changes';
@@ -131,22 +130,50 @@ async function readBranchRef(worktree: GitInvoke): Promise<BoundaryResult<string
   return { ok: true, value: ref.startsWith('refs/heads/') ? ref : null };
 }
 
-/** Whether the branch has moved from the commit it was created at; null when that is unknown. */
+/**
+ * Whether the branch has commits of its own: its tip is not on the default branch's first-parent
+ * history. A branch only moved along that history (fast-forwarded to it, rebased onto it with
+ * nothing left of its own, or reset to an older commit of it) has none. A squash-merged branch's
+ * tip is not an ancestor of the default branch, and a merged branch's tip is a merge's second
+ * parent, so both have commits of their own.
+ */
 async function hasCommitsOfItsOwn(
   repository: GitInvoke,
+  defaultRef: string,
   branchRef: string
-): Promise<BoundaryResult<boolean | null>> {
-  const tipRun = await repository(['rev-parse', '--verify', '--quiet', `${branchRef}^{commit}`]);
-  if (tipRun.exitCode !== 0) {
-    return gitCommandFailed(tipRun);
+): Promise<BoundaryResult<boolean>> {
+  const ancestorRun = await repository(['merge-base', '--is-ancestor', branchRef, defaultRef]);
+  if (ancestorRun.exitCode === 1) {
+    return { ok: true, value: true };
   }
-  // Newest first; the last entry records the branch's creation.
-  const reflogRun = await repository(['reflog', 'show', '--format=%H', branchRef, '--']);
-  if (reflogRun.exitCode !== 0) {
-    return gitCommandFailed(reflogRun);
+  if (ancestorRun.exitCode !== 0) {
+    return gitCommandFailed(ancestorRun);
   }
-  const created = lines(reflogRun.stdout).at(-1);
-  return { ok: true, value: created === undefined ? null : created !== lines(tipRun.stdout)[0] };
+  // The first-parent walk down from the default branch stops at the first commit the tip
+  // reaches, so the tip is on that history exactly when it is that many first parents down.
+  const depthRun = await repository([
+    'rev-list',
+    '--first-parent',
+    '--count',
+    `${branchRef}..${defaultRef}`,
+  ]);
+  if (depthRun.exitCode !== 0) {
+    return gitCommandFailed(depthRun);
+  }
+  const depth = lines(depthRun.stdout)[0] ?? '';
+  if (!/^\d+$/u.test(depth)) {
+    return gitUnexpected('git returned an unrecognized commit count');
+  }
+  const commitsRun = await repository([
+    'rev-parse',
+    `${defaultRef}~${depth}^{commit}`,
+    `${branchRef}^{commit}`,
+  ]);
+  if (commitsRun.exitCode !== 0) {
+    return gitCommandFailed(commitsRun);
+  }
+  const [onHistory, tip] = lines(commitsRun.stdout);
+  return { ok: true, value: onHistory !== tip };
 }
 
 /** Whether merging the branch into the default branch writes the default branch's own tree. */
@@ -172,7 +199,8 @@ async function addsNothing(
 }
 
 /**
- * Whether the worktree's branch has merged into `target`. `repository` is git in the
+ * Whether the worktree's branch counts as merged into `target`: it has commits of its own and
+ * adds nothing `target` lacks. `repository` is git in the
  * repository's common dir; `worktree` is git in the worktree's folder.
  */
 export async function readWorktreeMerged(input: {
@@ -189,12 +217,13 @@ export async function readWorktreeMerged(input: {
   if (branchRef.value === null) {
     return notMerged('detached');
   }
-  const own = await hasCommitsOfItsOwn(input.repository, branchRef.value);
+  const defaultRef = `refs/remotes/${input.target.defaultBranch}`;
+  const own = await hasCommitsOfItsOwn(input.repository, defaultRef, branchRef.value);
   if (!own.ok) {
     return own;
   }
-  if (own.value !== true) {
-    return notMerged(own.value === null ? 'creation-unknown' : 'no-commits-of-its-own');
+  if (!own.value) {
+    return notMerged('no-commits-of-its-own');
   }
   const statusRun = await invokeGitHookFree(input.worktree, [
     'status',
@@ -208,11 +237,7 @@ export async function readWorktreeMerged(input: {
   if (statusRun.stdout.length > 0) {
     return notMerged('uncommitted-changes');
   }
-  const adds = await addsNothing(
-    input.repository,
-    `refs/remotes/${input.target.defaultBranch}`,
-    branchRef.value
-  );
+  const adds = await addsNothing(input.repository, defaultRef, branchRef.value);
   if (!adds.ok) {
     return adds;
   }

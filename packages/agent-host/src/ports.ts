@@ -955,10 +955,10 @@ type HostWorktreesArchivedEvent = Extract<HostEvent, { type: 'worktrees.archived
  * or worktrees the thread made whose branches have merged (`merged`, BST-2504).
  */
 export type HostIdleWorktreeArchive = (
-  | Pick<
-      Extract<HostWorktreesArchivedEvent, { reason: 'idle-cap' }>,
-      'limit' | 'reason' | 'worktrees'
-    >
+  | (Pick<Extract<HostWorktreesArchivedEvent, { limit: number }>, 'limit' | 'worktrees'> & {
+      /** Always named here; only a row a v25 to v29 host committed has none. */
+      readonly reason: 'idle-cap';
+    })
   | Pick<
       Extract<HostWorktreesArchivedEvent, { reason: 'merged' }>,
       'defaultBranch' | 'reason' | 'worktrees'

@@ -38,8 +38,17 @@ async function capHost() {
   const listeners = new Set<(archive: HostIdleWorktreeArchive) => void>();
   // The archive the cap still has in flight when the host starts to close; none by default.
   const inFlight = { settle: async (): Promise<void> => undefined };
+  // Runs once an opening host's thread list answers, as the platform's pass after opening reads
+  // the threads before it archives anything; none by default.
+  const opening: { listed?: () => void } = {};
   const model = new MockLanguageModelV4({ doStream: async () => stream(text('Done.')) });
   const harness = await setupChildRunHost(model, cleanup, {
+    attachThreadReads: (reads) => {
+      const listed = opening.listed;
+      if (listed) {
+        void reads.listThreads().then(listed);
+      }
+    },
     idleWorktreeArchives: {
       settle: async () => {
         await inFlight.settle();
@@ -55,7 +64,7 @@ async function capHost() {
       listener(report);
     }
   };
-  return { archive, harness, inFlight, listeners };
+  return { archive, harness, inFlight, listeners, opening };
 }
 
 const archivedRow = (row: HostLogRow) => row.event.type === 'worktrees.archived';
@@ -128,6 +137,44 @@ test('tells the thread that made a merged worktree, with its latest run', async 
     threadId: harness.threadId,
     worktrees: merged,
   });
+
+  const rows = await rowsUntil(harness, harness.threadId, archivedRow);
+  expect(rows.filter(archivedRow).map(({ event }) => event)).toEqual([
+    {
+      defaultBranch: 'origin/main',
+      reason: 'merged',
+      runId: latest,
+      type: 'worktrees.archived',
+      worktrees: merged,
+    },
+  ]);
+});
+
+// The platform's pass after the host opens reads Core's thread list before it can archive, and
+// Core listens for archives before that list answers, so the pass's notice is never dropped.
+test('tells a thread of an archive reported as soon as a reopened host lists its threads', async () => {
+  const { archive, harness, opening } = await capHost();
+  await harness.start('Make a worktree and fix the bug there.');
+  await harness.core().idle(harness.threadId);
+  const latest = await harness.start('Thanks.');
+  await harness.core().idle(harness.threadId);
+  const merged = [
+    {
+      branch: 'bs/swift-badger',
+      name: 'swift-badger',
+      snapshotRef: 'refs/brainstrike/worktree-archive/wt-1',
+      worktreeId: 'wt-1',
+    },
+  ];
+  opening.listed = () =>
+    archive({
+      defaultBranch: 'origin/main',
+      reason: 'merged',
+      threadId: harness.threadId,
+      worktrees: merged,
+    });
+
+  await harness.crash();
 
   const rows = await rowsUntil(harness, harness.threadId, archivedRow);
   expect(rows.filter(archivedRow).map(({ event }) => event)).toEqual([

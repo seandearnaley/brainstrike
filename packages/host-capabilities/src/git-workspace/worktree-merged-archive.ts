@@ -1,10 +1,11 @@
 /**
  * ADR-0034 build decisions (BST-2504): archive on merge. Each idle managed
- * worktree of a repository whose branch has merged into the default branch
- * (`worktree-merged.ts`) is archived the way the idle cap archives: through the
- * worktree service's serialized archive with the cap's skip rules
- * (`archiveIdleWorktree`), which keeps its snapshot ref and its branch. The
- * archive asks again in its own turn whether the branch has merged.
+ * worktree of a repository whose branch has commits of its own and adds nothing
+ * the default branch lacks (`worktree-merged.ts`) is archived the way the idle
+ * cap archives: through the worktree service's serialized archive with the
+ * cap's skip rules (`archiveIdleWorktree`), which keeps its snapshot ref and its
+ * branch and deletes the files git ignores. The archive asks again in its own
+ * turn whether the branch still counts as merged.
  *
  * The thread that made each worktree (the ledger's `threadId`) is told, with
  * its latest run. A worktree no thread made, or whose thread is gone or has no

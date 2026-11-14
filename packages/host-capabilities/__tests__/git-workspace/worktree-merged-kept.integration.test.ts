@@ -3,10 +3,11 @@
 /**
  * ADR-0034 build decisions (BST-2504), over real git and a real state store:
  * the worktrees archive on merge keeps. A worktree a thread is bound to, one
- * whose branch adds to main or has no commits of its own, one with uncommitted
- * changes, a locked or detached one and the one just made all stay; and in a
- * repository where the check cannot run, nothing is archived and the reason is
- * logged. The worktrees it archives are in
+ * whose branch adds to main or has no commits of its own (made and never
+ * committed to, or only moved along main), one with uncommitted changes, a
+ * locked or detached one, the one just made and one that takes a commit while
+ * its archive waits all stay; and in a repository where the check cannot run,
+ * nothing is archived. The worktrees it archives are in
  * `worktree-merged-archive.integration.test.ts`.
  */
 import { existsSync, writeFileSync } from 'node:fs';
@@ -29,14 +30,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: loggerInfo, warn: vi.fn() }),
   };
 });
-
-/** The pass logged that it does not run in the repository, with the refusal `code`. */
-function expectNotRunBecause(code: string): void {
-  expect(loggerInfo).toHaveBeenCalledWith(
-    'Archive on merge does not run in this repository',
-    expect.objectContaining({ reason: expect.objectContaining({ code }) })
-  );
-}
 
 describe('archive on merge keeps (real git + real SQLite)', () => {
   const { commit, expectKept, fetchMain, host, squashMerged, state, tempDir } =
@@ -117,6 +110,66 @@ describe('archive on merge keeps (real git + real SQLite)', () => {
     await expectKept(unused);
   });
 
+  // A branch only moved along main has no commits of its own, though its tip has moved.
+  it('keeps a worktree fast-forwarded to main', async () => {
+    const { make } = host();
+    const moved = await make('fast-forwarded');
+    commit(state.repo, 'later.ts', 'export const later = true;\n', 'later work on main');
+    fetchMain();
+    git(moved.path, ['merge', '--quiet', '--ff-only', 'refs/remotes/origin/main']);
+
+    await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
+
+    await expectKept(moved);
+    expect(state.told).toEqual([]);
+  });
+
+  it('keeps a worktree rebased onto main, which already took its one commit', async () => {
+    const { make } = host();
+    const rebased = await make('rebased');
+    commit(rebased.path, 'rebased.ts', 'export const rebased = 1;\n', 'its own work');
+    git(state.repo, [...IDENTITY, 'cherry-pick', 'bs/rebased']);
+    commit(state.repo, 'later.ts', 'export const later = true;\n', 'later work on main');
+    fetchMain();
+    // The rebase drops the commit main already has, so the branch is main's tip.
+    git(rebased.path, [...IDENTITY, 'rebase', '--quiet', 'refs/remotes/origin/main']);
+
+    await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
+
+    await expectKept(rebased);
+    expect(state.told).toEqual([]);
+  });
+
+  it('keeps a worktree reset to an older commit of main', async () => {
+    commit(state.repo, 'second.ts', 'export const second = 1;\n', 'second commit on main');
+    const { make } = host();
+    const reset = await make('reset');
+    fetchMain();
+    git(reset.path, ['reset', '--quiet', '--hard', 'HEAD~1']);
+
+    await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
+
+    await expectKept(reset);
+    expect(state.told).toEqual([]);
+  });
+
+  // The pass checks each worktree before it asks for the archive, and the archive's turn checks
+  // again, so a commit made in between keeps the worktree.
+  it('keeps a merged worktree that takes a commit while its archive waits', async () => {
+    const { make } = host();
+    const merged = await squashMerged(make, 'busy');
+    state.beforeArchive = (worktreeId) => {
+      if (worktreeId === merged.id) {
+        commit(merged.path, 'more.ts', 'export const more = 1;\n', 'work while the archive waits');
+      }
+    };
+
+    await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
+
+    await expectKept(merged);
+    expect(state.told).toEqual([]);
+  });
+
   it('keeps the worktree just made, though its setup commit adds nothing to main', async () => {
     // The setup commits nothing new, so by its branch alone the worktree counts as merged.
     const { make } = host((worktree) => {
@@ -130,7 +183,8 @@ describe('archive on merge keeps (real git + real SQLite)', () => {
     expect(state.told).toEqual([]);
   });
 
-  it('archives nothing in a repository with no default branch, and says why', async () => {
+  // The ticket asks that the reason be logged; the log is the only place it shows.
+  it('archives nothing in a repository with no default branch, and logs why', async () => {
     const { make } = host();
     const merged = await squashMerged(make, 'no-origin');
     git(state.repo, ['update-ref', '-d', 'refs/remotes/origin/main']);
@@ -139,22 +193,27 @@ describe('archive on merge keeps (real git + real SQLite)', () => {
     await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
 
     await expectKept(merged);
-    expectNotRunBecause('changeset.base-ref-unresolved');
+    expect(state.told).toEqual([]);
+    expect(loggerInfo).toHaveBeenCalledWith(
+      'Archive on merge does not run in this repository',
+      expect.objectContaining({
+        reason: expect.objectContaining({ code: 'changeset.base-ref-unresolved' }),
+      })
+    );
   });
 
-  it('archives nothing on a git older than 2.38, and says why', async () => {
+  it('archives nothing on a git older than 2.38', async () => {
     const { make } = host();
     const merged = await squashMerged(make, 'old-git');
     state.run = async (params) =>
       params.args.includes('--version')
         ? { exitCode: 0, stderr: '', stdout: 'git version 2.37.1\n', timedOut: false }
         : await execFileGitRunner(params);
-    loggerInfo.mockClear();
 
     await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
 
     await expectKept(merged);
-    expectNotRunBecause('git.version-unsupported');
+    expect(state.told).toEqual([]);
   });
 
   // BST-2454's boundary: the host never runs a command the repository's own config names.
@@ -172,12 +231,11 @@ describe('archive on merge keeps (real git + real SQLite)', () => {
     fetchMain();
     git(state.repo, ['config', 'merge.mine.driver', `touch ${marker}`]);
     writeFileSync(path.join(state.repo, '.git', 'info', 'attributes'), '* merge=mine\n');
-    loggerInfo.mockClear();
 
     await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
 
     await expectKept(merged);
     expect(existsSync(marker)).toBe(false);
-    expectNotRunBecause('worktree.repository-merge-driver');
+    expect(state.told).toEqual([]);
   });
 });

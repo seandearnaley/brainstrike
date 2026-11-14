@@ -30,6 +30,8 @@ export const IDENTITY = [
 
 /** What a test reads and changes; reset before each test. */
 interface MergedArchiveState {
+  /** Runs as the pass asks the service to archive a worktree, before the archive's turn. */
+  beforeArchive: ((worktreeId: string) => void) | undefined;
   db: StateStore;
   managedDirectory: string;
   repo: string;
@@ -56,6 +58,7 @@ export function mergedArchiveHarness() {
     state.running = new Set();
     state.told = [];
     state.run = execFileGitRunner;
+    state.beforeArchive = undefined;
   });
 
   afterEach(async () => {
@@ -71,7 +74,10 @@ export function mergedArchiveHarness() {
       async (id) => state.running.has(id)
     );
     const cap = createIdleWorktreeCap({
-      archive: (params) => service.archive(params),
+      archive: (params) => {
+        state.beforeArchive?.(params.worktreeId);
+        return service.archive(params);
+      },
       listActive: () => ledger.listActive(),
       listRepository: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
       publish: (archive) => {
