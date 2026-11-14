@@ -11,7 +11,7 @@ import { type Mock, vi } from 'vitest';
 export function registryRoot(
   id: string,
   rootPath: string,
-  kind: 'path' | 'worktree' = 'path'
+  kind: WorkspaceRootRecord['kind'] = 'path'
 ): WorkspaceRootRecord {
   return {
     canonicalPath: rootPath,
@@ -47,7 +47,7 @@ export function createRegistryCatalogRequest(
       }
       case 'list-worktrees':
         return { roots: [...roots.values()].filter((root) => root.kind === 'worktree') };
-      // A restore mounts the scratch folders (ADR-0034); these tests make none.
+      // The scratch folders (ADR-0034): these tests record them, and make none.
       case 'list-scratch':
         return { roots: [...roots.values()].filter((root) => root.kind === 'scratch') };
       case 'scratch-of-thread':

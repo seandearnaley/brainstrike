@@ -2,7 +2,8 @@
  * ADR-0034 scratch threads (Sean, 2026-11-12): in a fresh profile with no
  * folder open, a thread's first message works in a folder the host makes for
  * it under the profile's `scratch/` folder, so a file the model writes lands
- * there from that first message, and the Explorer shows that folder.
+ * there from that first message, and the Explorer shows that folder. After a
+ * relaunch no scratch folder is mounted until its thread opens (BST-2512).
  *
  * Drives the built app over a disposable profile: the host's scratch folders,
  * its root registry and trust writer, the thread binding and the renderer's
@@ -13,6 +14,7 @@ import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readHostRootRecords } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
@@ -24,7 +26,7 @@ import { whereChip } from './utils/where-control';
 const WRITE = 'brainstrike_writeWorkspaceFile';
 const FINAL = 'Notes written.';
 
-test('a first message with no folder open writes into a scratch folder the Explorer shows, a second thread gets its own, and a thread with no folder still sends', async ({
+test('a first message with no folder open writes into a scratch folder the Explorer shows, a second thread gets its own, a thread with no folder still sends, and a relaunch mounts a scratch folder only once its thread opens', async ({
   electron,
   modelProvider,
   window: page,
@@ -123,4 +125,32 @@ test('a first message with no folder open writes into a scratch folder the Explo
     timeout: 60_000,
   });
   expect(modelProvider.refusals()).toEqual([]);
+
+  // A relaunch mounts no scratch folder (BST-2512): the host's record of each says it is not
+  // mounted now, and the thread in front, which has no folder, needs neither.
+  const reopened = (await electron.restart()).window;
+  await ensureAssistantShellVisible(reopened);
+  const scratchStatus = async (): Promise<Record<string, string>> =>
+    Object.fromEntries(
+      (await readHostRootRecords(electron.getUserDataDir()))
+        .filter((root) => root.displayName === name || root.displayName === secondName)
+        .map((root) => [root.displayName, root.status])
+    );
+  expect(await scratchStatus()).toEqual({
+    [name ?? '']: 'disconnected',
+    [secondName ?? '']: 'disconnected',
+  });
+  // Opening the first scratch thread mounts its folder: the Explorer shows it and its file.
+  await reopened.getByTestId('threads-panel').getByTitle(`Scratch folder ${name} at `).click();
+  await expect(reopened.getByTestId('single-root-header-row')).toContainText(`${name} · Local`, {
+    timeout: 30_000,
+  });
+  await expect(
+    getContextExplorerFileExplorerPanel(reopened).getByText('notes.txt', { exact: true })
+  ).toBeVisible({ timeout: 30_000 });
+  // The second, not opened, is still not mounted.
+  expect(await scratchStatus()).toEqual({
+    [name ?? '']: 'live',
+    [secondName ?? '']: 'disconnected',
+  });
 });

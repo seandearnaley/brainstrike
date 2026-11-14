@@ -27,6 +27,8 @@
     and the thread that made it is told; built (BST-2504).
   - 2026-11-13 (build decisions, under the idle-worktree cap below): when a thread is deleted,
     the managed worktrees it made that no other thread is bound to are archived; built (BST-2505).
+  - 2026-11-13 (build decisions, under scratch threads below): a scratch folder mounts the first
+    time its thread needs it, never at launch; built (BST-2512).
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -985,8 +987,8 @@ revisit:
   before the binding committed, finds the recorded folder and binds it.
 - **Its root is the thread's own, like a managed worktree's.** It is recorded
   in the commit that records `scratch_folders`, so no other registration can
-  make a root a scratch folder. It is live, mounted for its thread at every
-  launch, never an open folder, never in Recents, has no project, and is
+  make a root a scratch folder. It is mounted when its thread needs it (below),
+  never an open folder, never in Recents, has no project, and is
   refused as the window's project. It reaches the renderer marked `scratch`.
 - **The Explorer shows only the active thread's.** The thread-checkout seam
   that puts the active thread's worktree in the Explorer now carries its
@@ -1035,8 +1037,8 @@ revisit:
     `readRoots` answer marks a root of kind `scratch`
     (`ThreadCatalogRoot.scratch`), never a path or a name. The kind already
     reached Main on the catalog wire, so the host protocol is unchanged. The mounted roots'
-    `scratch` flag was not used: it is missing until the folders are restored
-    at each launch and for a folder that cannot be mounted, and either would
+    `scratch` flag was not used: it is missing until a folder is mounted, which
+    is when its thread needs it, and for a folder that cannot be mounted, and either would
     list the thread under its folder's name again.
   - A scratch folder that has become a repository's own checkout still lists
     in Scratch until Turn into a project… makes it a project: it is still in
@@ -1125,8 +1127,8 @@ work may revisit them:
   only folders inside `<userData>/scratch`.
 - **Order and what a failure leaves.** Move first, then the record, then the
   binding. The host logs where it moves the folder before the rename.
-  - A move that fails changes nothing: the folder is mounted again where it
-    was, still the thread's scratch folder.
+  - A move that fails changes nothing: the folder is where it was, mounted
+    again if it was mounted, still the thread's scratch folder.
   - A record that fails after the move says where the folder now is
     (`workspace.scratch-project-unrecorded`); nothing is mounted there. The
     scratch record still names the old place, which is gone, so the thread's
@@ -1155,8 +1157,60 @@ Not built:
   below).
 - Starting a project from a thread that already ran with no folder, the second
   half of "Turn into a project". Such a thread has no folder to move.
-- Mounting only the scratch folders of open threads. Every one mounts at
-  launch, as every managed worktree does, each with its own handle.
+
+### Mounting a scratch folder when its thread needs it
+
+Built (BST-2512). These are build decisions, not Sean's answers, and later work
+may revisit them. Before, every scratch folder ever made mounted at every
+launch. Measured on main with a real store and native handles, a launch with
+one open folder and 30 scratch folders (5 of them repositories) opened 31
+`SecureRoot` handles (31 file descriptors) and took 56 to 147 ms in the root
+registry's restore, which the host awaits before it serves anyone; the first
+worktree listing then walked 31 roots (61 directory reads and 10 `git`
+processes). With 200 scratch folders: 201 handles, 625 ms and 201 walks. Now the
+same launches open one handle and walk one root, in 4 to 6 ms.
+
+- **What mounts one.** The root registry, the one owner of mounts, through the
+  paths it already had. A run's admission, and a binding change, borrow the
+  folders the binding names (`desktop-workspace-binding.ts`); the registry first
+  mounts each scratch folder among them that is not mounted, whatever its record
+  says (`mountScratchRoots`, `workspace-root-scratch-mount.ts`), so a thread's
+  file tools find its folder. Opening the thread in a window mounts it through the
+  reconnect every thread's folders already had (`use-reconnect-thread-folders.ts`):
+  its record is not live, so the window adds it by path, which the registry
+  allows for a scratch folder it recorded. A repeated first send that finds the
+  folder already recorded for its thread (`thread/workspace/scratch`) mounts
+  it, as before. No new host method, so the host protocol is unchanged.
+- **It stays mounted for the session**, through every later restore. Nothing
+  unmounts it but its thread's deletion, Turn into a project…, a restore that
+  finds the folder gone, or the host's close.
+- **A record's status says whether it is mounted now.** At launch the registry
+  disconnects every record it did not mount, a scratch folder's included, as it
+  always has; the record itself stays, with its kind and its thread. Mounting
+  makes it live again. So every reader of live roots (the binding check, the
+  worktree listing, terminals, git) sees a scratch folder only once it is
+  mounted, and the window's reconnect knows to mount it.
+- **Refused by name and place, never skipped.** A scratch folder gone from disk
+  refuses its thread's run with `workspace.root-missing` ("The scratch folder
+  quiet-otter is no longer at …"); any other failure to open it is a fault
+  naming it (`workspace.scratch-unmounted`). In the window the where-control
+  shows it removed, as for any thread folder that cannot come back.
+- **A launch that could not record its mounts** (a damaged store, served
+  read-only, or a failed write) leaves a scratch folder's record live while it is
+  not mounted. A run still mounts it, as the binding check asks the registry
+  whatever the record says; a read-only store's record is not written, as a
+  restore writes none. The window's reconnect does not see it, so in that
+  session the Explorer does not show it; the thread's runs still work in it.
+- **Turn into a project… moves a folder that is not mounted.** It moves as it
+  is, and a move that fails leaves it unmounted. Its record turns live at the
+  new place, as before.
+- **Clear Database and Factory Reset are unchanged.** Main moves every folder
+  inside `<userData>/scratch` to the Trash by reading that folder, mounted or
+  not, and Factory Reset deletes userData.
+- **Consequence for the Threads panel.** A scratch folder that became a
+  repository names its branch on its Scratch row (BST-2510) once its thread has
+  needed it this session: the worktree listing walks live roots only. Until
+  then the row names the folder alone, as for a folder outside git.
 
 ## Owner decision, 2026-11-12: setup script consent moves to the host
 
