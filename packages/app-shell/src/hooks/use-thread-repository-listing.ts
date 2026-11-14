@@ -12,10 +12,12 @@
  * place no thread by repository, and a row's checkout chip comes from the
  * thread's own binding.
  *
- * Re-read on the two signals that can change the answer, with no timer: an
+ * Re-read on the signals that can change the answer, with no timer: an
  * accepted `changes:invalidated` event (a worktree added, removed or switched),
- * and a newly published root identity (a checkout mounted as a folder gets its
- * root id after the mount, without a git event).
+ * a newly published root identity (a checkout mounted as a folder gets its
+ * root id after the mount, without a git event), and a root record change
+ * (`notifyRootRecordsChanged`): the listing names the project of a repository
+ * found inside an open folder, which the person can rename or move (BST-2511).
  */
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
@@ -24,6 +26,7 @@ import { useEffect, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
 import { useOptionalRootIdentity } from '../roots/root-identity-context';
+import { subscribeRootRegistered } from '../roots/root-registration-events';
 import { useWorktreesBridge } from '../workspace-git-services';
 
 const logger = createLogger('ThreadRepositoryListing');
@@ -60,6 +63,14 @@ export function useThreadRepositoryListing({
   const [settled, setSettled] = useState<Omit<ThreadRepositoryListingState, 'loading'> | null>(
     null
   );
+  const [recordsRevision, setRecordsRevision] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    return subscribeRootRegistered(() => setRecordsRevision((revision) => revision + 1));
+  }, [enabled]);
 
   useEffect(() => {
     if (!(bridge && enabled)) {
@@ -93,8 +104,8 @@ export function useThreadRepositoryListing({
     return () => {
       cancelled = true;
     };
-    // `invalidationNonce` and `rootIdentity` are read triggers, not inputs.
-  }, [bridge, enabled, invalidationNonce, rootIdentity]);
+    // `invalidationNonce`, `recordsRevision` and `rootIdentity` are read triggers, not inputs.
+  }, [bridge, enabled, invalidationNonce, recordsRevision, rootIdentity]);
 
   if (!(bridge && enabled)) {
     return NOT_LISTED;

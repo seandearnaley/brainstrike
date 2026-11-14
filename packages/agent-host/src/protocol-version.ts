@@ -155,4 +155,10 @@
 // branch the worktrees' branches add nothing to) and no `limit`, told to the thread that made
 // each worktree. A row a v25 to v29 host committed has no `reason` and reads as `idle-cap`. The
 // `merged` shape, which an older client cannot read, is why this is a version bump.
-export const AGENT_HOST_PROTOCOL_VERSION = 30;
+// v31 (2026-11-13): a repository found inside an open folder has a project of its own (ADR-0034
+// build decisions, BST-2511). Each `worktrees/list` entry carries `projectId` and `projectName`,
+// set on the own checkout of a repository whose checkout an open folder contains without being
+// it, and null on every other entry. `projects/join` also takes `repositoryPath`, that checkout's
+// path, in place of `rootId`, since such a repository has no root. The required fields are why
+// this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 31;

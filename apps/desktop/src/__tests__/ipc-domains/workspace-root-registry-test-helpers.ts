@@ -58,6 +58,7 @@ export function createRegistryCatalogRequest(
       // The registry never names or joins projects (ADR-0034); the host's store does.
       case 'rename-project':
       case 'join-project':
+      case 'ensure-repository-project':
         throw new Error(`This catalog keeps no projects (${request.operation})`);
       case 'register': {
         const previous = roots.get(request.root.path);

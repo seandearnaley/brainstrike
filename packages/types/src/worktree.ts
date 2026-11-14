@@ -101,6 +101,16 @@ export interface WorktreeListEntry {
    * the primary checkout is in Local mode, by definition).
    */
   readonly primary: boolean;
+  /**
+   * ADR-0034 build decisions (BST-2511): the project of a repository the inventory found inside
+   * an open folder whose own checkout is not itself an open folder, set on that checkout's
+   * (`primary`) entry. The host's store keeps it by the checkout's canonical path, as it keeps an
+   * open folder's. Null on every other entry: an open folder's project is on its root record,
+   * and a linked worktree has none of its own.
+   */
+  readonly projectId: string | null;
+  /** That project's name; null while it has none, or no project is named here. */
+  readonly projectName: string | null;
   readonly provenance: WorktreeProvenance;
   /** The action that would make an unusable row usable, or null. */
   readonly remedy: 'grant-access' | null;

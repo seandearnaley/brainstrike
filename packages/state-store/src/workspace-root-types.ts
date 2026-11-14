@@ -93,6 +93,23 @@ export type WorkspaceRootRequest =
    * unknown root or project, and for a managed worktree or a scratch folder. Answers the root.
    */
   | { readonly operation: 'join-project'; readonly projectId: string; readonly rootId: string }
+  /**
+   * ADR-0034 build decisions (BST-2511): the same join for a repository found inside an open
+   * folder, which has no root of its own, named by its own checkout's canonical path. Refused for
+   * a folder the store has no project for. Answers the roots recorded at that path, if any.
+   */
+  | {
+      readonly canonicalPath: string;
+      readonly operation: 'join-project';
+      readonly projectId: string;
+    }
+  /**
+   * ADR-0034 build decisions (BST-2511): the project of a repository the host's inventory found
+   * inside an open folder, whose own checkout is not itself an open folder. Answers the project
+   * recorded for its canonical path, made now if there is none. Writes no root. Refused for an
+   * empty or relative path and for a managed worktree's or a scratch folder's path.
+   */
+  | { readonly canonicalPath: string; readonly operation: 'ensure-repository-project' }
   | {
       readonly operation: 'disconnect-except';
       readonly mountedPaths: readonly string[];
@@ -100,7 +117,16 @@ export type WorkspaceRootRequest =
       readonly closeRootIds?: readonly string[];
     };
 
+/** A project as the roots domain keeps it (ADR-0034): its id, and the name the person gave it. */
+export interface WorkspaceProjectRecord {
+  readonly id: string;
+  /** Null while the person has given it none. */
+  readonly name: string | null;
+}
+
 export interface WorkspaceRootReply {
+  /** `ensure-repository-project` answers the repository's project here; no other request does. */
+  readonly project?: WorkspaceProjectRecord;
   readonly roots: readonly WorkspaceRootRecord[];
 }
 

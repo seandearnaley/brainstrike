@@ -2,7 +2,9 @@
  * A project section's menu and rename form in the Threads panel (ADR-0034 build decisions).
  * Rename project… names the project; Move to project… moves the section's folder into another
  * project the panel lists, as the person chooses; Locate folder… points a folder that is not
- * mounted at the place it moved to. The changes are the host's (`thread-project-actions.ts`).
+ * mounted at the place it moved to. A repository found inside an open folder (BST-2511) is named
+ * and moved like any project's folder, but it is not an open folder, so it is never located. The
+ * changes are the host's (`thread-project-actions.ts`).
  */
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import {
@@ -16,18 +18,22 @@ import {
 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useState } from 'react';
+import type { ThreadProjectFolder } from './assistant-thread-host-context';
 import { THREAD_CONTROL_ACTION_CLASS_NAME } from './assistant-thread-presentation';
 import type { ThreadProjectActions } from './thread-project-actions';
 
 /** The project a section stands for, and the folder its actions act on. */
 export interface ThreadSectionProject {
   /** The folder the section is named by: the one Move to project… moves. */
+  readonly folder: ThreadProjectFolder;
   readonly folderName: string;
-  readonly folderRootId: string;
   /** The section's name as the panel shows it. */
   readonly label: string;
-  /** The folder is not mounted, so it may have moved and can be located. */
-  readonly locatable: boolean;
+  /**
+   * The root of an open folder that is not mounted, so it may have moved and can be located;
+   * null for any other, a repository found inside an open folder included.
+   */
+  readonly locateRootId: string | null;
   /** The name the person gave the project, or null. */
   readonly name: string | null;
   readonly projectId: string;
@@ -48,6 +54,7 @@ export function ThreadProjectMenu({
   const [choosing, setChoosing] = useState(false);
   const others = actions.listed.filter((choice) => choice.projectId !== project.projectId);
   const { locate } = actions;
+  const { locateRootId } = project;
   return (
     <Popover
       onOpenChange={(next) => {
@@ -107,7 +114,7 @@ export function ThreadProjectMenu({
                     setOpen(false);
                     setChoosing(false);
                     // Never rejects: a refusal resolves false, and the panel says why.
-                    void actions.join(project.folderRootId, choice.projectId);
+                    void actions.join(project.folder, choice.projectId);
                   }}
                   size="sm"
                   type="button"
@@ -144,13 +151,13 @@ export function ThreadProjectMenu({
               <FolderInput className="size-3.5" />
               Move to project…
             </Button>
-            {project.locatable && locate ? (
+            {locateRootId !== null && locate ? (
               <Button
                 className={MENU_ITEM_CLASS_NAME}
                 onClick={() => {
                   setOpen(false);
                   // Never rejects: a refusal resolves false, and the panel says why.
-                  void locate(project.folderRootId);
+                  void locate(locateRootId);
                 }}
                 size="sm"
                 title={`Choose where ${project.folderName} is now, if it moved`}

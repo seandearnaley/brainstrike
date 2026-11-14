@@ -14,6 +14,15 @@ export interface WorkspaceRootRow {
 
 /** One thread to seed. `folder: null` seeds an UNBOUND thread ("No project"). */
 export interface SeedThreadSpec {
+  /**
+   * A managed worktree the thread is checked out into: `folder` is the worktree's own root, and
+   * `localRootId` the folder a hand-off returns it to.
+   */
+  readonly checkout?: {
+    readonly localRootId: string;
+    readonly worktreeId: string;
+    readonly worktreePath: string;
+  };
   readonly folder: WorkspaceRootRow | null;
   readonly title: string;
 }
@@ -68,6 +77,14 @@ export async function seedHostThreads(
             operatingRootDisplayName: spec.folder.displayName,
             operatingRootId: spec.folder.id,
             ...(spec.folder.path ? { operatingRootPath: spec.folder.path } : {}),
+            ...(spec.checkout
+              ? {
+                  checkoutLocalRootId: spec.checkout.localRootId,
+                  checkoutMode: 'worktree',
+                  checkoutWorktreeId: spec.checkout.worktreeId,
+                  checkoutWorktreePath: spec.checkout.worktreePath,
+                }
+              : {}),
           },
           threadId,
         });

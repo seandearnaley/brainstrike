@@ -418,6 +418,46 @@ describe('host root registry', () => {
     expect((await records()).map((record) => record.projectName)).toEqual(['Shared', 'Shared']);
   });
 
+  // BST-2511: a repository found inside an open folder has a project but no root, so it is named
+  // by its own checkout's path, as the worktree listing names it.
+  it('joins a repository found inside an open folder to another project by its path', async () => {
+    const [alpha, beta] = ['alpha', 'beta'].map(folder);
+    const { owner } = registry({ picks: [alpha ?? '', beta ?? ''] });
+    await owner.service['workspace/roots/pick']({});
+    await owner.service['workspace/roots/pick']({});
+    const [alphaRecord, betaRecord] = (await store.workspaceRoots({ operation: 'list' })).roots;
+    const repositoryPath = path.join(alpha ?? '', 'vendor', 'inner');
+    const { project } = await store.workspaceRoots({
+      canonicalPath: repositoryPath,
+      operation: 'ensure-repository-project',
+    });
+
+    await expect(
+      owner.service['projects/join']({ projectId: betaRecord?.projectId ?? '', repositoryPath })
+    ).resolves.toBeNull();
+    expect(
+      (
+        await store.workspaceRoots({
+          canonicalPath: repositoryPath,
+          operation: 'ensure-repository-project',
+        })
+      ).project
+    ).toEqual({ id: betaRecord?.projectId, name: null });
+    // The project it left had no other folder; the open folder that holds it keeps its own.
+    await expect(
+      owner.service['projects/rename']({ name: 'Gone', projectId: project?.id ?? '' })
+    ).rejects.toMatchObject({ code: 'project.unknown' });
+    expect((await store.workspaceRoots({ operation: 'list' })).roots[0]?.projectId).toBe(
+      alphaRecord?.projectId
+    );
+    await expect(
+      owner.service['projects/join']({
+        projectId: betaRecord?.projectId ?? '',
+        repositoryPath: path.join(alpha ?? '', 'never-found'),
+      })
+    ).rejects.toMatchObject({ code: 'project.folder-unknown' });
+  });
+
   it("a folder joined to a project keeps its own trust and approved hooks, and takes none of the project's", async () => {
     const [alpha, beta] = ['alpha', 'beta'].map(folder);
     const hooks = '{"hooks":{}}';

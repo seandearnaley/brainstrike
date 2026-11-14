@@ -279,8 +279,8 @@ export function createWindowThreadCapability(
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
     // ADR-0034: the host's root registry writes projects, as it writes the folders in them.
     projects: {
-      join: async (rootId, projectId) => {
-        await (await client()).request('projects/join', { projectId, rootId });
+      join: async (folder, projectId) => {
+        await (await client()).request('projects/join', { ...folder, projectId });
       },
       locate: async (rootId) =>
         (await (await client()).request('workspace/roots/locate', { rootId })).root,

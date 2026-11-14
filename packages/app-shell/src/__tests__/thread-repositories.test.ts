@@ -1,8 +1,16 @@
 // @vitest-environment node
-import type { AssistantMemoryThread, ThreadFolderGroupingRow } from '@brainstrike/assistant-data';
+import {
+  type AssistantMemoryThread,
+  buildThreadListSections,
+  type ThreadFolderGroupingRow,
+} from '@brainstrike/assistant-data';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { projectThreadRepositories, resolveThreadRepository } from '../thread-repositories';
+import {
+  mapThreadRepositories,
+  projectThreadRepositories,
+  resolveThreadRepository,
+} from '../thread-repositories';
 
 const COMMON_DIR = '/code/brainstrike/.git';
 
@@ -21,6 +29,8 @@ function entry(
     managed: false,
     name: overrides.path.split('/').at(-1) ?? overrides.path,
     primary: false,
+    projectId: null,
+    projectName: null,
     provenance: 'scanned',
     remedy: null,
     repoCommonDir: COMMON_DIR,
@@ -90,6 +100,22 @@ const inOwnCheckout = thread('in-own-checkout', {
   operatingRootId: 'root-repo',
   operatingRootPath: '/code/brainstrike',
 });
+// `root-parent` is /code: it holds the checkout but is not the checkout.
+const inParent = thread('in-parent', {
+  operatingRootDisplayName: 'code',
+  operatingRootId: 'root-parent',
+  operatingRootPath: '/code',
+});
+/** The repository's own checkout, found inside the open folder /code, with its project. */
+const nestedCheckout = entry({
+  containment: ['root-parent'],
+  path: '/code/brainstrike',
+  primary: true,
+  projectId: 'project-inner',
+  projectName: 'Inner library',
+  rootId: 'root-parent',
+  rootIdIsExactMount: false,
+});
 
 describe('projectThreadRepositories', () => {
   it("names one repository, in its own checkout's project, for that checkout's threads and its managed worktree's", () => {
@@ -137,16 +163,10 @@ describe('projectThreadRepositories', () => {
   });
 
   it('keeps a folder that only contains a repository as a folder of its own', () => {
-    // `root-parent` is /code: it holds the checkout but is not the checkout.
     const lookup = projectThreadRepositories(
       [{ ...ownCheckout, rootId: 'root-parent', rootIdIsExactMount: false }],
       folderRows
     );
-    const inParent = thread('in-parent', {
-      operatingRootDisplayName: 'code',
-      operatingRootId: 'root-parent',
-      operatingRootPath: '/code',
-    });
 
     expect(resolveThreadRepository(inParent, lookup)).toBeUndefined();
   });
@@ -170,6 +190,78 @@ describe('projectThreadRepositories', () => {
       projectId: null,
       projectName: null,
     });
+  });
+
+  // ADR-0034 build decisions (BST-2511): the listing names the project of a repository found
+  // inside an open folder, which has no folder of its own to read one from.
+  it('keys a repository found inside an open folder on the project the listing names, with no folder', () => {
+    const lookup = projectThreadRepositories([nestedCheckout, managedWorktree], folderRows);
+
+    expect(resolveThreadRepository(inWorktree, lookup)).toEqual({
+      branch: 'main',
+      detached: false,
+      displayName: 'brainstrike',
+      folder: null,
+      key: COMMON_DIR,
+      path: '/code/brainstrike',
+      projectId: 'project-inner',
+      projectName: 'Inner library',
+    });
+    // The folder that holds it is not its checkout.
+    expect(resolveThreadRepository(inParent, lookup)).toBeUndefined();
+  });
+
+  it("lists a nested repository's threads in its project's section, apart from the folder that holds it", () => {
+    // A thread whose folder is the repository's own checkout, recorded when it was opened by
+    // itself and not mounted now: the store keeps one project for that path.
+    const inOwnFolder = thread('in-own-folder', {
+      operatingRootDisplayName: 'brainstrike',
+      operatingRootId: 'root-inner',
+      operatingRootPath: '/code/brainstrike',
+    });
+    const rows: ReadonlyMap<string, ThreadFolderGroupingRow> = new Map([
+      [
+        'root-parent',
+        {
+          displayName: 'code',
+          path: '/code',
+          projectId: 'project-code',
+          projectName: null,
+          rootId: 'root-parent',
+          status: 'live',
+        },
+      ],
+      [
+        'root-inner',
+        {
+          displayName: 'brainstrike',
+          path: '/code/brainstrike',
+          projectId: 'project-inner',
+          projectName: 'Inner library',
+          rootId: 'root-inner',
+          status: 'disconnected',
+        },
+      ],
+    ]);
+    const threads = [inWorktree, inOwnFolder, inParent];
+
+    const view = buildThreadListSections({
+      folderRowsByRootId: rows,
+      folderSortBy: 'name',
+      groupBy: 'folder',
+      ordering: { lastActivityAt: () => 0, pinnedAtByThreadId: {} },
+      repositoryByThreadId: mapThreadRepositories(threads, [nestedCheckout, managedWorktree], rows),
+      threads,
+    });
+
+    expect(
+      view.kind === 'folders'
+        ? view.sections.map((section) => [section.id, section.threads.map(({ id }) => id)])
+        : view.kind
+    ).toEqual([
+      ['project:project-code', ['in-parent']],
+      ['project:project-inner', ['in-own-folder', 'in-worktree']],
+    ]);
   });
 
   it('resolves nothing for a thread with no folder', () => {

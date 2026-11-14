@@ -426,3 +426,140 @@ test("joining a project writes no trust or hook-approval record: the folder keep
     await store.close();
   }
 });
+
+// ADR-0034 build decisions (BST-2511): a repository the host's inventory finds inside an open
+// folder, whose own checkout is not an open folder, has a project of its own. The roots domain
+// keeps it by the checkout's canonical path, as it keeps an opened folder's.
+async function ensureRepository(store: StateStore, canonicalPath: string) {
+  return (await store.workspaceRoots({ canonicalPath, operation: 'ensure-repository-project' }))
+    .project;
+}
+
+const nestedRepository = `${alpha.canonicalPath}/vendor/inner`;
+
+test('a repository found inside an open folder gets one project, kept by its path and its name, across a restart', async () => {
+  const root = freshDir('projects-repository');
+  let store = await StateStore.open(root);
+  try {
+    const alphaProject = await open(store, alpha);
+    const project = await ensureRepository(store, nestedRepository);
+    expect(project).toEqual({ id: expect.stringMatching(/\S/u), name: null });
+    expect(project?.id).not.toBe(alphaProject);
+    expect(await ensureRepository(store, nestedRepository)).toEqual(project);
+
+    await rename(store, project?.id, 'Inner');
+    expect(await ensureRepository(store, nestedRepository)).toEqual({
+      id: project?.id,
+      name: 'Inner',
+    });
+    // It is not an open folder: no root is recorded for it.
+    expect((await store.workspaceRoots({ operation: 'list' })).roots).toEqual([
+      expect.objectContaining({ id: alpha.preferredId, projectId: alphaProject }),
+    ]);
+
+    // Closing the folder that holds it leaves the record, which is there when it opens again.
+    await store.workspaceRoots({
+      closeRootIds: [alpha.preferredId],
+      mountedPaths: [],
+      operation: 'disconnect-except',
+    });
+    await store.close();
+    store = await StateStore.open(root);
+    expect(await ensureRepository(store, nestedRepository)).toEqual({
+      id: project?.id,
+      name: 'Inner',
+    });
+    // Opened by itself, the repository's folder is the same project.
+    const inner = {
+      ...folder('inner', '6e2b1c4d-8f0a-4b3e-9d71-5a2c8e4f0b16'),
+      canonicalPath: nestedRepository,
+      path: nestedRepository,
+    };
+    expect(await open(store, inner)).toBe(project?.id);
+  } finally {
+    await store.close();
+  }
+});
+
+test('a repository project is refused for an empty or relative path and for a thread folder, and records nothing', async () => {
+  const store = await StateStore.open(freshDir('projects-repository-refused'));
+  const linked = folder('linked', '7c1e5a90-3b2d-4f68-8a17-6d0c9e4b2f35');
+  const scratch = folder('scratch-quiet-otter', '8a9b0c1d-2e3f-4a5b-9c6d-7e8f9a0b1c2d');
+  try {
+    await expect(ensureRepository(store, '')).rejects.toThrow(/canonical path/u);
+    await expect(ensureRepository(store, '   ')).rejects.toThrow(/canonical path/u);
+    await expect(ensureRepository(store, 'vendor/inner')).rejects.toThrow(/canonical path/u);
+
+    await store.worktreeLedger({
+      operation: 'insert',
+      row: {
+        archivedAt: null,
+        archiveSnapshotRef: null,
+        baseRef: 'a'.repeat(40),
+        branch: 'feature',
+        createdAt: '2026-11-13T00:00:00.000Z',
+        createdBy: 'user',
+        id: 'worktree-linked',
+        path: linked.canonicalPath,
+        repoCommonDir: `${alpha.path}/.git`,
+        runId: null,
+        setupOutput: null,
+        setupReason: null,
+        setupStatus: 'none',
+        threadId: null,
+      },
+    });
+    await store.workspaceRoots({ operation: 'register-scratch', root: scratch, threadId: 't1' });
+    const threadFolder = expect.objectContaining({ code: 'project.thread-folder' });
+    await expect(ensureRepository(store, linked.canonicalPath)).rejects.toEqual(threadFolder);
+    await expect(ensureRepository(store, scratch.canonicalPath)).rejects.toEqual(threadFolder);
+    expect(await projectOf(store, scratch.preferredId)).toBeNull();
+  } finally {
+    await store.close();
+  }
+});
+
+test('a repository found inside an open folder joins another project by its path, writing no trust, and the project it left is deleted', async () => {
+  const store = await StateStore.open(freshDir('projects-repository-join'));
+  try {
+    const alphaProject = await open(store, alpha);
+    const project = await ensureRepository(store, nestedRepository);
+    await store.setSetting(`workspace.trust/${alpha.canonicalPath}`, 'trusted');
+
+    expect(
+      (
+        await store.workspaceRoots({
+          canonicalPath: nestedRepository,
+          operation: 'join-project',
+          projectId: alphaProject ?? '',
+        })
+      ).roots
+    ).toEqual([]);
+    expect(await ensureRepository(store, nestedRepository)).toEqual({
+      id: alphaProject,
+      name: null,
+    });
+    // Its own project had no other folder: it went with the join.
+    await expect(rename(store, project?.id, 'Gone')).rejects.toThrow(/no project/u);
+    expect(await store.getSetting(`workspace.trust/${nestedRepository}`)).toBeUndefined();
+    expect(await store.getSetting(`hooks.approved/${nestedRepository}`)).toBeUndefined();
+
+    // A path the store keeps no project for is refused, and so is an unknown project.
+    await expect(
+      store.workspaceRoots({
+        canonicalPath: `${alpha.canonicalPath}/never-found`,
+        operation: 'join-project',
+        projectId: alphaProject ?? '',
+      })
+    ).rejects.toEqual(expect.objectContaining({ code: 'project.folder-unknown' }));
+    await expect(
+      store.workspaceRoots({
+        canonicalPath: nestedRepository,
+        operation: 'join-project',
+        projectId: 'no-such-project',
+      })
+    ).rejects.toEqual(expect.objectContaining({ code: 'project.unknown' }));
+  } finally {
+    await store.close();
+  }
+});
