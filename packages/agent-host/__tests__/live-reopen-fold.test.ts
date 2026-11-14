@@ -23,7 +23,11 @@ import {
   hostRunContext,
 } from '../src/run-branch.ts';
 import { CommittedThreadView, foldHostRuns } from '../src/thread-view.ts';
-import { hostScenario, runHostScenario } from './fixtures/host-conversation-scenario.ts';
+import {
+  checkGeneratedConversations,
+  hostScenario,
+  runHostScenario,
+} from './fixtures/host-conversation-scenario.ts';
 
 const cleanup: (() => Promise<void>)[] = [];
 async function closeAll(): Promise<void> {
@@ -115,19 +119,8 @@ test('after a rewind and a reopen, the next message at the tip follows the lates
   );
 });
 
-test('a generated conversation sends each run its path and reads the same before and after each reopen', async () => {
-  await fc.assert(
-    fc.asyncProperty(hostScenario({ maxCommands: 10 }), async (commands) => {
-      try {
-        const result = await runHostScenario(commands, cleanup);
-        // A live subscriber received exactly the rows the reopened store reads.
-        expect(result.published).toEqual(result.rows);
-      } finally {
-        await closeAll();
-      }
-    }),
-    { numRuns: 60 }
-  );
+test('a generated conversation sends each run its path and reads the same before and after each reopen (part 1 of 4)', async () => {
+  await checkGeneratedConversations();
 });
 
 test('every prefix of a committed conversation folds, and folds the same each time', async () => {
