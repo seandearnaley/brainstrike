@@ -37,6 +37,7 @@ import type { GitCommandRunner } from './git-service.ts';
 import { createHostRewindFiles } from './host-rewind-files.ts';
 import { startSnapshotStartupMaintenance } from './host-snapshot-maintenance.ts';
 import { createTrustedFolderCheck, guardRepositoryFilters } from './repo-filter-guard.ts';
+import { withRepositoryProjects } from './repository-projects.ts';
 import { execFileSnapshotGitRunner } from './snapshot-git.ts';
 import { FAILED_SNAPSHOT_CAPTURE_OID } from './snapshot-repository.ts';
 import { createSnapshotService } from './snapshot-service.ts';
@@ -323,6 +324,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     store,
   });
   const { worktrees: worktreeService, readSettings, loadRoots } = workspace;
+  const listedWorktreeService = withRepositoryProjects(worktreeService, store);
   const snapshotsBaseDir = options.snapshotsBaseDir;
   const snapshotService = createSnapshotService({
     runner: execFileSnapshotGitRunner,
@@ -368,7 +370,8 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
   const worktrees = createWorktreesMethods({
     listRepositoryWorktrees: (repoCommonDir) => workspace.listRepositoryWorktrees(repoCommonDir),
     readSettings,
-    resolveService: () => worktreeService,
+    // BST-2511: the listing names the project of each repository found inside an open folder.
+    resolveService: () => listedWorktreeService,
     setupConsentStore: store,
     // BST-1342 containment applies at save time, so the user learns at once
     // rather than when a later create targets the saved path.
