@@ -9,6 +9,7 @@ import {
   overflowCompaction,
   prepareCompactedContext as prepareContext,
 } from '../src/context-compaction.ts';
+import { estimateTokens } from '../src/context-size.ts';
 import type { HostRunState } from '../src/core-state.ts';
 import type { HostEvent, HostLogRow } from '../src/protocol.ts';
 import { hostIntakeMessage } from '../src/turn-input.ts';
@@ -321,6 +322,83 @@ describe('a long run compacts between steps (BST-2531)', () => {
       ...stepMessages(turn, 2),
       ...stepMessages(turn, 5),
       ...turn.messages.slice(23),
+    ]);
+  });
+
+  it('compacts at the trigger when the provider counts the request as more tokens than the estimate (BST-2541)', async () => {
+    // Seventeen steps of 2,011 estimated tokens (34,191 with the question) and 5,600 tokens of
+    // instructions against 60,000: the trigger is 54,000, the target 42,000. The provider counted
+    // the request before step 16 as 55,370, about 1.5 times the estimate as Anthropic counts
+    // read-heavy text, so the next request measures 57,381 and must lose 15,381 of the provider's
+    // tokens: 10,666 of the estimate's (57,381 is 39,791 estimated). The protect window keeps
+    // steps 7 to 16; steps 0 to 6 (14,077) can go, which a 15,381 reclaim would wait for.
+    const compact = (summarize: Input['summarize']) => {
+      const turn = longTurn('run-0', 17, 8000);
+      turn.run.reportedContext = { step: { after: 33, rewritten: [], tokens: 55_370 } };
+      return stepCompactions(turn, {
+        inputTokenLimit: 60_000,
+        readRequestExtras: async () => ({ instructions: 'i'.repeat(22_400), tools: {} }),
+        summarize,
+      });
+    };
+    const summarized = await compact(async () => summary);
+    expect(summarized.committed.map(({ kind, through }) => ({ kind, through }))).toEqual([
+      { kind: 'agentic', through: { runId: 'run-0', stepNumber: 6 } },
+    ]);
+    // Without a summary, steps 0 to 5 (12,066) reach the 10,666.
+    const dropped = await compact(async () => {
+      throw new Error('provider unavailable');
+    });
+    expect(dropped.committed.map(({ kind, through }) => ({ kind, through }))).toEqual([
+      { kind: 'deterministic', through: { runId: 'run-0', stepNumber: 5 } },
+    ]);
+  });
+
+  it('counts the earlier summary’s note in the request it sizes, so a chars/4 provider reclaims its whole excess (BST-2541)', async () => {
+    // Thirty-one steps of 2,011 estimated tokens; an earlier compaction replaced steps 0 to 5
+    // with a note of 6,007 tokens, so the request holds the note, the question and steps 6 to
+    // 30. The provider counted the request before step 30 at exactly chars/4, so the next one
+    // measures what it estimates (56,286), 14,286 over the 42,000 target of a 60,000 budget.
+    // That takes steps 6 to 13 (16,088) and leaves about 40,200; left out of the estimate, the
+    // note would scale the excess down to 12,761 and drop only steps 6 to 12 (14,077), leaving
+    // about 42,200, above the target.
+    const turn = longTurn('run-0', 31, 8000);
+    const earlier: Compacted = {
+      ...EMPTY_LEDGER,
+      compactedRunIds: [],
+      kind: 'agentic',
+      reason: 'pre-request',
+      runId: 'run-0',
+      summary: 's'.repeat(23_800),
+      through: { runId: 'run-0', stepNumber: 5 },
+      type: 'context.compacted',
+    };
+    const sent = (
+      await prepareContext({
+        chain: [turn.run],
+        commit: async () => undefined,
+        compactions: [earlier],
+        inputTokenLimit: 1_000_000,
+        messages: turn.messages,
+        readLedger: readNothing,
+        signal: new AbortController().signal,
+        summarize: async () => summary,
+      })
+    ).messages;
+    // What the provider reported for the request before step 30: it held all but step 30's call and result.
+    turn.run.reportedContext = {
+      step: { after: 61, rewritten: [], tokens: estimateTokens(sent.slice(0, -2)) },
+    };
+    const { committed } = await stepCompactions(turn, {
+      compactions: [earlier],
+      inputTokenLimit: 60_000,
+      summarize: async () => {
+        throw new Error('provider unavailable');
+      },
+    });
+    expect(estimateTokens(sent)).toBe(56_286);
+    expect(committed.map(({ kind, through }) => ({ kind, through }))).toEqual([
+      { kind: 'deterministic', through: { runId: 'run-0', stepNumber: 13 } },
     ]);
   });
 

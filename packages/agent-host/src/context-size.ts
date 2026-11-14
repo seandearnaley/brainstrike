@@ -152,14 +152,29 @@ function freedSince(
   );
 }
 
+/** The chars/4 estimate of a request: `estimate` (its messages) with the run's instructions and tool definitions. */
+export async function estimateHostContext(input: {
+  readonly estimate: () => number;
+  readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
+}): Promise<number> {
+  const extras = await input.readRequestExtras?.();
+  return input.estimate() + (extras ? await estimateExtras(extras) : 0);
+}
+
+/** A request's size, and whether an earlier request's count sized it or it is the estimate itself. */
+export interface HostContextSize {
+  readonly reported: boolean;
+  readonly tokens: number;
+}
+
 /**
  * The size of the thread's next request, in this order: the provider's input
  * tokens on the branch's latest step that reported them; else the host's own
  * count of its latest prepared request — each less what tool-output rewrites
  * freed from that request since, plus the chars/4 estimate of what the branch
  * committed after it (that step's output and tool results, the new user
- * message); else `estimate` with the run's instructions and tool definitions.
- * A reported count already holds the instructions and tools.
+ * message); else the request's estimate (`estimateHostContext`). A reported
+ * count already holds the instructions and tools.
  */
 export async function measureHostContext(
   input: HostContextRewrites & {
@@ -170,15 +185,16 @@ export async function measureHostContext(
     readonly messages: readonly ModelMessage[];
     readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
   }
-): Promise<number> {
+): Promise<HostContextSize> {
   const report = latestReport(input.chain, 'step') ?? latestReport(input.chain, 'request');
   if (report) {
-    return (
-      report.tokens -
-      freedSince(report, input.messages, input) +
-      estimateTokens(input.messages.slice(report.after))
-    );
+    return {
+      reported: true,
+      tokens:
+        report.tokens -
+        freedSince(report, input.messages, input) +
+        estimateTokens(input.messages.slice(report.after)),
+    };
   }
-  const extras = await input.readRequestExtras?.();
-  return input.estimate() + (extras ? await estimateExtras(extras) : 0);
+  return { reported: false, tokens: await estimateHostContext(input) };
 }
