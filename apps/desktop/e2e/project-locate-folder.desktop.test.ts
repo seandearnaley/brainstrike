@@ -16,7 +16,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { chooseThreadFolder } from './utils/choose-thread-folder';
-import { initRepo } from './utils/git-fixtures';
+import { git, initRepo } from './utils/git-fixtures';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startThread } from './utils/new-thread';
 import { whereChip } from './utils/where-control';
@@ -106,6 +106,10 @@ test('Locate folder… reconnects a project folder moved outside the app, keepin
   await electron.closeForStateSeeding();
   await rename(place, moved);
   await writeFile(path.join(moved, NOTES), MOVED_CONTENT);
+  // Committed, so the repository is clean and its where-control reads "Local" alone, never the
+  // uncommitted-changes mark its status would add once it arrives.
+  git(moved, ['add', NOTES]);
+  git(moved, ['commit', '-m', 'notes at the new place']);
   const reopened = await electron.restart();
   const next = reopened.window;
   await configureAssistantProvider(next);
