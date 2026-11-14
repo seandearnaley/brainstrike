@@ -147,11 +147,25 @@ function pendingInteractions(rows: readonly HostLogRow[], runId: string) {
  */
 export async function driveEvalRun(
   host: EvalHost,
-  options: { readonly modelId: string; readonly prompt: string; readonly timeoutMs: number }
+  options: {
+    readonly modelId: string;
+    readonly prompt: string;
+    /** A later turn's thread; without one the run starts a thread. */
+    readonly threadId?: string;
+    readonly timeoutMs: number;
+  }
 ): Promise<DrivenRun> {
   const deadline = Date.now() + options.timeoutMs;
   const remaining = () => Math.max(1, deadline - Date.now());
-  const args = ['run', options.prompt, '--model', options.modelId, '--json', '--non-interactive'];
+  const args = [
+    'run',
+    options.prompt,
+    '--model',
+    options.modelId,
+    ...(options.threadId === undefined ? [] : ['--thread', options.threadId]),
+    '--json',
+    '--non-interactive',
+  ];
   let result = await host.cli(args, remaining());
   const identity = runIdentity(result);
   if (!identity) {
