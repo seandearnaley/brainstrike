@@ -17,14 +17,21 @@
  * `userDataDir`, so neither the host's open folders nor its database can
  * leak between tests. Temp dirs are tracked and removed in `afterAll`.
  */
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { requestAgentHost } from './utils/agent-host-request';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { createAndUseWorktree } from './utils/create-worktree';
-import { freshRepo as createFreshRepo, createTempDirTracker } from './utils/git-fixtures';
+import {
+  freshRepo as createFreshRepo,
+  createTempDirTracker,
+  git,
+  initRepo,
+} from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { startThread } from './utils/new-thread';
@@ -36,10 +43,13 @@ const tempDirs = createTempDirTracker();
 
 const ROOT_ID = 'w2-thread-folders-root-00000000-0000-4000-8000-000000000020';
 const OTHER_ROOT_ID = 'w2-thread-folders-root-00000000-0000-4000-8000-000000000021';
+const HOLDER_ROOT_ID = 'w2-thread-folders-root-00000000-0000-4000-8000-000000000022';
 
 const BOUND_THREAD_TITLES = ['W2 bound alpha', 'W2 bound beta'] as const;
 const OTHER_REPOSITORY_THREAD_TITLE = 'W2 other repository delta';
 const UNBOUND_THREAD_TITLE = 'W2 unbound gamma';
+const HOLDER_THREAD_TITLE = 'W2 holder epsilon';
+const INNER_THREAD_TITLE = 'W2 inner worktree zeta';
 
 /**
  * A real repo, mounted by its REAL path.
@@ -284,6 +294,74 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await expect(renamed.getByTestId('thread-folder-count')).toHaveText('3', { timeout: 30_000 });
     await expect(folderHeader(page, path.basename(other))).toHaveCount(0);
     await expect(page.getByTestId('thread-folder-header')).toHaveCount(2);
+  });
+
+  // ADR-0034 build decisions (BST-2511, BST-2520): a repository found inside an open folder lists
+  // in a section of its own, and the person's first name for it there makes its project.
+  test("names the project of a repository found inside an open folder from its section's menu", async ({
+    electron,
+    window: page,
+  }) => {
+    test.setTimeout(120_000);
+    // An open folder that is not a repository holds one, and a worktree of it a thread works in.
+    const holder = path.join(realpathSync(electron.getWorkspaceRoot()), 'holder');
+    const inner = path.join(holder, 'inner');
+    mkdirSync(inner, { recursive: true });
+    initRepo(inner);
+    const worktreePath = path.join(holder, 'inner-feature');
+    git(inner, ['worktree', 'add', '-b', 'feature', worktreePath, 'HEAD']);
+    await seedWidePanel(page);
+    await seedRoots(page, [{ path: holder, rootId: HOLDER_ROOT_ID }], {
+      reloadReason: 'w2-thread-folders-seed-holder',
+    });
+    // The host adopts the worktree, as it adopts one a thread's command made, and mounts it.
+    const adopted = (await requestAgentHost(page, 'worktrees/adopt', {
+      createdBy: 'user',
+      id: randomUUID(),
+      path: worktreePath,
+    })) as { readonly ok: boolean; readonly value?: { readonly id: string } };
+    expect(adopted).toMatchObject({ ok: true });
+    const mounted = (await requestAgentHost(page, 'workspace/roots/add', {
+      path: worktreePath,
+    })) as { readonly rootId: string };
+    await seedHostThreads(electron.getUserDataDir(), [
+      { folder: rootRow(holder, HOLDER_ROOT_ID), title: HOLDER_THREAD_TITLE },
+      {
+        checkout: {
+          localRootId: HOLDER_ROOT_ID,
+          worktreeId: adopted.value?.id ?? '',
+          worktreePath,
+        },
+        folder: rootRow(worktreePath, mounted.rootId),
+        title: INNER_THREAD_TITLE,
+      },
+    ]);
+    const { reloadRenderer } = await loadElectronHelpers();
+    await reloadRenderer(page, 'w2-thread-folders-seed-inner-threads');
+    await openThreadsPanel(page);
+
+    // The folder keeps its own project, and the repository inside it lists apart from it.
+    const innerSection = page
+      .getByTestId('thread-folder-header')
+      .filter({ has: page.getByText('inner', { exact: true }) });
+    await expect(innerSection.getByTestId('thread-folder-count')).toHaveText('1', {
+      timeout: 30_000,
+    });
+    await expect(folderHeader(page, 'holder').getByTestId('thread-folder-count')).toHaveText('1');
+
+    // It is named and moved like any project, but it is not an open folder to locate.
+    await innerSection.getByTestId('thread-project-actions').click();
+    await expect(page.getByRole('button', { name: 'Move to project…' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Locate folder…' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Rename project…' }).click();
+    const name = page.getByRole('textbox', { name: 'Project name' });
+    await name.fill('Inner library');
+    await name.press('Enter');
+
+    const renamed = folderHeader(page, 'Inner library');
+    await expect(renamed.getByTestId('thread-folder-count')).toHaveText('1', { timeout: 30_000 });
+    await expect(innerSection).toHaveCount(0);
+    await expect(folderHeader(page, 'holder').getByTestId('thread-folder-count')).toHaveText('1');
   });
 
   test('lists a thread working in a managed worktree under its repository, chipped with the worktree', async ({

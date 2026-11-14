@@ -13,7 +13,11 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { type ThreadListView, threadFolderSectionLabel } from '@brainstrike/assistant-data';
 import { createContext, useContext, useState } from 'react';
-import type { AssistantHostProjects } from './assistant-thread-host-context';
+import type {
+  AssistantHostProjects,
+  ThreadProjectFolder,
+  ThreadProjectRef,
+} from './assistant-thread-host-context';
 import { notifyRootRecordsChanged } from './roots/root-registration-events';
 
 /** A project the panel lists, by the name its section shows. */
@@ -26,12 +30,12 @@ export interface ThreadProjectChoice {
 export interface ThreadProjectActions {
   /** Clears the refusal shown, once the form it answered is closed. */
   readonly dismiss: () => void;
-  readonly join: (rootId: string, projectId: string) => Promise<boolean>;
+  readonly join: (folder: ThreadProjectFolder, projectId: string) => Promise<boolean>;
   /** Every project the panel lists now, in its order. */
   readonly listed: readonly ThreadProjectChoice[];
   /** Null where a located folder could not be shown in the Explorer (no mount by path). */
   readonly locate: ((rootId: string) => Promise<boolean>) | null;
-  readonly rename: (projectId: string, name: string) => Promise<boolean>;
+  readonly rename: (project: ThreadProjectRef, name: string) => Promise<boolean>;
 }
 
 export const ThreadProjectActionsContext = createContext<ThreadProjectActions | null>(null);
@@ -106,7 +110,7 @@ export function usePanelProjectActions({
   return {
     actions: {
       dismiss: () => setError(null),
-      join: (rootId, projectId) => settle(() => projects.join(rootId, projectId)),
+      join: (folder, projectId) => settle(() => projects.join(folder, projectId)),
       listed: listedProjects(view),
       locate: showFolder
         ? (rootId) =>
@@ -117,7 +121,7 @@ export function usePanelProjectActions({
               }
             })
         : null,
-      rename: (projectId, name) => settle(() => projects.rename(projectId, name)),
+      rename: (project, name) => settle(() => projects.rename(project, name)),
     },
     error,
   };

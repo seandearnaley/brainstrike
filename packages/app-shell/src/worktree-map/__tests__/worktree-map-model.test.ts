@@ -43,6 +43,8 @@ function entry(overrides: Partial<WorktreeListEntry> = {}): WorktreeListEntry {
     name: 'brainstrike',
     path: '/repo',
     primary: true,
+    projectId: null,
+    projectName: null,
     provenance: 'scanned',
     remedy: null,
     repoCommonDir: '/repo/.git',

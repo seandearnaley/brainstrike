@@ -645,6 +645,10 @@ export function inventoryListEntry(
     name: descriptor.name,
     path: descriptor.path,
     primary,
+    // The project kept for a repository's own checkout that is no open folder is
+    // read after the join (`repository-projects.ts`, BST-2520).
+    projectId: null,
+    projectName: null,
     // The FIRST producer of anything but 'scanned' (see
     // docs/agents/changeset-diff.md): a scanned worktree that also has a
     // ledger row is known from BOTH sides.
@@ -685,6 +689,8 @@ export function ghostListEntry(
     name: path.basename(row.path),
     path: row.path,
     primary: false,
+    projectId: null,
+    projectName: null,
     provenance: 'agent-reported',
     remedy: null,
     repoCommonDir: row.repoCommonDir,

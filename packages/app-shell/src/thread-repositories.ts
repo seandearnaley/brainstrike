@@ -3,7 +3,8 @@
  * (ADR-0034 decision 1 and its owner decisions of 2026-11-10): a repository's
  * own checkout and its managed worktrees are its checkouts, so their threads
  * share one section, the section of the project its own checkout's folder
- * belongs to.
+ * belongs to. A repository found inside an open folder, whose own checkout is
+ * not one, has its project named by the listing (BST-2511).
  *
  * Pure. The one input that knows about git is the host's worktree listing
  * (`worktrees.list()`), which already joins git's worktree list with the
@@ -68,6 +69,12 @@ function repositoryRow(
   // and project; while it has not resolved the section offers no "new thread
   // here" and names no project.
   const folder = rootId === null ? null : (folderRowsByRootId.get(rootId) ?? null);
+  // A repository found inside an open folder has no folder of its own: the
+  // listing names its project (ADR-0034 build decisions, BST-2511).
+  const project =
+    rootId === null
+      ? { id: ownCheckout?.projectId ?? null, name: ownCheckout?.projectName ?? null }
+      : { id: folder?.projectId ?? null, name: folder?.projectName ?? null };
   return {
     branch: ownCheckout?.branch ?? null,
     detached: ownCheckout?.detached ?? false,
@@ -75,8 +82,8 @@ function repositoryRow(
     folder,
     key: repositoryKey(first),
     path: first.repositoryRoot,
-    projectId: folder?.projectId ?? null,
-    projectName: folder?.projectName ?? null,
+    projectId: project.id,
+    projectName: project.name,
   };
 }
 
