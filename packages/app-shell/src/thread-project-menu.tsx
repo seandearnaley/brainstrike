@@ -3,8 +3,9 @@
  * Rename project… names the project; Move to project… moves the section's folder into another
  * project the panel lists, as the person chooses; Locate folder… points a folder that is not
  * mounted at the place it moved to. A repository found inside an open folder (BST-2511) is named
- * and moved like any project's folder, but it is not an open folder, so it is never located. The
- * changes are the host's (`thread-project-actions.ts`).
+ * and moved like any project's folder, and its first name or move makes its project (BST-2520);
+ * it is not an open folder, so it is never located. The changes are the host's
+ * (`thread-project-actions.ts`).
  */
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import {
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useState } from 'react';
-import type { ThreadProjectFolder } from './assistant-thread-host-context';
+import type { ThreadProjectFolder, ThreadProjectRef } from './assistant-thread-host-context';
 import { THREAD_CONTROL_ACTION_CLASS_NAME } from './assistant-thread-presentation';
 import type { ThreadProjectActions } from './thread-project-actions';
 
@@ -36,7 +37,10 @@ export interface ThreadSectionProject {
   readonly locateRootId: string | null;
   /** The name the person gave the project, or null. */
   readonly name: string | null;
-  readonly projectId: string;
+  /** Null for a repository found inside an open folder that has no project yet. */
+  readonly projectId: string | null;
+  /** What Rename project… names: the project, or the repository whose first name makes it. */
+  readonly target: ThreadProjectRef;
 }
 
 const MENU_ITEM_CLASS_NAME = 'h-8 justify-start gap-2 px-2 text-xs';

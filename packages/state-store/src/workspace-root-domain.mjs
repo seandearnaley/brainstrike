@@ -82,8 +82,8 @@ function hasTable(db, table) {
 /**
  * The project of the folder at `canonicalPath`. A folder recorded for the first time starts a
  * project (ADR-0034, owner decisions 2026-11-10); this is the only place one is created, inside
- * the commit that records the folder, or the commit that answers a repository found inside an
- * open folder (`ensure-repository-project`, BST-2511).
+ * the commit that records the folder, or the commit that first names a repository found inside
+ * an open folder (`rename-project` by path, BST-2520). A listing never makes one.
  * @param {import('better-sqlite3').Database} db
  * @param {string} canonicalPath
  * @param {number} now
@@ -424,17 +424,11 @@ function projectRoots(db, projection, projectId) {
  * the store does not have. Answers the roots of the project's folders, with the name.
  * @param {import('better-sqlite3').Database} db
  * @param {string} projection
- * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'rename-project'}} request
+ * @param {{ readonly name: string; readonly projectId: string }} request
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
  */
 function renameProject(db, projection, { name, projectId }) {
-  const trimmed = name.trim();
-  if ([...trimmed].length > PROJECT_NAME_MAX_LENGTH) {
-    throw new WorkspaceRootRefusal(
-      'project.name-too-long',
-      `A project name is at most ${PROJECT_NAME_MAX_LENGTH} characters, so the name was not changed.`
-    );
-  }
+  const trimmed = projectName(name);
   return db.transaction(() => {
     const renamed = db
       .prepare('UPDATE projects SET name = ? WHERE id = ?')
@@ -444,6 +438,23 @@ function renameProject(db, projection, { name, projectId }) {
     }
     return { roots: projectRoots(db, projection, projectId) };
   })();
+}
+
+/**
+ * A project name as the person gave it, trimmed; an empty one clears it. One longer than
+ * `PROJECT_NAME_MAX_LENGTH` characters is refused before anything is written.
+ * @param {string} name
+ * @returns {string}
+ */
+function projectName(name) {
+  const trimmed = name.trim();
+  if ([...trimmed].length > PROJECT_NAME_MAX_LENGTH) {
+    throw new WorkspaceRootRefusal(
+      'project.name-too-long',
+      `A project name is at most ${PROJECT_NAME_MAX_LENGTH} characters, so the name was not changed.`
+    );
+  }
+  return trimmed;
 }
 
 /** @returns {WorkspaceRootRefusal} */
@@ -463,25 +474,84 @@ function threadFolderRefusal() {
 }
 
 /**
- * Whether the folder at `canonicalPath` is a thread's own: a managed worktree the ledger lists,
- * or a folder recorded as a managed worktree or a scratch folder. Neither has a project of its
- * own (ADR-0034).
- * @param {import('better-sqlite3').Database} db
- * @param {string} canonicalPath
+ * Whether `candidate` is `folder` or inside it, by path segments, in either separator.
+ * @param {string} folder
+ * @param {string} candidate
  * @returns {boolean}
  */
-function isThreadFolderPath(db, canonicalPath) {
+function isWithin(folder, candidate) {
+  if (candidate === folder) {
+    return true;
+  }
+  const prefixes = /[\\/]$/u.test(folder) ? [folder] : [`${folder}/`, `${folder}\\`];
+  return prefixes.some((prefix) => candidate.startsWith(prefix));
+}
+
+/**
+ * Refuses a repository's checkout path the person would name or move into a project (ADR-0034
+ * build decisions, BST-2520), changing nothing: an empty or relative path; one inside a `.git`
+ * folder, which is never a checkout (git names a submodule's main worktree
+ * `<repository>/.git/modules/<path>`); and one inside a thread's own folder, a managed worktree
+ * the ledger lists or a folder recorded as a managed worktree or a scratch folder, none of which
+ * has a project of its own.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} canonicalPath
+ * @param {RootPaths} paths
+ */
+function refuseRepositoryPath(db, canonicalPath, paths) {
+  // A repository's checkout is named as a granted root is: by an absolute path.
+  if (
+    !(canonicalPath.trim() && paths.isGranted({ path: canonicalPath, preferredId: 'repository' }))
+  ) {
+    throw new Error("A repository's project requires its checkout's absolute canonical path");
+  }
+  if (canonicalPath.split(/[\\/]/u).includes('.git')) {
+    throw new WorkspaceRootRefusal(
+      'project.not-a-checkout',
+      "This folder is inside a repository's .git folder, not a checkout, so it has no project of its own."
+    );
+  }
   const managed = 'SELECT path FROM brainstrike_worktrees WHERE archived_at IS NULL';
-  return Boolean(
+  const threadFolders = /** @type {string[]} */ (
     db
-      .prepare('SELECT 1 FROM brainstrike_worktrees WHERE path = ? AND archived_at IS NULL')
-      .get(canonicalPath) ??
+      .prepare(
+        `${managed} UNION SELECT canonical_path FROM roots
+          WHERE kind <> 'path' OR path IN (${managed})`
+      )
+      .pluck()
+      .all()
+  );
+  if (threadFolders.some((folder) => isWithin(folder, canonicalPath))) {
+    throw threadFolderRefusal();
+  }
+}
+
+/**
+ * The projects kept for `canonicalPaths` (ADR-0034 build decisions, BST-2520): a read for the
+ * host's worktree listing, which never makes a project. A state DB that opened damaged from
+ * before projects, or before their names, answers none, or none named.
+ * @param {import('better-sqlite3').Database} db
+ * @param {readonly string[]} canonicalPaths
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function repositoryProjects(db, canonicalPaths) {
+  if (canonicalPaths.length === 0 || !hasTable(db, 'project_folders')) {
+    return { projects: [], roots: [] };
+  }
+  const name = hasColumn(db, 'projects', 'name') ? 'project.name' : 'NULL';
+  return {
+    projects: /** @type {import('./workspace-root-types.ts').WorkspaceRepositoryProject[]} */ (
       db
         .prepare(
-          `SELECT 1 FROM roots WHERE canonical_path = ? AND (kind <> 'path' OR path IN (${managed}))`
+          `SELECT folder.canonical_path AS canonicalPath, project.id AS id, ${name} AS name
+          FROM project_folders AS folder JOIN projects AS project ON project.id = folder.project_id
+          WHERE folder.canonical_path IN (SELECT value FROM json_each(?))
+          ORDER BY folder.canonical_path`
         )
-        .get(canonicalPath)
-  );
+        .all(JSON.stringify(canonicalPaths))
+    ),
+    roots: [],
+  };
 }
 
 /**
@@ -509,66 +579,62 @@ function moveFolderToProject(db, canonicalPath, leftProjectId, projectId) {
 }
 
 /**
- * The project of a repository the host's inventory found inside an open folder, whose own
- * checkout is not itself an open folder (ADR-0034 build decisions, BST-2511): the one recorded
- * for its canonical path, or one made now as `register` makes a folder's. No root is written, so
- * the repository never becomes an open folder this way, and nothing about trust or hooks is.
- * Refused for an empty or relative path, and for a thread's own folder, which has no project.
+ * Names the project of a repository found inside an open folder, by its own checkout's canonical
+ * path (ADR-0034 build decisions, BST-2520). Its first name makes the project, as `register` makes
+ * an opened folder's, in the same commit; nothing else does, so a listing never writes one. An
+ * empty name with no project yet writes nothing. No root is written, and nothing about trust or
+ * hooks is. Refused, changing nothing, for a name too long and a path `refuseRepositoryPath`
+ * refuses. Answers the roots of the project's folders, if any.
  * @param {import('better-sqlite3').Database} db
- * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'ensure-repository-project'}} request
+ * @param {string} projection
+ * @param {{ readonly canonicalPath: string; readonly name: string }} request
  * @param {RootPaths} paths
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
  */
-function ensureRepositoryProject(db, { canonicalPath }, paths) {
-  // A repository's checkout is named as a granted root is: by an absolute path.
-  if (
-    !(canonicalPath.trim() && paths.isGranted({ path: canonicalPath, preferredId: 'repository' }))
-  ) {
-    throw new Error("A repository's project requires its checkout's absolute canonical path");
-  }
+function renameRepositoryProject(db, projection, { canonicalPath, name }, paths) {
+  const trimmed = projectName(name);
   return db.transaction(() => {
-    if (isThreadFolderPath(db, canonicalPath)) {
-      throw threadFolderRefusal();
+    refuseRepositoryPath(db, canonicalPath, paths);
+    const recorded = db
+      .prepare('SELECT 1 FROM project_folders WHERE canonical_path = ?')
+      .get(canonicalPath);
+    if (!recorded && trimmed === '') {
+      return { roots: [] };
     }
-    const id = folderProject(db, canonicalPath, Date.now());
-    const name = /** @type {string | null | undefined} */ (
-      db.prepare('SELECT name FROM projects WHERE id = ?').pluck().get(id)
+    const projectId = folderProject(db, canonicalPath, Date.now());
+    db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(
+      trimmed === '' ? null : trimmed,
+      projectId
     );
-    return { project: { id, name: name ?? null }, roots: [] };
+    return { roots: projectRoots(db, projection, projectId) };
   })();
 }
 
 /**
  * Joins a repository found inside an open folder, by its own checkout's canonical path, to the
- * project `projectId`, by the rules a folder's join follows (ADR-0034 build decisions, BST-2511).
- * Refused for a path the store keeps no project for, for a thread's own folder and for a project
- * the store does not have. Answers the roots recorded at that path, if any.
+ * project `projectId`, by the rules a folder's join follows (ADR-0034 build decisions, BST-2511,
+ * BST-2520). With no project of its own yet, its folder row is made in the chosen project, in
+ * the same commit. Refused for a path `refuseRepositoryPath` refuses and for a project the store
+ * does not have. Answers the roots recorded at that path, if any.
  * @param {import('better-sqlite3').Database} db
  * @param {string} projection
  * @param {{ readonly canonicalPath: string; readonly projectId: string }} request
+ * @param {RootPaths} paths
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
  */
-function joinRepositoryProject(db, projection, { canonicalPath, projectId }) {
+function joinRepositoryProject(db, projection, { canonicalPath, projectId }, paths) {
   return db.transaction(() => {
+    refuseRepositoryPath(db, canonicalPath, paths);
+    if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+      throw unknownProject();
+    }
     const left = /** @type {string | undefined} */ (
       db
         .prepare('SELECT project_id FROM project_folders WHERE canonical_path = ?')
         .pluck()
         .get(canonicalPath)
     );
-    if (left === undefined) {
-      throw new WorkspaceRootRefusal(
-        'project.folder-unknown',
-        'There is no project kept at this folder, so nothing changed.'
-      );
-    }
-    if (isThreadFolderPath(db, canonicalPath)) {
-      throw threadFolderRefusal();
-    }
-    if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
-      throw unknownProject();
-    }
-    moveFolderToProject(db, canonicalPath, left, projectId);
+    moveFolderToProject(db, canonicalPath, left ?? null, projectId);
     return {
       roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
         db
@@ -716,8 +782,8 @@ export function executeWorkspaceRootRequest(db, request, paths) {
   if (request.operation === 'scratch-to-project') {
     return scratchToProject(db, request, paths);
   }
-  if (request.operation === 'ensure-repository-project') {
-    return ensureRepositoryProject(db, request, paths);
+  if (request.operation === 'repository-projects') {
+    return repositoryProjects(db, request.canonicalPaths);
   }
   const projection = rootProjection(db);
   switch (request.operation) {
@@ -763,10 +829,12 @@ export function executeWorkspaceRootRequest(db, request, paths) {
     case 'scratch-of-thread':
       return { roots: scratchOfThread(db, projection, request.threadId) };
     case 'rename-project':
-      return renameProject(db, projection, request);
+      return 'canonicalPath' in request
+        ? renameRepositoryProject(db, projection, request, paths)
+        : renameProject(db, projection, request);
     case 'join-project':
       return 'canonicalPath' in request
-        ? joinRepositoryProject(db, projection, request)
+        ? joinRepositoryProject(db, projection, request, paths)
         : joinProject(db, projection, request);
     case 'forget-scratch':
       // The thread's root and its scratch record go together, in one commit.

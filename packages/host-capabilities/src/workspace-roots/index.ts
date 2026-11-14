@@ -209,9 +209,18 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
       );
       return null;
     },
-    'projects/rename': async ({ name, projectId }) => {
+    'projects/rename': async (request) => {
       refuseWhenReadOnly();
-      await store.workspaceRoots({ name, operation: 'rename-project', projectId });
+      await store.workspaceRoots(
+        'projectId' in request
+          ? { name: request.name, operation: 'rename-project', projectId: request.projectId }
+          : {
+              // A repository's first name makes its project (BST-2520).
+              canonicalPath: request.repositoryPath,
+              name: request.name,
+              operation: 'rename-project',
+            }
+      );
       return null;
     },
     'workspace/roots/add': async ({ path: folder }) => {

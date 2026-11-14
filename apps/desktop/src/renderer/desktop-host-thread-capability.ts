@@ -284,8 +284,8 @@ export function createWindowThreadCapability(
       },
       locate: async (rootId) =>
         (await (await client()).request('workspace/roots/locate', { rootId })).root,
-      rename: async (projectId, name) => {
-        await (await client()).request('projects/rename', { name, projectId });
+      rename: async (project, name) => {
+        await (await client()).request('projects/rename', { ...project, name });
       },
     },
     // This frame's desktop-ui client: the host reads its own store; Main serves none.

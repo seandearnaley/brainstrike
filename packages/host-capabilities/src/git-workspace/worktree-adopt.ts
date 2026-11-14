@@ -645,8 +645,8 @@ export function inventoryListEntry(
     name: descriptor.name,
     path: descriptor.path,
     primary,
-    // A repository found inside an open folder gets its project after the join
-    // (`repository-projects.ts`, BST-2511); every other entry has none of its own.
+    // The project kept for a repository's own checkout that is no open folder is
+    // read after the join (`repository-projects.ts`, BST-2520).
     projectId: null,
     projectName: null,
     // The FIRST producer of anything but 'scanned' (see

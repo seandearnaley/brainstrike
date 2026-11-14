@@ -418,44 +418,61 @@ describe('host root registry', () => {
     expect((await records()).map((record) => record.projectName)).toEqual(['Shared', 'Shared']);
   });
 
-  // BST-2511: a repository found inside an open folder has a project but no root, so it is named
-  // by its own checkout's path, as the worktree listing names it.
-  it('joins a repository found inside an open folder to another project by its path', async () => {
+  // BST-2511, BST-2520: a repository found inside an open folder has no root, so it is named by
+  // its own checkout's path, as the worktree listing names it. Its first rename or move makes its
+  // project; nothing else does.
+  it('names a repository found inside an open folder by its path, and moves it into another project', async () => {
     const [alpha, beta] = ['alpha', 'beta'].map(folder);
     const { owner } = registry({ picks: [alpha ?? '', beta ?? ''] });
     await owner.service['workspace/roots/pick']({});
     await owner.service['workspace/roots/pick']({});
     const [alphaRecord, betaRecord] = (await store.workspaceRoots({ operation: 'list' })).roots;
     const repositoryPath = path.join(alpha ?? '', 'vendor', 'inner');
-    const { project } = await store.workspaceRoots({
+    const projectAt = async (canonicalPath: string) =>
+      (
+        await store.workspaceRoots({
+          canonicalPaths: [canonicalPath],
+          operation: 'repository-projects',
+        })
+      ).projects?.[0];
+
+    await expect(
+      owner.service['projects/rename']({ name: 'Inner', repositoryPath })
+    ).resolves.toBeNull();
+    const made = await projectAt(repositoryPath);
+    expect(made).toEqual({
       canonicalPath: repositoryPath,
-      operation: 'ensure-repository-project',
+      id: expect.stringMatching(/\S/u),
+      name: 'Inner',
     });
+    await owner.service['projects/rename']({ name: 'Inner library', repositoryPath });
+    expect(await projectAt(repositoryPath)).toEqual({ ...made, name: 'Inner library' });
 
     await expect(
       owner.service['projects/join']({ projectId: betaRecord?.projectId ?? '', repositoryPath })
     ).resolves.toBeNull();
-    expect(
-      (
-        await store.workspaceRoots({
-          canonicalPath: repositoryPath,
-          operation: 'ensure-repository-project',
-        })
-      ).project
-    ).toEqual({ id: betaRecord?.projectId, name: null });
+    expect(await projectAt(repositoryPath)).toMatchObject({ id: betaRecord?.projectId });
     // The project it left had no other folder; the open folder that holds it keeps its own.
     await expect(
-      owner.service['projects/rename']({ name: 'Gone', projectId: project?.id ?? '' })
+      owner.service['projects/rename']({ name: 'Gone', projectId: made?.id ?? '' })
     ).rejects.toMatchObject({ code: 'project.unknown' });
     expect((await store.workspaceRoots({ operation: 'list' })).roots[0]?.projectId).toBe(
       alphaRecord?.projectId
     );
+    // A repository with no project yet joins straight into the chosen one.
+    const other = path.join(alpha ?? '', 'other');
+    await owner.service['projects/join']({
+      projectId: alphaRecord?.projectId ?? '',
+      repositoryPath: other,
+    });
+    expect(await projectAt(other)).toMatchObject({ id: alphaRecord?.projectId });
+    // A submodule's main worktree, as git names it, is never a checkout.
     await expect(
-      owner.service['projects/join']({
-        projectId: betaRecord?.projectId ?? '',
-        repositoryPath: path.join(alpha ?? '', 'never-found'),
+      owner.service['projects/rename']({
+        name: 'Submodule',
+        repositoryPath: path.join(alpha ?? '', '.git', 'modules', 'vendor'),
       })
-    ).rejects.toMatchObject({ code: 'project.folder-unknown' });
+    ).rejects.toMatchObject({ code: 'project.not-a-checkout' });
   });
 
   it("a folder joined to a project keeps its own trust and approved hooks, and takes none of the project's", async () => {

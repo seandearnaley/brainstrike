@@ -40,8 +40,9 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
    * threads list with that project's. The project it leaves is deleted once no folder is in it.
    * Nothing joins by a remote URL or a commit, and the folder's trust and approved hooks stay its
    * own. Refused for a managed worktree or a scratch folder, and for an unknown folder or project.
-   * A repository found inside an open folder has a project but no root (BST-2511), so it is named
-   * by `repositoryPath`, its own checkout's path as `worktrees/list` names it.
+   * A repository found inside an open folder has no root (BST-2511), so it is named by
+   * `repositoryPath`, its own checkout's path as `worktrees/list` names it; with no project yet it
+   * joins the chosen one directly (BST-2520).
    */
   'projects/join': Schema.Union([
     Schema.Struct({ projectId: Id, rootId: Id }),
@@ -49,9 +50,15 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
   ]),
   /**
    * ADR-0034: names a project. The name is trimmed and an empty one clears it, so the project is
-   * named by its folder again. Refused for a name over 80 characters and an unknown project.
+   * named by its folder again. Refused for a name over 80 characters and an unknown project. A
+   * repository found inside an open folder is named by `repositoryPath`, as for a join, and its
+   * first name makes its project (BST-2520). A path inside a `.git` folder, a scratch folder or a
+   * managed worktree is refused.
    */
-  'projects/rename': Schema.Struct({ name: Schema.String, projectId: Id }),
+  'projects/rename': Schema.Union([
+    Schema.Struct({ name: Schema.String, projectId: Id }),
+    Schema.Struct({ name: Schema.String, repositoryPath: AbsolutePath }),
+  ]),
   /**
    * Folder grant without the picker: the path must be a folder this app recorded, a recent
    * folder or a managed worktree. A recorded scratch folder mounts as its thread's (ADR-0034).

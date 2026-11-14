@@ -2604,7 +2604,8 @@ describe('ThreadsPanel folders', () => {
           }
         }),
         locate: vi.fn<AssistantHostProjects['locate']>(async () => null),
-        rename: vi.fn(async (projectId: string, name: string) => {
+        rename: vi.fn<AssistantHostProjects['rename']>(async (project, name) => {
+          const projectId = 'projectId' in project ? project.projectId : null;
           for (const row of rootRows.filter((candidate) => candidate['projectId'] === projectId)) {
             row['projectName'] = name.trim() === '' ? null : name.trim();
           }
@@ -2659,7 +2660,10 @@ describe('ThreadsPanel folders', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Save project name' }));
 
       await waitFor(() => {
-        expect(projects.rename).toHaveBeenCalledWith('project-workspace-a', 'Brainstrike app');
+        expect(projects.rename).toHaveBeenCalledWith(
+          { projectId: 'project-workspace-a' },
+          'Brainstrike app'
+        );
       });
       expect(await within(headers()[0] as HTMLElement).findByText('Brainstrike app')).toBeVisible();
       expect(screen.queryByRole('textbox', { name: 'Project name' })).toBeNull();
@@ -2716,9 +2720,10 @@ describe('ThreadsPanel folders', () => {
       ).toHaveTextContent('2');
     });
 
-    // ADR-0034 build decisions (BST-2511): a repository found inside an open folder has a project
-    // of its own, which the host's listing names; it is not an open folder, so it is not located.
-    it('names a repository found inside an open folder as its own project, and moves it by its path, with no Locate folder…', async () => {
+    // ADR-0034 build decisions (BST-2511, BST-2520): a repository found inside an open folder has no
+    // project until the person names it or moves it, by its path; the listing then reads it. It is
+    // not an open folder, so it is never located.
+    it('names a repository found inside an open folder by its path, making its project, and moves it, with no Locate folder…', async () => {
       const CONTAINER: BoundRoot = {
         displayName: 'code',
         id: 'root-code',
@@ -2728,7 +2733,7 @@ describe('ThreadsPanel folders', () => {
       const INNER = '/tmp/code/inner';
       bindThreadToRoot('thread-a', CONTAINER);
       bindThreadToWorktree('thread-b');
-      let innerName: string | null = null;
+      let innerProject: { readonly id: string; readonly name: string | null } | null = null;
       gitMocks.list.mockImplementation(async () => ({
         ok: true,
         value: [
@@ -2737,8 +2742,8 @@ describe('ThreadsPanel folders', () => {
             name: 'inner',
             path: INNER,
             primary: true,
-            projectId: 'project-inner',
-            projectName: innerName,
+            projectId: innerProject?.id ?? null,
+            projectName: innerProject?.name ?? null,
             repoCommonDir: `${INNER}/.git`,
             repositoryRoot: INNER,
             rootId: CONTAINER.id,
@@ -2748,15 +2753,17 @@ describe('ThreadsPanel folders', () => {
         ],
       }));
       const { host, projects } = hostWithProjects({
-        rename: vi.fn(async (projectId: string, name: string) => {
-          if (projectId === 'project-inner') {
-            innerName = name.trim() === '' ? null : name.trim();
+        // The host's store makes the repository's project on its first name.
+        rename: vi.fn<AssistantHostProjects['rename']>(async (project, name) => {
+          if ('repositoryPath' in project || project.projectId === 'project-inner') {
+            innerProject = { id: 'project-inner', name: name.trim() === '' ? null : name.trim() };
           }
         }),
       });
       await showProjects(host);
 
-      // The folder that holds it keeps its own project; the repository is a project too.
+      // The folder that holds it keeps its own project; the repository has none yet, and is
+      // offered its first name and a move all the same.
       expect(headers().map((header) => header.textContent)).toEqual([
         expect.stringContaining('code'),
         expect.stringContaining('inner'),
@@ -2770,12 +2777,27 @@ describe('ThreadsPanel folders', () => {
       });
       fireEvent.click(screen.getByRole('button', { name: 'Save project name' }));
       await waitFor(() => {
-        expect(projects.rename).toHaveBeenCalledWith('project-inner', 'Inner library');
+        expect(projects.rename).toHaveBeenCalledWith({ repositoryPath: INNER }, 'Inner library');
       });
-      // The section reads the name from the listing, read again once the rename committed.
-      expect(await within(headers()[1] as HTMLElement).findByText('Inner library')).toBeVisible();
+      // The section reads the name from the listing, read again once the rename committed; keyed
+      // on its new project, it is drawn afresh.
+      await waitFor(() => {
+        expect(within(headers()[1] as HTMLElement).getByText('Inner library')).toBeVisible();
+      });
 
+      // Named now, it is renamed by its project.
       await openProjectActions('Inner library');
+      fireEvent.click(await screen.findByRole('button', { name: 'Rename project…' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Project name' }), {
+        target: { value: 'Inner' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save project name' }));
+      await waitFor(() => {
+        expect(projects.rename).toHaveBeenLastCalledWith({ projectId: 'project-inner' }, 'Inner');
+      });
+      expect(await within(headers()[1] as HTMLElement).findByText('Inner')).toBeVisible();
+
+      await openProjectActions('Inner');
       fireEvent.click(await screen.findByRole('button', { name: 'Move to project…' }));
       fireEvent.click(
         within(screen.getByTestId('thread-project-move-list')).getByRole('button', {

@@ -154,6 +154,16 @@ test('a v31 worktree listing entry names its project, and a repository joins a p
     rootId: 'r',
   });
   expect(() => parseHostParams('projects/join', { projectId: 'p' })).toThrow();
+  // BST-2520: such a repository's first name makes its project, so it is named by its path too.
+  expect(parseHostParams('projects/rename', { name: 'Inner', repositoryPath })).toEqual({
+    name: 'Inner',
+    repositoryPath,
+  });
+  expect(parseHostParams('projects/rename', { name: 'Inner', projectId: 'p' })).toEqual({
+    name: 'Inner',
+    projectId: 'p',
+  });
+  expect(() => parseHostParams('projects/rename', { name: 'Inner' })).toThrow();
 });
 
 test('the owned MCP settlement decoder keeps its original refusal', () => {

@@ -1,64 +1,46 @@
 /**
- * The project of a repository found inside an open folder (ADR-0034 build decisions, BST-2511).
+ * The project of a repository found inside an open folder (ADR-0034 build decisions, BST-2511,
+ * BST-2520).
  *
- * The inventory walks down from each open folder, so it finds a repository whose own checkout
- * is inside one without being one. Its section in the Threads panel had no project to read: it
- * was keyed on the common dir, could not be named or joined, and its threads could split
- * between the folder's project and the repository. The worktree listing now names its project,
- * which the store's roots domain, the one writer of projects, keeps by the checkout's canonical
- * path (`ensure-repository-project`), as it keeps an open folder's.
+ * The inventory walks down from each open folder, so it finds a repository whose own checkout is
+ * inside one without being one. Such a repository has no root to carry a project, so the store's
+ * roots domain, the one writer of projects, keeps its project by the checkout's canonical path.
  *
- * Only a checkout inside one of the person's folders counts: nothing looks above an opened
- * folder, so a repository reached only through a worktree of it, or inside a managed worktree or
- * a scratch folder, gets none. A store that opened damaged is read-only and records no project,
- * so such a repository keeps its common-dir section there.
+ * The listing only reads: one lookup, for the own checkouts of every repository listed that is
+ * not an open folder, whether or not a mounted folder holds it now, so a named repository keeps
+ * its section while the folder that holds it is closed. A project is made only by the person's
+ * first Rename project… or Move to project… on the repository's section, in the store's commit
+ * for that change; a listing never writes, so the walk's submodules and fixture repositories get
+ * no rows, and no one repository can fail the listing.
  */
-import type { StateStore, WorkspaceProjectRecord } from '@brainstrike/state-store';
+import type { StateStore } from '@brainstrike/state-store';
 import type { WorktreeListEntry } from '@brainstrike/types';
 import type { WorktreeService } from './worktree-service.ts';
 
-/** The store's roots domain, which keeps projects, and the damage it opened with. */
-export type RepositoryProjectStore = Pick<StateStore, 'stateDamage' | 'workspaceRoots'>;
+/** The store's roots domain, which keeps projects. */
+export type RepositoryProjectStore = Pick<StateStore, 'workspaceRoots'>;
 
-/** A repository's own checkout inside an open folder that it is not itself. */
-function isNestedCheckout(entry: WorktreeListEntry): boolean {
-  return entry.primary && !entry.rootIdIsExactMount && entry.containment !== 'outside-roots';
-}
-
-/**
- * `entries` with the project of each repository whose own checkout one of the person's folders
- * contains (a root of kind `path`), made by the store when it has none yet.
- */
-async function nameRepositoryProjects(
+/** `entries` with the project kept for each repository's own checkout that is no open folder. */
+async function readRepositoryProjects(
   entries: readonly WorktreeListEntry[],
   store: RepositoryProjectStore
 ): Promise<readonly WorktreeListEntry[]> {
-  const nested = entries.filter(isNestedCheckout);
-  if (nested.length === 0 || store.stateDamage !== null) {
+  const checkouts = entries
+    .filter((entry) => entry.primary && !entry.rootIdIsExactMount)
+    .map(({ path }) => path);
+  if (checkouts.length === 0) {
     return entries;
   }
-  const { roots } = await store.workspaceRoots({ operation: 'list' });
-  const folderRootIds = new Set(roots.filter((root) => root.kind === 'path').map(({ id }) => id));
-  const inFolder = nested.filter(
-    ({ containment }) =>
-      containment !== 'outside-roots' && containment.some((rootId) => folderRootIds.has(rootId))
-  );
-  const projects = new Map<string, WorkspaceProjectRecord>(
-    await Promise.all(
-      inFolder.map(async ({ path }) => {
-        const { project } = await store.workspaceRoots({
-          canonicalPath: path,
-          operation: 'ensure-repository-project',
-        });
-        if (project === undefined) {
-          throw new Error('The store answered no project for a repository found in a folder');
-        }
-        return [path, project] as const;
-      })
-    )
-  );
+  const { projects } = await store.workspaceRoots({
+    canonicalPaths: checkouts,
+    operation: 'repository-projects',
+  });
+  if (projects === undefined) {
+    throw new Error('The store answered no projects for the repositories it was asked about');
+  }
+  const byPath = new Map(projects.map((project) => [project.canonicalPath, project]));
   return entries.map((entry) => {
-    const project = entry.primary ? projects.get(entry.path) : undefined;
+    const project = entry.primary && !entry.rootIdIsExactMount ? byPath.get(entry.path) : undefined;
     return project === undefined
       ? entry
       : { ...entry, projectId: project.id, projectName: project.name };
@@ -66,8 +48,8 @@ async function nameRepositoryProjects(
 }
 
 /**
- * The worktree service as the host's `worktrees/list` serves it: its listing names the project of
- * each repository found inside an open folder. A store failure fails the listing visibly.
+ * The worktree service as the host's `worktrees/list` serves it: its listing names the project
+ * kept for each repository found inside an open folder. A store failure fails it visibly.
  */
 export function withRepositoryProjects(
   service: WorktreeService,
@@ -78,7 +60,7 @@ export function withRepositoryProjects(
     list: async () => {
       const listed = await service.list();
       return listed.ok
-        ? { ok: true, value: await nameRepositoryProjects(listed.value, store) }
+        ? { ok: true, value: await readRepositoryProjects(listed.value, store) }
         : listed;
     },
   };

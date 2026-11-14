@@ -91,9 +91,10 @@ function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFol
 
 /**
  * The project a section stands for, with the folder its actions act on: the repository's own
- * checkout, or the folder. A repository found inside an open folder has a project but no folder
- * of its own (BST-2511): it is named by its checkout's path, and never located. Null for a
- * section with no project, and for Scratch and No project.
+ * checkout, or the folder. A repository found inside an open folder has no folder of its own
+ * (BST-2511): it is named and moved by its checkout's path, its first name or move makes its
+ * project (BST-2520), and it is never located. Null for an open folder with no project, and for
+ * Scratch and No project.
  */
 function sectionProject(header: ThreadListFolderSection['header']): ThreadSectionProject | null {
   if (header.kind === 'unassigned' || header.kind === 'scratch') {
@@ -111,22 +112,32 @@ function sectionProject(header: ThreadListFolderSection['header']): ThreadSectio
           locateRootId: folder.status === 'disconnected' ? folder.rootId : null,
           name: folder.projectName,
           projectId: folder.projectId,
+          target: { projectId: folder.projectId },
         };
   }
   const { repository } = header;
-  if (repository.projectId === null) {
-    return null;
+  if (repository.folder !== null) {
+    return repository.projectId === null
+      ? null
+      : {
+          folder: { rootId: repository.folder.rootId },
+          folderName: repository.folder.displayName,
+          label,
+          locateRootId: null,
+          name: repository.projectName,
+          projectId: repository.projectId,
+          target: { projectId: repository.projectId },
+        };
   }
+  const folder = { repositoryPath: repository.path };
   return {
-    folder:
-      repository.folder === null
-        ? { repositoryPath: repository.path }
-        : { rootId: repository.folder.rootId },
-    folderName: repository.folder?.displayName ?? repository.displayName,
+    folder,
+    folderName: repository.displayName,
     label,
     locateRootId: null,
     name: repository.projectName,
     projectId: repository.projectId,
+    target: repository.projectId === null ? folder : { projectId: repository.projectId },
   };
 }
 
@@ -155,7 +166,7 @@ export function ThreadFolderHeader({
               setRenaming(false);
               projectActions.dismiss();
             }}
-            onRename={(name) => projectActions.rename(project.projectId, name)}
+            onRename={(name) => projectActions.rename(project.target, name)}
             project={project}
           />
         }

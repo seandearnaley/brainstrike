@@ -160,5 +160,8 @@
 // set on the own checkout of a repository whose checkout an open folder contains without being
 // it, and null on every other entry. `projects/join` also takes `repositoryPath`, that checkout's
 // path, in place of `rootId`, since such a repository has no root. The required fields are why
-// this is a version bump.
+// this is a version bump. Additive since (BST-2520): `projects/rename` also takes
+// `repositoryPath` in place of `projectId`. A repository's first rename or move makes its project,
+// and the listing only reads one, on the own checkout of any repository that is not an open
+// folder, whether or not an open folder holds it now.
 export const AGENT_HOST_PROTOCOL_VERSION = 31;

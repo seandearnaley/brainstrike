@@ -13,7 +13,11 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import { type ThreadListView, threadFolderSectionLabel } from '@brainstrike/assistant-data';
 import { createContext, useContext, useState } from 'react';
-import type { AssistantHostProjects, ThreadProjectFolder } from './assistant-thread-host-context';
+import type {
+  AssistantHostProjects,
+  ThreadProjectFolder,
+  ThreadProjectRef,
+} from './assistant-thread-host-context';
 import { notifyRootRecordsChanged } from './roots/root-registration-events';
 
 /** A project the panel lists, by the name its section shows. */
@@ -31,7 +35,7 @@ export interface ThreadProjectActions {
   readonly listed: readonly ThreadProjectChoice[];
   /** Null where a located folder could not be shown in the Explorer (no mount by path). */
   readonly locate: ((rootId: string) => Promise<boolean>) | null;
-  readonly rename: (projectId: string, name: string) => Promise<boolean>;
+  readonly rename: (project: ThreadProjectRef, name: string) => Promise<boolean>;
 }
 
 export const ThreadProjectActionsContext = createContext<ThreadProjectActions | null>(null);
@@ -117,7 +121,7 @@ export function usePanelProjectActions({
               }
             })
         : null,
-      rename: (projectId, name) => settle(() => projects.rename(projectId, name)),
+      rename: (project, name) => settle(() => projects.rename(project, name)),
     },
     error,
   };

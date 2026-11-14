@@ -91,6 +91,13 @@ export interface AssistantHostWorkspaceDiscovery extends WorkspaceTrustCapabilit
 export type ThreadProjectFolder = { readonly rootId: string } | { readonly repositoryPath: string };
 
 /**
+ * The project Rename project… names: one the store has, or the project of a repository found
+ * inside an open folder that has none yet, by its own checkout's path, which its first name makes
+ * (ADR-0034 build decisions, BST-2520).
+ */
+export type ThreadProjectRef = { readonly projectId: string } | { readonly repositoryPath: string };
+
+/**
  * ADR-0034: the person's projects, which the host's root registry writes. Each call resolves once
  * its change committed and rejects with the host's refusal, which the caller shows.
  */
@@ -105,8 +112,11 @@ export interface AssistantHostProjects {
    * project follow it. Resolves the folder as mounted, or null when the person cancelled.
    */
   locate(rootId: string): Promise<{ readonly path: string; readonly rootId: string } | null>;
-  /** Names the project; an empty name clears it, so it is named by its folder again. */
-  rename(projectId: string, name: string): Promise<void>;
+  /**
+   * Names the project; an empty name clears it, so it is named by its folder again. A
+   * repository's first name makes its project.
+   */
+  rename(project: ThreadProjectRef, name: string): Promise<void>;
 }
 
 /** One committed canvas version, in the canvas panel's read shape. */

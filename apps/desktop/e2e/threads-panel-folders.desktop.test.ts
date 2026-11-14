@@ -296,8 +296,8 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await expect(page.getByTestId('thread-folder-header')).toHaveCount(2);
   });
 
-  // ADR-0034 build decisions (BST-2511): a repository found inside an open folder is a project of
-  // its own, which the person names from its section's menu.
+  // ADR-0034 build decisions (BST-2511, BST-2520): a repository found inside an open folder lists
+  // in a section of its own, and the person's first name for it there makes its project.
   test("names the project of a repository found inside an open folder from its section's menu", async ({
     electron,
     window: page,
@@ -340,7 +340,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await reloadRenderer(page, 'w2-thread-folders-seed-inner-threads');
     await openThreadsPanel(page);
 
-    // The folder keeps its own project, and the repository inside it is a project of its own.
+    // The folder keeps its own project, and the repository inside it lists apart from it.
     const innerSection = page
       .getByTestId('thread-folder-header')
       .filter({ has: page.getByText('inner', { exact: true }) });

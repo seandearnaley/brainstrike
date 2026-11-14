@@ -88,15 +88,28 @@ export type WorkspaceRootRequest =
    */
   | { readonly operation: 'rename-project'; readonly name: string; readonly projectId: string }
   /**
+   * ADR-0034 build decisions (BST-2520): names the project of a repository found inside an open
+   * folder, which has no root, by its own checkout's canonical path. Its first name makes the
+   * project, in the same commit; an empty name with no project yet writes nothing. Refused for
+   * an empty or relative path, one inside a `.git` folder (a submodule as git names it), and one
+   * inside a scratch folder or a managed worktree.
+   */
+  | {
+      readonly canonicalPath: string;
+      readonly name: string;
+      readonly operation: 'rename-project';
+    }
+  /**
    * ADR-0034: joins the folder of the root to the project, as the person asked, and deletes the
    * project it leaves once no folder is in it. Writes no trust or hook approval. Refused for an
    * unknown root or project, and for a managed worktree or a scratch folder. Answers the root.
    */
   | { readonly operation: 'join-project'; readonly projectId: string; readonly rootId: string }
   /**
-   * ADR-0034 build decisions (BST-2511): the same join for a repository found inside an open
-   * folder, which has no root of its own, named by its own checkout's canonical path. Refused for
-   * a folder the store has no project for. Answers the roots recorded at that path, if any.
+   * ADR-0034 build decisions (BST-2511, BST-2520): the same join for a repository found inside an
+   * open folder, which has no root of its own, named by its own checkout's canonical path. With no
+   * project yet, its folder row is made in the chosen project, in the same commit. Refused for the
+   * paths `rename-project` refuses by path. Answers the roots recorded at that path, if any.
    */
   | {
       readonly canonicalPath: string;
@@ -104,12 +117,10 @@ export type WorkspaceRootRequest =
       readonly projectId: string;
     }
   /**
-   * ADR-0034 build decisions (BST-2511): the project of a repository the host's inventory found
-   * inside an open folder, whose own checkout is not itself an open folder. Answers the project
-   * recorded for its canonical path, made now if there is none. Writes no root. Refused for an
-   * empty or relative path and for a managed worktree's or a scratch folder's path.
+   * ADR-0034 build decisions (BST-2520): the projects kept for these canonical paths, for the
+   * repositories the host's worktree listing found. A read: it never makes a project.
    */
-  | { readonly canonicalPath: string; readonly operation: 'ensure-repository-project' }
+  | { readonly canonicalPaths: readonly string[]; readonly operation: 'repository-projects' }
   | {
       readonly operation: 'disconnect-except';
       readonly mountedPaths: readonly string[];
@@ -117,16 +128,20 @@ export type WorkspaceRootRequest =
       readonly closeRootIds?: readonly string[];
     };
 
-/** A project as the roots domain keeps it (ADR-0034): its id, and the name the person gave it. */
-export interface WorkspaceProjectRecord {
+/**
+ * The project kept for a repository's checkout (ADR-0034): the folder's canonical path, the
+ * project's id, and the name the person gave it.
+ */
+export interface WorkspaceRepositoryProject {
+  readonly canonicalPath: string;
   readonly id: string;
   /** Null while the person has given it none. */
   readonly name: string | null;
 }
 
 export interface WorkspaceRootReply {
-  /** `ensure-repository-project` answers the repository's project here; no other request does. */
-  readonly project?: WorkspaceProjectRecord;
+  /** `repository-projects` answers the projects it found here; no other request does. */
+  readonly projects?: readonly WorkspaceRepositoryProject[];
   readonly roots: readonly WorkspaceRootRecord[];
 }
 
