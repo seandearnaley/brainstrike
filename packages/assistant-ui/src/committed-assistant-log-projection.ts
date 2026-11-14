@@ -273,8 +273,6 @@ export class CommittedAssistantLogProjection {
   private readonly rewinds = new CommittedRewindHead();
   /** Each sent `run/input` not read yet: the run whose reply shows it. */
   private readonly sent = new Map<string, ProjectedRun>();
-  /** BST-2531: each run's last step a committed compaction replaced. */
-  private readonly compactedSteps = new Map<string, number>();
   private view: CommittedAssistantLogView;
 
   private readonly options: CommittedAssistantLogProjectionOptions;
@@ -729,12 +727,7 @@ export class CommittedAssistantLogProjection {
       return;
     }
     if (event['type'] === 'context.compacted') {
-      this.data(
-        run,
-        row,
-        committedHostCompaction(event, this.compactedSteps),
-        HOST_CONTEXT_COMPACTED_DATA_NAME
-      );
+      this.data(run, row, committedHostCompaction(event), HOST_CONTEXT_COMPACTED_DATA_NAME);
       return;
     }
     // ADR-0040: a memory write's card, one per call; Undo marks it undone.

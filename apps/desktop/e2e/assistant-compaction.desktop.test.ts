@@ -15,16 +15,31 @@ const FOLLOW_UP = 'Continue after the compacted context';
 const SECOND_ANSWER =
   `Second answer. ${'Context that fills the protected window. '.repeat(2200)}`.trim();
 
-/** The last user message's text in a provider request. */
-function lastUser(request: ModelProviderRequest): string {
-  const users = request.messages.filter(
+/** A provider request's messages of `roles`. */
+function withRole(request: ModelProviderRequest | undefined, roles: readonly string[]): unknown[] {
+  return (request?.messages ?? []).filter(
     (message) =>
       typeof message === 'object' &&
       message !== null &&
       'role' in message &&
-      message.role === 'user'
+      typeof message.role === 'string' &&
+      roles.includes(message.role)
   );
-  return JSON.stringify(users.at(-1) ?? null);
+}
+
+/** The last user message's text in a provider request. */
+function lastUser(request: ModelProviderRequest): string {
+  return JSON.stringify(withRole(request, ['user']).at(-1) ?? null);
+}
+
+/** Every user message of a provider request, serialized. */
+function userMessages(request: ModelProviderRequest | undefined): string {
+  return JSON.stringify(withRole(request, ['user']));
+}
+
+/** The request's instructions, which carry the compaction note. */
+function instructions(request: ModelProviderRequest | undefined): string {
+  return JSON.stringify(withRole(request, ['system', 'developer']));
 }
 
 /** The thread's own run, which carries tools; side calls such as its title do not. */
@@ -92,6 +107,8 @@ test('a context overflow compacts the host thread behind a durable divider and t
     await expect(card.getByTestId('compaction-summary-turns')).toContainText('1 turn');
     await expect(card.getByTestId('compaction-summary-model')).toHaveCount(0);
     await expect(card.getByTestId('compaction-summary-usage')).toHaveCount(0);
+    // BST-2527: no model ran, and the host still lists the person's own words.
+    await expect(card.getByRole('list', { name: 'Earlier requests' })).toHaveText(FIRST);
   };
   await expectDivider();
   await testInfo.attach('compaction-card', {
@@ -99,13 +116,15 @@ test('a context overflow compacts the host thread behind a durable divider and t
     contentType: 'image/png',
   });
   expect(overflowAttempts).toBe(2);
-  // The re-attempt left the dropped oldest turn out of its request.
+  // The re-attempt left the dropped oldest turn out of its request; its note
+  // quotes what the person asked in it.
   const attempts = modelProvider
     .requests()
     .filter((request) => threadRun(request) && lastUser(request).includes(OVERFLOW));
   expect(attempts).toHaveLength(2);
-  expect(JSON.stringify(attempts[0]?.messages)).toContain(FIRST);
-  expect(JSON.stringify(attempts[1]?.messages)).not.toContain(FIRST);
+  expect(userMessages(attempts[0])).toContain(FIRST);
+  expect(userMessages(attempts[1])).not.toContain(FIRST);
+  expect(instructions(attempts[1])).toContain(`Earlier requests:\\n- ${FIRST}`);
 
   // The divider is durable: the committed thread renders it again after a reload.
   await reloadRenderer(window, 'assistant-compaction: reload');
@@ -120,8 +139,8 @@ test('a context overflow compacts the host thread behind a durable divider and t
   const followUp = modelProvider
     .requests()
     .find((request) => threadRun(request) && lastUser(request).includes(FOLLOW_UP));
-  expect(JSON.stringify(followUp?.messages)).not.toContain(FIRST);
-  expect(JSON.stringify(followUp?.messages)).toContain(SECOND);
+  expect(userMessages(followUp)).not.toContain(FIRST);
+  expect(userMessages(followUp)).toContain(SECOND);
   await expect(card).toHaveCount(1);
   expect(modelProvider.refusals()).toEqual([]);
 });

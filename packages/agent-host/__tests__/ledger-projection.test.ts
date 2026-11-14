@@ -139,11 +139,14 @@ test("a compaction summarizer's side call counts within its run and as a provide
   const { runs, usage } = folded(
     insertAfterStart({
       compactedRunIds: [runId],
+      earlierRequests: [],
+      filesEdited: [],
       kind: 'agentic',
       modelId: MODEL,
       reason: 'pre-request',
       runId,
       summary: 'State: earlier turns were summarized.',
+      toolsLoaded: [],
       type: 'context.compacted',
       usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
     })
@@ -364,11 +367,14 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
     const { perModel } = folded(
       insertAfterStart({
         compactedRunIds: [runId],
+        earlierRequests: [],
+        filesEdited: [],
         kind: 'agentic',
         modelId: MODEL,
         reason: 'pre-request',
         runId,
         summary: 'State: earlier turns were summarized.',
+        toolsLoaded: [],
         type: 'context.compacted',
         usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
       })

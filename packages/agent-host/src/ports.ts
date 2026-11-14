@@ -28,6 +28,7 @@ import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
+import type { MastraDBMessage } from '@mastra/core/agent';
 import type {
   FlexibleSchema,
   LanguageModel,
@@ -336,6 +337,11 @@ export interface HostTurnBoundaryRequest {
 export interface HostToolDiscovery {
   /** The tools the run's next step offers: eager, discovery and loaded, from its committed steps. */
   activeTools(run: { readonly runId: string; readonly threadId: string }): Promise<string[]>;
+  /**
+   * BST-2527: the deferred tools these committed messages load, read as
+   * `activeTools` reads a branch: the part of it a compaction covers.
+   */
+  loadedTools(messages: readonly MastraDBMessage[]): Promise<string[]>;
   /**
    * Its own tools (`search_tools`, `load_tool`, `list_available_tools`). Like
    * legacy's processor-added tools, which joined after the permission gate and

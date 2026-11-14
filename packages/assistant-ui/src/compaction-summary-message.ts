@@ -28,19 +28,36 @@ interface HostContextSummarizerFailure {
   readonly correlationId?: string;
 }
 
-export interface HostContextCompaction {
+/** A file the covered calls edited, and how many edits they made to it. */
+interface HostContextCompactionFile {
+  readonly edits: number;
+  readonly path: string;
+}
+
+/**
+ * The lists the host wrote from the log for everything the summary covers
+ * (BST-2527): the person's requests, the files edited and the tools loaded.
+ */
+export interface HostContextCompactionLists {
+  readonly earlierRequests: readonly string[];
+  readonly filesEdited: readonly HostContextCompactionFile[];
+  readonly toolsLoaded: readonly string[];
+}
+
+export interface HostContextCompaction extends HostContextCompactionLists {
   readonly kind: CompactionSummaryPayload['fallbackKind'];
   /** The summarizer's catalog model, when one ran. */
   readonly modelId?: string;
   readonly reason: HostContextCompactionReason;
   /**
-   * The steps of a running turn it replaced since its run's last compaction
-   * (its `through`, less the steps it kept word for word).
+   * The steps of a running turn the summary covers (its `through`, less the
+   * steps kept word for word).
    */
   readonly stepsCompacted?: number;
   readonly summarizerFailure?: HostContextSummarizerFailure;
+  /** The model's sections, or a fallback's line. */
   readonly summary: string;
-  /** The earlier turns the compaction replaced (its `compactedRunIds`). */
+  /** The earlier turns the summary covers (its `compactedRunIds`). */
   readonly turnsCompacted: number;
   readonly usage?: HostContextCompactionUsage;
 }
@@ -84,13 +101,12 @@ function readHostCompactionUsage(usage: unknown): HostContextCompactionUsage {
   throw new Error('Committed compaction usage has no provider-reported token counts.');
 }
 
-/** The last step of a running turn a compaction replaced, or why it cannot be read. */
-function readThrough(value: unknown): {
-  /** The steps before it the compaction kept word for word. */
-  readonly kept: number;
-  readonly runId: string;
-  readonly stepNumber: number;
-} {
+/**
+ * How many steps of a running turn a compaction's summary covers, from its
+ * `through`: up to its step, less every step its run kept word for word
+ * (BST-2527). Or why that cannot be read. The one reader of `through` here.
+ */
+function readStepsCovered(value: unknown): number {
   const kept = Predicate.isObject(value) ? (value['kept'] ?? []) : undefined;
   if (
     Predicate.isObject(value) &&
@@ -99,20 +115,48 @@ function readThrough(value: unknown): {
     Array.isArray(kept) &&
     kept.every(isCount)
   ) {
-    return { kept: kept.length, runId: value['runId'], stepNumber: value['stepNumber'] };
+    return value['stepNumber'] + 1 - kept.length;
   }
   throw new Error('Committed compaction has an unreadable step.');
 }
 
+function isFile(value: unknown): value is HostContextCompactionFile {
+  return (
+    Predicate.isObject(value) &&
+    isText(value['path']) &&
+    isCount(value['edits']) &&
+    value['edits'] > 0
+  );
+}
+
+/** The host-written lists, as committed and as the part carries them, or why they cannot be read. */
+function readLists(value: Readonly<Record<string, unknown>>): HostContextCompactionLists {
+  const { earlierRequests, filesEdited, toolsLoaded } = value;
+  if (
+    Array.isArray(earlierRequests) &&
+    earlierRequests.every((request) => typeof request === 'string') &&
+    Array.isArray(filesEdited) &&
+    filesEdited.every(isFile) &&
+    Array.isArray(toolsLoaded) &&
+    toolsLoaded.every(isText)
+  ) {
+    return {
+      earlierRequests,
+      filesEdited: filesEdited.map(({ edits, path }) => ({ edits, path })),
+      toolsLoaded,
+    };
+  }
+  throw new Error('Committed compaction has unreadable lists.');
+}
+
 /**
  * A committed `context.compacted` event as its card part: the reason, the
- * turns and steps it replaced, and the summarizer's model and usage when one
- * ran. `compactedSteps` holds each run's last step an earlier compaction of
- * the thread replaced, and takes this one's.
+ * turns and steps its summary covers, the host's lists, and the summarizer's
+ * model and usage when one ran. A thread carries one current summary, so each
+ * card counts all it covers (BST-2527).
  */
 export function committedHostCompaction(
-  event: Readonly<Record<string, unknown>>,
-  compactedSteps: Map<string, number>
+  event: Readonly<Record<string, unknown>>
 ): HostContextCompaction {
   const { compactedRunIds, kind, modelId, reason, summarizerFailure, summary, usage } = event;
   if (kind !== 'agentic' && kind !== 'deterministic') {
@@ -124,10 +168,10 @@ export function committedHostCompaction(
   if (typeof summary !== 'string' || !summary) {
     throw new Error('Committed compaction is missing summary.');
   }
-  const through = event['through'] === undefined ? undefined : readThrough(event['through']);
+  const steps = event['through'] === undefined ? undefined : readStepsCovered(event['through']);
   if (
     !Array.isArray(compactedRunIds) ||
-    (compactedRunIds.length === 0 && through === undefined) ||
+    (compactedRunIds.length === 0 && steps === undefined) ||
     !compactedRunIds.every((runId) => typeof runId === 'string' && runId)
   ) {
     throw new Error('Committed compaction names no compacted runs.');
@@ -135,17 +179,12 @@ export function committedHostCompaction(
   if (modelId !== undefined && !(typeof modelId === 'string' && modelId)) {
     throw new Error('Committed compaction has an unreadable summarizer model.');
   }
-  const before = through === undefined ? undefined : compactedSteps.get(through.runId);
-  if (through) {
-    compactedSteps.set(through.runId, through.stepNumber);
-  }
   return {
+    ...readLists(event),
     kind,
     ...(modelId === undefined ? {} : { modelId }),
     reason,
-    ...(through === undefined
-      ? {}
-      : { stepsCompacted: through.stepNumber - (before ?? -1) - through.kept }),
+    ...(steps === undefined ? {} : { stepsCompacted: steps }),
     ...(summarizerFailure === undefined
       ? {}
       : { summarizerFailure: readSummarizerFailure(summarizerFailure) }),
@@ -169,6 +208,7 @@ export function readHostContextCompaction(data: unknown): HostContextCompaction 
     (data['modelId'] === undefined || (typeof data['modelId'] === 'string' && data['modelId']))
   ) {
     return {
+      ...readLists(data),
       kind: data['kind'],
       ...(data['modelId'] === undefined ? {} : { modelId: data['modelId'] }),
       reason: data['reason'],

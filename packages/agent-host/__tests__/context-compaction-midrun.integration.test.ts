@@ -36,7 +36,7 @@ afterEach(async () => {
   }
 });
 
-const SUMMARY = 'Goal: g\nState: s\nDecisions: d\nNext: n\nFiles touched: none';
+const SUMMARY = 'Goal: g\nConstraints: c\nDecisions: d\nErrors and fixes: none\nState: s\nNext: n';
 const QUESTION = 'Read the notes twelve times.';
 /** About 4,000 tokens a read, as its result reaches the model. */
 const NOTES = 'n'.repeat(16_000);
@@ -256,6 +256,7 @@ test('a tool loaded in a compacted step is still offered', async () => {
             discovered = await created.discovery.activeTools(run);
             return [...discovered];
           },
+          loadedTools: created.discovery.loadedTools,
           toolIds: created.discovery.toolIds,
         },
         tools: { ...admitted.tools, ...created.tools },
@@ -327,11 +328,15 @@ test('a request the provider boundary still trims commits a compaction that says
   expect(compactions(rows)).toEqual([
     {
       compactedRunIds: [firstRun],
+      // The person's request, cut at its limit; nothing was edited or loaded.
+      earlierRequests: [`First ${'p'.repeat(994)} [truncated]`],
+      filesEdited: [],
       kind: 'deterministic',
       reason: 'request-trim',
       runId: secondRun,
       summary:
         'Deterministic fallback: dropped 1 earlier turns (2 messages) after a request over the input budget; no summarization model ran.',
+      toolsLoaded: [],
       type: 'context.compacted',
     },
   ]);

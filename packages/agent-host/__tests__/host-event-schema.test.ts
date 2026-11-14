@@ -104,10 +104,13 @@ describe('the committed host event schema', () => {
   };
   const compacted = {
     compactedRunIds: ['run-0'],
+    earlierRequests: ['Move the port.\nKeep the old default.'],
+    filesEdited: [{ edits: 2, path: 'src/server.ts' }],
     kind: 'agentic',
     reason: 'pre-request',
     runId,
     summary: 'Goal: g',
+    toolsLoaded: ['brainstrike_lspInspect'],
     type: 'context.compacted',
   };
   test.each([
@@ -183,6 +186,15 @@ describe('the committed host event schema', () => {
     [
       'a compaction with an empty kept list',
       { ...compacted, through: { kept: [], runId, stepNumber: 3 } },
+    ],
+    ['a compaction without its host-written lists', { ...compacted, toolsLoaded: undefined }],
+    [
+      'a compaction listing a file it did not edit',
+      { ...compacted, filesEdited: [{ edits: 0, path: 'src/server.ts' }] },
+    ],
+    [
+      'a compaction listing a file outside its root',
+      { ...compacted, filesEdited: [{ edits: 1, path: '../secrets.env' }] },
     ],
     ['a missing required field', { outcome: 'completed', type: 'run.finished' }],
     ['a value outside its enum', { outcome: 'done', runId, type: 'run.finished' }],

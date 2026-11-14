@@ -5,8 +5,10 @@
  */
 import { resolveProviderError } from '@brainstrike/agent/provider-runtime';
 import type { ModelMessage } from 'ai';
+import { hostCompactionLedger } from './compaction-ledger.ts';
 import {
   type HostCompactedContext,
+  type HostCompactionLedgerReader,
   overflowCompaction,
   prepareCompactedContext,
   summarizeHostContext,
@@ -23,11 +25,30 @@ import { hostRunAncestors, hostRunContext } from './run-branch.ts';
 
 type Ports = Pick<
   HostRunExecutionPorts,
-  'append' | 'compactions' | 'foldRows' | 'platform' | 'rewrites' | 'runs'
+  'append' | 'compactions' | 'foldRows' | 'platform' | 'readCommittedRows' | 'rewrites' | 'runs'
 >;
 
 async function commitContextEvent(ports: Ports, run: Run, event: HostEvent): Promise<void> {
   await ports.append(run.threadId, [event], 'full', (rows) => ports.foldRows(rows));
+}
+
+/**
+ * BST-2527: what the log holds for everything a compaction of the run's branch
+ * covers, read from its committed rows when the compaction commits: the
+ * person's requests, the files the covered calls edited and the tools the
+ * run's own discovery reads as loaded there.
+ */
+function readRunLedger(
+  ports: Ports,
+  run: Run,
+  chain: readonly Run[],
+  admission: HostRunAdmission | undefined
+): HostCompactionLedgerReader {
+  return (covered) =>
+    hostCompactionLedger(
+      { chain, discovery: admission?.discovery, rows: ports.readCommittedRows(run) },
+      covered
+    );
 }
 
 /** Committed tool-output rewrites, plus the policy's new ones, on this step's messages. */
@@ -94,12 +115,14 @@ export async function recoverHostContextOverflow(ports: Ports, run: Run): Promis
   );
   const messages = applyProjectionRewrites(healed, ports.rewrites.read(run.threadId));
   const admission = run.admission;
+  const chain = [...ancestors, run];
   const event = await overflowCompaction({
-    chain: [...ancestors, run],
+    chain,
     compactions: ports.compactions.read(run.threadId),
     compactionTokenCap: admission?.compactionTokenCap,
     inputTokenLimit: admission?.inputTokenLimit,
     messages,
+    readLedger: readRunLedger(ports, run, chain, admission),
     readRequestExtras: admission
       ? () => readHostRequestExtras(ports, run, admission, messages)
       : undefined,
@@ -128,20 +151,21 @@ export async function prepareRunContext(
   const messages = hostRunContext(ports.runs, run);
   const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
   const rewritten = await rewriteRunContext(ports, run, ancestors, healed);
+  const chain = [...ancestors, run];
   return await prepareCompactedContext({
-    chain: [...ancestors, run],
+    chain,
     classify: (cause) => resolveProviderError(cause, admission.configuration).failure,
     commit: (event) => commitContextEvent(ports, run, event),
     compactions: ports.compactions.read(run.threadId),
     compactionTokenCap: admission.compactionTokenCap,
     inputTokenLimit: admission.inputTokenLimit,
     messages: rewritten,
+    readLedger: readRunLedger(ports, run, chain, admission),
     readRequestExtras: () => readHostRequestExtras(ports, run, admission, rewritten),
     // Read after `rewriteRunContext`, which may have committed this request's own.
     rewrites: ports.rewrites.read(run.threadId),
     signal: run.controller.signal,
-    summarize: (transcript) =>
-      summarizeHostContext(admission.model, run, transcript, run.controller.signal),
+    summarize: (input) => summarizeHostContext(admission.model, run, input, run.controller.signal),
     unrewritten: healed,
   });
 }

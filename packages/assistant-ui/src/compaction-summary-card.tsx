@@ -1,7 +1,10 @@
 import type { CompactionSummaryPayload } from '@brainstrike/assistant-contract/compaction-summary';
 import { ArchiveRestore } from 'lucide-react';
-import type { ReactNode } from 'react';
-import type { HostContextCompaction } from './compaction-summary-message';
+import { type ReactNode, useId } from 'react';
+import type {
+  HostContextCompaction,
+  HostContextCompactionLists,
+} from './compaction-summary-message';
 
 /** A host compaction's committed facts beside its summary (BST-2201). */
 type CompactionSummaryDetails = Omit<HostContextCompaction, 'kind' | 'summary'>;
@@ -15,7 +18,7 @@ export interface CompactionSummaryCardProps {
   readonly fallbackKind: CompactionSummaryPayload['fallbackKind'];
 }
 
-/** The agent host's code for a summary outside the required five sections. */
+/** The agent host's code for a summary outside the required sections. */
 const SUMMARY_INVALID_CODE = 'compaction.summary-invalid';
 
 const REASON_LABELS: Record<CompactionSummaryDetails['reason'], string> = {
@@ -97,6 +100,83 @@ function CompactionDetails({ details }: { readonly details: CompactionSummaryDet
   );
 }
 
+interface CompactionListEntry {
+  readonly content: ReactNode;
+  readonly key: string;
+}
+
+/** One list the host wrote from the log, under its name. */
+function CompactionList({
+  entries,
+  label,
+}: {
+  readonly entries: readonly CompactionListEntry[];
+  readonly label: string;
+}) {
+  const labelId = useId();
+  return (
+    <div>
+      <p className="text-foreground/80 text-xs font-medium" id={labelId}>
+        {label}
+      </p>
+      <ul aria-labelledby={labelId} className="mt-0.5 space-y-0.5 text-xs break-words">
+        {entries.map((entry) => (
+          <li key={entry.key}>{entry.content}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The files, tools and requests the host wrote from the log (BST-2527); an empty one is left out. */
+function CompactionLists({ lists }: { readonly lists: HostContextCompactionLists }) {
+  const sections = [
+    {
+      entries: lists.filesEdited.map(
+        ({ edits, path }): CompactionListEntry => ({
+          content: (
+            <>
+              <span className="font-mono">{path}</span>{' '}
+              <span className="text-muted-foreground tabular-nums">{counted(edits, 'edit')}</span>
+            </>
+          ),
+          key: path,
+        })
+      ),
+      label: 'Files edited',
+    },
+    {
+      entries: lists.toolsLoaded.map(
+        (tool): CompactionListEntry => ({
+          content: <span className="font-mono">{tool}</span>,
+          key: tool,
+        })
+      ),
+      label: 'Tools loaded',
+    },
+    {
+      entries: lists.earlierRequests.map(
+        (request, position): CompactionListEntry => ({
+          content: <span className="whitespace-pre-wrap">{request}</span>,
+          // The person may have asked the same thing twice.
+          key: `${position}`,
+        })
+      ),
+      label: 'Earlier requests',
+    },
+  ].filter((section) => section.entries.length > 0);
+  if (sections.length === 0) {
+    return null;
+  }
+  return (
+    <div className="mt-3 space-y-2">
+      {sections.map((section) => (
+        <CompactionList entries={section.entries} key={section.label} label={section.label} />
+      ))}
+    </div>
+  );
+}
+
 /**
  * Full-width system treatment for the durable assistant message that replaces
  * older provider context. Its children are the message's real content parts,
@@ -128,6 +208,7 @@ export function CompactionSummaryCard(props: CompactionSummaryCardProps) {
         </p>
         {details && <CompactionDetails details={details} />}
         <div className="text-sm leading-6 break-words">{children}</div>
+        {details && <CompactionLists lists={details} />}
       </div>
     </section>
   );

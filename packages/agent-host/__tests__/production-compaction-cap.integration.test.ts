@@ -33,7 +33,7 @@ afterEach(async () => {
 
 /** A 1M window's budget: 945,904 tokens, 90% of it far past either cap. */
 const BUDGET = deriveEffectiveInputBudget(1_000_000);
-const SUMMARY = 'Goal: g\nState: s\nDecisions: d\nNext: n\nFiles touched: none';
+const SUMMARY = 'Goal: g\nConstraints: c\nDecisions: d\nErrors and fixes: none\nState: s\nNext: n';
 
 function usage(inputTokens: number) {
   return {

@@ -15,6 +15,9 @@ import {
 
 const require = createRequire(import.meta.url);
 
+/** A committed compaction's host-written lists, empty. */
+const NO_LISTS = { earlierRequests: [], filesEdited: [], toolsLoaded: [] };
+
 /** A real committed log: one approved write, then an answer. */
 async function approvedRun() {
   const rows = Schema.decodeUnknownSync(Schema.Array(HostLogRowSchema))(
@@ -231,6 +234,7 @@ describe('readThreadFromLog', () => {
 
   test('counts committed compactions by whether a model summarized them', async () => {
     const compacted = (runId: string, kind: 'agentic' | 'deterministic') => ({
+      ...NO_LISTS,
       compactedRunIds: [runId],
       kind,
       reason: 'pre-request',
@@ -249,6 +253,7 @@ describe('readThreadFromLog', () => {
   test('spend counts every call the thread paid for, by what the call was for', async () => {
     const { rows, runId } = await withEvents((id) => [
       {
+        ...NO_LISTS,
         compactedRunIds: [id],
         kind: 'agentic',
         modelId: 'openai::gpt-6-luna',
