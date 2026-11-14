@@ -105,6 +105,7 @@ import {
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
 import { ThreadProjectActionsContext, usePanelProjectActions } from './thread-project-actions';
+import { ThreadProjectMemoryPanel } from './thread-project-menu';
 import { mapThreadRepositories } from './thread-repositories';
 import { type ThreadMoveTarget, type ThreadPinHandler, ThreadRow } from './thread-row';
 import { useThreadSearchStore } from './thread-search-store';
@@ -2131,6 +2132,7 @@ export function ThreadsPanelCore({
           />
         </ThreadProjectActionsContext.Provider>
       </div>
+      <ThreadProjectMemoryPanel memory={projectActions.memory} />
     </section>
   );
 }

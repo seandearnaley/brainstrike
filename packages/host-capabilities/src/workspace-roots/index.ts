@@ -25,6 +25,7 @@ import { type StateStore, StateStoreReadOnlyError } from '@brainstrike/state-sto
 import type { RootDescriptor } from '@brainstrike/types';
 import { runningRunRootIds } from '../git-workspace/worktree-host-activity.ts';
 import { removeProjectMemory } from '../project-memory/memory-notes.ts';
+import { projectMemoryPanel } from '../project-memory/memory-panel.ts';
 import { createWorkspaceRootResolver, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 
 const logger = createLogger('HostRootRegistry');
@@ -194,6 +195,8 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   };
 
   const service: HostRootRegistry = {
+    // ADR-0040, BST-2534: a project's Memory panel, through the notes' one writer.
+    ...projectMemoryPanel(store),
     // ADR-0034: a project's name and folders are written by the store's roots domain, whose
     // refusals (a name too long, an unknown project or folder, a thread's own folder) are typed.
     'projects/join': async (request) => {

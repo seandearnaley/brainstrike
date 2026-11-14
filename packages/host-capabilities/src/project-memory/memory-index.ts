@@ -23,6 +23,24 @@ export function memoryNoteTitle(relative: string, text: string): string {
   return path.posix.basename(relative).replace(/\.[^.]+$/u, '') || relative;
 }
 
+/**
+ * A new note's file name without its extension (BST-2534): its first line in lower-case words
+ * joined by dashes, so a note with no heading is titled much as it begins; `note` when it has none.
+ */
+export function memoryNoteStem(text: string): string {
+  const first = text
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line !== '' && line !== '---');
+  const stem = (first ?? '')
+    .replace(/^#+\s*/u, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .slice(0, 60)
+    .replace(/^-+|-+$/gu, '');
+  return stem === '' ? 'note' : stem;
+}
+
 /** A note's hook: its first line of text that is not a heading, cut to one short line. */
 function memoryNoteHook(text: string): string {
   const line = text

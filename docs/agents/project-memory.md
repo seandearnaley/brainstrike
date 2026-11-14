@@ -7,7 +7,7 @@ Plain files the host keeps for each project, so a later thread in a project star
 Owners: [notes](../../packages/host-capabilities/src/project-memory/memory-notes.ts), [admission](../../packages/host-capabilities/src/project-memory/memory-admission.ts), [Core's record](../../packages/agent-host/src/project-memory-record.ts).
 
 - `<data root>/project-memory/<project id>/`: `MEMORY.md` and one file per note. Never in the repository or git.
-- `ProjectMemoryNotes` is the only writer. The memory tool writes during a turn and Core's `memory/undo` restores; nothing writes in the background.
+- `ProjectMemoryNotes` is the only writer. The memory tool writes during a turn, Core's `memory/undo` restores, and the person writes in the project's Memory panel; nothing writes in the background.
   - Writes to one folder run one at a time, from any thread.
   - Never write the folder from anywhere else, and never let the model write `MEMORY.md`: the host rewrites it from the notes after every change, so it cannot drift.
   - Which notes untrusted context wrote is the host's `.provenance.json` beside them; the tool refuses hidden names, so the model cannot reach it.
@@ -23,7 +23,7 @@ Owners: [notes](../../packages/host-capabilities/src/project-memory/memory-notes
   - It is parent-only (`PARENT_ONLY_TOOL_IDS`); a child reads the index through its instructions and never writes.
 - Paths: `/memories` or under it. A `.`, `..`, percent-encoded or hidden segment is refused before the workspace path resolver keeps the write inside the folder through symlinks. Reuse that resolver; never add another.
 - A note holds at most 16,000 characters. One that `scrubLikelySecretValues` flags is refused and committed as `memory.refused`, which never carries its text.
-- A write marks its notes untrusted until they are deleted when its run or any earlier run on the thread's branch (`committedRunAncestors`), compacted or not, read web or MCP tool output (`hostRunReadUntrustedContent`). A directory rename marks every note in it.
+- A write marks its notes untrusted until they are deleted or the person saves them in the Memory panel when its run or any earlier run on the thread's branch (`committedRunAncestors`), compacted or not, read web or MCP tool output (`hostRunReadUntrustedContent`). A directory rename marks every note in it.
 - Index lines carry no angle brackets, so no note can open or close the `<memory_index>` block: titles and hooks are escaped, and a path segment holding `<`, `>`, a control character or a line or paragraph separator is refused, so the path is listed as it is and still works with `view`. `MEMORY.md` is refused in any case, as a case-insensitive volume would write the index.
 - Admission makes the project's folder (`ProjectMemoryNotes.open`) and only the project's deletion removes it, so a run admitted before a `join-project` deleted its project is refused, as is an Undo there; never recreate the folder on a write.
 
@@ -39,6 +39,25 @@ Owners: [notes](../../packages/host-capabilities/src/project-memory/memory-notes
 - Core commits `memory.changed` under the call that wrote (path, title, text after, text before, untrusted), `memory.refused` for a refused note, and `memory.undone` for an Undo.
 - The renderer projects one `brainstrike.memory-note` part per call (`project-memory-note.ts`) and draws `ProjectMemoryNoteCard`: title, text, the untrusted mark and Undo. No explanation of what memory is.
 - `memory/undo` names the call. Core finds its committed change and the platform's `projectMemory.undo` restores what it replaced: a created note is deleted, an edited one gets its text back, a rename moves back. It is refused once the note changed since, and for a write already undone.
+
+## The Memory panel (BST-2534)
+
+Owners: [requests](../../packages/host-capabilities/src/project-memory/memory-panel.ts), [panel](../../packages/assistant-ui/src/project-memory-panel.tsx), [Threads panel entry](../../packages/app-shell/src/thread-project-menu.tsx).
+
+- Memory in a project section's menu in the Threads panel opens it. The Threads panel keeps one, outside its virtual list (`ThreadProjectMemoryPanel`), mounted afresh per opening so it reads the notes then.
+- The root registry serves its requests with the project's others, to the desktop's private client only:
+  - `projects/memory/list`: every note, its path, title, text, modified time and mark.
+  - `projects/memory/write`: a note's whole text. It replaces the note at `path`; without one it makes a note named from its first line.
+  - `projects/memory/delete`.
+- Each goes through `ProjectMemoryNotes` (`list`, `save`, the tool's `delete`), so the index and the marks change with the note. Never write the folder from the panel's code.
+- A person's save is trusted: it clears the note's mark and its index line's `(untrusted)`.
+- The tool's path checks and resolver apply: a path outside `/memories` (so another project's folder) and `MEMORY.md` are refused. A secret is `memory.secret`; any other refusal is `memory.refused`, in the tool's words.
+- A project the store no longer has (`project-folders` answers none) is `memory.project-gone`, and its folder is not made again. For a project it has, a request makes the folder, as admission does.
+- Trust (ADR-0032) gates what a run loads, never the panel: the person may always read, edit and delete their project's notes.
+- The list shows a note's title and date only: untrusted notes first, with the card's mark (`ProjectMemoryUntrustedMark`), then newest first. The editor is the note's Markdown, with Save and Delete; Delete asks once, in the panel. With no notes, only New note shows.
+  - Leaving an edited note, or the panel, saves it first; a refused save keeps the text and shows the host's words.
+  - No description, helper text or explanation of memory. Keep it that way.
+- A run reads the index when it is admitted, so a person's edit reaches the next run, never one already running.
 
 ## Reset lifecycle
 

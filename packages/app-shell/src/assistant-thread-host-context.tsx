@@ -15,6 +15,7 @@ import type {
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
+import type { ProjectMemoryPanelNotes } from '@brainstrike/assistant-ui';
 import type { ThreadContextRecord } from '@brainstrike/assistant-ui/thread-context-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { WorkspaceTrustCapability } from '@brainstrike/settings-ui/settings/system/workspace-trust';
@@ -112,6 +113,8 @@ export interface AssistantHostProjects {
    * project follow it. Resolves the folder as mounted, or null when the person cancelled.
    */
   locate(rootId: string): Promise<{ readonly path: string; readonly rootId: string } | null>;
+  /** ADR-0040, BST-2534: the project's memory notes, which the host's memory module writes. */
+  memory(projectId: string): ProjectMemoryPanelNotes;
   /**
    * Names the project; an empty name clears it, so it is named by its folder again. A
    * repository's first name makes its project.

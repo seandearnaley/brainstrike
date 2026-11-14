@@ -28,6 +28,16 @@ export function ProjectMemoryUndoProvider({
   );
 }
 
+/** The mark of a note untrusted context wrote, on its card and in the Memory panel. */
+export function ProjectMemoryUntrustedMark(): ReactElement {
+  return (
+    <Badge className="shrink-0 gap-1" data-testid="project-memory-untrusted" variant="outline">
+      <ShieldAlert aria-hidden="true" className="size-3" />
+      Untrusted
+    </Badge>
+  );
+}
+
 /** The note's text below its title: the `# Title` line it starts with is the title. */
 function noteBody(note: ProjectMemoryNote): string {
   const lines = (note.text ?? '').split('\n');
@@ -109,16 +119,7 @@ export function ProjectMemoryNoteCard({
         >
           {note.title}
         </span>
-        {note.untrusted && (
-          <Badge
-            className="shrink-0 gap-1"
-            data-testid="project-memory-untrusted"
-            variant="outline"
-          >
-            <ShieldAlert aria-hidden="true" className="size-3" />
-            Untrusted
-          </Badge>
-        )}
+        {note.untrusted && <ProjectMemoryUntrustedMark />}
         <UndoControl note={note} />
       </div>
       {note.refusal !== undefined && (

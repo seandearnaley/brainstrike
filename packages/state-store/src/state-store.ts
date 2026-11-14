@@ -554,7 +554,9 @@ export class StateStore {
       };
     };
     // Reads are not writes: they skip the write chain.
-    return request.operation === 'list' || request.operation === 'repository-projects'
+    return request.operation === 'list' ||
+      request.operation === 'repository-projects' ||
+      request.operation === 'project-folders'
       ? execute()
       : this.run(execute);
   }
