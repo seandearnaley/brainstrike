@@ -14,16 +14,17 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { createAndUseWorktree } from './utils/create-worktree';
 import { git, initRepo, listWorktreePaths } from './utils/git-fixtures';
 import { clearDatabaseRecords, ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startThread } from './utils/new-thread';
-import { openFolderRows, openWhereMenu, whereChip } from './utils/where-control';
+import { openFolderRows, whereChip } from './utils/where-control';
 import { readActiveManagedWorktrees } from './utils/worktree-ledger';
 
 const REPLY = 'Done for now.';
 
 // Each test's managed worktrees go to a folder of its own, made before its app launches. Its real
-// path, as the create sheet, the ledger and `git worktree list` all name a worktree by it.
+// path, as the where-control, the ledger and `git worktree list` all name a worktree by it.
 test.use({
   electronEnv: async ({}, use) => {
     const managed = realpathSync(mkdtempSync(path.join(tmpdir(), 'bs-reset-clear-worktrees-')));
@@ -60,22 +61,8 @@ async function threadInManagedWorktree(page: Page, repo: string): Promise<Manage
   // The pane leaves the running state once the host has committed the run's end.
   await expect(thread.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
 
-  await openWhereMenu(thread);
-  const newWorktree = page.getByTestId('workspace-bar-mode-new-worktree');
-  await expect(newWorktree).not.toHaveAttribute('data-disabled', { timeout: 30_000 });
-  await newWorktree.click();
-  const dialog = page.getByTestId('worktree-create-dialog');
-  await expect(dialog).toBeVisible({ timeout: 30_000 });
-  const branchField = dialog.getByTestId('worktree-create-branch');
-  await expect(branchField).toHaveValue(/^bs\/.+/u);
-  const branch = (await branchField.inputValue()).trim();
-  const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
-  const worktreePath = (await dialog.getByTestId('worktree-create-location').innerText()).trim();
-  await dialog.getByTestId('worktree-create-submit').click();
-  const chip = whereChip(thread);
-  await expect(chip).toContainText(name, { timeout: 90_000 });
-  await expect(chip).not.toHaveAttribute('aria-busy', 'true', { timeout: 90_000 });
-  await expect(dialog).toBeHidden();
+  // One click makes the worktree with the defaults: the repository has no setup script to answer.
+  const { branch, worktreePath } = await createAndUseWorktree(thread);
   return { branch, path: worktreePath };
 }
 
