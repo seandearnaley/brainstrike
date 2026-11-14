@@ -945,13 +945,19 @@ export class WorkspaceRootRegistry {
 
   /** ADR-0034 (BST-2512): mounts the scratch folders among `rootIds` that are not mounted. */
   mountScratchRoots(rootIds: readonly string[]): Promise<void> {
-    return this.serializeWrite(async () =>
+    return this.serializeMutation(async () =>
       mountScratchRoots(rootIds, this.scratchMounts(await this.getRootsCatalog()))
     );
   }
 
   private scratchMounts(catalog: WorkspaceRootPort): ScratchRootMounts {
-    return { catalog, isMounted: (id) => this.mounts.has(id), mount: (root) => this.mount(root) };
+    const readOnly = this.readOnlyRefusal() !== null;
+    return {
+      catalog,
+      isMounted: (id) => this.mounts.has(id),
+      mount: (root) => this.mount(root),
+      readOnly,
+    };
   }
 
   /**

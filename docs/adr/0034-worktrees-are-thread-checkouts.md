@@ -1104,10 +1104,10 @@ same launches open one handle and walk one root, in 4 to 6 ms.
 
 - **What mounts one.** The root registry, the one owner of mounts, through the
   paths it already had. A run's admission, and a binding change, borrow the
-  folders the binding names (`desktop-workspace-binding.ts`); when one of them is
-  not live, the registry first mounts each scratch folder among them
-  (`mountScratchRoots`, `workspace-root-scratch-mount.ts`), so a thread's file
-  tools find its folder. Opening the thread in a window mounts it through the
+  folders the binding names (`desktop-workspace-binding.ts`); the registry first
+  mounts each scratch folder among them that is not mounted, whatever its record
+  says (`mountScratchRoots`, `workspace-root-scratch-mount.ts`), so a thread's
+  file tools find its folder. Opening the thread in a window mounts it through the
   reconnect every thread's folders already had (`use-reconnect-thread-folders.ts`):
   its record is not live, so the window adds it by path, which the registry
   allows for a scratch folder it recorded. A repeated first send that finds the
@@ -1126,8 +1126,13 @@ same launches open one handle and walk one root, in 4 to 6 ms.
   refuses its thread's run with `workspace.root-missing` ("The scratch folder
   quiet-otter is no longer at …"); any other failure to open it is a fault
   naming it (`workspace.scratch-unmounted`). In the window the where-control
-  shows it removed, as for any thread folder that cannot come back. A damaged
-  store, opened read-only, refuses the mount as it refuses every other change.
+  shows it removed, as for any thread folder that cannot come back.
+- **A launch that could not record its mounts** (a damaged store, served
+  read-only, or a failed write) leaves a scratch folder's record live while it is
+  not mounted. A run still mounts it, as the binding check asks the registry
+  whatever the record says; a read-only store's record is not written, as a
+  restore writes none. The window's reconnect does not see it, so in that
+  session the Explorer does not show it; the thread's runs still work in it.
 - **Turn into a project… moves a folder that is not mounted.** It moves as it
   is, and a move that fails leaves it unmounted. Its record turns live at the
   new place, as before.

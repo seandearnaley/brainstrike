@@ -19,6 +19,7 @@ import {
 import {
   createHostRootRegistry,
   type HostRootRegistryOwner,
+  type HostRootRegistryStore,
 } from '@brainstrike/host-capabilities/workspace-roots';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, expect, test } from 'vitest';
@@ -42,7 +43,7 @@ afterEach(async () => {
 });
 
 /** The host's folders as one launch composes them over the profile's store. */
-async function launch() {
+async function launch(roots: HostRootRegistryStore = store) {
   const owner: HostRootRegistryOwner = createHostRootRegistry({
     disposeCommandSessionsForRoot: async () => 0,
     e2e: false,
@@ -50,7 +51,7 @@ async function launch() {
     managedWorktreeAuthorizer: async () => 'unmanaged',
     pickFolder: async () => null,
     publishRootsChanged: async () => undefined,
-    store,
+    store: roots,
   });
   const workspace = new DesktopWorkspaceBindingAuthority({
     borrowRoot: (root) => owner.registry.borrowSourceRootForPath(root.path),
@@ -181,3 +182,44 @@ test('a scratch folder gone from disk refuses its thread’s run by name and pla
   });
   expect(owner.registry.mountedRoots()).toEqual([]);
 });
+
+/** The profile's store as a launch that could not record which folders it mounted sees it. */
+function unrecordedLaunchStore(damage: string | null): HostRootRegistryStore {
+  return {
+    deleteSetting: (key) => store.deleteSetting(key),
+    getSetting: (key) => store.getSetting(key),
+    setSetting: (key, value) => store.setSetting(key, value),
+    stateDamage: damage,
+    workspaceRoots: async (request) => {
+      if (request.operation === 'disconnect-except') {
+        throw new Error('fixture: the state DB refused the write');
+      }
+      return await store.workspaceRoots(request);
+    },
+  };
+}
+
+test.each([
+  ['a launch whose convergence failed', null],
+  ['a damaged store, served read-only', 'fixture damage'],
+])(
+  'after %s, a scratch folder still recorded live mounts for its thread’s run',
+  async (_launch, damage) => {
+    const [otter] = await threeScratchThreads();
+    if (!otter) {
+      throw new Error('No scratch folder was made');
+    }
+
+    const { owner, workspace } = await launch(unrecordedLaunchStore(damage));
+
+    // The launch mounted nothing, and could not write that down: the record still says live.
+    expect(owner.registry.mountedRoots()).toEqual([]);
+    expect(await statusOf(otter.rootId)).toBe('live');
+    const borrowed = await admit(workspace, otter);
+    expect(borrowed.roots).toEqual([
+      expect.objectContaining({ path: otter.path, rootId: otter.rootId }),
+    ]);
+    await borrowed.close();
+    expect(owner.registry.mountedRoots().map((root) => root.rootId)).toEqual([otter.rootId]);
+  }
+);

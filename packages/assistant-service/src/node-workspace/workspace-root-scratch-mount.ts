@@ -14,6 +14,11 @@ export interface ScratchRootMounts {
   readonly isMounted: (rootId: string) => boolean;
   /** Mounts a recorded folder where its record says, under the identity it was granted with. */
   readonly mount: (entry: RecordedWorkspaceRoot) => Promise<unknown>;
+  /**
+   * A read-only (damaged) catalog is served as it stands, as a restore serves it: the folder
+   * mounts, and its record is not written.
+   */
+  readonly readOnly: boolean;
 }
 
 /** Why a scratch folder its thread needs could not be mounted, naming the folder and its place. */
@@ -52,7 +57,7 @@ export async function mountScratchRoot(
       throw scratchMountFailure(record, cause);
     }
   }
-  if (record.status !== 'live') {
+  if (record.status !== 'live' && !mounts.readOnly) {
     await recordWorkspaceRoot(mounts.catalog, {
       canonicalPath: record.canonicalPath,
       path: record.path,
