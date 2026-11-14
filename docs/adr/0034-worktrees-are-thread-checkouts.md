@@ -458,6 +458,38 @@ Decisions the build made, which are not Sean's:
   busy state, keep the last rows' state through that read instead of closing
   and coming back.
 
+New worktree… is one click (BST-2506). Choosing it makes the worktree at once
+and moves the thread into it, with the defaults Automatic isolation uses: from
+`HEAD`, named by the host's suggestion (`worktrees/create-context`'s
+`suggestedName`), on the branch `bs/<name>`, not detached. Those defaults are
+one pair of constants in `@brainstrike/types` (`DEFAULT_WORKTREE_BASE_REF`,
+`WORKTREE_BRANCH_PREFIX`), which Automatic isolation and the create sheet's
+first choices read too. It goes through the sheet's own create, so it waits for
+the thread's run to end, mounts the folder, binds the thread and shows the same
+toasts. A new Customize… row under it opens the create sheet unchanged; both
+rows are disabled, with the reason, while the run is in progress.
+
+The one exception is a repository whose setup script has no answer
+(`repositorySetup.decision` is null). With no answer the host makes the
+worktree and skips the script, and only the sheet asks Allow or Skip, so
+New worktree… then creates nothing and opens the sheet on the context it read.
+The script is never skipped silently.
+
+Decisions the build made, which are not Sean's:
+
+- The one-click path is a hook of its own (`use-quick-worktree.ts` in
+  app-shell's hooks) behind one new mode handler, `onQuickCreate`, which
+  resolves `{ needsSheet }`. It reads the create context through the sheet's
+  own read, so the sheet that opens for the question shows the same name.
+- The row keeps its label, New worktree…: it still opens the sheet when the
+  setup script has no answer.
+- The sheet notes, before Create, that uncommitted changes stay in the
+  thread's folder. One click has no sheet, so once the thread is in the new
+  worktree a toast says so ("Uncommitted changes stayed in <folder>").
+- The desktop E2E specs share one helper (`e2e/utils/create-worktree.ts`) that
+  makes a worktree in one click and reads its name and folder from the
+  where-control.
+
 ### The Explorer's header (decision 3)
 
 Built:
