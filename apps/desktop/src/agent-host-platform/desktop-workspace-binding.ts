@@ -196,7 +196,15 @@ export class DesktopWorkspaceBindingAuthority {
           path.normalize(binding.operatingRootPath)
         )
       ) {
-        throw new Error('Thread operating-root hint conflicts with its catalog mount');
+        // BST-2516: the folder's record is at another place than the one this thread names.
+        throw new BoundaryFailureError(
+          refusal({
+            category: 'conflict',
+            code: 'workspace.binding-root-moved',
+            message: `This thread's folder is no longer at ${binding.operatingRootPath}.`,
+            remedy: 'Choose it again from the where-control.',
+          })
+        );
       }
       if (binding.checkoutMode === 'worktree') {
         const worktreePath = await this.dependencies.readLiveWorktreePath(
