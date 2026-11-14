@@ -7,7 +7,7 @@
  */
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { HostMemoryChange, HostMemoryRefusal } from '@brainstrike/agent-host';
+import type { HostMemoryChange, HostMemoryNote, HostMemoryRefusal } from '@brainstrike/agent-host';
 import { refusalError, ToolInputError } from '@brainstrike/assistant-contract';
 import {
   MEMORY_NOTE_MAX_CHARS,
@@ -20,7 +20,7 @@ import {
   resolveWorkspaceWritePath,
 } from '../native-tools/secure-file-write.ts';
 import { resolveWorkspaceAbsolutePath } from '../native-tools/workspace-path-resolution.ts';
-import { memoryIndexLine, memoryNoteTitle } from './memory-index.ts';
+import { memoryIndexLine, memoryNoteStem, memoryNoteTitle } from './memory-index.ts';
 import {
   MEMORY_INDEX_FILE,
   memoryRelativePath,
@@ -156,7 +156,52 @@ export class ProjectMemoryNotes {
     if (input.command === 'view') {
       return this.view(required(input.path, 'path'), input.view_range ?? undefined);
     }
-    return serialize(this.folder, () => this.write(input, provenance.untrusted));
+    return serialize(this.folder, () => this.write(input, provenance.untrusted ? 'add' : 'keep'));
+  }
+
+  /** BST-2534: every note, by path, for the project's Memory panel. */
+  list(): Promise<HostMemoryNote[]> {
+    return serialize(this.folder, async () => {
+      const marks = await this.readMarks();
+      return await Promise.all((await this.notes('')).map((note) => this.listed(note, marks)));
+    });
+  }
+
+  /**
+   * BST-2534: a person's note, its whole text. It replaces the note at `path`, or makes one named
+   * from its first line. A person's own write is trusted, so it clears the note's mark.
+   */
+  save(note: {
+    readonly path?: string | undefined;
+    readonly text: string;
+  }): Promise<HostMemoryNote> {
+    return serialize(this.folder, async () => {
+      const toolPath = note.path ?? memoryToolPath(await this.unusedName(note.text));
+      await this.write({ command: 'create', ['file_text']: note.text, path: toolPath }, 'clear');
+      return await this.listed(memoryRelativePath(toolPath), new Set());
+    });
+  }
+
+  private async listed(relative: string, marks: ReadonlySet<string>): Promise<HostMemoryNote> {
+    const text = (await this.readNote(relative)) ?? '';
+    return {
+      modifiedAt: (await lstat(await this.existing(relative))).mtimeMs,
+      path: memoryToolPath(relative),
+      text,
+      title: memoryNoteTitle(relative, text),
+      untrusted: marks.has(relative),
+    };
+  }
+
+  /** A new note's file name, from its first line, beside the notes already there. */
+  private async unusedName(text: string): Promise<string> {
+    const stem = memoryNoteStem(text);
+    for (let copy = 1; ; copy += 1) {
+      const name = copy === 1 ? `${stem}.md` : `${stem}-${copy}.md`;
+      if (!namesMemoryIndex(name) && (await this.kind(name)) === undefined) {
+        return name;
+      }
+    }
   }
 
   /** Restore what one committed write replaced; refused once the note changed since. */
@@ -259,7 +304,14 @@ export class ProjectMemoryNotes {
     };
   }
 
-  private async write(input: MemoryInput, untrusted: boolean): Promise<ProjectMemoryResult> {
+  /**
+   * A write, and what it does to the note's untrusted mark: a write from untrusted context adds
+   * it, any other run's write keeps it, and a person's own write clears it.
+   */
+  private async write(
+    input: MemoryInput,
+    mark: 'add' | 'clear' | 'keep'
+  ): Promise<ProjectMemoryResult> {
     await this.requireFolder();
     const marks = await this.readMarks();
     if (input.command === 'rename') {
@@ -267,7 +319,7 @@ export class ProjectMemoryNotes {
         required(input.old_path, 'old_path'),
         required(input.new_path, 'new_path'),
         marks,
-        untrusted
+        mark === 'add'
       );
     }
     const toolPath = required(input.path, 'path');
@@ -332,8 +384,10 @@ export class ProjectMemoryNotes {
     }
     this.admit(toolPath, relative, text);
     await writeFile(await this.writable(relative), text, 'utf8');
-    if (untrusted) {
+    if (mark === 'add') {
       marks.add(relative);
+    } else if (mark === 'clear') {
+      marks.delete(relative);
     }
     await this.settle(marks);
     return {

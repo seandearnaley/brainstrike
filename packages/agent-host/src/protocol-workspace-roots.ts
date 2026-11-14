@@ -1,4 +1,8 @@
 import { Schema } from 'effect';
+import {
+  PROJECT_MEMORY_PANEL_METHOD_SCHEMAS,
+  PROJECT_MEMORY_PANEL_RESULT_SCHEMAS,
+} from './protocol-project-memory.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const AbsolutePath = Schema.String.check(Schema.isMinCodePoints(1));
@@ -35,6 +39,8 @@ const RecentRootSchema = Schema.Struct({
  * projects the folders belong to (ADR-0034), through the same store domain.
  */
 export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
+  /** ADR-0040: a project's Memory panel (BST-2534). */
+  ...PROJECT_MEMORY_PANEL_METHOD_SCHEMAS,
   /**
    * ADR-0034: the person moves the folder of `rootId` into the project `projectId`, so its
    * threads list with that project's. The project it leaves is deleted once no folder is in it.
@@ -96,6 +102,7 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
   }),
 } as const;
 export const WORKSPACE_ROOTS_RESULT_SCHEMAS = {
+  ...PROJECT_MEMORY_PANEL_RESULT_SCHEMAS,
   'projects/join': Schema.Null,
   'projects/rename': Schema.Null,
   'workspace/roots/add': OpenRootSchema,

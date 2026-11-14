@@ -54,6 +54,45 @@ export const PROJECT_MEMORY_EVENT_SCHEMAS = [
   }),
 ] as const;
 
+/** A note as a project's Memory panel lists it. */
+export const HostMemoryNoteSchema = Schema.Struct({
+  /** When the note last changed, in milliseconds since the epoch. */
+  modifiedAt: Schema.Finite,
+  path: MemoryPath,
+  text: Schema.String,
+  title: Id,
+  /** Written by a run that read web or MCP tool output; a person's own write clears it. */
+  untrusted: Schema.Boolean,
+});
+export type HostMemoryNote = (typeof HostMemoryNoteSchema)['Type'];
+
+/**
+ * BST-2534: a project's Memory panel, which the host's root registry serves with the project's
+ * other requests. The person reads, writes and deletes the project's notes through the one
+ * writer, whether or not its folder is trusted. A deleted project's memory is refused.
+ */
+export const PROJECT_MEMORY_PANEL_METHOD_SCHEMAS = {
+  /** Deletes a note, and its index line and mark with it. */
+  'projects/memory/delete': Schema.Struct({ path: MemoryPath, projectId: Id }),
+  /** Every note in the project, by path. */
+  'projects/memory/list': Schema.Struct({ projectId: Id }),
+  /**
+   * The person's note, its whole text: it replaces the note at `path`, or without one makes a
+   * note named from its first line. Never marked untrusted, so it clears the note's mark.
+   */
+  'projects/memory/write': Schema.Struct({
+    path: Schema.optional(MemoryPath),
+    projectId: Id,
+    text: Schema.String,
+  }),
+} as const;
+
+export const PROJECT_MEMORY_PANEL_RESULT_SCHEMAS = {
+  'projects/memory/delete': Schema.Null,
+  'projects/memory/list': Schema.Struct({ notes: Schema.Array(HostMemoryNoteSchema) }),
+  'projects/memory/write': HostMemoryNoteSchema,
+} as const;
+
 export const PROJECT_MEMORY_METHOD_SCHEMAS = {
   /**
    * Restore what one memory write replaced: delete the note it created, put back

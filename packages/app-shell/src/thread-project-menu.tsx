@@ -1,12 +1,13 @@
 /**
  * A project section's menu and rename form in the Threads panel (ADR-0034 build decisions).
- * Rename project… names the project; Move to project… moves the section's folder into another
- * project the panel lists, as the person chooses; Locate folder… points a folder that is not
- * mounted at the place it moved to. A repository found inside an open folder (BST-2511) is named
+ * Memory opens the project's notes (BST-2534); Rename project… names the project; Move to
+ * project… moves the section's folder into another project the panel lists, as the person
+ * chooses; Locate folder… points a folder that is not mounted at the place it moved to. A repository found inside an open folder (BST-2511) is named
  * and moved like any project's folder, and its first name or move makes its project (BST-2520);
  * it is not an open folder, so it is never located. The changes are the host's
  * (`thread-project-actions.ts`).
  */
+import { ProjectMemoryPanel } from '@brainstrike/assistant-ui';
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import {
   ArrowLeft,
@@ -14,14 +15,15 @@ import {
   FolderInput,
   FolderSearch,
   MoreHorizontal,
+  NotebookPen,
   Pencil,
   X,
 } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ThreadProjectFolder, ThreadProjectRef } from './assistant-thread-host-context';
 import { THREAD_CONTROL_ACTION_CLASS_NAME } from './assistant-thread-presentation';
-import type { ThreadProjectActions } from './thread-project-actions';
+import type { ThreadProjectActions, ThreadProjectMemory } from './thread-project-actions';
 
 /** The project a section stands for, and the folder its actions act on. */
 export interface ThreadSectionProject {
@@ -56,9 +58,10 @@ export function ThreadProjectMenu({
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const others = actions.listed.filter((choice) => choice.projectId !== project.projectId);
   const { locate } = actions;
-  const { locateRootId } = project;
+  const { label, locateRootId, projectId } = project;
   return (
     <Popover
       onOpenChange={(next) => {
@@ -75,6 +78,7 @@ export function ThreadProjectMenu({
           className={THREAD_CONTROL_ACTION_CLASS_NAME}
           data-testid="thread-project-actions"
           onClick={(event) => event.stopPropagation()}
+          ref={trigger}
           size="icon-xs"
           title={`Project actions ${project.label}`}
           type="button"
@@ -132,6 +136,21 @@ export function ThreadProjectMenu({
           </div>
         ) : (
           <div className="grid gap-0.5">
+            {projectId === null ? null : (
+              <Button
+                className={MENU_ITEM_CLASS_NAME}
+                onClick={() => {
+                  setOpen(false);
+                  actions.openMemory({ label, projectId, trigger: trigger.current });
+                }}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <NotebookPen className="size-3.5" />
+                Memory
+              </Button>
+            )}
             <Button
               className={MENU_ITEM_CLASS_NAME}
               onClick={() => {
@@ -176,6 +195,31 @@ export function ThreadProjectMenu({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * BST-2534: the Threads panel's one Memory panel, for the project whose menu opened it. It
+ * renders outside the virtual list, so no row scrolling away or regrouping takes it down, and
+ * nothing in it reaches the list's own clicks and keys.
+ */
+export function ThreadProjectMemoryPanel({
+  memory,
+}: {
+  readonly memory: ThreadProjectMemory | null;
+}): ReactElement | null {
+  if (!memory) {
+    return null;
+  }
+  return (
+    <ProjectMemoryPanel
+      key={memory.opening}
+      notes={memory.notes}
+      onOpenChange={memory.onOpenChange}
+      open={memory.open}
+      title={`${memory.project.label} · Memory`}
+      triggerRef={{ current: memory.project.trigger }}
+    />
   );
 }
 
