@@ -22,6 +22,9 @@
     and moves every scratch folder to the system Trash once it has cleared.
   - 2026-11-12 (build decisions, under scratch threads below): a scratch thread's folder can be
     turned into a project; built. Starting one from a thread that ran with no folder is not.
+  - 2026-11-13 (build decisions, under the idle-worktree cap below): an idle managed worktree
+    whose branch has commits of its own and adds nothing the default branch lacks is archived,
+    and the thread that made it is told; built (BST-2504).
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -664,6 +667,96 @@ and later work may revisit them:
 - Files git ignores, which archiving deletes, do not come back.
 
 Not built: a cap after a thread is deleted.
+
+Built: archive on merge (BST-2504), the last part of the worktree life cycle
+(a Restore action, a cap with skip rules, and archive on merge). The ticket set
+the outcome; these are build decisions, not Sean's, and later work may revisit
+them:
+
+- **The rule.** An idle managed worktree is archived when its branch has
+  commits of its own and adds nothing the repository's default branch lacks.
+  All of these must hold:
+  - the worktree is on a branch, not detached, and has no uncommitted changes
+    (untracked files count; ignored files do not);
+  - the branch has commits of its own: its tip is not on the default branch's
+    first-parent history. The host asks `merge-base --is-ancestor`, then counts
+    `rev-list --first-parent <branch>..<default>` and checks whether the default
+    branch that many first parents down is the tip. A squash-merged branch's tip
+    is not an ancestor, and a merged branch's tip is a merge's second parent, so
+    both count. A branch only moved along that history (fast-forwarded to it,
+    rebased onto it with nothing of its own left, or reset to an older commit of
+    it) has none, nor has a worktree made and never committed to; each is left
+    to the idle cap. So is a branch the default branch took by a fast-forward
+    merge, which sits on that history. The first build compared the tip with the
+    branch reflog's oldest entry, which counted a fast-forward, a rebase or a
+    reset as commits of its own (from review);
+  - `git merge-tree --write-tree <default> <branch>` merges without a conflict
+    and writes the default branch's own tree. This catches a squash merge, which
+    this repository makes through Mergify, as well as an ordinary one;
+    `merge-base --is-ancestor` alone misses squash merges.
+  "Merged" (`reason: 'merged'`) is the rule's name, not a claim: a commit and
+  its own revert add nothing either, so the notice says the branch adds nothing
+  new rather than that it merged.
+- **The default branch** is `origin/HEAD`'s target, else `origin/main`
+  (`resolveDefaultBaseRef`, moved unchanged into `default-branch.ts`, which
+  `branch-vs-base` changesets also use). The host never fetches, so merged
+  means merged into the person's last fetch. A repository with neither archives
+  nothing on merge and logs why.
+- **Git 2.38.** `merge-tree --write-tree` came in Git 2.38, and the rest of the
+  host needs 2.36. On an older git the pass refuses (`git.version-unsupported`),
+  archives nothing and logs why.
+- **A merge driver from the repository's own config.** A content merge in
+  `merge-tree` runs a merge driver the repository's own config names
+  (`merge.<name>.driver`, chosen by a `merge` attribute, which can sit in
+  `.git/info/attributes`). That is a command from the folder, which the host
+  never runs (BST-2454), and a driver can also make any merge come out as the
+  default branch's tree. So a repository whose own config names a merge driver
+  archives nothing on merge (`worktree.repository-merge-driver`) and logs why,
+  trusted or not. Drivers in the person's global or system config run.
+- **A known gap.** After a squash merge the merge base is still where the branch
+  started. If the default branch later changes a file the branch added, or the
+  lines it changed, `merge-tree` conflicts, and the worktree is left to the idle
+  cap.
+- **When it runs.** In the idle cap's pass after each creation, whether or not
+  the creation names a thread, before the cap counts and in its queue, so a
+  merged worktree never counts toward the 15. And once in each repository with
+  live ledger rows when the host's git cluster starts serving (the first window
+  subscription or inventory read once Core has opened its threads, as the
+  snapshot startup GC), in the same queue, one repository per turn; it never
+  holds up the host's start. Both stop when the host closes, as the cap does.
+  It does not run when a thread's binding leaves a worktree; the next creation
+  in that repository, or the next start, takes it. No notice from the start-up
+  pass is dropped: Core subscribes to the platform's archives while it folds
+  its log, before its thread list answers, and the pass reads that list before
+  it archives anything.
+- **What it archives.** Each idle, unarchived worktree of the repository (the
+  cap's own test of idle), except the one just made, through
+  `archiveIdleWorktree` with the cap's skip rules: a bound, locked,
+  nested-repository or active-run worktree stays. The merged check runs before
+  the archive is queued and again in the archive's own turn (`idleCap.isMerged`),
+  so a worktree that took a commit or a change meanwhile stays
+  (`worktree.not-merged`). The snapshot ref and the branch are kept, so Restore
+  and use brings it back.
+- **Ignored files are deleted**, as the cap deletes them: archive on merge uses
+  the cap's archive, which confirms their deletion with the archive preview's
+  token. This rests on Sean's 2026-11-12 answer that the cap archives idle
+  worktrees even with ignored files (installed dependencies, build output, a
+  copied `.env`). The rule needs no uncommitted changes, and the branch keeps
+  its commits.
+- **The notice.** The thread the ledger records as the worktree's maker
+  (`threadId`) is told, in the same `worktrees.archived` row with
+  `reason: 'merged'` and `defaultBranch` in place of `limit` (host protocol v30).
+  It shows with the thread's latest run, since the run that made the worktree
+  may be far back: "The branch {branch} adds nothing that {default} doesn't
+  already have, so its worktree {name} was archived.", then the cap's notice's
+  own sentences on what the archive kept, that files git ignores were deleted,
+  and how to restore it. A thread's worktrees from one pass share one row. A
+  worktree no thread made, or whose thread is gone or has no run yet, is
+  archived and logged, untold.
+- **Rows from before v30 still read.** The cap's rows carry
+  `reason: 'idle-cap'`. A row a v25 to v29 host committed has no `reason`; it is
+  the cap's shape, so it decodes and shows as the cap's notice, and a thread
+  told before v30 still opens. This is not a migration: nothing is rewritten.
 
 ## Owner decisions, 2026-11-12: scratch threads
 

@@ -14,6 +14,7 @@ import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thr
 import { StateStore } from '@brainstrike/state-store';
 import type { ManagedWorktreeRow } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execFileGitRunner } from '../../src/git-workspace/git-methods.ts';
 import { createIdleWorktreeCap } from '../../src/git-workspace/worktree-idle-cap.ts';
 import { createWorktreeLedger } from '../../src/git-workspace/worktree-ledger.ts';
 import { buildTestService, createTestWorkspace, git } from './worktree-service.shared.ts';
@@ -61,12 +62,14 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
     );
     const cap = createIdleWorktreeCap({
       archive: (params) => service.archive(params),
+      listActive: () => ledger.listActive(),
       listRepository: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
       publish: (archive) => {
         told.push(archive);
       },
       readRoots: async () => roots,
       readThreads: () => readThreads(),
+      run: execFileGitRunner,
     });
     const service = buildTestService(
       { db, managedDirectory, repo },
@@ -202,6 +205,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
     expect(told).toEqual([
       {
         limit: 15,
+        reason: 'idle-cap',
         runId: 'run-1',
         threadId: 'thread-1',
         worktrees: [

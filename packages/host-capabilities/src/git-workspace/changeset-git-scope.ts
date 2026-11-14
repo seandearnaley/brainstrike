@@ -29,6 +29,7 @@ import type {
   StructuredFileDiff,
   StructuredFileDiffParams,
 } from '@brainstrike/types';
+import { resolveDefaultBaseRef } from './default-branch.ts';
 import {
   describeFailure,
   gitCommandFailed,
@@ -221,34 +222,6 @@ async function resolveContainedWorktree(
 export async function isHeadUnborn(invoke: InvokeFn): Promise<boolean> {
   const run_ = await invoke(['rev-parse', '--verify', '--quiet', 'HEAD']);
   return run_.exitCode !== 0;
-}
-
-/**
- * Base-ref resolution for `branch-vs-base` (settled, hard): explicit
- * `baseRef` wins; else `git symbolic-ref refs/remotes/origin/HEAD`; else a
- * fallback probe for `refs/remotes/origin/main`; else a visible typed error.
- * NEVER `@{u}` — that upstream-tracking form is deliberately never used
- * anywhere in this module.
- */
-async function resolveDefaultBaseRef(invoke: InvokeFn): Promise<BoundaryResult<string>> {
-  const symbolicRun = await invoke(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  if (symbolicRun.exitCode === 0) {
-    const ref = stripLineEnding(symbolicRun.stdout)
-      .trim()
-      .replace(/^refs\/remotes\//u, '');
-    if (ref.length > 0) {
-      return { ok: true, value: ref };
-    }
-  }
-  const probeRun = await invoke(['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main']);
-  if (probeRun.exitCode === 0) {
-    return { ok: true, value: 'origin/main' };
-  }
-  return gitRefused(
-    'input',
-    'changeset.base-ref-unresolved',
-    'could not resolve "origin/HEAD" or "origin/main"; specify an explicit baseRef.'
-  );
 }
 
 async function resolveExplicitOrDefaultBaseRef(
