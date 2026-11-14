@@ -589,7 +589,10 @@ export function foldHostRunMessages(
     // The step's request held the branch up to its own messages.
     const tokens = reportedStepTokens(event.usage);
     if (tokens !== undefined) {
-      run.reportedContext = { ...run.reportedContext, step: { after: previousLength, tokens } };
+      run.reportedContext = {
+        ...run.reportedContext,
+        step: { after: previousLength, rewritten: [], tokens },
+      };
     }
   }
   recordRawToolInputs(run.rawInputs, messages);

@@ -102,6 +102,8 @@ export async function recoverHostContextOverflow(ports: Ports, run: Run): Promis
     readRequestExtras: admission
       ? () => readHostRequestExtras(ports, run, admission, messages)
       : undefined,
+    rewrites: ports.rewrites.read(run.threadId),
+    unrewritten: healed,
   });
   if (!event) {
     return false;
@@ -147,8 +149,11 @@ export async function prepareRunContext(
       : {}),
     messages: rewritten,
     readRequestExtras: () => readHostRequestExtras(ports, run, admission, rewritten),
+    // Read after `rewriteRunContext`, which may have committed this request's own.
+    rewrites: ports.rewrites.read(run.threadId),
     signal: run.controller.signal,
     summarize: (transcript) =>
       summarizeHostContext(admission.model, run, transcript, run.controller.signal),
+    unrewritten: healed,
   });
 }

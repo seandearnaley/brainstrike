@@ -8,7 +8,8 @@ import { asSchema, type ModelMessage } from 'ai';
 import { Schema } from 'effect';
 import type { HostRunState } from './core-state.ts';
 import { executableInputSchema } from './executable-input-schema.ts';
-import type { HostTool } from './ports.ts';
+import type { HostProjectionRewrite, HostTool } from './ports.ts';
+import { applyProjectionRewrites } from './projection-rewrites.ts';
 
 export function chars4(value: unknown): number {
   const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
@@ -54,6 +55,8 @@ export function estimateTokens(messages: readonly ModelMessage[]): number {
 export interface HostContextReport {
   /** The index in the branch's committed context where what that request did not hold begins. */
   readonly after: number;
+  /** The tool calls whose outputs a rewrite replaced after that request was sent. */
+  readonly rewritten: readonly string[];
   readonly tokens: number;
 }
 
@@ -121,26 +124,61 @@ function latestReport(
   return;
 }
 
+/** The branch before its tool-output rewrites, and those rewrites. */
+export interface HostContextRewrites {
+  readonly rewrites?: ReadonlyMap<string, HostProjectionRewrite> | undefined;
+  /** The branch's committed context with every tool output as it was committed. */
+  readonly unrewritten?: readonly ModelMessage[] | undefined;
+}
+
+/**
+ * What the rewrites committed after `report` freed from the part of the branch
+ * its request held: that part with only the rewrites the request already
+ * carried, less that part as the next request carries it.
+ */
+function freedSince(
+  report: HostContextReport,
+  messages: readonly ModelMessage[],
+  { rewrites, unrewritten }: HostContextRewrites
+): number {
+  if (report.rewritten.length === 0 || !(rewrites && unrewritten)) {
+    return 0;
+  }
+  const since = new Set(report.rewritten);
+  const carried = new Map([...rewrites].filter(([toolCallId]) => !since.has(toolCallId)));
+  return (
+    estimateTokens(applyProjectionRewrites(unrewritten, carried).slice(0, report.after)) -
+    estimateTokens(messages.slice(0, report.after))
+  );
+}
+
 /**
  * The size of the thread's next request, in this order: the provider's input
  * tokens on the branch's latest step that reported them; else the host's own
- * count of its latest prepared request — each plus the chars/4 estimate of
- * what the branch committed after it (that step's output and tool results,
- * the new user message); else `estimate` with the run's instructions and tool
- * definitions. A reported count already holds the instructions, tools and,
- * with Memory, exactly the request Memory built (ADR-0013).
+ * count of its latest prepared request — each less what tool-output rewrites
+ * freed from that request since, plus the chars/4 estimate of what the branch
+ * committed after it (that step's output and tool results, the new user
+ * message); else `estimate` with the run's instructions and tool definitions.
+ * A reported count already holds the instructions, tools and, with Memory,
+ * exactly the request Memory built (ADR-0013).
  */
-export async function measureHostContext(input: {
-  readonly chain: readonly HostRunState[];
-  /** The chars/4 estimate of the request's messages. */
-  readonly estimate: () => number;
-  /** The branch's committed context, as its request carries it. */
-  readonly messages: readonly ModelMessage[];
-  readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
-}): Promise<number> {
+export async function measureHostContext(
+  input: HostContextRewrites & {
+    readonly chain: readonly HostRunState[];
+    /** The chars/4 estimate of the request's messages. */
+    readonly estimate: () => number;
+    /** The branch's committed context, as its request carries it. */
+    readonly messages: readonly ModelMessage[];
+    readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
+  }
+): Promise<number> {
   const report = latestReport(input.chain, 'step') ?? latestReport(input.chain, 'request');
   if (report) {
-    return report.tokens + estimateTokens(input.messages.slice(report.after));
+    return (
+      report.tokens -
+      freedSince(report, input.messages, input) +
+      estimateTokens(input.messages.slice(report.after))
+    );
   }
   const extras = await input.readRequestExtras?.();
   return input.estimate() + (extras ? await estimateExtras(extras) : 0);

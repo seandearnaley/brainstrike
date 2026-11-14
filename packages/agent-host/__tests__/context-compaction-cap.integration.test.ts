@@ -10,8 +10,8 @@ import {
 } from '@brainstrike/assistant-contract';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
-import type { HostRunAdmission } from '../src/ports.js';
-import type { HostEvent } from '../src/protocol.js';
+import type { HostRunAdmission } from '../src/ports.ts';
+import type { HostEvent } from '../src/protocol.ts';
 import {
   type Chunk,
   finished,
@@ -20,7 +20,7 @@ import {
   setupChildRunHost,
   stream,
   userTexts,
-} from './fixtures/child-run-host.js';
+} from './fixtures/child-run-host.ts';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {

@@ -19,7 +19,7 @@ import type { ModelMessage, UserModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { withHostDeliveryLedger } from './child-delivery.ts';
 import { hostRootRunTurnId } from './committed-identities.ts';
-import { reportedRequestTokens } from './context-size.ts';
+import { type HostContextReport, reportedRequestTokens } from './context-size.ts';
 import {
   createHostRunState,
   foldHostInteraction,
@@ -326,7 +326,32 @@ function foldHostRequestReport(
     (length, turn) => length + 1 + turn.messages.length,
     0
   );
-  run.reportedContext = { ...run.reportedContext, request: { after, tokens } };
+  run.reportedContext = { ...run.reportedContext, request: { after, rewritten: [], tokens } };
+}
+/**
+ * A committed rewrite shrank what earlier requests of its thread held: each
+ * report remembers the outputs rewritten since it, so the next request is not
+ * sized as if it still carried them.
+ */
+function foldHostContextRewrites(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: Extract<HostEvent, { type: 'tool.projection.rewritten' }>
+): void {
+  const threadId = runs.get(event.runId)?.threadId;
+  const ids = event.rewrites.map((rewrite) => rewrite.toolCallId);
+  const since = (report: HostContextReport): HostContextReport => ({
+    ...report,
+    rewritten: [...report.rewritten, ...ids],
+  });
+  for (const run of runs.values()) {
+    if (run.threadId === threadId && run.reportedContext) {
+      const { request, step } = run.reportedContext;
+      run.reportedContext = {
+        ...(request ? { request: since(request) } : {}),
+        ...(step ? { step: since(step) } : {}),
+      };
+    }
+  }
 }
 /** A committed compaction changed what every request of its thread holds: no earlier report sizes it. */
 function forgetHostContextReports(runs: ReadonlyMap<string, HostRunState>, runId: string): void {
@@ -353,6 +378,9 @@ export function foldHostRunEvent(
       break;
     case 'context.compacted':
       forgetHostContextReports(runs, event.runId);
+      break;
+    case 'tool.projection.rewritten':
+      foldHostContextRewrites(runs, event);
       break;
     case 'interaction.requested':
     case 'interaction.responded':

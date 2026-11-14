@@ -16,6 +16,7 @@ import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import {
   chars4,
   estimateTokens,
+  type HostContextRewrites,
   type HostRequestExtras,
   measureHostContext,
 } from './context-size.ts';
@@ -346,7 +347,7 @@ function deterministicEvent(
 }
 
 /** The run's bounds and what sizes its next request, as its admission and branch give them. */
-interface CompactionBounds {
+interface CompactionBounds extends HostContextRewrites {
   readonly chain: readonly HostRunState[];
   readonly compactions: readonly Compacted[];
   /** The run's compaction cap; absent, its budget alone bounds it. */
@@ -381,6 +382,8 @@ export async function overflowCompaction(input: CompactionBounds): Promise<Compa
     estimate: () => estimateTokens(applyOverlay(turns, input.compactions)),
     messages: input.messages,
     readRequestExtras: input.readRequestExtras,
+    rewrites: input.rewrites,
+    unrewritten: input.unrewritten,
   });
   const { target } = deriveContextCompactionThreshold(limit, input.compactionTokenCap);
   const reclaim = Math.max(1, current - target);
@@ -424,6 +427,8 @@ async function reclaimPastTrigger(
     estimate,
     messages: input.messages,
     readRequestExtras: input.readRequestExtras,
+    rewrites: input.rewrites,
+    unrewritten: input.unrewritten,
   });
   return current >= trigger ? current - target : undefined;
 }

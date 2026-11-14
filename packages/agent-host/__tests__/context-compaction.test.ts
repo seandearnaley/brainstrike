@@ -9,12 +9,13 @@ import {
   HostContextSummarySchemaError,
   overflowCompaction,
   prepareCompactedContext,
-} from '../src/context-compaction.js';
-import type { HostReportedContext, HostRequestExtras } from '../src/context-size.js';
-import { createHostRunState, HostRunMap, type HostRunState } from '../src/core-state.js';
-import type { HostPreparedStep, HostProjectionRewrite } from '../src/ports.js';
-import type { HostEvent } from '../src/protocol.js';
-import { foldHostRunEvent, hostRunAncestors, hostRunContext } from '../src/run-branch.js';
+} from '../src/context-compaction.ts';
+import type { HostReportedContext, HostRequestExtras } from '../src/context-size.ts';
+import { createHostRunState, HostRunMap, type HostRunState } from '../src/core-state.ts';
+import type { HostPreparedStep, HostProjectionRewrite } from '../src/ports.ts';
+import { applyProjectionRewrites } from '../src/projection-rewrites.ts';
+import type { HostEvent } from '../src/protocol.ts';
+import { foldHostRunEvent, hostRunAncestors, hostRunContext } from '../src/run-branch.ts';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
 type Input = Parameters<typeof prepareCompactedContext>[0];
@@ -485,7 +486,7 @@ describe('prepareCompactedContext with Memory (ADR-0013)', () => {
     // run-4's last step reported 30,000; its answer and run-5 came after: 50,009.
     const reported = memoryHolding(branch, [3, 4]);
     const { prepared } = await pastTrigger({
-      chain: reportedChain(6, 4, { step: { after: 9, tokens: 30_000 } }),
+      chain: reportedChain(6, 4, { step: { after: 9, rewritten: [], tokens: 30_000 } }),
       commit: reported.commit,
       messages: branch,
       prepareStep: reported.prepare,
@@ -507,7 +508,7 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
     expect(estimated.committed).toEqual([]);
     // run-4's last step reported 170,000; its answer (message 9) and run-5's question came after: 180,006.
     const reported = await pastTrigger({
-      chain: reportedChain(6, 4, { step: { after: 9, tokens: 170_000 } }),
+      chain: reportedChain(6, 4, { step: { after: 9, rewritten: [], tokens: 170_000 } }),
       compactionTokenCap: CAP,
       inputTokenLimit: BUDGET_200K,
       messages: opening(6, 40_000),
@@ -524,7 +525,7 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
     // run-6's last step reported 190,000; its answer (message 13) and run-7's question came after: 210,006.
     const compact = (compactionTokenCap: number | undefined) =>
       pastTrigger({
-        chain: reportedChain(8, 6, { step: { after: 13, tokens: 190_000 } }),
+        chain: reportedChain(8, 6, { step: { after: 13, rewritten: [], tokens: 190_000 } }),
         ...(compactionTokenCap === undefined ? {} : { compactionTokenCap }),
         inputTokenLimit: BUDGET_1M,
         messages: opening(8, 80_000),
@@ -568,7 +569,7 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
     });
     // run-4 reported 40,000; with its answer and run-5's question: 50,006.
     const { committed, prepared } = await pastTrigger({
-      chain: reportedChain(6, 4, { step: { after: 9, tokens: 40_000 } }),
+      chain: reportedChain(6, 4, { step: { after: 9, rewritten: [], tokens: 40_000 } }),
       inputTokenLimit: 70_000,
       messages: opening(6, 40_000),
       readRequestExtras,
@@ -579,7 +580,7 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
 
   it('sizes a branch no step reported from its latest prepared request’s count', async () => {
     const { committed } = await pastTrigger({
-      chain: reportedChain(6, 4, { request: { after: 9, tokens: 170_000 } }),
+      chain: reportedChain(6, 4, { request: { after: 9, rewritten: [], tokens: 170_000 } }),
       compactionTokenCap: CAP,
       inputTokenLimit: BUDGET_200K,
       messages: opening(6, 40_000),
@@ -587,11 +588,65 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
     expect(committed.map((event) => event.compactedRunIds)).toEqual([['run-0', 'run-1', 'run-2']]);
   });
 
+  it('takes off what a tool-output prune freed after the size was reported', async () => {
+    /**
+     * run-3 read a 30,000-token file. run-4's last step then reported 205,000,
+     * and the file's output was pruned to a marker before run-5's first request.
+     */
+    const unrewritten = turns(6, 40_000);
+    unrewritten.splice(
+      6,
+      2,
+      { content: 'question 3', role: 'user' },
+      {
+        content: [{ input: {}, toolCallId: 'call-read', toolName: 'readFile', type: 'tool-call' }],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'text', value: 'y'.repeat(120_000) },
+            toolCallId: 'call-read',
+            toolName: 'readFile',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      }
+    );
+    const rewrites = new Map<string, HostProjectionRewrite>([
+      [
+        'call-read',
+        {
+          kind: 'prune',
+          markerText: '[pruned]',
+          supersededByToolCallId: null,
+          toolCallId: 'call-read',
+        },
+      ],
+    ]);
+    const compacted = async (rewritten: readonly string[]) =>
+      (
+        await pastTrigger({
+          chain: reportedChain(6, 4, { step: { after: 10, rewritten, tokens: 205_000 } }),
+          compactionTokenCap: CAP,
+          inputTokenLimit: BUDGET_1M,
+          messages: applyProjectionRewrites(unrewritten, rewrites),
+          rewrites,
+          unrewritten,
+        })
+      ).committed.length;
+    // 205,000 less the file's 30,000, plus the 20,009 committed since: under the 200,000 cap.
+    expect(await compacted(['call-read'])).toBe(0);
+    // Had the report already held the marker, nothing was freed since: 225,009.
+    expect(await compacted([])).toBe(1);
+  });
+
   it('commits nothing while the reported size is under both 90% of the budget and the cap', async () => {
     // 150,000 and 10,006 after it: 160,006, under 167,314 and under the 200K cap.
     for (const inputTokenLimit of [BUDGET_200K, BUDGET_1M]) {
       const { committed, prepared } = await pastTrigger({
-        chain: reportedChain(6, 4, { step: { after: 9, tokens: 150_000 } }),
+        chain: reportedChain(6, 4, { step: { after: 9, rewritten: [], tokens: 150_000 } }),
         compactionTokenCap: CAP,
         inputTokenLimit,
         messages: opening(6, 40_000),
@@ -694,6 +749,37 @@ describe('the committed log sizes a thread (BST-2526)', () => {
     expect(committed.map((event) => event.compactedRunIds)).toEqual([['run-0', 'run-1', 'run-2']]);
   });
 
+  it('remembers which tool outputs were rewritten after a size was reported, until the next report', () => {
+    const thread = foldedThread(6, 40_000);
+    for (const index of [0, 1, 2, 3]) {
+      thread.answer(index, { inputTokens: 1000 + index, outputTokens: 10_003 });
+    }
+    thread.answer(4, { inputTokens: 205_000, outputTokens: 10_003 });
+    thread.fold({
+      rewrites: [
+        {
+          kind: 'prune',
+          markerText: '[pruned]',
+          supersededByToolCallId: null,
+          toolCallId: 'call-read',
+        },
+      ],
+      runId: 'run-5',
+      type: 'tool.projection.rewritten',
+    });
+    expect(thread.branch().chain[4]?.reportedContext?.step).toEqual({
+      after: 9,
+      rewritten: ['call-read'],
+      tokens: 205_000,
+    });
+    thread.answer(5, { inputTokens: 180_000, outputTokens: 10_003 });
+    expect(thread.branch().chain[5]?.reportedContext?.step).toEqual({
+      after: 11,
+      rewritten: [],
+      tokens: 180_000,
+    });
+  });
+
   it('no longer reads a size reported before a committed compaction, which it no longer describes', async () => {
     const thread = foldedThread(6, 40_000);
     for (const index of [0, 1, 2, 3]) {
@@ -755,7 +841,7 @@ describe('overflowCompaction', () => {
   it('reclaims from the size the provider reported, toward 7/9 of the cap', async () => {
     // 190,000 and 20,009 after it is 54,453 over 155,556: every droppable turn.
     const event = await overflowCompaction({
-      chain: reportedChain(6, 4, { step: { after: 9, tokens: 190_000 } }),
+      chain: reportedChain(6, 4, { step: { after: 9, rewritten: [], tokens: 190_000 } }),
       compactions: [],
       compactionTokenCap: CAP,
       inputTokenLimit: BUDGET_1M,
