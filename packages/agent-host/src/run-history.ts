@@ -25,8 +25,8 @@ export function hostProviderHistory(
   // In this thread only the selected branch is history: a sibling branch's
   // turns never enter the request.
   const path = new Set(committedRunAncestors(rows, run.runId));
-  // A committed compaction replaces whole earlier turns (Core adds the note).
-  const compacted = compactedRunIds(rows);
+  // A committed compaction of this branch replaces whole earlier turns (Core adds the note).
+  const compacted = compactedRunIds(rows, path);
   const sent = new Set([...path].filter((runId) => !compacted.has(runId)));
   sent.add(run.runId);
   const ids = new Set([...sent].map((runId) => committedRunIdentity(rows, runId).userMessageId));
