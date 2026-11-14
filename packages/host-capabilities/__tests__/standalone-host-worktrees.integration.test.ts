@@ -6,9 +6,7 @@ import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { StateStore } from '@brainstrike/state-store';
-import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import {
@@ -137,11 +135,7 @@ test('the standalone host refuses to archive the worktree it was launched on', {
   const { runId, threadId } = z
     .object({ runId: z.string(), threadId: z.string() })
     .parse(JSON.parse(asked.stdout.split('\n')[0] || 'null'));
-  const readRows = async () =>
-    Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(JSON.parse((await host.command(['threads', 'show', '--thread', threadId])).stdout)).rows;
+  const readRows = () => host.threadRows(threadId);
   const requested = (await readRows())
     .map((row) => row.event)
     .find((event) => event.type === 'interaction.requested');
