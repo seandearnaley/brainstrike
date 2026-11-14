@@ -35,16 +35,17 @@ A task is `packages/agent-evals/tasks/<id>/` (folder name is the id), decoded by
 
 The host decides when a thread compacts; a task only has to get there.
 
-- Compaction is checked before a run's first request, at 90% of the input budget, over an
-  estimate of the messages alone. The system prompt and tool definitions (about 6,000 tokens on
-  the standalone host) are not in that estimate but do count against the budget.
+- Compaction is checked before a run's first request, once the next request reaches 90% of the
+  input budget or the 200,000-token cap, whichever is less (ADR-0039).
+- The request is sized from the provider's last reported input tokens, which include the system
+  prompt and tool definitions (about 6,000 tokens on the standalone host). The scripted model
+  reports each request's serialized size as its input tokens, so a scripted thread compacts where
+  a provider-backed one would.
 - The newest turns up to 20,000 estimated tokens are never compacted, so a thread needs more than
-  that before anything is droppable.
+  that before anything is droppable. With the fixed 6,000, a pin much below 30,000 leaves nothing
+  to drop when the trigger fires. `recall-after-compaction` pins 30,000.
 - One tool result is capped at 3,000 to 6,000 tokens, and old read results are pruned once they
   pass 60,000. Large write arguments are the compact way to grow a scripted thread.
-- A thread of mostly reads and command output needs a pin of about 64,000 or more: below that the
-  request reaches the budget before the estimate reaches the trigger. `recall-after-compaction`
-  pins 30,000 because its bulk is write arguments.
 
 ## Runner
 

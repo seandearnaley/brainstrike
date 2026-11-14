@@ -15,6 +15,7 @@ import { startTokenCounter } from '@brainstrike/agent/token-counter';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   AUTO_REVIEW_MODEL_AUTO,
+  CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP,
   type PermissionToolGateSnapshot,
   resolveQuickModelTarget,
 } from '@brainstrike/assistant-contract';
@@ -626,6 +627,8 @@ export async function createProductionHostPlatform<Configuration extends Product
             : {}),
           childSystem: selected.childSystem,
           close: release,
+          // Both hosts' runs compact at the default cap beside their input budget (BST-2526).
+          compactionTokenCap: CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP,
           configuration: selected.configuration,
           delegation: selected.delegation,
           ...(discovery ? { discovery: discovery.discovery } : {}),
