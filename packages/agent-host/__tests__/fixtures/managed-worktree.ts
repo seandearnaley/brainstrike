@@ -50,7 +50,7 @@ export async function recordWorktree(
     setupStatus: 'none',
     threadId: null,
   };
-  await store.worktreeLedger({ operation: 'insert', row });
+  await store.worktreeLedger({ operation: 'insert', row: { ...row, baseCommit: 'a'.repeat(40) } });
   return row;
 }
 

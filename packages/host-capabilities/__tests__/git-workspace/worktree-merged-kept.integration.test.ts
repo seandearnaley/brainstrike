@@ -6,12 +6,16 @@
  * whose branch adds to main or has no commits of its own (made and never
  * committed to, or only moved along main), one with uncommitted changes, a
  * locked or detached one, the one just made and one that takes a commit while
- * its archive waits all stay; and in a repository where the check cannot run,
- * nothing is archived. The worktrees it archives are in
- * `worktree-merged-archive.integration.test.ts`.
+ * its archive waits all stay, as does one whose history is unrelated to main's
+ * (BST-2518); and in a repository where the check cannot run (an old git, no
+ * default branch, a merge driver of its own, also one named after the pass
+ * began, or a partial clone), nothing is archived. The worktrees it archives
+ * are in `worktree-merged-archive.integration.test.ts`; one never committed to
+ * is kept whatever main took (`worktree-merged-unmoved.integration.test.ts`).
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import type { ManagedWorktreeRow } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { execFileGitRunner } from '../../src/git-workspace/git-methods.ts';
 import {
@@ -21,13 +25,16 @@ import {
 } from './worktree-merged-archive.shared.ts';
 import { git } from './worktree-service.shared.ts';
 
-const { loggerInfo } = vi.hoisted(() => ({ loggerInfo: vi.fn() }));
+const { loggerError, loggerInfo } = vi.hoisted(() => ({
+  loggerError: vi.fn(),
+  loggerInfo: vi.fn(),
+}));
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
   return {
     ...actual,
-    createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: loggerInfo, warn: vi.fn() }),
+    createLogger: () => ({ debug: vi.fn(), error: loggerError, info: loggerInfo, warn: vi.fn() }),
   };
 });
 
@@ -216,26 +223,133 @@ describe('archive on merge keeps (real git + real SQLite)', () => {
     expect(state.told).toEqual([]);
   });
 
-  // BST-2454's boundary: the host never runs a command the repository's own config names.
-  // Telling this merge needs a content merge of `shared.ts`, which would run the driver.
-  it("never runs a merge driver the repository's own config names", async () => {
-    const marker = path.join(tempDir('bst-merge-driver-'), 'ran');
+  /** A file both main and the squash-merged branch changed, so telling the merge needs a content merge. */
+  async function mergedByContent(make: (name: string) => Promise<ManagedWorktreeRow>) {
     const lines = (first: string, last: string) => `${first}\n2\n3\n4\n5\n6\n7\n8\n9\n${last}\n`;
     commit(state.repo, 'shared.ts', lines('1', '10'), 'shared file');
-    const { make } = host();
     const merged = await make('driver');
     commit(merged.path, 'shared.ts', lines('one', '10'), 'edit its first line');
     git(state.repo, ['merge', '--squash', 'bs/driver']);
     git(state.repo, [...IDENTITY, 'commit', '-m', 'driver (#1)']);
     commit(state.repo, 'shared.ts', lines('one', 'ten'), 'edit its last line');
     fetchMain();
+    return merged;
+  }
+
+  /** Names a merge driver in the repository's own config; it leaves a marker when it runs. */
+  function configureDriver(): string {
+    const marker = path.join(tempDir('bst-merge-driver-'), 'ran');
     git(state.repo, ['config', 'merge.mine.driver', `touch ${marker}`]);
     writeFileSync(path.join(state.repo, '.git', 'info', 'attributes'), '* merge=mine\n');
+    return marker;
+  }
+
+  // BST-2454's boundary: the host never runs a command the repository's own config names.
+  // Telling this merge needs a content merge of `shared.ts`, which would run the driver.
+  it("never runs a merge driver the repository's own config names", async () => {
+    const { make } = host();
+    const merged = await mergedByContent(make);
+    const marker = configureDriver();
 
     await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
 
     await expectKept(merged);
     expect(existsSync(marker)).toBe(false);
     expect(state.told).toEqual([]);
+  });
+
+  // The archive's own turn asks again whether the check can run, not only whether it merged.
+  it('never runs a merge driver the repository names after the pass began', async () => {
+    const { make } = host();
+    const merged = await mergedByContent(make);
+    let marker: string | undefined;
+    state.beforeArchive = (worktreeId) => {
+      if (worktreeId === merged.id) {
+        marker = configureDriver();
+      }
+    };
+
+    await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
+
+    expect(marker).toBeDefined();
+    expect(existsSync(marker ?? '')).toBe(false);
+    await expectKept(merged);
+    expect(state.told).toEqual([]);
+  });
+
+  // A branch whose history shares no commit with main's first-parent history, merged into main as
+  // a second parent, is not on that history; it is not merged, and that is no failure to log.
+  it('keeps a worktree whose branch has history unrelated to main, merged in as a second parent', async () => {
+    const { make } = host();
+    const unrelated = await make('unrelated');
+    const blob = git(state.repo, ['hash-object', '-w', '--stdin'], 'export const other = 1;\n');
+    const tree = git(state.repo, ['mktree'], `100644 blob ${blob.trim()}\tother.ts\n`).trim();
+    const root = git(state.repo, [...IDENTITY, 'commit-tree', tree, '-m', 'another root']).trim();
+    git(unrelated.path, ['reset', '--quiet', '--hard', root]);
+    git(state.repo, [
+      ...IDENTITY,
+      'merge',
+      '--allow-unrelated-histories',
+      '--no-ff',
+      '-m',
+      'Merge another history',
+      'bs/unrelated',
+    ]);
+    fetchMain();
+    loggerError.mockClear();
+
+    await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
+
+    await expectKept(unrelated);
+    expect(state.told).toEqual([]);
+    expect(loggerError).not.toHaveBeenCalled();
+  });
+
+  // In a partial clone a blob the merge needs may be missing, and git would fetch it on demand;
+  // the host never fetches.
+  it('archives nothing in a partial clone, and fetches nothing', async () => {
+    const lines = (first: string, last: string) => `${first}\n2\n3\n4\n5\n6\n7\n8\n9\n${last}\n`;
+    const source = state.repo;
+    commit(source, 'shared.ts', lines('1', '10'), 'shared file');
+    const older = git(source, ['rev-parse', 'HEAD']).trim();
+    const olderBlob = git(source, ['rev-parse', 'HEAD:shared.ts']).trim();
+    commit(source, 'shared.ts', lines('1', 'ten'), 'edit its last line');
+    // The clone's source serves it filtered: a blob it leaves out is fetched on demand.
+    git(source, ['config', 'uploadpack.allowFilter', 'true']);
+    const clone = path.join(tempDir('bst-partial-clone-'), 'clone');
+    git(tempDir('bst-partial-cwd-'), [
+      'clone',
+      '--quiet',
+      '--filter=blob:none',
+      `file://${source}`,
+      clone,
+    ]);
+    const missing = () =>
+      git(clone, ['rev-list', '--objects', '--all', '--missing=print'])
+        .split('\n')
+        .includes(`?${olderBlob}`);
+    expect(missing()).toBe(true);
+    state.repo = clone;
+    const { make } = host();
+    const partial = await make('partial');
+    // Its own commit, on the older commit: telling the merge needs the older blob, which the clone
+    // lacks. Made without reading any blob, so nothing here fetches it.
+    writeFileSync(path.join(partial.path, 'shared.ts'), lines('one', 'ten'));
+    git(partial.path, ['add', '--', 'shared.ts']);
+    const tree = git(partial.path, ['write-tree']).trim();
+    const own = git(partial.path, [...IDENTITY, 'commit-tree', tree, '-p', older, '-m', 'its own']);
+    git(partial.path, ['reset', '--quiet', '--soft', own.trim()]);
+    loggerInfo.mockClear();
+
+    await make('fresh', { runId: 'run-1', threadId: 'thread-1' });
+
+    expect(missing()).toBe(true);
+    await expectKept(partial);
+    expect(loggerInfo).toHaveBeenCalledWith(
+      'Archive on merge does not run in this repository',
+      expect.objectContaining({
+        reason: expect.objectContaining({ code: 'worktree.partial-clone' }),
+      })
+    );
   });
 });

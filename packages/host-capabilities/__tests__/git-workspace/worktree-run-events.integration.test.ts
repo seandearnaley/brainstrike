@@ -5,7 +5,7 @@ import { rmSync } from 'node:fs';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { createWorktreeService } from '../../src/git-workspace/worktree-service.ts';
-import { buildTestService, createTestWorkspace } from './worktree-service.shared.ts';
+import { buildTestService, createTestWorkspace, git } from './worktree-service.shared.ts';
 
 describe('worktree run outcomes (real SQLite and Git)', () => {
   let db: StateStore;
@@ -23,6 +23,14 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
     runId: 'run-outcome',
     threadId: 'thread-outcome',
   };
+  /**
+   * The ledger also records the commit the worktree was made at, which only the host reads: the
+   * row a create or archive answers leaves it out (BST-2518).
+   */
+  const recorded = (worktree: object) => ({
+    ...worktree,
+    baseCommit: git(repo, ['rev-parse', 'main']).trim(),
+  });
 
   beforeEach(async () => {
     db = await StateStore.open(workspace.freshTempDir('bst-worktree-outcomes-'));
@@ -43,7 +51,8 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
         throw new Error(created.error.message);
       }
       const stored = await db.worktreeLedger({ id: created.value.worktree.id, operation: 'get' });
-      expect(stored.rows).toEqual([created.value.worktree]);
+      expect(stored.rows).toEqual([recorded(created.value.worktree)]);
+      expect(created.value.worktree).not.toHaveProperty('baseCommit');
       expect(stored.rows[0]).toMatchObject({
         createdBy,
         runId: params.runId,
@@ -88,7 +97,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
     });
     expect(
       (await db.worktreeLedger({ id: created.value.worktree.id, operation: 'get' })).rows
-    ).toEqual([created.value.worktree]);
+    ).toEqual([recorded(created.value.worktree)]);
   });
 
   it('preserves thrown setup failure as the operation result and ledger state', async () => {
@@ -134,7 +143,7 @@ describe('worktree run outcomes (real SQLite and Git)', () => {
       expect(archived.value.worktree.archivedAt).not.toBeNull();
       expect(
         (await db.worktreeLedger({ id: created.value.worktree.id, operation: 'get' })).rows
-      ).toEqual([archived.value.worktree]);
+      ).toEqual([recorded(archived.value.worktree)]);
     }
   );
 });
