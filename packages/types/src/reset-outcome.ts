@@ -21,11 +21,28 @@ export type ScratchFolderTrashOutcome =
   | { readonly reason: string; readonly status: 'failed' };
 
 /**
- * What a reset did with the folders the app made outside its database (ADR-0015, ADR-0034). The
- * window that asked for the reset is replaced before the reset answers it, so Main keeps this and
- * the replacement window takes it once.
+ * Factory Reset's clear of the browsing data only Chromium's own `clearData` reaches failed: the
+ * network history (HSTS, connection hints) among it (ADR-0015, BST-2515).
+ */
+export interface BrowsingDataClearFailure {
+  /** Chromium's own words for the failure. */
+  readonly reason: string;
+  readonly status: 'failed';
+}
+
+/**
+ * What a reset did with the folders the app made outside its database (ADR-0015, ADR-0034), and
+ * with the browsing data Chromium clears on its own schedule. The window that asked for the reset
+ * is replaced before the reset answers it, so Main keeps this and the replacement window takes it
+ * once. What Main learns after that, it pushes to every window.
  */
 export interface ResetOutcome {
+  /**
+   * Factory Reset's clear of the network history and the other browsing data only `clearData`
+   * reaches. Chromium finishes it after the reset, so only a failure is reported, whenever it
+   * comes.
+   */
+  readonly browsingData?: BrowsingDataClearFailure;
   /** The managed worktrees, archived into their repositories before their ledger went. */
   readonly managedWorktrees?: WorktreeResetOutcome;
   /** Factory Reset (`factory`) or Clear Database (`content`). */

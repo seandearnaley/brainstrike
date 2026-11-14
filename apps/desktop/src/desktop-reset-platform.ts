@@ -2,13 +2,17 @@ import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-f
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
 import type {
+  BrowsingDataClearFailure,
   ResetOutcome,
   ScratchFolderTrash,
   ScratchFolderTrashOutcome,
   WorktreeResetOutcome,
 } from '@brainstrike/types';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
-import { clearDesktopBrowserSessions } from './browser/browser-session';
+import {
+  type BackgroundClearFailure,
+  clearDesktopBrowserSessions,
+} from './browser/browser-session';
 import {
   type ResetDesktopApplicationDataOptions,
   resetDesktopApplicationData,
@@ -58,6 +62,14 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly errorLogFilePaths?: readonly string[];
   readonly logger: DesktopResetLogger;
   readonly prepareDatabaseProfileReset: () => Promise<ProfileResetLease>;
+  /**
+   * ADR-0015, BST-2515: tells every window what a reset did that Main learned after the
+   * replacement window took the outcome: Chromium's own clear of the browsing data, which it
+   * finishes after the reset, failed. Without it that failure reaches only Main's log. Answers
+   * whether a window received it: on macOS the app runs with none open, and then the failure waits
+   * for the next window's take.
+   */
+  readonly publishResetOutcome?: (outcome: ResetOutcome) => boolean;
   readonly resetLocalDatabase: (lease?: ProfileResetLease) => Promise<void>;
   readonly resumeAfterReset?: (
     outcome: 'failed' | 'succeeded',
@@ -195,6 +207,7 @@ export function createDesktopFactoryResetHandler({
   errorLogFilePaths,
   logger,
   prepareDatabaseProfileReset,
+  publishResetOutcome,
   resetLocalDatabase,
   resumeAfterReset,
   runtimes,
@@ -206,6 +219,27 @@ export function createDesktopFactoryResetHandler({
   let profileResetLease: ProfileResetLease | null = null;
   // ADR-0034: kept for the replacement window, which takes it once.
   let untakenOutcome: ResetOutcome | null = null;
+  // BST-2515: Chromium's own clear of the browsing data can fail after the reset went on. Until a
+  // window has taken this reset's outcome, the failure waits in it; after that, or once the reset
+  // has settled, Main pushes it to every window.
+  let untakenBrowsingData: BrowsingDataClearFailure | null = null;
+  let pushBrowsingDataFailures = false;
+  /** Pushes the failure to the windows open now; with none open, it waits for the next take. */
+  const deliverBrowsingDataFailure = (browsingData: BrowsingDataClearFailure): void => {
+    const delivered = publishResetOutcome?.({ browsingData, mode: 'factory' }) ?? false;
+    untakenBrowsingData = delivered ? null : browsingData;
+  };
+  const reportBackgroundClearFailure = ({ error }: BackgroundClearFailure): void => {
+    const browsingData: BrowsingDataClearFailure = {
+      reason: error instanceof Error ? error.message : String(error),
+      status: 'failed',
+    };
+    if (pushBrowsingDataFailures) {
+      deliverBrowsingDataFailure(browsingData);
+      return;
+    }
+    untakenBrowsingData = browsingData;
+  };
   /**
    * ADR-0015, ADR-0034: Clear Database keeps configuration and deletes content, the worktree
    * ledger and scratch threads' rows among it. The managed worktrees are archived while the host
@@ -256,7 +290,7 @@ export function createDesktopFactoryResetHandler({
         // we wipe it. Electron owns the live session container; its API
         // clears both sessions without renaming Chromium's locked files.
         disposeActiveBrowserPaneViews();
-        await clearDesktopBrowserSessions();
+        await clearDesktopBrowserSessions(reportBackgroundClearFailure);
       },
       userDataPath,
     });
@@ -265,6 +299,7 @@ export function createDesktopFactoryResetHandler({
   /** Deletes what `mode` deletes, and answers with what became of the folders the app made. */
   const resetData = async (mode: DesktopResetMode): Promise<ResetFolders> => {
     untakenOutcome = null;
+    pushBrowsingDataFailures = false;
     const folders = mode === 'content' ? await clearData() : await purgeData();
     if (folders.managedWorktrees !== undefined || folders.scratchFolders !== undefined) {
       untakenOutcome = { ...folders, mode };
@@ -300,6 +335,12 @@ export function createDesktopFactoryResetHandler({
       resumeAfterReset,
       signal: shutdown.signal,
     });
+    // A window has taken the outcome by now, or none will: a failed reset keeps the window that
+    // asked, which took its outcome as it started.
+    pushBrowsingDataFailures = true;
+    if (failure.kind === 'failed' && untakenBrowsingData !== null) {
+      deliverBrowsingDataFailure(untakenBrowsingData);
+    }
     if (failure.kind === 'failed') {
       logger.error('Failed to reset desktop application data:', failure.error);
       throw failure.error;
@@ -359,8 +400,13 @@ export function createDesktopFactoryResetHandler({
     inFlight: () => resetInFlight?.result ?? null,
     reset: () => startReset('factory'),
     takeResetOutcome: () => {
-      const outcome = untakenOutcome;
+      pushBrowsingDataFailures = true;
+      const outcome: ResetOutcome | null =
+        untakenBrowsingData === null
+          ? untakenOutcome
+          : { ...(untakenOutcome ?? { mode: 'factory' }), browsingData: untakenBrowsingData };
       untakenOutcome = null;
+      untakenBrowsingData = null;
       return outcome;
     },
   };

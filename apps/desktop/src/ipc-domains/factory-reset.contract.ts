@@ -1,9 +1,17 @@
 import type { ResetOutcome, WorktreeResetOutcome } from '@brainstrike/types';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { type Contract, rawChannel } from '../platform/ipc-contract';
+import { type Contract, pushEvent, rawChannel } from '../platform/ipc-contract';
 
 /** The existing profile reset operation, independent of SQL capabilities. */
 export const factoryResetContract = {
+  /**
+   * ADR-0015, BST-2515: what a reset did that Main learned after the replacement window took the
+   * outcome. Chromium finishes its own clear of the browsing data after the reset, and its
+   * failure reaches every window this way.
+   */
+  onResetOutcome: pushEvent<ResetOutcome>({
+    channel: DESKTOP_IPC_CHANNELS.db.resetOutcome,
+  }),
   resetLocal: rawChannel<
     [],
     {

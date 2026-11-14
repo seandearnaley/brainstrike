@@ -27,7 +27,11 @@ const fixture = vi.hoisted(() => {
     } = { headersListener: null, requestListener: null };
     return {
       clearAuthCache: vi.fn(async () => undefined),
+      clearCache: vi.fn(async () => undefined),
+      clearCodeCaches: vi.fn(async (_options: object) => undefined),
       clearData: vi.fn(async () => undefined),
+      clearHostResolverCache: vi.fn(async () => undefined),
+      clearSharedDictionaryCache: vi.fn(async () => undefined),
       clearStorageData: vi.fn(async () => undefined),
       closeAllConnections: vi.fn(async () => undefined),
       on: vi.fn(),
@@ -65,10 +69,14 @@ beforeEach(async () => {
 
 it('clears the app, pane and agent sessions through Electron without origin exclusions', async () => {
   const { clearDesktopBrowserSessions } = await import('../browser/browser-session');
-  await clearDesktopBrowserSessions();
+  await clearDesktopBrowserSessions(vi.fn());
   for (const owned of [fixture.app, fixture.pane, fixture.agent]) {
     expect(owned.clearData).toHaveBeenCalledExactlyOnceWith();
     expect(owned.clearStorageData).toHaveBeenCalledExactlyOnceWith();
+    expect(owned.clearCache).toHaveBeenCalledExactlyOnceWith();
+    expect(owned.clearCodeCaches).toHaveBeenCalledExactlyOnceWith({});
+    expect(owned.clearSharedDictionaryCache).toHaveBeenCalledExactlyOnceWith();
+    expect(owned.clearHostResolverCache).toHaveBeenCalledExactlyOnceWith();
     expect(owned.clearAuthCache).toHaveBeenCalledExactlyOnceWith();
     expect(owned.closeAllConnections).toHaveBeenCalledExactlyOnceWith();
   }
@@ -77,13 +85,13 @@ it('clears the app, pane and agent sessions through Electron without origin excl
 it.each(['app', 'pane', 'agent'] as const)(
   'keeps the %s session clearing failure visible and attempts the other sessions',
   async (name) => {
-    const failure = new Error(`${name} browser data could not be cleared`);
-    fixture[name].clearData.mockRejectedValueOnce(failure);
+    const failure = new Error(`${name} browser storage could not be cleared`);
+    fixture[name].clearStorageData.mockRejectedValueOnce(failure);
     const { clearDesktopBrowserSessions } = await import('../browser/browser-session');
-    await expect(clearDesktopBrowserSessions()).rejects.toMatchObject({ errors: [failure] });
-    expect(fixture.app.clearData).toHaveBeenCalledOnce();
-    expect(fixture.pane.clearData).toHaveBeenCalledOnce();
-    expect(fixture.agent.clearData).toHaveBeenCalledOnce();
+    await expect(clearDesktopBrowserSessions(vi.fn())).rejects.toMatchObject({ errors: [failure] });
+    expect(fixture.app.clearStorageData).toHaveBeenCalledOnce();
+    expect(fixture.pane.clearStorageData).toHaveBeenCalledOnce();
+    expect(fixture.agent.clearStorageData).toHaveBeenCalledOnce();
   }
 );
 

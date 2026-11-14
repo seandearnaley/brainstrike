@@ -55,6 +55,7 @@ describe('validateDesktopBridgeContract', () => {
       electronAPI: {
         content: { clear: async () => ({}) },
         factoryReset: {
+          onResetOutcome: () => () => undefined,
           resetLocal: async () => ({ success: true }),
           takeResetOutcome: async () => null,
         },
