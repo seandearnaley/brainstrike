@@ -318,7 +318,7 @@ describe('host root registry', () => {
     ]);
   });
 
-  it("mounts a thread's scratch folder, never as an open or recent folder, again after a restart, and makes none while a folder is open", async () => {
+  it("mounts a thread's scratch folder, never as an open or recent folder, after a restart only once a window shows it, and makes none while a folder is open", async () => {
     mkdirSync(path.join(base, 'scratch'));
     const made = path.join(base, 'scratch', 'quiet-otter');
     const make = vi.fn(async () => {
@@ -341,21 +341,28 @@ describe('host root registry', () => {
     expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([]);
     await expect(owner.service['workspace/roots/recent']({})).resolves.toEqual({ roots: [] });
 
-    // A restart mounts it again for its thread, still neither open nor recent.
+    // A restart mounts no scratch folder (BST-2512). Its record stays, saying it is not mounted.
     await owner.close();
     const workspace = folder('workspace');
     const restarted = registry({ picked: workspace }).owner;
     await restarted.start();
+    expect(restarted.registry.mountedRoots()).toEqual([]);
+    await expect(restarted.service['workspace/roots/restore']({})).resolves.toEqual({ roots: [] });
+    await expect(restarted.scratch.read('thread-1')).resolves.toEqual(root);
+    expect((await store.workspaceRoots({ operation: 'list-scratch' })).roots).toEqual([
+      expect.objectContaining({ id: rootId, status: 'disconnected' }),
+    ]);
+    // A window shows it by its record, without the picker, which mounts it for the session,
+    // still neither open nor recent.
+    await expect(restarted.service['workspace/roots/add']({ path: made })).resolves.toEqual(
+      scratchRoot
+    );
     expect(restarted.registry.mountedRoots()).toEqual([
       { canonicalPath: made, path: made, rootId },
     ]);
     await expect(restarted.service['workspace/roots/restore']({})).resolves.toEqual({
       roots: [scratchRoot],
     });
-    // A window shows it by its record, without the picker.
-    await expect(restarted.service['workspace/roots/add']({ path: made })).resolves.toEqual(
-      scratchRoot
-    );
     // It is the thread's own: it never opens as the window's project.
     await expect(restarted.service['workspace/roots/open']({ path: made })).rejects.toThrow();
     await expect(restarted.service['workspace/roots/recent']({})).resolves.toEqual({ roots: [] });
@@ -721,6 +728,57 @@ describe('host root registry', () => {
     expect(owner.registry.mountedRoots()).toEqual([]);
     expect((await store.workspaceRoots({ operation: 'list' })).roots).toEqual([
       expect.objectContaining({ id: rootId, kind: 'scratch', path: made }),
+    ]);
+  });
+
+  it('turns a scratch folder that is not mounted yet into a project, and a move that fails leaves it unmounted', async () => {
+    mkdirSync(path.join(base, 'scratch'));
+    const made = path.join(base, 'scratch', 'quiet-otter');
+    const { owner } = registry();
+    const root = await owner.scratch.add({
+      make: async () => {
+        mkdirSync(made);
+        return made;
+      },
+      signal: new AbortController().signal,
+      threadId: 'thread-1',
+    });
+    const rootId = root?.rootId ?? '';
+    await owner.close();
+    owners.splice(owners.indexOf(owner), 1);
+    // After a restart the folder is not mounted (BST-2512): its thread has not needed it yet.
+    const restarted = registry().owner;
+    await restarted.start();
+    expect(restarted.registry.mountedRoots()).toEqual([]);
+    const place = path.join(folder('Projects'), 'quiet-otter');
+
+    const refused = new Error('fixture: another disk');
+    await expect(
+      restarted.scratch.promote({
+        move: async () => {
+          throw refused;
+        },
+        threadId: 'thread-1',
+      })
+    ).rejects.toBe(refused);
+    // Nothing changed: the folder is still its thread's, and still not mounted.
+    expect(restarted.registry.mountedRoots()).toEqual([]);
+    await expect(restarted.scratch.read('thread-1')).resolves.toEqual(root);
+
+    await expect(
+      restarted.scratch.promote({
+        move: async (scratchFolder) => {
+          renameSync(scratchFolder, place);
+          return place;
+        },
+        threadId: 'thread-1',
+      })
+    ).resolves.toEqual({ displayName: 'quiet-otter', path: place, rootId });
+    expect(restarted.registry.mountedRoots()).toEqual([
+      { canonicalPath: place, path: place, rootId },
+    ]);
+    expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([
+      expect.objectContaining({ id: rootId, kind: 'path', path: place, status: 'live' }),
     ]);
   });
 

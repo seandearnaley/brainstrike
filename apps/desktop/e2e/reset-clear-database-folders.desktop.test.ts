@@ -2,10 +2,11 @@
  * ADR-0015, ADR-0034: Clear Database archives every managed worktree into its repository before
  * it deletes the worktree ledger, and once it has cleared moves every scratch folder to the Trash.
  *
- * Drives the built app over a disposable profile, a real repository and real git. Thread A, sent
- * with no folder open, works in a scratch folder. Thread B works in the repository and, once its
- * run ends, moves into a managed worktree through the where-control. Test mode's Trash is the
- * test's own folder (`BRAINSTRIKE_E2E_TRASH_DIR`), never the machine's. Only the model is scripted.
+ * Drives the built app over a disposable profile, a real repository and real git. Threads A and
+ * A2, sent with no folder open, work in scratch folders; after a relaunch only A2's, opened again,
+ * is mounted (BST-2512). Thread B works in the repository and, once its run ends, moves into a
+ * managed worktree through the where-control. Test mode's Trash is the test's own folder
+ * (`BRAINSTRIKE_E2E_TRASH_DIR`), never the machine's. Only the model is scripted.
  */
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
@@ -13,6 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { readHostRootRecords } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { createAndUseWorktree } from './utils/create-worktree';
 import { git, initRepo, listWorktreePaths } from './utils/git-fixtures';
@@ -66,11 +68,12 @@ async function threadInManagedWorktree(page: Page, repo: string): Promise<Manage
   return { branch, path: worktreePath };
 }
 
-test('Clear Database archives a managed worktree into its repository and moves a scratch folder to the Trash @destructive @desktop-db-storage', async ({
+test('Clear Database archives a managed worktree into its repository and moves every scratch folder, mounted or not, to the Trash @destructive @desktop-db-storage', async ({
   electron,
   modelProvider,
-  window: page,
+  window,
 }) => {
+  let page = window;
   await configureAssistantProvider(page);
   modelProvider.setScript(({ requestBody }) => ({
     finalText: (requestBody as { stream?: unknown }).stream === true ? REPLY : 'Reset folders',
@@ -80,11 +83,31 @@ test('Clear Database archives a managed worktree into its repository and moves a
   const scratch = path.join(userData, 'scratch');
   const trash = electron.getTrashDirectory();
 
-  // Thread A, sent with no folder open, works in a scratch folder the host makes for it.
+  // Threads A and A2, each sent with no folder open, work in scratch folders the host makes.
   const scratchThread = await startThread(page, 'Work anywhere.');
   await expect(scratchThread.getByText(REPLY, { exact: true })).toBeVisible({ timeout: 60_000 });
-  const [scratchFolder, ...otherScratch] = await readdir(scratch);
-  expect(otherScratch).toEqual([]);
+  const [scratchFolder] = await readdir(scratch);
+  const otherThread = await startThread(page, 'Work anywhere else.');
+  await expect(otherThread.getByText(REPLY, { exact: true })).toBeVisible({ timeout: 60_000 });
+  const scratchFolders = (await readdir(scratch)).sort();
+  const otherFolder = scratchFolders.find((folder) => folder !== scratchFolder);
+  expect(scratchFolders).toHaveLength(2);
+
+  // After a relaunch neither is mounted until its thread opens (BST-2512). Thread A2, opened, mounts
+  // its folder; A's stays unmounted, so the clear finds one of each.
+  page = (await electron.restart()).window;
+  await ensureAssistantShellVisible(page);
+  await page.getByTestId('threads-panel').getByTitle(`Scratch folder ${otherFolder} at `).click();
+  await expect(page.getByTestId('single-root-header-row')).toContainText(`${otherFolder} · Local`, {
+    timeout: 30_000,
+  });
+  const scratchStatus = Object.fromEntries(
+    (await readHostRootRecords(userData)).map((root) => [root.displayName, root.status])
+  );
+  expect([scratchStatus[scratchFolder ?? ''], scratchStatus[otherFolder ?? '']]).toEqual([
+    'disconnected',
+    'live',
+  ]);
 
   // Thread B works in a real repository, then in a managed worktree of it.
   const repo = initRepo(electron.getWorkspaceRoot());
@@ -93,7 +116,7 @@ test('Clear Database archives a managed worktree into its repository and moves a
   expect(await readActiveManagedWorktrees(userData)).toEqual([
     expect.objectContaining({ branch: worktree.branch, path: worktree.path }),
   ]);
-  expect(await readdir(scratch)).toEqual([scratchFolder]);
+  expect((await readdir(scratch)).sort()).toEqual(scratchFolders);
   expect(await readdir(trash)).toEqual([]);
 
   // The replacement window tells the person what the clear did with both, once, as it starts.
@@ -103,7 +126,7 @@ test('Clear Database archives a managed worktree into its repository and moves a
     expect(notices.filter({ hasText: '1 worktree archived into its repository' })).toBeVisible({
       timeout: 60_000,
     }),
-    expect(notices.filter({ hasText: '1 scratch folder moved to the Trash' })).toBeVisible({
+    expect(notices.filter({ hasText: '2 scratch folders moved to the Trash' })).toBeVisible({
       timeout: 60_000,
     }),
   ]);
@@ -120,8 +143,8 @@ test('Clear Database archives a managed worktree into its repository and moves a
   expect(
     git(repo, ['for-each-ref', '--format=%(refname)', `refs/heads/${worktree.branch}`]).trim()
   ).toBe(`refs/heads/${worktree.branch}`);
-  // The scratch folder left the profile for the test's Trash.
+  // Both scratch folders left the profile for the test's Trash.
   expect(await readdir(scratch)).toEqual([]);
-  expect(await readdir(trash)).toEqual([scratchFolder]);
+  expect((await readdir(trash)).sort()).toEqual(scratchFolders);
   expect(modelProvider.refusals()).toEqual([]);
 });

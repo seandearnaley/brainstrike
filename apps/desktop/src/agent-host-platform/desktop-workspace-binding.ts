@@ -10,6 +10,11 @@ type BindingRequest = Parameters<NonNullable<HostPlatform['validateWorkspaceBind
 type RuntimeWorkspaceRoot = NonNullable<RuntimeData['workspaceRoots']>[number];
 export interface DesktopWorkspaceBindingDependencies {
   borrowRoot(root: RuntimeWorkspaceRoot): Promise<WorkspaceRootLease>;
+  /**
+   * ADR-0034 (BST-2512): the root registry mounts the scratch folders among these root ids that
+   * are not mounted, since none mounts at launch; it refuses one it cannot mount, by name and place.
+   */
+  mountScratchFolders(rootIds: readonly string[]): Promise<void>;
   /** The path of a live (unarchived) managed worktree, or null when the ledger has none. */
   readLiveWorktreePath(id: string): Promise<string | null>;
   /** The catalog's display name for each id it still records, live or not. */
@@ -120,8 +125,15 @@ export class DesktopWorkspaceBindingAuthority {
         ...(binding.checkoutLocalRootId ? [binding.checkoutLocalRootId] : []),
       ]),
     ];
-    const roots = await this.dependencies.readRoots();
+    let roots = await this.dependencies.readRoots();
     request.signal.throwIfAborted();
+    if (ids.some((id) => !roots.some((root) => root.rootId === id))) {
+      // A scratch folder mounts the first time its thread needs it; any other folder that is not
+      // live stays removed.
+      await this.dependencies.mountScratchFolders(ids);
+      roots = await this.dependencies.readRoots();
+      request.signal.throwIfAborted();
+    }
     const removed = ids.filter((id) => !roots.some((root) => root.rootId === id));
     if (removed.length > 0) {
       const names = await this.dependencies.readRootNames(removed);
