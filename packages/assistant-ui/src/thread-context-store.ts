@@ -29,12 +29,12 @@ export function nextThreadContextRecord(
 
 /**
  * The composer ring's figure for a thread, written only by `ContextUsageMeter`
- * so the Context tab shows the same total and budget without recomputing it.
+ * so the Context tab shows the same total and trigger without recomputing it.
  */
 export interface ContextRingFigure {
-  /** The effective input budget the ring divides by. */
-  readonly budgetTokens: number;
   readonly isEstimated: boolean;
+  /** The compaction trigger the ring divides by: full means the thread compacts now. */
+  readonly triggerTokens: number;
   readonly usedTokens: number;
 }
 
@@ -62,7 +62,7 @@ export const useThreadContextStore = create<ThreadContextState>((set) => ({
     set((state) => {
       const current = state.ringByThread[threadId];
       if (
-        current?.budgetTokens === figure.budgetTokens &&
+        current?.triggerTokens === figure.triggerTokens &&
         current.isEstimated === figure.isEstimated &&
         current.usedTokens === figure.usedTokens
       ) {

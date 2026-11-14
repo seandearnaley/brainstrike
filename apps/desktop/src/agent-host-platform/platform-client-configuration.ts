@@ -1,5 +1,6 @@
 import { CliWorkspaceSelectionSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
+  ContextCompactionTokenCapSchema,
   PERMISSION_DECISIONS,
   type PermissionToolGateSnapshot,
   runtimeSubagentSettingsSchema,
@@ -61,6 +62,8 @@ const PlatformSubagentsIntentSchema = Schema.Struct({
 export const PlatformClientConfigurationSchema = Schema.Struct({
   agentLoop: Schema.optional(
     Schema.Struct({
+      /** BST-2539: the person's compaction cap; absent, the admission uses the default. */
+      compactionTokenCap: Schema.optional(ContextCompactionTokenCapSchema),
       inputTokenLimit: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
       maxSteps: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
     })

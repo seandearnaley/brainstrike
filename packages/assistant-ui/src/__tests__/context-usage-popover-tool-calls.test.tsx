@@ -19,8 +19,8 @@ describe('ContextUsageMeter tool-call attribution (inside the popover)', () => {
   });
 
   const props = {
+    compactionTrigger: 113_400,
     contextWindow: 200_000,
-    effectiveInputBudget: 126_000,
     threadKey: 't1',
   };
 

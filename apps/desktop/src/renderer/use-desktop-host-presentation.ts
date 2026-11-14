@@ -25,8 +25,11 @@ import {
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
+  deriveContextCompactionThreshold,
   isSupportedProvider,
   type OpenRouterModelMetadataLookup,
+  type RuntimeAgentLoopSettings,
+  resolveContextCompactionTokenCap,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { buildModelSettings } from '@brainstrike/assistant-contract/generation-options';
@@ -73,7 +76,7 @@ type Presentation = Pick<
   | 'disabledReason'
   | 'onManageModels'
   | 'openRouterModelMetadataLookup'
-  | 'effectiveInputBudget'
+  | 'compactionTrigger'
   | 'planMode'
   | 'toolMenu'
 >;
@@ -258,6 +261,21 @@ function noticeProps(
     return { disabledReason: gating, isComposerDisabled: true };
   }
   return advisory ? { disabledReason: advisory } : {};
+}
+
+/**
+ * The context meter's one denominator, from the agent loop the next send
+ * captures: the size at which its thread compacts (BST-2539).
+ */
+function contextMeterBounds(
+  agentLoop: RuntimeAgentLoopSettings | undefined
+): Pick<Presentation, 'compactionTrigger'> {
+  const budget = agentLoop?.inputTokenLimit;
+  if (!budget) {
+    return {};
+  }
+  const cap = resolveContextCompactionTokenCap(agentLoop.compactionTokenCap);
+  return { compactionTrigger: deriveContextCompactionThreshold(budget, cap).trigger };
 }
 
 /**
@@ -535,9 +553,7 @@ export function useDesktopHostPresentation(
     ),
     slashCommands,
     toolMenu,
-    ...(metadata.agentLoopSettings?.inputTokenLimit
-      ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
-      : {}),
+    ...contextMeterBounds(metadata.agentLoopSettings),
     ...noticeProps(disabledReason, providerNotice.advisory),
     ...(disabledAction ? { disabledAction } : {}),
     ...(selectedModel ? { selectedModel } : {}),

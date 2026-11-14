@@ -456,6 +456,38 @@ describe("the host composer's OpenRouter reasoning effort", () => {
   });
 });
 
+describe("the host composer's compaction cap (BST-2539)", () => {
+  beforeEach(() => {
+    configured.current = { discoveryState: 'ready', providers: ['openai'] };
+    catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
+  });
+
+  test('the context meter warns against the cap a person set, and the send carries it', async () => {
+    useAssistantPreferencesStore.setState({
+      providerSettings: {
+        ...preferences.providerSettings,
+        openai: { ...preferences.providerSettings.openai, agentCompactionTokenCap: 100_000 },
+      },
+    });
+    const { result } = renderHook(() => present());
+    await waitFor(() => expect(result.current.disabledReason).toBeUndefined());
+    expect(result.current.compactionTrigger).toBe(100_000);
+    expect(result.current.readConfiguration(null)).toMatchObject({
+      agentLoop: { compactionTokenCap: 100_000 },
+    });
+  });
+
+  test('unset, the meter warns against the 200,000-token default and the send carries no cap', async () => {
+    const { result } = renderHook(() => present());
+    await waitFor(() => expect(result.current.disabledReason).toBeUndefined());
+    // The model's 1,050,000-token window leaves a budget whose 90% passes the default cap.
+    expect(result.current.compactionTrigger).toBe(200_000);
+    expect(result.current.readConfiguration(null)['agentLoop']).not.toHaveProperty(
+      'compactionTokenCap'
+    );
+  });
+});
+
 describe("the host composer's Tools menu", () => {
   const nativeTools = useNativeToolPreferencesStore.getState();
   const MCP_TOOL = 'docs.search';

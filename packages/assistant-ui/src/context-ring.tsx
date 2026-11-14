@@ -15,7 +15,7 @@ export interface ContextRingProps {
   className?: string | undefined;
   /** True while the value is a heuristic estimate (no exact usage yet). */
   isEstimated?: boolean | undefined;
-  /** Percent of the effective input budget used (clamped to 0–100 for display). */
+  /** Percent of the compaction trigger used (clamped to 0–100 for display). */
   percentage: number;
   state: ContextRingState;
 }
