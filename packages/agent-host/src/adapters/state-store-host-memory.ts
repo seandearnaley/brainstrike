@@ -393,9 +393,9 @@ export class StateStoreHostMemory implements HostRunOwner {
     // In this thread only the selected branch is history: a sibling branch's
     // turns never enter the request, even when native Memory selects them.
     const path = new Set(committedRunAncestors(rows, this.identity.runId));
-    // A committed compaction replaces whole earlier turns: the native history
-    // window does not re-add one (Core adds the note).
-    const compacted = compactedRunIds(rows);
+    // A committed compaction of this branch replaces whole earlier turns: the
+    // native history window does not re-add one (Core adds the note).
+    const compacted = compactedRunIds(rows, path);
     this.preparedRewrites = committedRewrites(rows);
     for (const started of rows) {
       if (
