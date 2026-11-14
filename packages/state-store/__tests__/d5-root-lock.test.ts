@@ -34,6 +34,14 @@ afterEach(() => {
   cleanupDirs();
 });
 
+/**
+ * What `processStartTime` reads per platform: Windows' FILETIME count, Linux's start in ticks
+ * since boot with the boot's id (BST-2514), and elsewhere `ps`'s `lstart`, which ends in the year.
+ */
+const START_TIME_FORMAT: Partial<Record<NodeJS.Platform, RegExp>> = {
+  linux: /^\d+\.\d{2} s after boot \S+$/u,
+  win32: /^\d+$/u,
+};
 const HOLDER = fixture('lock-holder.ts');
 const CONTENDER = fixture('lock-contender.ts');
 const holder = (root: string, mode?: string): ReturnType<typeof runTs> =>
@@ -164,7 +172,7 @@ describe('D5: data-root lock', () => {
     await sleeper.line('UP');
     const pid = sleeper.p.pid as number;
     const start = processStartTime(pid) as string;
-    expect(start).toMatch(process.platform === 'win32' ? /^\d+$/u : /\d{4}$/u);
+    expect(start).toMatch(START_TIME_FORMAT[process.platform] ?? /\d{4}$/u);
     // same pid, different start time -> the pid was reused -> stale
     plant(root, { host: hostname(), pid, start: 'Thu Jan  1 00:00:00 1970', token: 'reused' });
     const broken: LockOwner[] = [];

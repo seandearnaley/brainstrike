@@ -83,6 +83,7 @@ export function mergedArchiveHarness() {
       },
       listActive: () => ledger.listActive(),
       listRepository: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
+      listThread: (threadId) => ledger.listForThread(threadId),
       publish: (archive) => {
         state.told.push(archive);
       },

@@ -17,6 +17,8 @@ export type WorktreeLedgerRequest =
   | { readonly operation: 'by-path'; readonly path: string }
   | { readonly operation: 'list-active' }
   | { readonly operation: 'list-repository'; readonly repoCommonDir: string }
+  /** The live rows that name `threadId` as their maker, in every repository (BST-2505). */
+  | { readonly operation: 'list-thread'; readonly threadId: string }
   | {
       readonly operation: 'insert';
       readonly row: WorktreeLedgerRow & { readonly baseCommit: string };

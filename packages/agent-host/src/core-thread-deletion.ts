@@ -13,7 +13,7 @@ import {
   joinHostThreadDeletion,
 } from './core-run-lifecycle.ts';
 import type { HostRunState } from './core-state.ts';
-import type { HostScratchFolders } from './ports.ts';
+import type { HostPlatform, HostScratchFolders } from './ports.ts';
 import type { HostResults } from './protocol.ts';
 
 type Deletion = Promise<HostResults['thread/delete']>;
@@ -34,11 +34,14 @@ export interface HostThreadDeletionContext {
   forgetRun(run: HostRunState): void;
   forgetThread(threadId: string): void | Promise<void>;
   readonly pendingAdmissions: ReadonlyMap<AbortController, string>;
+  /**
+   * ADR-0034: the deleted thread's scratch folder goes to the system Trash, and the managed
+   * worktrees each deleted thread made that no thread is bound to are archived (BST-2505).
+   */
+  readonly platform: Pick<HostPlatform, 'idleWorktreeArchives' | 'scratchFolders'>;
   /** The new admission tail: later commands queue behind the deletion. */
   queue(tail: Promise<void>): void;
   readonly runs: ReadonlyMap<string, HostRunState>;
-  /** ADR-0034: the deleted thread's scratch folder goes to the system Trash. */
-  readonly scratchFolders: HostScratchFolders | undefined;
   readonly threads: ReadonlySet<string>;
 }
 
@@ -94,7 +97,8 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
   // Outside the admission queue, which every thread shares: moving a folder to the Trash can take
   // a while, and nothing of the thread is left to admit.
   const deletion = erased.then(async (deleted) => {
-    const notRetired = await retireHostScratchFolder(context.scratchFolders, threadId);
+    archiveDeletedThreadWorktrees(context.platform.idleWorktreeArchives, deleted.threadIds);
+    const notRetired = await retireHostScratchFolder(context.platform.scratchFolders, threadId);
     return notRetired ? { ...deleted, scratchFolderNotRetired: notRetired } : deleted;
   });
   for (const id of subtree) {
@@ -108,6 +112,31 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
     )
   );
   return deletion;
+}
+
+/**
+ * BST-2505: the platform archives the managed worktrees each deleted thread made that no thread is
+ * bound to. Every deleted thread is erased by now and its runs have joined their tool calls, so a
+ * worktree a stopped or deleted run was still making is in the ledger. The deletion never waits on
+ * the archive nor fails for it: the thread is gone, so a failure is logged.
+ */
+function archiveDeletedThreadWorktrees(
+  archives: HostPlatform['idleWorktreeArchives'],
+  threadIds: readonly string[]
+): void {
+  if (!archives) {
+    return;
+  }
+  for (const threadId of threadIds) {
+    const failed = (cause: unknown): void => {
+      logger.error('The worktrees a deleted thread made were not archived', { cause, threadId });
+    };
+    try {
+      void archives.afterThreadDeleted(threadId).catch(failed);
+    } catch (cause) {
+      failed(cause);
+    }
+  }
 }
 
 /**
