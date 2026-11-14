@@ -495,6 +495,7 @@ test('a repository project is refused for an empty or relative path and for a th
       row: {
         archivedAt: null,
         archiveSnapshotRef: null,
+        baseCommit: 'a'.repeat(40),
         baseRef: 'a'.repeat(40),
         branch: 'feature',
         createdAt: '2026-11-13T00:00:00.000Z',
