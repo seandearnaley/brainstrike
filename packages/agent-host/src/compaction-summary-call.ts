@@ -17,8 +17,8 @@ import {
   hasCompactionSummarySchema,
 } from '@brainstrike/agent/provider-runtime';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
-import { generateText, type LanguageModel, type ToolSet } from 'ai';
-import { hostNotice } from './child-delivery.ts';
+import { generateText, type LanguageModel, type ToolSet, type UserModelMessage } from 'ai';
+import { hostNotice, quoted } from './child-delivery.ts';
 import { type Json, jsonValue } from './json-value.ts';
 import type { HostPreparedModelRequest } from './ports.ts';
 import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.ts';
@@ -84,10 +84,35 @@ function requireUsage(count: number | undefined, field: string): void {
   }
 }
 
+const SUMMARY_AUTHORITY = 'Brainstrike wrote this request, not the user.';
+
 /** The host's request for the summary, after the run's messages: its words, never the person's. */
 const SUMMARY_REQUEST = hostIntakeMessage(
-  hostNotice('Brainstrike wrote this request, not the user.', [COMPACTION_SUMMARIZER_INSTRUCTIONS])
+  hostNotice(SUMMARY_AUTHORITY, [COMPACTION_SUMMARIZER_INSTRUCTIONS])
 );
+
+/**
+ * BST-2536: the host's request for a summary a person asked for, then what
+ * they want it to keep, in their own words after the notice, fenced out of it.
+ * It guides what the summary keeps; the lists the host writes are not the
+ * model's to change.
+ */
+function summaryRequest(focus: string | undefined): UserModelMessage {
+  if (focus === undefined) {
+    return SUMMARY_REQUEST;
+  }
+  const notice = hostNotice(SUMMARY_AUTHORITY, [
+    COMPACTION_SUMMARIZER_INSTRUCTIONS,
+    'The user asked for this compaction. What follows this notice is theirs: what they want the summary to keep.',
+  ]);
+  return {
+    ...SUMMARY_REQUEST,
+    content: [
+      { text: notice, type: 'text' },
+      { text: quoted(focus), type: 'text' },
+    ],
+  };
+}
 
 /** The run's tools as their definitions alone: the provider sees the same tools, and none can run. */
 function declared(tools: ToolSet): ToolSet {
@@ -107,17 +132,19 @@ export type HostStepRequest = Omit<HostPreparedModelRequest, 'model'> & {
 /**
  * The summary, on the run's next request: one step, its tools declared but
  * never run, provider-reported usage required, and the six-section check.
+ * `focus` is what a person who asked for the compaction wants it to keep.
  */
 export async function summarizeOnRunRequest(
   request: HostStepRequest & { readonly tools: ToolSet },
   run: HostTelemetryIds & { readonly modelId: string },
-  signal: AbortSignal
+  signal: AbortSignal,
+  focus?: string
 ): Promise<HostContextSummary> {
   const { messages, tools, ...call } = request;
   const result = await generateText({
     ...call,
     abortSignal: signal,
-    messages: [...messages, SUMMARY_REQUEST],
+    messages: [...messages, summaryRequest(focus)],
     tools: declared(tools),
     ...hostTelemetry('brainstrike.context-compaction', run),
   });

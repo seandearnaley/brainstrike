@@ -25,6 +25,7 @@ import {
   ProjectMemoryUndoProvider,
   RunVerdictProvider,
   SubagentChildRunContext,
+  type ThreadCompaction,
   useRewindContext,
 } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -341,6 +342,19 @@ function HostThread({
       },
     [client, threadId]
   );
+  // BST-2536: Compact now asks the host to compact the branch the view ends with.
+  const compact = useMemo<ThreadCompaction>(
+    () =>
+      async ({ focus, parentMessageId }) => {
+        await client.request('thread/compact', {
+          commandId: crypto.randomUUID(),
+          ...(focus === undefined ? {} : { focus }),
+          parentMessageId,
+          threadId,
+        });
+      },
+    [client, threadId]
+  );
   // A waiting file approval's card reads the change from the host (ADR-0036).
   const readApprovalChange = useMemo(
     () => (conversation ? hostApprovalChange(client, conversation) : null),
@@ -374,6 +388,7 @@ function HostThread({
                                     />
                                   }
                                   commands={conversation.commands}
+                                  compact={child ? undefined : compact}
                                   {...(cumulativeUsage ? { cumulativeUsage } : {})}
                                   label={label}
                                   onRunningChange={onRunningChange}

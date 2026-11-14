@@ -176,4 +176,9 @@
 // required. The required fields are why this is a version bump. Additive since (BST-2534): a
 // project's Memory panel's `projects/memory/list`, `projects/memory/write` and
 // `projects/memory/delete`, new methods.
-export const AGENT_HOST_PROTOCOL_VERSION = 33;
+// v34 (2026-11-14): a person compacts a thread between runs (BST-2536). `thread/compact` is a new
+// method; the `context.compacted` it commits has reason `requested`, which an older client cannot
+// read, and carries the person's `focus`. A refused summary the provider billed commits its usage
+// as the run's `model.usage` of kind `compaction-summary`. The new reason and kind are why this is
+// a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 34;

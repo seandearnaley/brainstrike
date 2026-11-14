@@ -1,5 +1,5 @@
 {
-  "version": 33,
+  "version": 34,
   "methods": [
     "auth/chatgpt/cancel",
     "auth/chatgpt/sign-in",
@@ -93,6 +93,7 @@
     "terminal/resize",
     "terminal/write",
     "thread/children",
+    "thread/compact",
     "thread/delete",
     "thread/list",
     "thread/read",

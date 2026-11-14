@@ -172,6 +172,37 @@ describe('the compaction card in the committed thread', () => {
     );
   });
 
+  it('shows that a person asked for the compaction, and what they asked it to keep (BST-2536)', async () => {
+    const [requested, unfocused] = await cards(
+      [
+        compacted('requested', {
+          focus: 'Keep the parser decision.',
+          kind: 'agentic',
+          reason: 'requested',
+          summary: 'Goal: Parse.',
+          turnsCompacted: 2,
+        }),
+        compacted('unfocused', {
+          kind: 'agentic',
+          reason: 'requested',
+          summary: 'Goal: Parse.',
+          turnsCompacted: 1,
+        }),
+      ],
+      2
+    );
+    if (!(requested && unfocused)) {
+      throw new Error('Expected two compaction cards');
+    }
+    expect(within(requested).getByTestId('compaction-summary-reason')).toHaveTextContent(
+      'ReasonRequested'
+    );
+    expect(within(requested).getByTestId('compaction-summary-focus')).toHaveTextContent(
+      'FocusKeep the parser decision.'
+    );
+    expect(within(unfocused).queryByTestId('compaction-summary-focus')).not.toBeInTheDocument();
+  });
+
   it('lists the files, tools and requests the host wrote, and shows the model’s summary as text (BST-2527)', async () => {
     const summary = 'Goal: Move the port.\nNext: Write the notes.';
     const [merged, fallback] = await cards(

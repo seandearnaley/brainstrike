@@ -170,6 +170,7 @@ export {
 } from './subagent-conversation-navigation';
 export { personaLabelForToolName } from './subagent-persona-label';
 export { SubagentsRunningStrip } from './subagents-running-strip';
+export type { ThreadCompaction } from './thread-compaction-context';
 export { ThreadContextReader } from './thread-context-reader';
 export {
   type ThreadMessageNavigation,

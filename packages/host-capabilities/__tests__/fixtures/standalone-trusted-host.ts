@@ -150,12 +150,15 @@ export type StandaloneHost = Awaited<ReturnType<typeof standaloneHost>>;
 /**
  * A trusted `--platform` module: the standalone platform with the scripted
  * fixture as `provider::probe`, which makes `calls` one step each, then answers.
+ * With `summary`, `run`'s prompt plays the calls and a compaction's summary
+ * call answers `summary`.
  */
 export async function trustedPlatformModule(
   provider: string,
   calls: readonly { readonly input: unknown; readonly toolId: string }[] = [],
   /** The rest of the trusted composition, beside its model. */
-  composition: { readonly inputTokenLimit?: number } = {}
+  composition: { readonly inputTokenLimit?: number } = {},
+  summary?: string
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'bs-trusted-model-module-'));
   cleanup.push(() => rm(directory, { force: true, recursive: true }));
@@ -166,8 +169,16 @@ export async function trustedPlatformModule(
   await writeFile(
     module,
     `import { createHostPlatform as standalone } from ${JSON.stringify(platform)};
-import { scriptedToolSequence } from ${JSON.stringify(scripted)};
-const fixture = scriptedToolSequence(${JSON.stringify(calls)});
+import { scriptedToolSequence, scriptedTurns } from ${JSON.stringify(scripted)};
+const calls = ${JSON.stringify(calls)};
+const summary = ${JSON.stringify(summary ?? null)};
+const fixture =
+  summary === null
+    ? scriptedToolSequence(calls)
+    : scriptedTurns(
+        [{ answer: 'Host run completed.', prompt: 'Say hello.', steps: calls.map((call) => [call]) }],
+        summary
+      );
 const model = {
   doGenerate: (options) => fixture.doGenerate(options),
   doStream: (options) => fixture.doStream(options),

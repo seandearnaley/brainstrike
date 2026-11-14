@@ -36,6 +36,7 @@ import { ContextRing, type ContextRingState } from './context-ring';
 import { ContextUsagePopoverContent } from './context-usage-popover';
 import { useContextUsageStore } from './context-usage-store';
 import { formatCompact } from './format-compact-token-count';
+import { CompactNowControl } from './thread-compaction';
 import { fileWindowTokens, threadContextAt } from './thread-context-fold';
 import { useThreadContextStore } from './thread-context-store';
 
@@ -379,6 +380,7 @@ export const ContextUsageMeter = ({
             usedTokens={usedTokens}
             workspaceFileTokens={workspaceFileTokens}
           />
+          <CompactNowControl />
         </PopoverContent>
       </Popover>
 

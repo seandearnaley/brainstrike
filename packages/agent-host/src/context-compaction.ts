@@ -3,6 +3,8 @@ import {
   BoundaryFailureError,
   deriveContextCompactionThreshold,
   INTERNAL_FAULT,
+  refusal,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { ModelMessage } from 'ai';
@@ -21,7 +23,11 @@ import {
   type Turn,
   trimmedSegments,
 } from './compaction-segments.ts';
-import { type HostContextSummary, HostContextSummaryRefusal } from './compaction-summary-call.ts';
+import {
+  type HostContextSummary,
+  HostContextSummaryRefusal,
+  type HostContextSummaryUsage,
+} from './compaction-summary-call.ts';
 import {
   estimateTokens,
   type HostContextRewrites,
@@ -264,6 +270,29 @@ function summarizerFailure(
 }
 
 /**
+ * The agentic summary's compaction: one summary of the whole context, which
+ * merged the branch's current one, replacing every droppable turn and step.
+ */
+async function agenticEvent(
+  branch: CompactionBranch,
+  candidates: readonly Segment[],
+  run: HostRunState,
+  summary: HostContextSummary,
+  reason: Compacted['reason']
+): Promise<Compacted> {
+  return {
+    ...(await coveredFields(branch, candidates)),
+    kind: 'agentic',
+    modelId: summary.modelId,
+    reason,
+    runId: run.id,
+    summary: summary.text,
+    type: 'context.compacted',
+    usage: summary.usage,
+  };
+}
+
+/**
  * Past the trigger, the agentic summary merges the branch's current one, which
  * its context opens with, into one summary of the whole context, and replaces
  * every droppable turn and step. When the summarizer fails, the legacy
@@ -289,16 +318,7 @@ async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
       summarizerFailure: summarizerFailure(request, cause),
     };
   }
-  return {
-    ...(await coveredFields(request, request.candidates)),
-    kind: 'agentic',
-    modelId: summary.modelId,
-    reason: 'pre-request',
-    runId: request.run.id,
-    summary: summary.text,
-    type: 'context.compacted',
-    usage: summary.usage,
-  };
+  return await agenticEvent(request, request.candidates, request.run, summary, 'pre-request');
 }
 
 /**
@@ -349,7 +369,10 @@ interface CompactionBounds extends HostContextRewrites {
 }
 
 /** The branch as its compactions leave it: where they cut it and its current summary. */
-function compactionBranch(input: CompactionBounds, compactions: readonly Compacted[]) {
+function compactionBranch(
+  input: Pick<CompactionBounds, 'chain' | 'readLedger'>,
+  compactions: readonly Compacted[]
+) {
   return {
     chain: input.chain,
     current: currentCompaction(compactions),
@@ -484,5 +507,93 @@ export async function prepareCompactedContext(
           )
         : undefined;
     },
+  };
+}
+
+/** A branch's committed context and compactions, as a compaction a person asks for reads them. */
+export type HostRequestedBranch = Pick<CompactionBounds, 'chain' | 'compactions' | 'messages'>;
+
+/** The turns and steps a compaction of the branch would replace, oldest first (BST-2536). */
+function requestedCandidates(input: HostRequestedBranch) {
+  const turns = splitTurns(input.chain, input.messages);
+  const compactions = onBranch(input.compactions, chainIds(input.chain));
+  const cuts = cutsOf(compactions);
+  return { candidates: compactionCandidates(turns, cuts), compactions, cuts, turns };
+}
+
+/** Refused (BST-2536): a compaction of this branch would replace nothing. */
+export function nothingToCompact(): BoundaryFailureError {
+  return refusalError(
+    'conflict',
+    'compaction.nothing-to-compact',
+    'Nothing in this thread can be compacted yet.'
+  );
+}
+
+/** BST-2536: refuses a compaction a person asks for that would replace nothing. */
+export function assertRequestedCompaction(branch: HostRequestedBranch): void {
+  if (requestedCandidates(branch).candidates.length === 0) {
+    throw nothingToCompact();
+  }
+}
+
+/**
+ * BST-2536: the compaction a person asked for between runs. It replaces
+ * everything on the branch the cut rule lets go, without waiting for the
+ * trigger, with the summary an automatic compaction asks for; that is the
+ * only difference. `focus` is the person's words, recorded on the event. A
+ * failed summary is refused with its own code and nothing is compacted: no
+ * fallback drops what the person asked to have summarized. One the provider
+ * answered is still billed (`bill`).
+ */
+export async function requestedCompaction(
+  input: HostRequestedBranch &
+    Pick<CompactionBounds, 'readLedger'> & {
+      /** Commits what a summary the provider answered, and was refused, cost. */
+      readonly bill: (receipt: HostContextSummaryUsage) => Promise<void>;
+      /** The admission's reading of a summary call's failure. */
+      readonly classify: (cause: unknown) => BoundaryFailure;
+      readonly focus?: string | undefined;
+      readonly signal: AbortSignal;
+      readonly summarize: HostContextSummarizer;
+    }
+): Promise<Compacted> {
+  const { candidates, compactions, cuts, turns } = requestedCandidates(input);
+  const run = input.chain.at(-1);
+  if (!run || candidates.length === 0) {
+    throw nothingToCompact();
+  }
+  const branch = compactionBranch(input, compactions);
+  let summary: HostContextSummary;
+  try {
+    summary = await input.summarize(withNote(branch.current, applyOverlay(turns, cuts)));
+  } catch (cause) {
+    if (input.signal.aborted) {
+      throw cause;
+    }
+    // An answer refused as a summary was still billed: its cost reaches the ledger.
+    if (cause instanceof HostContextSummaryRefusal) {
+      await input.bill(cause.receipt);
+    }
+    const failure = cause instanceof BoundaryFailureError ? cause.failure : input.classify(cause);
+    logger.warn('A requested compaction’s summary failed; nothing was compacted', {
+      cause,
+      code: failure.code,
+      runId: run.id,
+      threadId: run.threadId,
+    });
+    throw new BoundaryFailureError(
+      refusal({
+        category: failure.category,
+        code: failure.code,
+        message: failure.message,
+        ...(failure.remedy === undefined ? {} : { remedy: failure.remedy }),
+      }),
+      { cause }
+    );
+  }
+  return {
+    ...(await agenticEvent(branch, candidates, run, summary, 'requested')),
+    ...(input.focus === undefined ? {} : { focus: input.focus }),
   };
 }
