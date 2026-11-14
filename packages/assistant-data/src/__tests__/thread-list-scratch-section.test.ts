@@ -11,6 +11,7 @@ import {
   getGroupMemberIds,
   projectSectionId,
   repositorySectionId,
+  resolveThreadScratchFolder,
   SCRATCH_FOLDER_SECTION_ID,
   type ThreadFolderGroupingRow,
   type ThreadListOrdering,
@@ -166,6 +167,74 @@ describe('the Scratch section in folder grouping', () => {
     expect(view.sections.map((section) => section.id)).toEqual([SCRATCH_FOLDER_SECTION_ID]);
     expect(getGroupMemberIds(view, folderSectionId(quietOtter.rootId))).toEqual([]);
     expect(getGroupMemberIds(view, folderSectionId(amberFox.rootId))).toEqual([]);
+  });
+
+  it("gives a scratch row whose folder became a repository's own checkout the branch the listing names", () => {
+    const repository: ThreadRepositoryRow = {
+      branch: 'feature/notes',
+      detached: false,
+      displayName: 'amber-fox',
+      folder: amberFox,
+      key: '/profile/scratch/amber-fox/.git',
+      path: '/profile/scratch/amber-fox',
+      projectId: null,
+      projectName: null,
+    };
+    const lookup = {
+      folderRowsByRootId: rows,
+      repositoryByThreadId: new Map([['in-amber-fox', repository]]),
+    };
+    const view = folderView(
+      [
+        thread('in-quiet-otter', quietOtter.rootId, { day: 1 }),
+        thread('in-amber-fox', amberFox.rootId, { day: 2 }),
+      ],
+      { repositoryByThreadId: lookup.repositoryByThreadId }
+    );
+
+    const [scratch] = view.sections;
+    expect(scratch?.id).toBe(SCRATCH_FOLDER_SECTION_ID);
+    // Each row names its folder; the one that is a git checkout names its branch too.
+    expect(scratch?.threads.map((row) => resolveThreadScratchFolder(row, lookup))).toEqual([
+      {
+        displayName: 'amber-fox',
+        path: '/profile/scratch/amber-fox',
+        repository,
+        rootId: 'root-amber-fox',
+      },
+      {
+        displayName: 'quiet-otter',
+        path: '/profile/scratch/quiet-otter',
+        repository: null,
+        rootId: 'root-quiet-otter',
+      },
+    ]);
+  });
+
+  it('gives a thread in no scratch folder no scratch row, whatever its repository', () => {
+    const zetaRepository: ThreadRepositoryRow = {
+      branch: 'main',
+      detached: false,
+      displayName: 'zeta',
+      folder: rows.get('root-zeta') ?? null,
+      key: '/ws/zeta/.git',
+      path: '/ws/zeta',
+      projectId: 'project-zeta',
+      projectName: null,
+    };
+
+    expect(
+      resolveThreadScratchFolder(thread('in-zeta', 'root-zeta'), {
+        folderRowsByRootId: rows,
+        repositoryByThreadId: new Map([['in-zeta', zetaRepository]]),
+      })
+    ).toBeNull();
+    expect(
+      resolveThreadScratchFolder(thread('no-folder', null), {
+        folderRowsByRootId: rows,
+        repositoryByThreadId: NO_REPOSITORIES,
+      })
+    ).toBeNull();
   });
 
   it('sorts the Scratch section by name when folderSortBy is name', () => {

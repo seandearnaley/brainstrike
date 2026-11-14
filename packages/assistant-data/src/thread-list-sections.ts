@@ -383,16 +383,46 @@ interface FolderBucket {
 }
 
 /**
- * Whether the thread works in a scratch folder, as its folder's `roots` row
- * says. Asked before its repository: a scratch folder lists in the Scratch
- * section even if it has since become a repository's checkout.
+ * A scratch thread's row data (ADR-0034): the scratch folder it works in, which
+ * its checkout chip names because the Scratch section names no folder.
  */
-function worksInScratchFolder(
+export interface ThreadScratchFolder extends ThreadFolderRow {
+  /**
+   * The listing's repository for the thread once its folder has become that
+   * repository's own checkout, so the chip names its branch; null while the
+   * folder is no git checkout, or while there is no listing.
+   */
+  readonly repository: ThreadRepositoryRow | null;
+}
+
+/** What a scratch thread's row data is read from: folder grouping's `roots` rows and its repositories. */
+export type ThreadScratchFolderLookup = Pick<
+  BuildThreadListSectionsFolderInput,
+  'folderRowsByRootId' | 'repositoryByThreadId'
+>;
+
+/**
+ * The scratch folder the thread works in, as its folder's `roots` row says,
+ * with the repository the listing names for it; null for any other thread.
+ * Folder grouping asks it before the thread's repository: a scratch folder
+ * lists in the Scratch section even once it is a repository's own checkout,
+ * until Turn into a project… makes it a project.
+ */
+export function resolveThreadScratchFolder(
   thread: AssistantMemoryThread,
-  folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>
-): boolean {
+  { folderRowsByRootId, repositoryByThreadId }: ThreadScratchFolderLookup
+): ThreadScratchFolder | null {
   const rootId = getThreadPrimaryRootId(thread);
-  return rootId !== null && folderRowsByRootId.get(rootId)?.scratch === true;
+  const folder = rootId === null ? undefined : folderRowsByRootId.get(rootId);
+  if (folder?.scratch !== true) {
+    return null;
+  }
+  return {
+    displayName: folder.displayName,
+    path: folder.path,
+    repository: repositoryByThreadId.get(thread.id) ?? null,
+    rootId: folder.rootId,
+  };
 }
 
 /**
@@ -451,7 +481,7 @@ function buildFolderSections(
   const scratchThreads: AssistantMemoryThread[] = [];
   const unassignedThreads: AssistantMemoryThread[] = [];
   for (const thread of threads) {
-    if (worksInScratchFolder(thread, input.folderRowsByRootId)) {
+    if (resolveThreadScratchFolder(thread, input) !== null) {
       scratchThreads.push(thread);
       continue;
     }
