@@ -6,6 +6,7 @@ import {
 import { jsonSchema, type ModelMessage } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  compactedRunIds,
   HostContextSummarySchemaError,
   overflowCompaction,
   prepareCompactedContext,
@@ -14,7 +15,7 @@ import type { HostReportedContext, HostRequestExtras } from '../src/context-size
 import { createHostRunState, HostRunMap, type HostRunState } from '../src/core-state.ts';
 import type { HostPreparedStep, HostProjectionRewrite } from '../src/ports.ts';
 import { applyProjectionRewrites } from '../src/projection-rewrites.ts';
-import type { HostEvent } from '../src/protocol.ts';
+import type { HostEvent, HostLogRow } from '../src/protocol.ts';
 import { foldHostRunEvent, hostRunAncestors, hostRunContext } from '../src/run-branch.ts';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
@@ -861,5 +862,71 @@ describe('overflowCompaction', () => {
       });
     expect(await overflow({ inputTokenLimit: undefined })).toBeUndefined();
     expect(await overflow({ chain: chain(2), messages: turns(2, 40_000) })).toBeUndefined();
+  });
+});
+
+describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
+  /**
+   * Committed on a sibling branch: it summarized run-0, run-1 and that
+   * branch's own run-9, which this branch never had.
+   */
+  const sibling: Compacted = {
+    compactedRunIds: ['run-0', 'run-1', 'run-9'],
+    kind: 'agentic',
+    reason: 'pre-request',
+    runId: 'run-10',
+    summary: 'On the other branch we renamed the module.',
+    type: 'context.compacted',
+  };
+
+  it('keeps a branch’s own turns, and tells it nothing of a sibling’s, when a sibling compacted their shared turns', async () => {
+    const commit = vi.fn(async () => undefined);
+    const prepared = await prepareCompactedContext({
+      chain: chain(3),
+      commit,
+      compactions: [sibling],
+      inputTokenLimit: 20_000,
+      messages: turns(3, 10),
+      signal: new AbortController().signal,
+      summarize: async () => summary,
+    });
+    expect(commit).not.toHaveBeenCalled();
+    expect(prepared.messages).toEqual(turns(3, 10));
+    expect(prepared.note).toBeUndefined();
+  });
+
+  it('still applies a compaction whose every turn is on the branch', async () => {
+    const own: Compacted = { ...sibling, compactedRunIds: ['run-0', 'run-1'], runId: 'run-2' };
+    const prepared = await prepareCompactedContext({
+      chain: chain(3),
+      commit: async () => undefined,
+      compactions: [own, sibling],
+      inputTokenLimit: 20_000,
+      messages: turns(3, 10),
+      signal: new AbortController().signal,
+      summarize: async () => summary,
+    });
+    expect(prepared.messages[0]).toEqual({ content: 'question 2', role: 'user' });
+    expect(prepared.note).toBe(`[Earlier conversation compacted]\n${own.summary}`);
+  });
+
+  it('lets overflow recovery drop a turn only a sibling’s compaction covered', async () => {
+    const event = await overflowCompaction({
+      chain: chain(6),
+      compactions: [sibling],
+      inputTokenLimit: 40_000,
+      messages: turns(6, 40_000),
+    });
+    expect(event?.compactedRunIds).toContain('run-0');
+  });
+
+  it('reads from the log only the compactions of the given branch', () => {
+    const rows = [sibling, { ...sibling, compactedRunIds: ['run-0'], runId: 'run-1' }].map(
+      (event, seq) => ({ event, seq, threadId: 'thread' }) as HostLogRow
+    );
+    expect(compactedRunIds(rows, new Set(['run-0', 'run-1', 'run-2']))).toEqual(new Set(['run-0']));
+    expect(compactedRunIds(rows, new Set(['run-0', 'run-1', 'run-9']))).toEqual(
+      new Set(['run-0', 'run-1', 'run-9'])
+    );
   });
 });
