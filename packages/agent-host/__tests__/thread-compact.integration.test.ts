@@ -97,36 +97,50 @@ function note(prompt: Prompt): string {
   return first && isNotice(first) ? texts(first).join('') : '';
 }
 
+/** Holds a call until `open`, or until its signal aborts; `entered` settles once a call waits. */
 interface Gate {
   readonly entered: Promise<void>;
-  open: () => void;
+  readonly open: () => void;
+  readonly wait: (signal: AbortSignal | undefined) => Promise<void>;
+}
+
+function gate(): Gate {
+  const entered = Promise.withResolvers<void>();
+  const opened = Promise.withResolvers<void>();
+  return {
+    entered: entered.promise,
+    open: opened.resolve,
+    wait: (signal) => {
+      entered.resolve();
+      return new Promise<void>((resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        void opened.promise.then(resolve);
+      });
+    },
+  };
 }
 
 /**
- * A thread host whose summary call answers `summary`, or waits at `gate` until
- * it opens or its call is aborted. Each run's first request is kept by prompt.
+ * A thread host whose summary call answers `SUMMARY`. A compaction's admission
+ * or summary call can be held at a gate, and its admission's close can fail.
+ * Each run's first request is kept by prompt.
  */
 async function compactingHost() {
   const scripted = scriptedTurns([...QUESTIONS.map(turn), SHORT], SUMMARY);
   const summaries: CallOptions[] = [];
   const firstRequests = new Map<string, CallOptions>();
-  const control: { answer: string | undefined; credential: boolean; gate?: Gate } = {
-    answer: undefined,
-    credential: true,
-  };
+  const control: {
+    admission?: Gate;
+    answer: string | undefined;
+    closeFails: boolean;
+    credential: boolean;
+    summary?: Gate;
+  } = { answer: undefined, closeFails: false, credential: true };
   const compactionAdmissions = { closed: 0, opened: 0 };
   const model = new MockLanguageModelV4({
     doGenerate: async (options) => {
       summaries.push(options);
-      const gate = control.gate;
-      if (gate) {
-        await new Promise<void>((resolve, reject) => {
-          const signal = options.abortSignal;
-          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
-          gate.open = resolve;
-          (gate as { resolveEntered?: () => void }).resolveEntered?.();
-        });
-      }
+      await control.summary?.wait(options.abortSignal);
       const answered = await scripted.doGenerate(options);
       return control.answer === undefined
         ? answered
@@ -151,6 +165,9 @@ async function compactingHost() {
     (platform) => async (request: HostRunAdmissionRequest) => {
       // A compaction's admission has no prompt: it answers no message.
       const compaction = request.prompt === undefined;
+      if (compaction) {
+        await control.admission?.wait(request.signal);
+      }
       if (compaction && !control.credential) {
         throw createMastraAgentError('mastra_agent_missing_api_key', {
           context: { provider: 'openai' },
@@ -169,6 +186,9 @@ async function compactingHost() {
           ? {
               close: async () => {
                 compactionAdmissions.closed += 1;
+                if (control.closeFails) {
+                  throw new Error('The compaction admission did not close');
+                }
               },
             }
           : {}),
@@ -201,17 +221,38 @@ async function compactingHost() {
       const { seq: _seq, ...stored } = event as unknown as Compacted & { readonly seq: number };
       return stored.type === 'context.compacted' ? [stored] : [];
     });
-  /** The summary call waits until `open` (or its abort); `entered` settles once it started. */
-  const hold = (): Gate => {
-    const entered = Promise.withResolvers<void>();
-    const gate: Gate & { resolveEntered: () => void } = {
-      entered: entered.promise,
-      open: () => undefined,
-      resolveEntered: entered.resolve,
-    };
-    control.gate = gate;
-    return gate;
+  /** Holds the next compaction's admission, or its summary call, until the gate opens. */
+  const hold = (at: 'admission' | 'summary' = 'summary'): Gate => {
+    const held = gate();
+    control[at] = held;
+    return held;
   };
+  /** How many runs the thread's committed log started. */
+  const started = async (): Promise<number> =>
+    (await harness.core().read(threadId, 0)).filter((row) => row.event.type === 'run.started')
+      .length;
+  /** What a run/start, a regenerate and a rewind of the message `answered` get now. */
+  const tryEach = (answered: string) =>
+    Promise.allSettled([
+      harness.core().startRun({
+        commandId: randomUUID(),
+        modelId: MODEL,
+        prompt: 'Fourth question.',
+        threadId,
+      }),
+      harness.core().regenerateRun({
+        commandId: randomUUID(),
+        modelId: MODEL,
+        threadId,
+        userMessageId: answered,
+      }),
+      harness.core().rewinds.rewind({
+        commandId: randomUUID(),
+        messageId: answered,
+        mode: 'conversation-only',
+        threadId,
+      }),
+    ]);
   /** The prompt of the first request the run asking `question` sent. */
   const firstPrompt = (question: string): Prompt => firstRequests.get(question)?.prompt ?? [];
   return {
@@ -225,8 +266,10 @@ async function compactingHost() {
     firstRequests,
     harness,
     hold,
+    started,
     summaries,
     threadId,
+    tryEach,
   };
 }
 
@@ -240,6 +283,23 @@ async function threeTurns() {
   ];
   return { ...host, runs };
 }
+
+/**
+ * What a settled attempt was refused with, or `started` when it was not
+ * refused. A run that was not admitted carries its refusal as its cause, as
+ * the wire does.
+ */
+function refusalCode(result: PromiseSettledResult<unknown>): string {
+  if (result.status === 'fulfilled') {
+    return 'started';
+  }
+  const refused = result.reason as {
+    readonly cause?: { readonly code?: unknown };
+    readonly code?: unknown;
+  };
+  return String(refused.code ?? refused.cause?.code);
+}
+const IN_PROGRESS = ['compaction.in-progress', 'compaction.in-progress', 'compaction.in-progress'];
 
 function rowsOf(rows: readonly HostLogRow[], type: HostEvent['type']): number {
   return rows.filter((row) => row.event.type === type).length;
@@ -471,22 +531,96 @@ test('a delegated child thread is refused before any admission, and commits noth
 });
 
 describe('Compact now while its summary is asked', () => {
-  test('a message sent meanwhile starts from the summary, and a second request is refused', {
+  test('a run/start that reached the host first starts, and the compaction is refused as a run', {
     timeout: 60_000,
   }, async () => {
     const host = await threeTurns();
-    const gate = host.hold();
+    const { runId } = await host.harness.core().startRun({
+      commandId: randomUUID(),
+      modelId: MODEL,
+      prompt: HOLD,
+      threadId: host.threadId,
+    });
+
+    await expect(host.compact()).rejects.toMatchObject({ code: 'compaction.run-active' });
+    await host.harness.core().stop({ commandId: randomUUID(), runId, threadId: host.threadId });
+    await rowsUntil(host.harness, host.threadId, finished(runId), 30_000);
+    expect(await host.compactions()).toEqual([]);
+  });
+
+  test('during its admission, a run/start, regenerate and rewind are refused as in progress, and start nothing', {
+    timeout: 60_000,
+  }, async () => {
+    const host = await threeTurns();
+    const runs = await host.started();
+    const admission = host.hold('admission');
     const compacting = host.compact();
-    await gate.entered;
+    await admission.entered;
 
-    await expect(host.compact()).rejects.toMatchObject({ code: 'compaction.in-progress' });
-    const sent = host.ask('Fourth question.');
-    gate.open();
+    const attempts = host.tryEach(host.commands.get('Third question.') ?? '');
+    admission.open();
+    expect((await attempts).map(refusalCode)).toEqual(IN_PROGRESS);
     await compacting;
-    await sent;
+    expect(await host.started()).toBe(runs);
+    expect(await host.compactions()).toHaveLength(1);
+  });
 
+  test('during its summary, a run/start, regenerate, rewind and a second compaction are refused as in progress; once it commits, the next run starts from the summary', {
+    timeout: 60_000,
+  }, async () => {
+    const host = await threeTurns();
+    const runs = await host.started();
+    const summary = host.hold('summary');
+    const compacting = host.compact();
+    await summary.entered;
+
+    const attempts = await host.tryEach(host.commands.get('Third question.') ?? '');
+    expect(attempts.map(refusalCode)).toEqual(IN_PROGRESS);
+    await expect(host.compact()).rejects.toMatchObject({ code: 'compaction.in-progress' });
+    summary.open();
+    await compacting;
+    expect(await host.started()).toBe(runs);
+
+    await host.ask('Fourth question.');
     expect(note(host.firstPrompt('Fourth question.'))).toContain(SUMMARY);
     expect(await host.compactions()).toHaveLength(1);
+  });
+
+  test('a person’s input sent meanwhile stays queued, and its run starts from the summary', {
+    timeout: 60_000,
+  }, async () => {
+    const host = await threeTurns();
+    const runs = await host.started();
+    const summary = host.hold('summary');
+    const compacting = host.compact();
+    await summary.entered;
+
+    // A person's message to the idle thread wakes it; the wake leaves it queued.
+    await host.harness.core().input({
+      commandId: randomUUID(),
+      modelId: MODEL,
+      prompt: 'Fourth question.',
+      runId: host.runs[2] ?? '',
+      threadId: host.threadId,
+    });
+    await host.harness.core().idle(host.threadId);
+    expect(await host.started()).toBe(runs);
+    summary.open();
+    await compacting;
+
+    // Once the compaction commits, the thread wakes for it: one run, which completes.
+    await expect.poll(() => host.started(), { timeout: 30_000 }).toBe(runs + 1);
+    const woke = (await host.harness.core().read(host.threadId, 0)).findLast(
+      (row) => row.event.type === 'run.started'
+    )?.event;
+    if (woke?.type !== 'run.started') {
+      throw new Error('No run started for the queued input');
+    }
+    const rows = await rowsUntil(host.harness, host.threadId, finished(woke.runId), 30_000);
+    expect(rows.find((row) => finished(woke.runId)(row))?.event).toMatchObject({
+      outcome: 'completed',
+    });
+    expect(note(host.firstPrompt('Fourth question.'))).toContain(SUMMARY);
   });
 
   test('deleting the thread commits nothing and leaves nothing open', {
@@ -501,6 +635,28 @@ describe('Compact now while its summary is asked', () => {
     await expect(compacting).rejects.toBeDefined();
     expect(await host.compactions()).toEqual([]);
     expect(host.compactionAdmissions).toEqual({ closed: 1, opened: 1 });
+  });
+
+  test('an admission that does not close is a failed cleanup the thread keeps, as a run’s is', {
+    timeout: 60_000,
+  }, async () => {
+    const host = await threeTurns();
+    host.control.closeFails = true;
+
+    const failure: unknown = await host.compact().catch((cause: unknown) => cause);
+    expect(String(failure)).toContain('The compaction admission did not close');
+    // The thread's next command meets it, and so does the host's close.
+    await expect(
+      host.harness.core().startRun({
+        commandId: randomUUID(),
+        modelId: MODEL,
+        prompt: 'Fourth question.',
+        threadId: host.threadId,
+      })
+    ).rejects.toBe(failure);
+    await expect(host.harness.core().close()).rejects.toThrow('Host cleanup failed');
+    // A fresh host over the same store, so the harness closes cleanly.
+    await host.harness.crash();
   });
 
   test('closing the host commits nothing and leaves nothing open', {

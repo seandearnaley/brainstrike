@@ -8,7 +8,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CommittedAssistantConversation } from '../committed-assistant-conversation';
 import { resetContextUsageStore } from '../context-usage-store';
-import type { ThreadCompaction } from '../thread-compaction';
+import type { ThreadCompaction } from '../thread-compaction-context';
 import { PublishedConversation, viewMessage } from './committed-assistant-test-support';
 
 afterEach(() => {
@@ -111,6 +111,67 @@ describe('Compact now', () => {
       'Nothing in this thread can be compacted yet.'
     );
     expect(field).toHaveValue('Keep the parser decision.');
+  });
+
+  it('keeps its words, its progress and its refusal while the popover is closed', async () => {
+    const answer = Promise.withResolvers<void>();
+    thread(vi.fn<ThreadCompaction>(() => answer.promise));
+    let panel = await popover();
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'What to keep' }), {
+      target: { value: 'Keep the parser decision.' },
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Compact now' }));
+
+    // Closed and opened again while the summary is asked: still compacting.
+    fireEvent.click(screen.getByTestId('context-usage-trigger'));
+    await waitFor(() => expect(screen.queryByTestId('context-usage-popover')).toBeNull());
+    panel = await popover();
+    expect(within(panel).getByRole('button', { name: 'Compacting…' })).toBeDisabled();
+    expect(within(panel).getByRole('textbox', { name: 'What to keep' })).toHaveValue(
+      'Keep the parser decision.'
+    );
+
+    // Refused while closed: the refusal and the words are there when it opens.
+    fireEvent.click(screen.getByTestId('context-usage-trigger'));
+    await waitFor(() => expect(screen.queryByTestId('context-usage-popover')).toBeNull());
+    await act(async () => {
+      answer.reject(
+        refusalError(
+          'conflict',
+          'compaction.nothing-to-compact',
+          'Nothing in this thread can be compacted yet.'
+        )
+      );
+      await answer.promise.catch(() => undefined);
+    });
+    panel = await popover();
+    expect(within(panel).getByRole('alert')).toHaveTextContent(
+      'Nothing in this thread can be compacted yet.'
+    );
+    expect(within(panel).getByRole('textbox', { name: 'What to keep' })).toHaveValue(
+      'Keep the parser decision.'
+    );
+    expect(within(panel).getByRole('button', { name: 'Compact now' })).toBeEnabled();
+  });
+
+  it('disables Send while the thread compacts, and enables it once the compaction ends', async () => {
+    const answer = Promise.withResolvers<void>();
+    thread(vi.fn<ThreadCompaction>(() => answer.promise));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message input' }), {
+      target: { value: 'Next question' },
+    });
+    const send = screen.getByRole('button', { name: 'Send' });
+    await waitFor(() => expect(send).toBeEnabled());
+
+    const panel = await popover();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Compact now' }));
+    await waitFor(() => expect(send).toBeDisabled());
+
+    await act(async () => {
+      answer.resolve();
+      await answer.promise;
+    });
+    await waitFor(() => expect(send).toBeEnabled());
   });
 
   it('is not offered where the thread’s owner gives no compaction', async () => {

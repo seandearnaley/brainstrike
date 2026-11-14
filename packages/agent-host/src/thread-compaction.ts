@@ -12,11 +12,13 @@
  *
  * Admission is queued as a run's is. The summary call is not: the admission
  * queue is the host's, so a call of several seconds there would hold every
- * thread's commands. While it runs, the compaction is the tip run's
- * `settlement`, which the thread's next run, regenerate, rewind and wake
- * already join before they are admitted, and the thread's idle check joins.
- * A deletion or host close aborts it with its admission; its commit is queued
- * again, so it never lands after either.
+ * thread's commands. The thread is compacting from the moment its admission
+ * starts, in the queue, until the commit, in the queue again, or a refusal or
+ * an abort: a run, regenerate or rewind the queue admits meanwhile is refused
+ * (`compaction.in-progress`), and a wake leaves what it would deliver queued
+ * until the compaction ends, then wakes the thread. A deletion or host close
+ * aborts it with its admission, and an admission that does not close is the
+ * thread's failed cleanup, as a run's is.
  */
 import { randomUUID } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
@@ -25,6 +27,7 @@ import type { HostContextSummaryUsage } from './compaction-summary-call.ts';
 import { assertRequestedCompaction, nothingToCompact } from './context-compaction.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
 import type { HostRunEnds } from './core-run-end.ts';
+import type { HostRunExecutionPorts } from './core-run-execution.ts';
 import {
   createHostRunState,
   type HostCommandLedger,
@@ -32,7 +35,7 @@ import {
   type HostRunState,
 } from './core-state.ts';
 import { type Json, jsonValue } from './json-value.ts';
-import type { HostClientOrigin, HostPlatform, HostRunAdmission } from './ports.ts';
+import type { HostClientOrigin, HostRunAdmission } from './ports.ts';
 import {
   HOST_RESULT_SCHEMAS,
   type HostEvent,
@@ -42,6 +45,7 @@ import {
 import {
   acquireHostRunAdmission,
   bindHostRunAdmission,
+  HostRunAdmissionCleanupError,
   hostRunCommandRequest,
 } from './run-admission.ts';
 import { assertHostThreadSettled } from './run-branch.ts';
@@ -66,17 +70,17 @@ export interface HostThreadCompactionPorts {
     result: Json,
     events: readonly HostEvent[]
   ): Promise<void>;
-  admit<T>(threadId: string, perform: () => Promise<T>): Promise<T>;
   /** A delegated child thread is its parent's: it never compacts on request. */
   readonly children: Pick<HostChildRuns, 'isChild'>;
   readonly commands: Pick<HostCommandLedger, 'perform'>;
-  /** The seams a request's context reads through. */
-  context(): HostRequestContextPorts;
-  /** Joins the thread's runs' settlements, as its next run does before admission. */
-  readonly ends: Pick<HostRunEnds, 'settled'>;
+  /** The seams a request's context reads and commits through: the queue, platform and runs. */
+  context(): HostRequestContextPorts & Pick<HostRunExecutionPorts, 'admit'>;
+  /** Joins a finished run's settlement, as the next run does; wakes the thread after. */
+  readonly ends: Pick<HostRunEnds, 'settled' | 'wake'>;
   owner(): {
+    /** Each thread's admission whose cleanup failed: Core refuses its commands, deletion and close. */
+    readonly failed: Map<string, unknown>;
     readonly pending: Map<AbortController, string>;
-    readonly platform: HostPlatform;
     readonly runs: HostRunMap;
   };
   /** The run a rewind left as the thread's tip. */
@@ -86,25 +90,15 @@ export interface HostThreadCompactionPorts {
   readonly workspaces: Pick<HostThreadWorkspaceState, 'admissionBinding'>;
 }
 
-/** An admitted compaction, held by its tip run until its summary is committed or refused. */
+/** An admitted compaction: its admission, the thread's next request under the tip's identity, the tip. */
 interface Admitted {
   readonly admission: HostRunAdmission;
-  readonly held: PromiseWithResolvers<void>;
-  /** The thread's next request, under the tip's identity. */
   readonly next: HostRunState;
   readonly tip: HostRunState;
 }
 
-function inProgress(): Error {
-  return refusalError(
-    'conflict',
-    'compaction.in-progress',
-    'This thread is already being compacted.'
-  );
-}
-
 export class HostThreadCompactions {
-  /** Threads with a compaction admitted and not yet committed or refused. */
+  /** Threads whose compaction's admission has started and that have not committed or ended. */
   private readonly compacting = new Set<string>();
   private readonly ports: HostThreadCompactionPorts;
 
@@ -118,23 +112,45 @@ export class HostThreadCompactions {
    */
   async compact(params: Params, origin?: HostClientOrigin): Promise<HostResults['thread/compact']> {
     const committed = await this.ports.commands.perform('thread/compact', params, async () => {
-      this.assertIdle(params.threadId);
+      this.assertNotCompacting(params.threadId);
       // A finished run's resources join first, as before the thread's next run.
       await this.ports.ends.settled(params.threadId);
-      const admitted = await this.ports.admit(params.threadId, () => this.admit(params, origin));
+      // Its queued steps are withdrawn once a deletion or host close aborts it.
+      const controller = new AbortController();
+      const admitted = await this.ports
+        .context()
+        .admit(params.threadId, () => this.admit(params, origin, controller), controller.signal);
       return jsonValue(await this.summarize(params, admitted));
     });
     return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/compact'])(committed);
   }
 
-  private assertIdle(threadId: string): void {
+  /** Whether the thread is compacting now: a wake leaves what it would deliver queued. */
+  isCompacting(threadId: string): boolean {
+    return this.compacting.has(threadId);
+  }
+
+  /** `perform`, refused while the thread compacts: a rewind's or a redo's work. */
+  guard<T>(params: { readonly threadId: string }, perform: () => Promise<T>): () => Promise<T> {
+    return () => {
+      this.assertNotCompacting(params.threadId);
+      return perform();
+    };
+  }
+
+  /** Refuses what would change the thread's history while it compacts: a run, a rewind. */
+  assertNotCompacting(threadId: string): void {
     if (this.compacting.has(threadId)) {
-      throw inProgress();
+      throw refusalError('conflict', 'compaction.in-progress', 'This thread is being compacted.');
     }
   }
 
   /** In the admission queue: the branch, what it can drop, and the next run's admission. */
-  private async admit(params: Params, origin: HostClientOrigin | undefined): Promise<Admitted> {
+  private async admit(
+    params: Params,
+    origin: HostClientOrigin | undefined,
+    controller: AbortController
+  ): Promise<Admitted> {
     const { threadId } = params;
     // Its run is admitted for its root and narrowed; this admission would not be.
     if (this.ports.children.isChild(threadId)) {
@@ -144,8 +160,9 @@ export class HostThreadCompactions {
         'A delegated thread cannot be compacted on request.'
       );
     }
-    this.assertIdle(threadId);
-    const { pending, platform, runs } = this.ports.owner();
+    this.assertNotCompacting(threadId);
+    const { platform } = this.ports.context();
+    const { pending, runs } = this.ports.owner();
     const threadRuns = runs.ofThread(threadId);
     if (threadRuns.some((run) => !run.terminal)) {
       throw refusalError(
@@ -172,7 +189,8 @@ export class HostThreadCompactions {
     if (!selection) {
       throw nothingToCompact();
     }
-    const controller = new AbortController();
+    // Compacting from here, before anything is awaited: the queue admits nothing between.
+    this.compacting.add(threadId);
     // A deletion or host close aborts it, as it aborts an admission in progress.
     pending.set(controller, threadId);
     try {
@@ -200,12 +218,10 @@ export class HostThreadCompactions {
           throw cause;
         }
       );
-      const held = Promise.withResolvers<void>();
-      tip.settlement = held.promise;
-      this.compacting.add(threadId);
-      return { admission, held, next, tip };
+      return { admission, next, tip };
     } catch (cause) {
       pending.delete(controller);
+      this.compacting.delete(threadId);
       throw cause;
     }
   }
@@ -224,11 +240,12 @@ export class HostThreadCompactions {
       : runs.requireForThread(params.threadId, named);
   }
 
-  /** Outside the admission queue: the summary call, then its commit, queued again. */
-  private async summarize(
-    params: Params,
-    { admission, held, next, tip }: Admitted
-  ): Promise<Compacted> {
+  /**
+   * Outside the admission queue: the summary call, then its commit, queued
+   * again, which ends the compacting in the same slot. Its admission closes
+   * after; one that does not close is kept as the thread's failed cleanup.
+   */
+  private async summarize(params: Params, { admission, next, tip }: Admitted): Promise<Compacted> {
     const { threadId } = params;
     const context = this.ports.context();
     // A refused summary the provider billed: the tip run's side call, as its title is.
@@ -240,31 +257,46 @@ export class HostThreadCompactions {
         type: 'model.usage',
         usage,
       };
-      await this.ports.admit(threadId, () =>
-        context.append(threadId, [event], 'full', context.foldRows)
+      await context.admit(
+        threadId,
+        () => context.append(threadId, [event], 'full', context.foldRows),
+        next.controller.signal
       );
     };
+    let outcome: { readonly event: Compacted } | { readonly failure: unknown };
     try {
       const event = await compactRequestedBranch(context, tip, next, admission, {
         bill,
         focus: params.focus,
       });
-      await this.ports.admit(threadId, () =>
-        this.ports.accept(threadId, 'thread/compact', params, jsonValue(event), [event])
+      await context.admit(
+        threadId,
+        async () => {
+          await this.ports.accept(threadId, 'thread/compact', params, jsonValue(event), [event]);
+          this.compacting.delete(threadId);
+        },
+        next.controller.signal
       );
-      return event;
-    } finally {
-      this.ports.owner().pending.delete(next.controller);
-      this.compacting.delete(threadId);
-      try {
-        await admission.close?.();
-      } finally {
-        // Cleared before it settles: a joined run/start then finds the thread settled.
-        if (tip.settlement === held.promise) {
-          tip.settlement = undefined;
-        }
-        held.resolve();
-      }
+      outcome = { event };
+    } catch (cause) {
+      outcome = { failure: cause };
     }
+    this.ports.owner().pending.delete(next.controller);
+    this.compacting.delete(threadId);
+    const [closed] = await Promise.allSettled([admission.close?.()]);
+    if (closed?.status === 'rejected') {
+      const failure =
+        'failure' in outcome
+          ? new HostRunAdmissionCleanupError(outcome.failure, closed.reason)
+          : closed.reason;
+      this.ports.owner().failed.set(threadId, failure);
+      throw failure;
+    }
+    // What a wake left queued while the thread compacted starts now, from the summary.
+    this.ports.ends.wake(threadId);
+    if ('failure' in outcome) {
+      throw outcome.failure;
+    }
+    return outcome.event;
   }
 }

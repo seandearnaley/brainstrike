@@ -10,7 +10,8 @@ import {
 } from './assistant-conversation-panel';
 import type { CommittedAssistantSnapshot } from './committed-assistant-store';
 import { LiveShellOutputContext } from './live-shell-outputs';
-import { type ThreadCompaction, ThreadCompactionProvider } from './thread-compaction';
+import { ThreadCompactionProvider } from './thread-compaction';
+import type { ThreadCompaction } from './thread-compaction-context';
 import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import {
   type CommittedAssistantRuntimeOptions,

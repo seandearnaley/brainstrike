@@ -93,7 +93,7 @@ import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
 import { HostThreadCompactions } from './thread-compaction.ts';
 import { HostThreadListing } from './thread-listing.ts';
 import { HostThreadPresentationState } from './thread-presentation-state.ts';
-import { HostThreadRewinds } from './thread-rewind.ts';
+import { type HostThreadRewindPorts, HostThreadRewinds } from './thread-rewind.ts';
 import { bindHostScratch, turnHostScratchIntoProject } from './thread-scratch.ts';
 import { HostThreadSelections } from './thread-selection-state.ts';
 import { HostThreadTrees } from './thread-summary.ts';
@@ -184,6 +184,7 @@ export class HostCore {
     closing: () => this.closing,
     commitStart: (record, runId, events) =>
       this.accept(record.threadId, 'run/start', record, { runId }, events, this.foldRows),
+    compacting: (threadId) => this.compactNow.isCompacting(threadId),
     deletions: this.deletions,
     foldRows: (rows) => this.foldRows(rows),
     post: (threadId, notice) => this.notify(threadId, { notice, type: 'notice.posted' }),
@@ -196,29 +197,28 @@ export class HostCore {
   /** The Artifacts gallery's canvas reads, across every thread Core holds. */
   readonly canvases = hostCanvases(this.records, this.children, this.threads);
   /** A command and its events, committed with a full sync and folded as Core's own rows. */
-  private readonly acceptFull = (
-    threadId: string,
-    method: string,
-    params: { commandId: string },
-    result: Json,
-    events: readonly HostEvent[]
-  ): Promise<void> => this.accept(threadId, method, params, result, events, this.foldRows, 'full');
+  private readonly acceptFull: HostThreadRewindPorts['accept'] = (...args) =>
+    this.accept(...args, this.foldRows, 'full');
   /** Restore to before a message (`thread-rewind.ts`): preview, rewind, and redo. */
   readonly rewinds = new HostThreadRewinds({
     accept: this.acceptFull,
     append: (threadId, events) => this.append(threadId, events, 'full', this.foldRows),
-    command: (method, params, perform, fork) => this.settledCommand(method, params, perform, fork),
+    command: (method, params, perform, fork) =>
+      this.settledCommand(method, params, this.compactNow.guard(params, perform), fork),
     owner: () => ({ pending: this.pendingAdmissions, platform: this.platform, runs: this.runs }),
   });
   /** BST-2536: a person's Compact now, between runs (`thread-compaction.ts`). */
   readonly compactNow = new HostThreadCompactions({
     accept: this.acceptFull,
-    admit: (threadId, perform) => this.admit(threadId, perform),
     children: this.children,
     commands: this.commands,
     context: () => this.executionPorts(),
     ends: this.ends,
-    owner: () => ({ pending: this.pendingAdmissions, platform: this.platform, runs: this.runs }),
+    owner: () => ({
+      failed: this.failedAdmissions,
+      pending: this.pendingAdmissions,
+      runs: this.runs,
+    }),
     rewinds: this.rewinds,
     selections: this.selections,
     workspaces: this.workspaces,
@@ -616,6 +616,7 @@ export class HostCore {
     try {
       this.catalog.assertRunnable(params.threadId);
       assertHostRunAdmissible(this.threads, this.runs.values(), this.conversationIds, params);
+      this.compactNow.assertNotCompacting(params.threadId);
       // ADR-0019: a wake admits fresh from the thread's selection, with no user prompt.
       admission = await acquireHostRunAdmission(this.platform, {
         ...hostRunCommandRequest(

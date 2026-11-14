@@ -5,11 +5,16 @@
  */
 import { describeBoundaryError } from '@brainstrike/assistant-contract';
 import { Button, Input } from '@brainstrike/ui';
-import { createContext, type ReactElement, type ReactNode, use, useState } from 'react';
+import { type ReactElement, type ReactNode, use, useState } from 'react';
 import type {
   CommittedAssistantSnapshot,
   CommittedAssistantStore,
 } from './committed-assistant-store';
+import {
+  type ThreadCompaction,
+  ThreadCompactionContext,
+  type ThreadCompactionValue,
+} from './thread-compaction-context';
 import { useCommittedAssistantSelector } from './use-committed-assistant-runtime';
 
 /**
@@ -18,23 +23,7 @@ import { useCommittedAssistantSelector } from './use-committed-assistant-runtime
  */
 const FOCUS_MAX = 500;
 
-/**
- * Compacts the thread's branch that ends with `parentMessageId`, the run the
- * view ends with; rejects with the host's refusal.
- */
-export type ThreadCompaction = (request: {
-  readonly focus?: string;
-  readonly parentMessageId: string | null;
-}) => Promise<void>;
-
-interface ThreadCompactionValue {
-  readonly compact: ThreadCompaction;
-  readonly store: CommittedAssistantStore;
-}
-
-const ThreadCompactionContext = createContext<ThreadCompactionValue | null>(null);
-
-/** The owner's compaction for the meter below; the committed store says where the view ends. */
+/** The owner's compaction for the meter and composer below; the store says where the view ends. */
 export function ThreadCompactionProvider({
   children,
   compact,
@@ -44,8 +33,29 @@ export function ThreadCompactionProvider({
   readonly compact: ThreadCompaction | undefined;
   readonly store: CommittedAssistantStore;
 }): ReactElement {
+  const [focus, setFocus] = useState('');
+  const [compacting, setCompacting] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const start = async (parentMessageId: string | null): Promise<void> => {
+    if (!compact) {
+      return;
+    }
+    const kept = focus.trim();
+    setCompacting(true);
+    setFailure(null);
+    try {
+      await compact({ ...(kept ? { focus: kept } : {}), parentMessageId });
+      setFocus('');
+    } catch (cause) {
+      setFailure(describeBoundaryError(cause));
+    } finally {
+      setCompacting(false);
+    }
+  };
   return (
-    <ThreadCompactionContext value={compact ? { compact, store } : null}>
+    <ThreadCompactionContext
+      value={compact ? { compacting, failure, focus, setFocus, start, store } : null}
+    >
       {children}
     </ThreadCompactionContext>
   );
@@ -69,23 +79,8 @@ function CompactNow({ value }: { readonly value: ThreadCompactionValue }): React
   const head = useCommittedAssistantSelector(value.store, selectHead);
   const running = useCommittedAssistantSelector(value.store, selectRunning);
   const rewound = useCommittedAssistantSelector(value.store, selectRewound);
-  const [focus, setFocus] = useState('');
-  const [compacting, setCompacting] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  const { compacting, failure, focus, setFocus, start } = value;
   const disabled = compacting || running || rewound || head === null;
-  const submit = async (): Promise<void> => {
-    const kept = focus.trim();
-    setCompacting(true);
-    setFailure(null);
-    try {
-      await value.compact({ ...(kept ? { focus: kept } : {}), parentMessageId: head });
-      setFocus('');
-    } catch (cause) {
-      setFailure(describeBoundaryError(cause));
-    } finally {
-      setCompacting(false);
-    }
-  };
   return (
     <>
       <div aria-hidden="true" className="border-border/60 my-1 border-t" />
@@ -94,7 +89,7 @@ function CompactNow({ value }: { readonly value: ThreadCompactionValue }): React
         data-testid="context-usage-compact"
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          void start(head);
         }}
       >
         <Input
