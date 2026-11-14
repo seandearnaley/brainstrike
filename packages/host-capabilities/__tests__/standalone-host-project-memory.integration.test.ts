@@ -181,7 +181,8 @@ test('an untrusted launch root loads no memory and offers no memory tool', {
   const module = await trustedPlatformModule('trusted-fixture');
   const host = await standaloneHost({}, module, {}, async ({ dataRoot, workspace }) => {
     const projectId = await recordProject(dataRoot, workspace);
-    await new ProjectMemoryNotes(dataRoot, projectId).execute(NOTE, { untrusted: false });
+    const notes = await ProjectMemoryNotes.open(dataRoot, projectId);
+    await notes.execute(NOTE, { untrusted: false });
   });
   expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
 
@@ -198,7 +199,7 @@ test('a run loads the first 200 lines of the index, with a marker where it was c
 }, async () => {
   const module = await trustedPlatformModule('trusted-fixture');
   const host = await standaloneHost({}, module, {}, async ({ dataRoot, workspace }) => {
-    const notes = new ProjectMemoryNotes(dataRoot, await recordProject(dataRoot, workspace));
+    const notes = await ProjectMemoryNotes.open(dataRoot, await recordProject(dataRoot, workspace));
     for (let at = 1; at <= 205; at += 1) {
       const file = `n${String(at).padStart(3, '0')}.md`;
       await notes.execute(

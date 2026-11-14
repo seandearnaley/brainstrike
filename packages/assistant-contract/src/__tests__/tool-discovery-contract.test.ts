@@ -14,7 +14,7 @@ const EXPECTED_CRITICAL_TOOL_IDS = [
   'brainstrike.executeCommand',
   'brainstrike.globWorkspace',
   'brainstrike.grepSearch',
-  // ADR-0040: a run with project memory loads its index, and Anthropic declares the native tool.
+  // ADR-0040: a run with project memory loads its index, so the tool that reads and writes it is always declared.
   'brainstrike.memory',
   'brainstrike.readWorkspaceFile',
   'brainstrike.stringReplaceWorkspaceFile',

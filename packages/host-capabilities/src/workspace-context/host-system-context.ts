@@ -11,6 +11,7 @@ import {
 import { type HostRunIntentRequest, hostToolDiscoveryEnabled } from '@brainstrike/agent-host';
 import {
   isSupportedProvider,
+  NATIVE_TOOL_ID,
   type ReferencedFileFailure,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
@@ -66,6 +67,11 @@ export async function readHostSystemContext(options: {
   /** Plan mode: the instructions say the run may only read and propose a plan. */
   readonly planMode: boolean;
   /** ADR-0040: the run's project memory, whose section ends the instructions. */
+  /**
+   * ADR-0040: the run's project memory, whose section ends the instructions. A
+   * run its tools do not give the memory tool gets the child's section: the
+   * index, without the tool's instructions.
+   */
   readonly projectMemory?: { readonly childSection: string; readonly section: string };
   readonly readWorkspaceFile?: WorkspaceFileReader;
   readonly request: HostRunIntentRequest;
@@ -130,7 +136,13 @@ export async function readHostSystemContext(options: {
   const { injected, referencedFileFailures } = workspace;
   options.request.signal.throwIfAborted();
   // ADR-0040: the project's memory index follows the stable instructions.
-  const system = joinedSections([...sections, ...injected, options.projectMemory?.section]);
+  const memoryOffered = Object.entries(options.tools).some(
+    ([name, tool]) => (tool.permissionToolId ?? name) === NATIVE_TOOL_ID.memory
+  );
+  const memory = memoryOffered
+    ? options.projectMemory?.section
+    : options.projectMemory?.childSection;
+  const system = joinedSections([...sections, ...injected, memory]);
   const childSystem = options.personas?.length
     ? joinedSections([...shared, ...injected, options.projectMemory?.childSection])
     : undefined;

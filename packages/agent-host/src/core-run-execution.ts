@@ -320,7 +320,6 @@ async function runRegisteredTool(
     memory: hostMemoryRecord({
       append: (events) => ports.append(run.threadId, events, 'full', ports.foldRows),
       rows: () => ports.readCommittedRows(run),
-      run,
       runId: run.id,
       toolCallId: action.toolCallId,
       tools: hostRunTools(run),

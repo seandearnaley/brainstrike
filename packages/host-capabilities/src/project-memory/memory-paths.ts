@@ -38,13 +38,22 @@ export function memoryRelativePath(raw: string): string {
     if (segment === '.' || segment === '..') {
       throw outside(raw);
     }
-    if (segment.startsWith('.') || segment === 'node_modules') {
+    if (segment.startsWith('.') || segment.toLowerCase() === 'node_modules') {
       throw new ToolInputError(
         `Error: The path ${raw} names a hidden item, which memory keeps none of.`
       );
     }
   }
   return segments.join('/');
+}
+
+/**
+ * Whether a path under the memory folder names the index: a segment that is
+ * `MEMORY.md` in any case, which a case-insensitive volume writes as the index.
+ */
+export function namesMemoryIndex(relative: string): boolean {
+  const index = MEMORY_INDEX_FILE.toLowerCase();
+  return relative.split('/').some((segment) => segment.toLowerCase() === index);
 }
 
 /** The tool's spelling of a path under the memory folder. */

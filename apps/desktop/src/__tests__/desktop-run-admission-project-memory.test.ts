@@ -45,7 +45,8 @@ beforeEach(async () => {
       preferredId: folder.rootId,
     },
   });
-  await new ProjectMemoryNotes(store.root, roots[0]?.projectId ?? '').execute(
+  const notes = await ProjectMemoryNotes.open(store.root, roots[0]?.projectId ?? '');
+  await notes.execute(
     {
       command: 'create',
       file_text: "# Test runtime\nThis repo's tests need Node 26.\n",
@@ -60,7 +61,11 @@ afterEach(async () => {
   await rm(directory, { force: true, recursive: true });
 });
 
-async function admit(trustedRoots: DesktopTrustedRoots) {
+async function admit(
+  trustedRoots: DesktopTrustedRoots,
+  // The person keeps the memory tool on, as every new tool starts.
+  enabledNativeToolIds: readonly string[] = [NATIVE_TOOL_ID.memory]
+) {
   const admission = createDesktopRunAdmission(
     mainReads({
       acquireWorkspace: async () => ({
@@ -77,8 +82,7 @@ async function admit(trustedRoots: DesktopTrustedRoots) {
   const request: HostRunAdmissionRequest = {
     configuration: {
       ...capturedIntent({ model: 'gpt-6-sol', provider: 'openai' }),
-      // The person keeps the memory tool on, as every new tool starts.
-      enabledNativeToolIds: [NATIVE_TOOL_ID.memory],
+      enabledNativeToolIds: [...enabledNativeToolIds],
     },
     modelId: 'openai::gpt-6-sol',
     runId: 'host-run',
@@ -121,4 +125,14 @@ test('a run whose folder is not trusted gets no memory tool and no index', async
   expect(run.notes).toBeUndefined();
   expect(run.system).not.toContain('# Project memory');
   expect(run.system).not.toContain('Test runtime');
+});
+
+test('a run whose memory tool is turned off gets the index, and is never told to use the tool', async () => {
+  const run = await admit(everyRootTrusted, []);
+
+  expect(run.tools).not.toContain(NATIVE_TOOL_ID.memory);
+  expect(run.system).toContain(
+    "- [Test runtime](test-runtime.md) — This repo's tests need Node 26."
+  );
+  expect(run.system).not.toContain('memory tool');
 });

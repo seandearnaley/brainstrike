@@ -5,7 +5,7 @@
  * files after every change, keeps which notes untrusted context wrote, and
  * refuses a note that looks like it holds a secret.
  */
-import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { HostMemoryChange, HostMemoryRefusal } from '@brainstrike/agent-host';
 import { refusalError, ToolInputError } from '@brainstrike/assistant-contract';
@@ -21,7 +21,12 @@ import {
 } from '../native-tools/secure-file-write.ts';
 import { resolveWorkspaceAbsolutePath } from '../native-tools/workspace-path-resolution.ts';
 import { memoryIndexLine, memoryNoteTitle } from './memory-index.ts';
-import { MEMORY_INDEX_FILE, memoryRelativePath, memoryToolPath } from './memory-paths.ts';
+import {
+  MEMORY_INDEX_FILE,
+  memoryRelativePath,
+  memoryToolPath,
+  namesMemoryIndex,
+} from './memory-paths.ts';
 
 /** Which notes untrusted context wrote, kept by the host beside them and hidden from the tool. */
 const PROVENANCE_FILE = '.provenance.json';
@@ -120,6 +125,17 @@ export class ProjectMemoryNotes {
     this.projectId = projectId;
   }
 
+  /**
+   * The project's notes for a run admitted to it, its folder made. Only the
+   * project's deletion removes the folder, so a run admitted before it finds
+   * none and is refused rather than bringing it back.
+   */
+  static async open(dataRoot: string, projectId: string): Promise<ProjectMemoryNotes> {
+    const notes = new ProjectMemoryNotes(dataRoot, projectId);
+    await mkdir(notes.folder, { recursive: true });
+    return notes;
+  }
+
   /** `MEMORY.md` as the host last wrote it; undefined while the project has no notes. */
   async readIndex(): Promise<string | undefined> {
     try {
@@ -146,10 +162,17 @@ export class ProjectMemoryNotes {
   /** Restore what one committed write replaced; refused once the note changed since. */
   undo(change: HostMemoryChange): Promise<void> {
     return serialize(this.folder, async () => {
+      if (!(await this.folderExists())) {
+        throw refusalError(
+          'conflict',
+          'memory.project-gone',
+          "This note's project no longer exists, so nothing was undone."
+        );
+      }
       const marks = await this.readMarks();
       await (change.fromPath === undefined
         ? this.restore(change, marks)
-        : this.moveBack(change.path, change.fromPath, marks));
+        : this.moveBack(change, change.fromPath, marks));
       await this.settle(marks);
     });
   }
@@ -178,11 +201,22 @@ export class ProjectMemoryNotes {
     }
   }
 
-  /** Move a renamed note back, while nothing took its old place. */
-  private async moveBack(toolPath: string, fromPath: string, marks: Set<string>): Promise<void> {
-    const at = memoryRelativePath(toolPath);
+  /**
+   * Move a renamed note back, while it still holds what the rename left (a
+   * renamed directory: while it is there) and nothing took its old place.
+   */
+  private async moveBack(
+    change: HostMemoryChange,
+    fromPath: string,
+    marks: Set<string>
+  ): Promise<void> {
+    const at = memoryRelativePath(change.path);
     const from = memoryRelativePath(fromPath);
-    if ((await this.kind(at)) === undefined || (await this.kind(from)) !== undefined) {
+    const unchanged =
+      change.text === null
+        ? (await this.kind(at)) === 'directory'
+        : (await this.readNote(at)) === change.text;
+    if (!unchanged || (await this.kind(from)) !== undefined) {
       throw changedSince();
     }
     await this.move(at, from, marks);
@@ -193,7 +227,7 @@ export class ProjectMemoryNotes {
     range: readonly number[] | undefined
   ): Promise<ProjectMemoryResult> {
     const relative = memoryRelativePath(toolPath);
-    await mkdir(this.folder, { recursive: true });
+    await this.requireFolder();
     const kind = await this.kind(relative);
     if (kind === undefined) {
       return { output: `The path ${toolPath} does not exist. Please provide a valid path.` };
@@ -226,7 +260,7 @@ export class ProjectMemoryNotes {
   }
 
   private async write(input: MemoryInput, untrusted: boolean): Promise<ProjectMemoryResult> {
-    await mkdir(this.folder, { recursive: true });
+    await this.requireFolder();
     const marks = await this.readMarks();
     if (input.command === 'rename') {
       return await this.renameNote(
@@ -238,7 +272,7 @@ export class ProjectMemoryNotes {
     }
     const toolPath = required(input.path, 'path');
     const relative = memoryRelativePath(toolPath);
-    if (relative === MEMORY_INDEX_FILE) {
+    if (namesMemoryIndex(relative)) {
       throw indexIsTheHosts();
     }
     if (relative === '') {
@@ -377,7 +411,7 @@ export class ProjectMemoryNotes {
   ): Promise<ProjectMemoryResult> {
     const from = memoryRelativePath(oldPath);
     const to = memoryRelativePath(newPath);
-    if ([from, to].includes(MEMORY_INDEX_FILE)) {
+    if (namesMemoryIndex(from) || namesMemoryIndex(to)) {
       throw indexIsTheHosts();
     }
     if (from === '' || to === '') {
@@ -391,8 +425,11 @@ export class ProjectMemoryNotes {
       throw new ToolInputError(`Error: The destination ${newPath} already exists`);
     }
     await this.move(from, to, marks);
+    const moved = kind === 'file' ? [to] : await this.notes(to);
     if (untrusted) {
-      marks.add(to);
+      for (const note of moved) {
+        marks.add(note);
+      }
     }
     await this.settle(marks);
     const text = kind === 'file' ? await this.readNote(to) : null;
@@ -404,7 +441,7 @@ export class ProjectMemoryNotes {
         projectId: this.projectId,
         text,
         title: text === null ? path.posix.basename(to) : memoryNoteTitle(to, text),
-        untrusted: marks.has(to),
+        untrusted: moved.some((note) => marks.has(note)),
       },
       output: `Successfully renamed ${oldPath} to ${newPath}`,
     };
@@ -487,7 +524,9 @@ export class ProjectMemoryNotes {
     try {
       const entries = await readdir(path.join(this.folder, directory), { withFileTypes: true });
       return entries
-        .filter((entry) => !(entry.name.startsWith('.') || entry.name === 'node_modules'))
+        .filter(
+          (entry) => !(entry.name.startsWith('.') || entry.name.toLowerCase() === 'node_modules')
+        )
         .sort((a, b) => a.name.localeCompare(b.name));
     } catch (cause) {
       if (errorCode(cause) === 'ENOENT') {
@@ -547,6 +586,26 @@ export class ProjectMemoryNotes {
       return null;
     }
     return await readFile(await this.existing(relative), 'utf8');
+  }
+
+  private async folderExists(): Promise<boolean> {
+    try {
+      return (await stat(this.folder)).isDirectory();
+    } catch (cause) {
+      if (errorCode(cause) === 'ENOENT') {
+        return false;
+      }
+      throw cause;
+    }
+  }
+
+  /** The project's folder, which only the project's deletion removes once a run was admitted. */
+  private async requireFolder(): Promise<void> {
+    if (!(await this.folderExists())) {
+      throw new ToolInputError(
+        "Error: This thread's project no longer exists, so its memory was not read or changed."
+      );
+    }
   }
 
   private async existing(relative: string): Promise<string> {

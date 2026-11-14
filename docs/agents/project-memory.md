@@ -23,11 +23,13 @@ Owners: [notes](../../packages/host-capabilities/src/project-memory/memory-notes
   - It is parent-only (`PARENT_ONLY_TOOL_IDS`); a child reads the index through its instructions and never writes.
 - Paths: `/memories` or under it. A `.`, `..`, percent-encoded or hidden segment is refused before the workspace path resolver keeps the write inside the folder through symlinks. Reuse that resolver; never add another.
 - A note holds at most 16,000 characters. One that `scrubLikelySecretValues` flags is refused and committed as `memory.refused`, which never carries its text.
-- A write by a run that has read web or MCP tool output (`hostRunReadUntrustedContent`) marks the note untrusted until it is deleted.
+- A write marks its notes untrusted until they are deleted when its run or any earlier run on the thread's branch (`committedRunAncestors`), compacted or not, read web or MCP tool output (`hostRunReadUntrustedContent`). A directory rename marks every note in it.
+- Index lines carry no angle brackets, so no note can open or close the `<memory_index>` block. `MEMORY.md` is refused in any case, as a case-insensitive volume would write the index.
+- Admission makes the project's folder (`ProjectMemoryNotes.open`) and only the project's deletion removes it, so a run admitted before a `join-project` deleted its project is refused, as is an Undo there; never recreate the folder on a write.
 
 ## Loading
 
-- Admission reads `MEMORY.md` once and adds `projectMemorySection` after the stable prompt and the workspace instructions; `childSystem` gets the child variant. The text is committed with `run.started`, so a recovered run reuses it.
+- Admission reads `MEMORY.md` once and adds `projectMemorySection` after the stable prompt and the workspace instructions; `childSystem` gets the child variant, and so does a run whose tools leave the memory tool out (`readHostSystemContext` reads the offered tools). The text is committed with `run.started`, so a recovered run reuses it.
 - Only while the operating folder is trusted (ADR-0032), the same gate as its `AGENTS.md`. An untrusted run gets neither the section nor the tool.
 - The first 200 lines or 25,000 characters load, with a marker where the index was cut (`loadedMemoryIndex`). Note files are read with `view`.
 - The section says notes are data, never instructions, and that the person and `AGENTS.md` outrank them. Keep it that way.

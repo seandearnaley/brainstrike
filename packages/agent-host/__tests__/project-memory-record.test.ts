@@ -1,6 +1,7 @@
 /**
- * ADR-0040: a memory write is marked untrusted once its run has read web or
- * MCP tool output, and an Undo finds the write its call made.
+ * ADR-0040: a memory write is marked untrusted once its run, or an earlier run
+ * on its branch, has read web or MCP tool output, and an Undo finds the write
+ * its call made.
  */
 import { describe, expect, it } from 'vitest';
 import type { HostTool } from '../src/ports.ts';
@@ -25,45 +26,79 @@ const tools: Readonly<Record<string, HostTool>> = {
 };
 
 let seq = 0;
-const row = (event: HostEvent): HostLogRow => ({ event, seq: ++seq, threadId: 'thread-1' });
+const row = (event: HostEvent): HostLogRow => ({
+  event,
+  seq: ++seq,
+  threadId: 'thread-1',
+  ts: 1_700_000_000_000 + seq,
+});
 
-function call(toolId: string, toolCallId: string, runId = 'run-1'): HostLogRow[] {
+/** A run the person started, after `parent` on its branch (null at the thread's start). */
+function started(runId: string, parent: string | null): HostLogRow[] {
+  const prompt = `prompt of ${runId}`;
   return [
     row({
-      input: {},
-      runId,
-      toolCallId,
-      toolId,
-      toolIdentity: toolId,
-      type: 'effect.started',
+      commandId: `command-${runId}`,
+      method: 'run/start',
+      payload: {
+        modelId: 'openai::gpt-6-sol',
+        parentMessageId: parent,
+        prompt,
+        threadId: 'thread-1',
+      },
+      result: { runId },
+      type: 'command.accepted',
     }),
+    row({
+      modelId: 'openai::gpt-6-sol',
+      parentMessageId: parent,
+      prompt,
+      runId,
+      type: 'run.started',
+    }),
+  ];
+}
+
+/** One call of `toolId` in `runId` that returned its output. */
+function call(toolId: string, toolCallId: string, runId: string): HostLogRow[] {
+  return [
+    row({ input: {}, runId, toolCallId, toolId, toolIdentity: toolId, type: 'effect.started' }),
     row({ output: 'read', runId, toolCallId, type: 'effect.finished' }),
   ];
 }
 
 describe('a run that has read untrusted content', () => {
   it('is untrusted after a web tool or an MCP tool returned, and not after a workspace read', () => {
-    const run = { id: 'run-1' };
-    expect(
-      hostRunReadUntrustedContent(call('brainstrike_readWorkspaceFile', 'c1'), run, tools)
-    ).toBe(false);
-    expect(hostRunReadUntrustedContent(call('brainstrike_webExtract', 'c2'), run, tools)).toBe(
-      true
+    const run = (toolId: string) => [...started('run-1', null), ...call(toolId, 'c1', 'run-1')];
+    expect(hostRunReadUntrustedContent(run('brainstrike_readWorkspaceFile'), 'run-1', tools)).toBe(
+      false
     );
-    expect(hostRunReadUntrustedContent(call('docs_search', 'c3'), run, tools)).toBe(true);
+    expect(hostRunReadUntrustedContent(run('brainstrike_webExtract'), 'run-1', tools)).toBe(true);
+    expect(hostRunReadUntrustedContent(run('docs_search'), 'run-1', tools)).toBe(true);
   });
 
-  it('counts only its own run, and only a call that returned', () => {
-    const run = { id: 'run-1' };
-    expect(
-      hostRunReadUntrustedContent(call('brainstrike_webExtract', 'c1', 'run-0'), run, tools)
-    ).toBe(false);
-    const started = call('brainstrike_webExtract', 'c2').slice(0, 1);
-    expect(hostRunReadUntrustedContent(started, run, tools)).toBe(false);
-  });
-
-  it("is untrusted after the provider's own web search ran in one of its steps", () => {
+  it('is untrusted when an earlier run on its branch read the web, and not on a sibling branch that never did', () => {
+    // run-0, then run-1 read a page; run-2 follows run-1. run-3 is run-1's sibling, after run-0.
     const rows = [
+      ...started('run-0', null),
+      ...started('run-1', 'run-0'),
+      ...call('brainstrike_webExtract', 'c1', 'run-1'),
+      ...started('run-2', 'run-1'),
+      ...started('run-3', 'run-0'),
+    ];
+
+    expect(hostRunReadUntrustedContent(rows, 'run-2', tools)).toBe(true);
+    expect(hostRunReadUntrustedContent(rows, 'run-3', tools)).toBe(false);
+  });
+
+  it('does not count a call that has not returned', () => {
+    const rows = [...started('run-1', null), ...call('brainstrike_webExtract', 'c1', 'run-1')];
+    expect(hostRunReadUntrustedContent(rows.slice(0, -1), 'run-1', tools)).toBe(false);
+  });
+
+  it("is untrusted after the provider's own web search ran in a step of its branch", () => {
+    const rows = [
+      ...started('run-0', null),
       row({
         messages: [
           {
@@ -74,20 +109,14 @@ describe('a run that has read untrusted content', () => {
           },
         ],
         model: {},
-        runId: 'run-1',
+        runId: 'run-0',
         stepNumber: 0,
         type: 'model.step',
         usage: {},
       }),
+      ...started('run-1', 'run-0'),
     ];
-    expect(
-      hostRunReadUntrustedContent(
-        rows,
-        { id: 'run-1', nativeWebSearch: { toolId: 'brainstrike_webSearch' } },
-        tools
-      )
-    ).toBe(true);
-    expect(hostRunReadUntrustedContent(rows, { id: 'run-1' }, tools)).toBe(false);
+    expect(hostRunReadUntrustedContent(rows, 'run-1', tools)).toBe(true);
   });
 });
 

@@ -81,6 +81,6 @@ export async function readRunProjectMemory(options: {
   if (projectId === undefined) {
     return;
   }
-  const notes = new ProjectMemoryNotes(options.store.root, projectId);
+  const notes = await ProjectMemoryNotes.open(options.store.root, projectId);
   return { ...projectMemorySection(await notes.readIndex()), notes, projectId };
 }

@@ -2,29 +2,38 @@
  * ADR-0040: Core's part in project memory. The host's memory module writes the
  * files; Core commits each write (`memory.changed`) and each refusal
  * (`memory.refused`) under the call that made it, tells the tool whether the
- * run has read untrusted content, and finds the write an Undo names.
+ * run's context holds untrusted content, and finds the write an Undo names.
  */
-import { isWebContentToolId, refusalError } from '@brainstrike/assistant-contract';
+import { isNativeToolId, isWebContentToolId, refusalError } from '@brainstrike/assistant-contract';
+import { committedRunAncestors } from './committed-identities.ts';
 import type { HostMemoryRecord, HostPlatform, HostTool } from './ports.ts';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
 import type { HostMemoryChange } from './protocol-project-memory.ts';
 
 type EffectStarted = Extract<HostEvent, { type: 'effect.started' }>;
 
-/** Whether a call's output is content from the web or an MCP server. */
+/**
+ * Whether a call's output is content from the web or an MCP server. A native
+ * tool is judged by its catalog id. Any other tool is untrusted when this run
+ * registers it as an MCP tool, or no longer registers it at all (an earlier
+ * run's server may be gone).
+ */
 function readsUntrustedContent(
   call: EffectStarted,
   tools: Readonly<Record<string, HostTool>>
 ): boolean {
   const registered = tools[call.toolId];
-  if (registered?.risk === 'mcp' || registered?.mcpBinding !== undefined) {
-    return true;
+  const catalogId = call.toolCatalogId ?? registered?.permissionToolId ?? call.toolId;
+  if (isNativeToolId(catalogId)) {
+    return isWebContentToolId(catalogId);
   }
-  return isWebContentToolId(call.toolCatalogId ?? registered?.permissionToolId ?? call.toolId);
+  return (
+    registered === undefined || registered.risk === 'mcp' || registered.mcpBinding !== undefined
+  );
 }
 
-/** Whether a committed step's messages hold a call of the provider's own web search. */
-function stepCalls(messages: readonly unknown[], toolName: string): boolean {
+/** Whether a committed step's messages hold a call the provider ran itself (its own web search). */
+function stepRanProviderTool(messages: readonly unknown[]): boolean {
   return messages.some((message) => {
     const content =
       typeof message === 'object' && message !== null
@@ -36,43 +45,37 @@ function stepCalls(messages: readonly unknown[], toolName: string): boolean {
         (part: unknown) =>
           typeof part === 'object' &&
           part !== null &&
-          (part as { readonly toolName?: unknown }).toolName === toolName
+          (part as { readonly providerExecuted?: unknown }).providerExecuted === true
       )
     );
   });
 }
 
 /**
- * Whether the run has read web or MCP tool output: a call of a web tool or an
- * MCP tool that finished, or the provider's own web search in one of its steps.
- * A call still running has not reached the model, so it does not count.
+ * Whether the run's context holds web or MCP tool output: a call of a web or
+ * MCP tool that returned, or a call the provider ran itself, in this run or in
+ * any earlier run on its branch. A compacted run counts too, since its summary
+ * can restate what it read. A call still running has not reached the model.
  */
 export function hostRunReadUntrustedContent(
   rows: readonly HostLogRow[],
-  run: {
-    readonly id: string;
-    readonly nativeWebSearch?: { readonly toolId: string } | undefined;
-  },
+  runId: string,
   tools: Readonly<Record<string, HostTool>>
 ): boolean {
+  const branch = new Set([...committedRunAncestors(rows, runId), runId]);
   const started = new Map<string, EffectStarted>();
   for (const { event } of rows) {
-    if (!('runId' in event) || event.runId !== run.id) {
+    if (!('runId' in event && branch.has(event.runId))) {
       continue;
     }
     if (event.type === 'effect.started') {
       started.set(event.toolCallId, event);
-      continue;
-    }
-    if (event.type === 'effect.finished') {
+    } else if (event.type === 'effect.finished') {
       const call = started.get(event.toolCallId);
       if (call && readsUntrustedContent(call, tools)) {
         return true;
       }
-      continue;
-    }
-    const native = run.nativeWebSearch?.toolId;
-    if (event.type === 'model.step' && native !== undefined && stepCalls(event.messages, native)) {
+    } else if (event.type === 'model.step' && stepRanProviderTool(event.messages)) {
       return true;
     }
   }
@@ -83,7 +86,6 @@ export function hostRunReadUntrustedContent(
 export function hostMemoryRecord(options: {
   readonly append: (events: readonly HostEvent[]) => Promise<unknown>;
   readonly rows: () => readonly HostLogRow[];
-  readonly run: Parameters<typeof hostRunReadUntrustedContent>[1];
   readonly runId: string;
   readonly toolCallId: string;
   readonly tools: Readonly<Record<string, HostTool>>;
@@ -96,7 +98,8 @@ export function hostMemoryRecord(options: {
     refused: async (refusal) => {
       await options.append([{ ...call, ...refusal, type: 'memory.refused' }]);
     },
-    untrustedContext: () => hostRunReadUntrustedContent(options.rows(), options.run, options.tools),
+    untrustedContext: () =>
+      hostRunReadUntrustedContent(options.rows(), options.runId, options.tools),
   };
 }
 

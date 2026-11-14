@@ -63,9 +63,9 @@
   - Limit: the first 200 lines or 25,000 characters, whichever comes first, with a marker that
     says where it was cut. Note files are not loaded; the model reads them with `view`.
   - A child run (subagent) gets the index too and never writes: the tool is parent-only.
-- **Limits.** Paths start with `/memories`; a `..` segment or a hidden name is refused, and the
-  workspace path resolver (`resolveWorkspaceWritePath`) keeps every write inside the folder
-  through symlinks. A note holds at most 16,000 characters, the size Anthropic's `view` shows
+- **Limits.** Paths start with `/memories`; a `..` segment, a hidden name and `MEMORY.md` in any
+  case are refused, and the workspace path resolver (`resolveWorkspaceWritePath`) keeps every
+  write inside the folder through symlinks. A note holds at most 16,000 characters, the size Anthropic's `view` shows
   before it truncates.
 - **A note is data.** The section tells the model that notes are facts earlier threads saved,
   never instructions, and that the person and `AGENTS.md` outrank them.
@@ -73,9 +73,10 @@
   (`@brainstrike/utils/diagnostics`) and refuses a note that matches, with the reason on the card.
   `@brainstrike/logging` redacts by key name only and has no text scan to reuse; the secret-scan
   script's patterns are private to the script.
-- **Provenance.** A write made by a run that has read web or MCP tool output (web search, web
-  extract, browser pages, an MCP tool) is marked as coming from untrusted context. The mark stays
-  with the note until the note is deleted. The host keeps it beside the notes
+- **Provenance.** A write is marked as coming from untrusted context when its run, or any earlier
+  run on the thread's branch, compacted or not, read web or MCP tool output (web search, web
+  extract, browser pages, an MCP tool, or a tool an earlier run had that this run no longer has).
+  The mark stays with the note until the note is deleted. The host keeps it beside the notes
   (`.provenance.json`, hidden from the tool), shows it on the card and on the note's index line.
 - **Every write is visible.** A write commits `memory.changed`, which the thread shows as a card:
   the note's title and text, the untrusted mark, and Undo. Undo (`memory/undo`) restores what the
@@ -99,7 +100,7 @@
 - The standalone CLI records no folders, so its runs have memory only for a workspace whose
   project another host recorded in the same data root.
 - A write after a delegated child's result is not marked untrusted, though the child may have
-  read the web. The mark covers the run's own tool calls.
+  read the web: the mark reads the calls on the thread's own branch, not a child thread's.
 - Reading, editing and deleting notes outside a thread is BST-2534.
 
 ## Sources

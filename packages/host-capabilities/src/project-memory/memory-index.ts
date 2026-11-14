@@ -35,10 +35,18 @@ function memoryNoteHook(text: string): string {
   return line.length > HOOK_MAX_CHARS ? `${line.slice(0, HOOK_MAX_CHARS - 1)}…` : line;
 }
 
+/**
+ * A note's words as an index line holds them: no angle bracket, so nothing a
+ * note says can open or close the `<memory_index>` block the index is loaded in.
+ */
+function indexText(text: string): string {
+  return text.replace(/</gu, '&lt;').replace(/>/gu, '&gt;');
+}
+
 /** One note's index line: title, path and hook, marked when untrusted context wrote it. */
 export function memoryIndexLine(relative: string, text: string, untrusted: boolean): string {
-  const title = memoryNoteTitle(relative, text).replace(/[[\]]/gu, '');
-  const hook = memoryNoteHook(text);
+  const title = indexText(memoryNoteTitle(relative, text).replace(/[[\]]/gu, ''));
+  const hook = indexText(memoryNoteHook(text));
   return `- [${title}](${relative})${hook ? ` — ${hook}` : ''}${untrusted ? ' (untrusted)' : ''}`;
 }
 

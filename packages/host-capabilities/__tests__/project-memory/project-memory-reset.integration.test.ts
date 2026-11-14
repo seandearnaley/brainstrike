@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 async function saveNote(projectId: string): Promise<ProjectMemoryNotes> {
-  const notes = new ProjectMemoryNotes(dataRoot, projectId);
+  const notes = await ProjectMemoryNotes.open(dataRoot, projectId);
   await notes.execute(
     { command: 'create', file_text: '# Fact\nkept\n', path: '/memories/fact.md' },
     { untrusted: false }
@@ -80,6 +80,10 @@ test("deleting a project, when its last folder joins another, removes that proje
     const [alphaRecord, betaRecord] = (await store.workspaceRoots({ operation: 'list' })).roots;
     const kept = await saveNote(alphaRecord?.projectId ?? '');
     const deleted = await saveNote(betaRecord?.projectId ?? '');
+    const { change } = await deleted.execute(
+      { command: 'delete', path: '/memories/fact.md' },
+      { untrusted: false }
+    );
 
     await owner.service['projects/join']({
       projectId: alphaRecord?.projectId ?? '',
@@ -88,6 +92,21 @@ test("deleting a project, when its last folder joins another, removes that proje
 
     expect(existsSync(deleted.folder)).toBe(false);
     expect(existsSync(path.join(kept.folder, 'fact.md'))).toBe(true);
+    // A run admitted to the deleted project before the join cannot bring its folder back.
+    await expect(
+      deleted.execute(
+        { command: 'create', file_text: '# Late\nwritten after\n', path: '/memories/late.md' },
+        { untrusted: false }
+      )
+    ).rejects.toThrow("This thread's project no longer exists");
+    // Nor can an Undo, which would put the deleted note back.
+    if (!change) {
+      throw new Error('The delete reports a change');
+    }
+    await expect(deleted.undo(change)).rejects.toMatchObject({
+      failure: { code: 'memory.project-gone' },
+    });
+    expect(existsSync(deleted.folder)).toBe(false);
   } finally {
     await owner.close();
     await store.close();
