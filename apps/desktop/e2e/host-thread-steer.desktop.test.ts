@@ -64,6 +64,8 @@ test('a steered message reaches the running run at its next step, in the same ru
   const steer = region.getByTestId('person-input').filter({ hasText: STEER });
   await expect(steer).toHaveAttribute('data-unread', '', { timeout: 30_000 });
   await expect(region.getByRole('list', { name: 'Queued follow-up messages' })).toHaveCount(0);
+  // Held at its tool call, the run is still running.
+  await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible();
 
   toolFinish.resolve();
   await expect(region.getByText(STEERED_REPLY)).toBeVisible({ timeout: 90_000 });
@@ -84,6 +86,9 @@ test('a steered message reaches the running run at its next step, in the same ru
   const steered = messages.findIndex((message) => JSON.stringify(message).includes(STEER));
   expect(toolResult).toBeGreaterThan(-1);
   expect(toolResult).toBeLessThan(steered);
+  // The reply's text shows before the run ends. The pane leaves the running state once the host
+  // has committed the run's end, so the log below has it.
+  await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
   const log = await readAgentHostLog(electron.getUserDataDir());
   expect(log.typeCounts['run.started']).toBe(1);
   expect(log.typeCounts['run.finished']).toBe(1);
