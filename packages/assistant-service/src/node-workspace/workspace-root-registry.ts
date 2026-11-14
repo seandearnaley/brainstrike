@@ -36,6 +36,12 @@ import {
   resolveReadAgainstMountedRoot,
 } from './workspace-root-read.ts';
 import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.ts';
+import {
+  forgetUnmountedScratch,
+  mountScratchRoot,
+  mountScratchRoots,
+  type ScratchRootMounts,
+} from './workspace-root-scratch-mount.ts';
 import { turnScratchRootIntoProject } from './workspace-root-scratch-project.ts';
 import { createNativeSecureRoot, resolveValidatedReadPath } from './workspace-root-seams.ts';
 import {
@@ -610,7 +616,7 @@ export class WorkspaceRootRegistry {
       const worktrees = (await this.readWorktreeRoots()).filter(
         (entry) => !openIds.has(entry.rootId)
       );
-      const scratch = await this.readScratchRoots();
+      const scratch = await this.readMountedScratchRoots();
       const entries = [...open, ...worktrees, ...scratch];
       const kept = new Set([
         ...this.mounts.sessionMountIds(),
@@ -639,8 +645,8 @@ export class WorkspaceRootRegistry {
       (entry) => !openIds.has(entry.rootId)
     );
     const worktreeIds = new Set(worktrees.map((entry) => entry.rootId));
-    // A scratch folder mounts for its thread as a worktree does, and is never open (ADR-0034).
-    const scratch = await this.readScratchRoots();
+    // A scratch folder is never open, and mounts when its thread needs it, never here (ADR-0034).
+    const scratch = await this.readMountedScratchRoots();
     const scratchIds = new Set(scratch.map((entry) => entry.rootId));
     const threadFolderIds = new Set([...worktreeIds, ...scratchIds]);
     const entries = [...open, ...worktrees, ...scratch];
@@ -733,12 +739,12 @@ export class WorkspaceRootRegistry {
     return roots.map(recordedRoot);
   }
 
-  /** Every scratch folder's root (ADR-0034), as the catalog records them. */
-  private async readScratchRoots(): Promise<RecordedWorkspaceRoot[]> {
+  /** The scratch folders mounted now: each mounts when its thread needs it (BST-2512). */
+  private async readMountedScratchRoots(): Promise<RecordedWorkspaceRoot[]> {
     const { roots } = await (await this.getRootsCatalog()).workspaceRoots({
       operation: 'list-scratch',
     });
-    return roots.map(recordedRoot);
+    return roots.filter((root) => this.mounts.has(root.id)).map(recordedRoot);
   }
 
   /** Disconnects every record that is not mounted; `closeRootIds` also leave the open list. */
@@ -888,15 +894,7 @@ export class WorkspaceRootRegistry {
         await catalog.workspaceRoots({ operation: 'scratch-of-thread', threadId: request.threadId })
       ).roots;
       if (recorded) {
-        if (!this.mounts.get(recorded.id)) {
-          // Mounted again, under the identity it was made with, and live again in its record.
-          await this.mount(recordedRoot(recorded));
-          await recordWorkspaceRoot(catalog, {
-            canonicalPath: recorded.canonicalPath,
-            path: recorded.path,
-            preferredId: recorded.id,
-          });
-        }
+        await mountScratchRoot(recorded, this.scratchMounts(catalog));
         return scratchRoot(recorded);
       }
       if ((await this.readOpenRoots()).length > 0) {
@@ -929,7 +927,7 @@ export class WorkspaceRootRegistry {
           { addedAt: root.createdAt, path: folder, rootId: root.id },
           probe
         ).catch(async (cause: unknown) => {
-          await this.forgetUnmountedScratch(request.threadId, cause);
+          await forgetUnmountedScratch(catalog, request.threadId, cause);
         });
         adopted = true;
         logger.info('Made a scratch folder for a thread', {
@@ -945,20 +943,21 @@ export class WorkspaceRootRegistry {
     });
   }
 
-  /** Deletes the record of a scratch folder that was not mounted, then rethrows why. */
-  private async forgetUnmountedScratch(threadId: string, cause: unknown): Promise<never> {
-    try {
-      await (await this.getRootsCatalog()).workspaceRoots({
-        operation: 'forget-scratch',
-        threadId,
-      });
-    } catch (cleanup) {
-      throw new AggregateError(
-        [cause, cleanup],
-        'The scratch folder was not mounted, and its record could not be deleted'
-      );
-    }
-    throw cause;
+  /** ADR-0034 (BST-2512): mounts the scratch folders among `rootIds` that are not mounted. */
+  mountScratchRoots(rootIds: readonly string[]): Promise<void> {
+    return this.serializeMutation(async () =>
+      mountScratchRoots(rootIds, this.scratchMounts(await this.getRootsCatalog()))
+    );
+  }
+
+  private scratchMounts(catalog: WorkspaceRootPort): ScratchRootMounts {
+    const readOnly = this.readOnlyRefusal() !== null;
+    return {
+      catalog,
+      isMounted: (id) => this.mounts.has(id),
+      mount: (root) => this.mount(root),
+      readOnly,
+    };
   }
 
   /**
@@ -974,6 +973,7 @@ export class WorkspaceRootRegistry {
         catalog: this.getRootsCatalog,
         createSecureRoot: this.createSecureRoot,
         install: (entry, probe) => this.installSourceRoot(entry, probe),
+        isMounted: (rootId) => this.mounts.has(rootId),
         mount: (entry) => this.mount(entry),
         recordRecent: async (folder) => {
           await recordRecentRoot(this.recents, folder);

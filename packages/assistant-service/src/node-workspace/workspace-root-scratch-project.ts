@@ -21,6 +21,8 @@ export interface ScratchProjectMounts {
   readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   /** Installs `probe` as the mount of `entry`, under its root id. */
   readonly install: (entry: StoredWorkspaceRoot, probe: SecureWorkspaceRoot) => Promise<unknown>;
+  /** Whether the root is mounted now: a scratch folder mounts only once its thread needs it. */
+  readonly isMounted: (rootId: string) => boolean;
   /** Mounts a recorded folder where its record says. */
   readonly mount: (entry: RecordedWorkspaceRoot) => Promise<unknown>;
   /** Records the folder in Recents and tells Main, as a folder the person adds is. */
@@ -39,7 +41,8 @@ export interface ScratchProjectRoot {
 /**
  * ADR-0034 build decisions: the thread's scratch folder becomes a folder of the person's. Its
  * mount retires first, so nothing works in it while it moves; `move` moves it and resolves where
- * it now is. A move that fails leaves the folder where it was, mounted there again, and rethrows.
+ * it now is. A move that fails leaves the folder where it was, mounted there again if it was
+ * mounted, and rethrows.
  * Then the folder is opened at its new place, whose canonical path is its identity, its record
  * turns (`scratch-to-project`: same root id, open, with a project), and it is mounted there and
  * joins Recents. A failure after the move says where the folder now is; nothing is mounted at a
@@ -63,13 +66,17 @@ export async function turnScratchRootIntoProject(
       'This thread does not work in a scratch folder, so there is nothing to turn into a project.'
     );
   }
+  // A folder not mounted yet (BST-2512) moves as it is, and a failed move leaves it so.
+  const wasMounted = mounts.isMounted(recorded.id);
   await mounts.retire(recorded.id);
   let place: string;
   try {
     place = path.normalize(await request.move(recorded.path));
   } catch (cause) {
     try {
-      await mounts.mount(recordedRoot(recorded));
+      if (wasMounted) {
+        await mounts.mount(recordedRoot(recorded));
+      }
     } catch (remount) {
       throw new AggregateError(
         [cause, remount],

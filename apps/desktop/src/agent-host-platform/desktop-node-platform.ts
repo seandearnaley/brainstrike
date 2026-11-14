@@ -323,6 +323,8 @@ export async function createDesktopHostConfiguration(
   // A run's workspace borrow holds the registry's mounts; removing a folder ends it.
   const workspace = new DesktopWorkspaceBindingAuthority({
     borrowRoot: (root) => rootRegistry.registry.borrowSourceRootForPath(root.path),
+    // ADR-0034 (BST-2512): a scratch folder mounts when its thread's run or binding needs it.
+    mountScratchFolders: (rootIds) => rootRegistry.registry.mountScratchRoots(rootIds),
     readLiveWorktreePath: async (id) =>
       settled(await gitWorkspace.service['worktrees/managed-paths']({}, startup.signal)).find(
         (worktree) => worktree.id === id
