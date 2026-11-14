@@ -1024,6 +1024,13 @@ export interface HostPlatform {
   readonly idleWorktreeArchives?:
     | {
         /**
+         * BST-2505: once a thread's deletion has committed, archives the managed worktrees the
+         * thread made that no thread is bound to, in the cap's queue. The thread is gone, so no
+         * one is told; what was archived and what was left, with why, is logged. Settles when
+         * that pass has finished and never rejects. Core never waits on it.
+         */
+        afterThreadDeleted(threadId: string): Promise<void>;
+        /**
          * Starts no further cap and settles once the archive in flight has finished and been
          * reported, so Core can tell its thread before it stops admitting.
          */

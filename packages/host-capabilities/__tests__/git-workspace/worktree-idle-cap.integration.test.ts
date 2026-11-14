@@ -64,6 +64,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
       archive: (params) => service.archive(params),
       listActive: () => ledger.listActive(),
       listRepository: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
+      listThread: (threadId) => ledger.listForThread(threadId),
       publish: (archive) => {
         told.push(archive);
       },

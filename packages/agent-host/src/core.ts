@@ -515,11 +515,11 @@ export class HostCore {
           await this.catalog.forget(threadId);
         },
         pendingAdmissions,
+        platform: this.platform,
         queue: (tail) => {
           this.admission = tail;
         },
         runs,
-        scratchFolders: this.platform.scratchFolders,
         threads: this.threads,
       },
       params.threadId

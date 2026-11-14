@@ -50,6 +50,7 @@ async function capHost() {
       }
     },
     idleWorktreeArchives: {
+      afterThreadDeleted: async () => undefined,
       settle: async () => {
         await inFlight.settle();
       },
