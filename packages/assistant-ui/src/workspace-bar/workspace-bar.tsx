@@ -78,7 +78,38 @@ export type WorkspaceBarWorktreeOption = {
   readonly worktreeId: string | null;
 } & WorkspaceBarWorktreeUsability;
 
+/** An archived managed worktree the picker can restore (ADR-0034 decision 7). */
+export interface WorkspaceBarArchivedWorktree {
+  /** When it was archived (ISO-8601). */
+  readonly archivedAt: string;
+  readonly branch: string | null;
+  readonly name: string;
+  readonly path: string;
+  readonly worktreeId: string;
+}
+
+/**
+ * The picker's Archived section: the repository's archived managed worktrees,
+ * newest archive first, each with Restore and use.
+ */
+export interface WorkspaceBarArchivedWorktrees {
+  /** Why Restore and use waits, or null: a run keeps the checkout it was admitted with. */
+  readonly disabledReason: string | null;
+  readonly entries: readonly WorkspaceBarArchivedWorktree[];
+  /** Why the archived worktrees could not be read, or null. */
+  readonly error: string | null;
+  readonly loading: boolean;
+  /** Restores the worktree, then moves the thread into it. */
+  readonly onRestore: (worktree: WorkspaceBarArchivedWorktree) => void;
+  /** Why the last Restore and use did not finish, or null. */
+  readonly refusal: string | null;
+  /** The worktree being restored, or null. */
+  readonly restoringId: string | null;
+}
+
 export interface WorkspaceBarWorktreePicker {
+  /** Absent where the picker offers no restore. */
+  readonly archived?: WorkspaceBarArchivedWorktrees;
   readonly error: string | null;
   readonly loading: boolean;
   readonly onGrantAccess: (() => void) | undefined;
@@ -100,8 +131,10 @@ export interface WorkspaceBarBaseRefOption {
 }
 
 export interface WorkspaceBarRepositorySetupConsent {
+  /** The host's standing answer for the script's current bytes, or null. */
   readonly decision: WorktreeRepositorySetupDecision | null;
-  readonly onDecision: (decision: WorktreeRepositorySetupDecision) => void;
+  /** Records the person's answer with the host; rejects with the host's reason when refused. */
+  readonly onDecision: (decision: WorktreeRepositorySetupDecision) => Promise<void>;
   readonly repositoryPath: string;
   readonly scriptPath: string;
 }
@@ -305,6 +338,11 @@ export interface WorkspaceBarProps {
   readonly recentRoots: readonly WorkspaceBarRecentRoot[];
   /** Present only when the platform can reveal a path in its file manager. */
   readonly reveal?: WorkspaceBarReveal | undefined;
+  /**
+   * ADR-0034: present only while the thread works in a scratch folder the host made for it,
+   * which "Turn into a project…" moves to a folder the person chooses.
+   */
+  readonly scratchProject?: WorkspaceBarScratchProject | undefined;
   readonly secondaryRoots: readonly WorkspaceBarRoot[];
   /**
    * Where the thread works, from its binding (ADR-0034). Desktop only, like
@@ -320,6 +358,21 @@ export interface WorkspaceBarProps {
   readonly trust?: WorkspaceBarTrust | undefined;
   /** The workspace's mounted folders that are not this thread's. */
   readonly workspaceFolders: readonly WorkspaceBarRecentRoot[];
+}
+
+/**
+ * "Turn into a project…" (ADR-0034 build decisions): the host asks where with the folder picker,
+ * moves the thread's scratch folder there and makes it a project the thread keeps working in.
+ */
+export interface WorkspaceBarScratchProject {
+  /** Why it waits, or null: a run keeps the folder it was admitted with. */
+  readonly disabledReason: string | null;
+  /** Starts it; app-shell shows the outcome, a refusal included. */
+  readonly onTurnIntoProject: () => void;
+  /** The folder is being moved. */
+  readonly pending: boolean;
+  /** Why the last one did not finish, as the host said, or null. */
+  readonly refusal: string | null;
 }
 
 /** The thread's checkout as its binding records it. */

@@ -264,6 +264,12 @@ export function resolveReasoningControlsAvailability(
         'openai',
         modelId === undefined ? undefined : findDeclaredLlmModel('openai', modelId)?.reasoning
       );
+    case 'chatgpt':
+      // The same OpenAI models on another route: the effort ladder is the model's.
+      return resolveOpenAiFamilyControls(
+        'openai',
+        modelId === undefined ? undefined : findDeclaredLlmModel('chatgpt', modelId)?.reasoning
+      );
     case 'openrouter':
       return resolveOpenRouterControls(modelId, openRouterMetadata);
     case 'anthropic':

@@ -7,7 +7,14 @@
  * cross the production preload, IPC, service, Git, mount, and thread-metadata
  * chain; only assistant model traffic is replaced at its external boundary.
  */
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -152,13 +159,21 @@ test.describe('Worktree mode (desktop)', () => {
 
   // ADR-0034 Automatic isolation: nothing here waits on a clock. The first
   // thread's run stays in progress because it waits for a person, and each
-  // step follows an approval card.
+  // step follows an approval card. The repository's setup script was allowed
+  // once, in the create sheet, so the worktree the host makes runs it too.
   test('a second thread moves to a worktree at its first edit in a folder a running thread has edited', async ({
     modelProvider,
     window: page,
   }) => {
     test.setTimeout(240_000);
     const repo = freshRepo('automatic');
+    mkdirSync(path.join(repo, '.brainstrike'));
+    writeFileSync(
+      path.join(repo, '.brainstrike', 'worktree-setup.sh'),
+      'echo ran > setup-ran.txt\n'
+    );
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-m', 'add the worktree setup script']);
     const tool = 'brainstrike.writeWorkspaceFile';
     const write = (file: string) => ({
       arguments: { content: `${file}\n`, path: file },
@@ -195,8 +210,19 @@ test.describe('Worktree mode (desktop)', () => {
     const approve = region.getByRole('button', { exact: true, name: `Approve ${tool}` });
     const asksAbout = region.getByTestId('approval-file-target-summary');
 
-    // The first thread edits the checkout, then waits for a person: its run is in progress.
+    // The person allows the repository's setup script in the create sheet and
+    // creates nothing: the host keeps the answer.
     await chooseThreadFolder(region, path.basename(repo));
+    await openWhereMenu(region);
+    await page.getByTestId('workspace-bar-mode-new-worktree').click();
+    const sheet = page.getByTestId('worktree-create-dialog');
+    const allow = sheet.getByRole('button', { exact: true, name: 'Allow script' });
+    await allow.click();
+    await expect(allow).toHaveAttribute('data-variant', 'default', { timeout: 30_000 });
+    await sheet.getByRole('button', { exact: true, name: 'Cancel' }).click();
+    await expect(sheet).toBeHidden();
+
+    // The first thread edits the checkout, then waits for a person: its run is in progress.
     await input.fill('The first thread: write two files.');
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(asksAbout).toContainText('first.txt', { timeout: 60_000 });
@@ -228,6 +254,9 @@ test.describe('Worktree mode (desktop)', () => {
     });
     await page.keyboard.press('Escape');
     expect(existsSync(path.join(repo, 'second.txt'))).toBe(false);
+    // No sheet asked about this worktree: the host read the repository's answer and ran the script.
+    expect(existsSync(path.join(worktrees[0] ?? '', 'setup-ran.txt'))).toBe(true);
+    expect(existsSync(path.join(repo, 'setup-ran.txt'))).toBe(false);
 
     // The same turn carried on there: the edit is asked for again, in the worktree, and lands in it.
     await expect(region.getByTestId('approval-workspace-root-value')).toHaveText(name, {
@@ -297,6 +326,8 @@ test.describe('Worktree mode (desktop)', () => {
         timeout: 90_000,
       })
       .toContain('refs/brainstrike/worktree-archive/');
+    // The control stays busy until the archive has returned, recorded in the ledger.
+    await expect(whereChip(page)).not.toHaveAttribute('aria-busy', 'true', { timeout: 90_000 });
 
     await openWhereMenu(page);
     await page.getByTestId('workspace-bar-mode-pick-worktree').click();
@@ -314,9 +345,12 @@ test.describe('Worktree mode (desktop)', () => {
     // single open can race the git-inventory watcher's own settle latency after
     // `git worktree remove` runs. Close and reopen — forcing a fresh fetch — until
     // the archived worktree's row is gone, bounded so a real regression still fails.
+    // It leaves the live worktrees; the Archived section below them lists it to restore.
+    const liveWorktrees = dialog.getByRole('list', { exact: true, name: 'Worktrees' });
     let archivedRowGone = false;
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      archivedRowGone = (await dialog.getByText(created.name, { exact: true }).count()) === 0;
+      archivedRowGone =
+        (await liveWorktrees.getByText(created.name, { exact: true }).count()) === 0;
       if (archivedRowGone) {
         break;
       }
@@ -328,7 +362,55 @@ test.describe('Worktree mode (desktop)', () => {
       await expect(dialog).toBeVisible({ timeout: 30_000 });
     }
     expect(archivedRowGone).toBe(true);
+    await expect(
+      dialog.getByTestId(/^worktree-picker-archived-row-/u).filter({ hasText: created.name })
+    ).toBeVisible();
     await page.keyboard.press('Escape');
+  });
+
+  // ADR-0034 decision 7: an archived worktree comes back from Other worktree…, on its
+  // branch with its files, and the thread works in it.
+  test('restores an archived worktree from Other worktree… and moves the thread into it', async ({
+    window: page,
+  }) => {
+    test.setTimeout(240_000);
+    const repo = freshRepo('restore');
+    // The worktree's commit is pushed here, so Archive worktree… has nothing unpushed to refuse.
+    const remote = tempDirs.track(mkdtempSync(path.join(tmpdir(), 'bst-w3-restore-remote-')));
+    git(remote, ['init', '--bare']);
+    git(repo, ['remote', 'add', 'origin', remote]);
+    await seedRoot(page, repo);
+    await openComposer(page);
+    await chooseThreadFolder(page, path.basename(repo));
+
+    const created = await createAndUseWorktree(page);
+    writeFileSync(path.join(created.worktreePath, 'restored.md'), 'kept on its branch\n');
+    git(created.worktreePath, ['add', 'restored.md']);
+    git(created.worktreePath, ['commit', '-m', 'work on the worktree branch']);
+    git(created.worktreePath, ['push', 'origin', created.branch]);
+
+    await openWhereMenu(page);
+    await page.getByTestId('workspace-bar-mode-archive').click();
+    await expect(whereChip(page)).toContainText('Local', { timeout: 90_000 });
+    // The control stays busy until the archive has returned, recorded.
+    await expect(whereChip(page)).not.toHaveAttribute('aria-busy', 'true', { timeout: 90_000 });
+    expect(existsSync(created.worktreePath)).toBe(false);
+
+    await openWhereMenu(page);
+    await page.getByTestId('workspace-bar-mode-pick-worktree').click();
+    const dialog = page.getByTestId('worktree-picker-dialog');
+    const archivedRow = dialog
+      .getByTestId(/^worktree-picker-archived-row-/u)
+      .filter({ hasText: created.name });
+    await expect(archivedRow).toBeVisible({ timeout: 30_000 });
+    await archivedRow.getByRole('button', { name: 'Restore and use' }).click();
+
+    await expect(dialog).toBeHidden({ timeout: 90_000 });
+    await expectInWorktree(page, created);
+    expect(readFileSync(path.join(created.worktreePath, 'restored.md'), 'utf8')).toBe(
+      'kept on its branch\n'
+    );
+    expect(listWorktreePaths(repo)).toContain(created.worktreePath);
   });
 
   test('choosing Local hands off and the control stays Local across a reload', async ({

@@ -21,6 +21,7 @@ import type {
   ToolRiskCategory,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
+import type { ChatGptSignInStatus } from '@brainstrike/assistant-contract/chatgpt-sign-in';
 import type { ChildEffort, ChildModelTarget } from '@brainstrike/assistant-contract/child-model';
 import type {
   AssistantContextBreakdown,
@@ -157,6 +158,52 @@ export interface HostEnteredWorktree {
   readonly localRootId: string;
   readonly root: { readonly displayName: string; readonly path: string; readonly rootId: string };
   readonly worktreeId: string;
+}
+/** A folder the host made for a thread to work in (ADR-0034 scratch threads), as its root. */
+export interface HostScratchFolder {
+  readonly displayName: string;
+  readonly path: string;
+  readonly rootId: string;
+}
+/**
+ * ADR-0034 scratch threads: a thread sent with no folder while none is open in
+ * the workspace works in a folder the host makes for it. Absent where the host
+ * keeps no open folders (the CLI): there a thread with no folder runs with none.
+ */
+export interface HostScratchFolders {
+  /**
+   * The thread's scratch folder, mounted as a root that is never an open
+   * folder: the one recorded for it, else one made now inside the platform's
+   * scratch folder, which the host records as trusted at that moment
+   * (ADR-0032: a folder the app makes is trusted with no question). Null, with
+   * nothing made, while a folder is open in the workspace.
+   */
+  create(request: {
+    readonly signal: AbortSignal;
+    readonly threadId: string;
+  }): Promise<HostScratchFolder | null>;
+  /** Main's folder picker, for where a scratch folder becomes a project; null when cancelled. */
+  pickParentFolder(): Promise<string | null>;
+  /** The thread's scratch folder as recorded, or null when it has none. Reads only. */
+  read(request: { readonly threadId: string }): Promise<HostScratchFolder | null>;
+  /**
+   * After its thread is deleted: the scratch folder leaves the workspace, its
+   * records and its trust answer go, and it moves to the system Trash. Nothing
+   * for a thread that has none. Rejects with the reason it could not.
+   */
+  retire(request: { readonly threadId: string }): Promise<void>;
+  /**
+   * ADR-0034 build decisions: the thread's scratch folder moves into `parent`
+   * under its own name, by one rename on the same disk, and its root becomes
+   * a folder of the person's there, open, with a project of its own, under
+   * the same root id. Its new place's trust is not written: it is asked there.
+   * Resolves the folder where it now is; rejects with a typed refusal when it
+   * did not move, and with where it is when it moved but was not recorded.
+   */
+  turnIntoProject(request: {
+    readonly parent: string;
+    readonly threadId: string;
+  }): Promise<HostScratchFolder>;
 }
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */
@@ -463,6 +510,16 @@ export interface HostRunAdmission {
 
 /** The host's single credential writer and token holder. */
 export interface HostAuthService {
+  /** Ends a ChatGPT sign-in that is waiting for the browser. */
+  chatGptCancel(): Promise<void>;
+  /**
+   * Sign in with ChatGPT (ADR-0038); resolves once the browser flow finishes.
+   * `signal` cancels it when the requesting client is retired.
+   */
+  chatGptSignIn(newAccount: boolean, signal: AbortSignal): Promise<ChatGptSignInStatus>;
+  chatGptSignOut(): Promise<{ readonly revoked: boolean }>;
+  /** `settled` answers once no sign-in is waiting for the browser. */
+  chatGptStatus(settled: boolean): Promise<ChatGptSignInStatus>;
   deleteCredential(account: string): Promise<boolean>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
   setCredential(account: string, credential: ProviderCredential): Promise<void>;
@@ -1002,6 +1059,8 @@ export interface HostPlatform {
   readonly rewindFiles?: HostRewindFiles | undefined;
   /** The desktop workspace's open folders; absent where no window shows them (the CLI). */
   readonly rootRegistry?: HostRootRegistry;
+  /** ADR-0034 scratch threads; absent where the host keeps no open folders (the CLI). */
+  readonly scratchFolders?: HostScratchFolders | undefined;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
   /** The native-tool output rewrite policy; Core commits what it selects. */

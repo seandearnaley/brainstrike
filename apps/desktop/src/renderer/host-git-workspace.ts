@@ -98,11 +98,16 @@ export function createDesktopWorkspaceGitServices(
       create: (params) => request('worktrees/create', params),
       createBranchHere: (params) => request('worktrees/create-branch-here', params),
       createContext: ({ rootId }) => request('worktrees/create-context', { rootId }),
+      decideSetupConsent: (params) => request('worktrees/setup-consent/decide', params),
       getSettings: () => request('worktrees/settings/read', {}),
       inspectArchive: ({ worktreeId }) => request('worktrees/inspect-archive', { worktreeId }),
       list: () => request('worktrees/list', {}),
+      listArchived: ({ rootId }) => request('worktrees/list-archived', { rootId }),
       listManagedPaths: () => request('worktrees/managed-paths', {}),
+      listSetupConsent: () => request('worktrees/setup-consent/list', {}),
       restore: ({ worktreeId }) => request('worktrees/restore', { worktreeId }),
+      revokeSetupConsent: ({ repositoryId }) =>
+        request('worktrees/setup-consent/revoke', { repositoryId }),
       setSettings: (params) => request('worktrees/settings/write', params),
     },
   };

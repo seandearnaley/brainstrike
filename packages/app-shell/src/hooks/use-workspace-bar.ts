@@ -28,6 +28,7 @@ import { useAssistantThreadRootBinding } from './use-assistant-thread-root-bindi
 import { useFollowPrimaryRecord } from './use-follow-primary-record';
 import { useLeaveWorktreeBetweenRuns } from './use-leave-worktree-between-runs';
 import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
+import { useScratchProject } from './use-scratch-project';
 import { type ThreadCheckoutState, useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import { useThreadFolderScope } from './use-thread-folder-scope';
@@ -953,13 +954,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   );
   // The workspace's mounted folders that are not this thread's. A managed
   // worktree is a checkout of its project, never another folder (ADR-0034
-  // decision 2): another thread's stays mounted for it, and is left out.
+  // decision 2), and a scratch folder is the thread's it was made for: another
+  // thread's stays mounted for it, and is left out.
   const primaryRootPathForFolders = primaryRoot?.path;
   const threadPaths = new Set([primaryRootPathForFolders, ...secondaryRoots.map((r) => r.path)]);
   const workspaceFolders: readonly WorkspaceBarRecentRoot[] = Object.values(
     rootDescriptors ?? {}
   ).flatMap((descriptor) =>
-    descriptor.worktree || threadPaths.has(descriptor.path)
+    descriptor.worktree || descriptor.scratch || threadPaths.has(descriptor.path)
       ? []
       : [{ displayName: descriptor.displayName, path: descriptor.path }]
   );
@@ -1036,6 +1038,12 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onUseFolder,
     threadState,
   });
+  // ADR-0034: a thread in a scratch folder the host made can turn it into a project.
+  const scratchProject = useScratchProject({
+    scratch: Boolean(primaryAdapterRootId && rootDescriptors?.[primaryAdapterRootId]?.scratch),
+    threadId: selectedMemoryThreadId,
+    threadState,
+  });
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
   const folderRequests = fileSystem.folderRequests;
   const shownSecondaryRoots = useMemo(
@@ -1062,6 +1070,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...(primaryRoot ? { primaryRoot: withFolderRequest(primaryRoot, folderRequests) } : {}),
     recentRoots,
     ...(reveal ? { reveal } : {}),
+    ...(scratchProject ? { scratchProject } : {}),
     secondaryRoots: shownSecondaryRoots,
     ...threadCheckoutEntry(hasWorktrees, worktreeCheckout),
     workspaceFolders,

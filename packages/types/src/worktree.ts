@@ -130,6 +130,21 @@ export type WorktreeSetupCommand = readonly string[] | null | 'disabled';
 /** Durable user decision for a repository-committed worktree setup script. */
 export type WorktreeRepositorySetupDecision = 'approved' | 'denied';
 
+/**
+ * A person's standing answer for a repository's `.brainstrike/worktree-setup.sh`,
+ * which the agent host records and every worktree it creates reads (ADR-0034).
+ * It answers only while the script's bytes hash to `scriptSha256`.
+ */
+export interface WorktreeSetupConsent {
+  /** ISO time of the answer. */
+  readonly decidedAt: string;
+  readonly decision: WorktreeRepositorySetupDecision;
+  /** The repository's realpath'd git common dir, which every checkout of it shares. */
+  readonly repositoryId: string;
+  /** SHA-256 of the script's bytes the person answered for. */
+  readonly scriptSha256: string;
+}
+
 export interface WorktreeSettings {
   /**
    * True when nothing has been persisted for `managedDirectory` — the user has
@@ -155,15 +170,19 @@ export interface WorktreeCreateContext {
   readonly managedParentPath: string;
   /** Present only when the repository fallback script needs a durable decision. */
   readonly repositorySetup: {
+    /**
+     * The host's standing answer for this script, or null when there is none
+     * or it was given for other bytes (the script changed since: pull, branch
+     * switch, rebase), so the person is asked again.
+     */
+    readonly decision: WorktreeRepositorySetupDecision | null;
     readonly repositoryId: string;
     readonly repositoryPath: string;
     readonly scriptPath: string;
     /**
-     * SHA-256 of the script's bytes at read time. Consent is pinned to this
-     * hash, not just the repository — main re-hashes disk before running the
-     * script and refuses a mismatch, so a script that changed after approval
-     * (pull / branch switch / rebase) re-prompts instead of silently running
-     * under a stale grant.
+     * SHA-256 of the script's bytes at read time. An answer is recorded for
+     * this hash, and the host re-hashes the script before running it and
+     * refuses a mismatch.
      */
     readonly scriptSha256: string;
   } | null;
@@ -179,16 +198,6 @@ export interface WorktreeCreateParams {
   readonly createdBy: ManagedWorktreeCreator;
   /** Directory name under `<managedDirectory>/<repo-slug>/`. */
   readonly name: string;
-  /**
-   * Renderer-attested durable choice, pinned to main's resolved repository id
-   * AND the script's SHA-256 at decision time. Main re-hashes disk and treats
-   * a mismatch as no decision (fail closed to a visible skipped setup).
-   */
-  readonly repositorySetupDecision?: {
-    readonly decision: WorktreeRepositorySetupDecision;
-    readonly repositoryId: string;
-    readonly scriptSha256: string;
-  };
   /** Durable `roots.id` of the checkout the worktree is created FROM. */
   readonly rootId: string;
   /** Present ⇒ a durable timeline row is written for this operation. */
@@ -262,6 +271,39 @@ export interface WorktreeArchiveResult {
   readonly snapshotRef: string;
   readonly worktree: ManagedWorktreeRow;
 }
+
+/** A worktree a reset archived: its snapshot ref keeps its uncommitted changes. */
+export interface WorktreeResetArchived {
+  readonly path: string;
+  readonly snapshotRef: string;
+  readonly worktreeId: string;
+}
+
+/** A worktree a reset left on disk, with the archive's refusal or failure. */
+export interface WorktreeResetRetained {
+  /** The refusal's code, such as `worktree.locked`. */
+  readonly code: string;
+  readonly path: string;
+  /** Why it stayed, in the archive's words. */
+  readonly reason: string;
+  readonly worktreeId: string;
+}
+
+/**
+ * A reset's archive of every active managed worktree, before Factory Reset deletes the state DB
+ * that holds their ledger or Clear Database deletes its rows (ADR-0015, ADR-0034).
+ */
+export interface WorktreeResetArchive {
+  readonly archived: readonly WorktreeResetArchived[];
+  readonly retained: readonly WorktreeResetRetained[];
+}
+
+/** What a reset did with the managed worktrees, as Main tells the replacement window. */
+export type WorktreeResetOutcome =
+  /** Each one archived into its repository, or left on disk and named with why. */
+  | (WorktreeResetArchive & { readonly status: 'archived' })
+  /** None could be archived: their folders stay on disk, and this says why. */
+  | { readonly reason: string; readonly status: 'failed' };
 
 /** Read-only disclosure shown before archive can delete ignored files. */
 export interface WorktreeArchivePreview {

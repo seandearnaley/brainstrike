@@ -3,6 +3,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModelV2 } from '@ai-sdk/provider';
+import { CHATGPT_PLAN_RESOURCE } from '@brainstrike/assistant-contract';
 import {
   isSupportedProvider,
   listProviders,
@@ -17,6 +18,7 @@ import {
 } from '@mastra/core/llm';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
 import { resolveBedrockModelId } from './bedrock-model-id.ts';
+import { chatGptPlanModel, chatGptWireModelId } from './chatgpt-plan-model.ts';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content.ts';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching.ts';
 import {
@@ -27,6 +29,7 @@ import {
   type ProviderAuthInput,
   type ProviderFetchOptions,
   providerFetchOptions,
+  requireAccessTokenAuthInput,
   requireAwsAuthInput,
 } from './provider-auth-input.ts';
 
@@ -132,6 +135,21 @@ export function createProvider(
         sdkFactorySettings(providerFetchOptions(auth, validatedProvider))
       );
       return openaiProvider(modelName);
+    }
+
+    case 'chatgpt': {
+      // Sign in with ChatGPT (ADR-0038): the public Responses API, paid by the
+      // signed-in account's plan. The SDK asks the host's closure for the
+      // token before each request, so a token renewed mid-run is the one sent.
+      const { accessToken } = requireAccessTokenAuthInput(auth, validatedProvider);
+      // The base URL is pinned: left to the SDK, `OPENAI_BASE_URL` would send
+      // the person's ChatGPT token wherever the environment points.
+      return chatGptPlanModel(
+        createOpenAI({ apiKey: accessToken, baseURL: CHATGPT_PLAN_RESOURCE })(
+          chatGptWireModelId(modelName)
+        ),
+        modelName
+      );
     }
 
     case 'anthropic': {

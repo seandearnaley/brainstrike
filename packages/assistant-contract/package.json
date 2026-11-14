@@ -60,6 +60,7 @@
     "./shell-output": "./src/shell-output.ts",
     "./tool-telemetry": "./src/tool-telemetry.ts",
     "./secrets-bridge": "./src/secrets-bridge.ts",
+    "./chatgpt-sign-in": "./src/chatgpt-sign-in.ts",
     "./subagent-settings": "./src/subagent-settings.ts",
     "./window-focus-bridge": "./src/window-focus-bridge.ts",
     "./runtime-data": "./src/runtime-data.ts",

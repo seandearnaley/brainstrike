@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/assistant-data';
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
+import { toast } from '@brainstrike/ui';
 import { Schema, SchemaIssue } from 'effect';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { createDesktopHostConnection, type DesktopHostConnection } from './desktop-host-connection';
@@ -57,6 +58,25 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
       : (SchemaIssue.makeFormatterStandardSchemaV1()(parsed.failure.issue).issues[0]?.message ??
           'Invalid thread workspace binding')
   );
+}
+/**
+ * ADR-0034: the deleted thread's scratch folder stayed where it was. The thread is gone; the
+ * person reads where the folder is and why, to remove it themselves.
+ */
+function warnScratchFolderNotRetired(
+  threadId: string,
+  { path, reason }: { readonly path?: string | undefined; readonly reason: string }
+): void {
+  logger.warn('A deleted thread’s scratch folder was not moved to the Trash', {
+    path,
+    reason,
+    threadId,
+  });
+  toast({
+    description: `The conversation was deleted, but its scratch folder${path ? ` at ${path}` : ''} could not be moved to the Trash: ${reason}`,
+    title: 'Scratch folder not moved to the Trash',
+    variant: 'destructive',
+  });
 }
 export function createWindowThreadCapability(
   renderThread: (view: {
@@ -231,12 +251,17 @@ export function createWindowThreadCapability(
         return;
       }
       // The host deletes the thread with every child thread under it, children first.
-      const { threadIds } = await host.request('thread/delete', { threadId });
+      const { scratchFolderNotRetired, threadIds } = await host.request('thread/delete', {
+        threadId,
+      });
       for (const deleted of threadIds) {
         threads.delete(deleted);
         childViews.delete(deleted);
         runs.delete(deleted);
         ledger.delete(deleted);
+      }
+      if (scratchFolderNotRetired) {
+        warnScratchFolderNotRetired(threadId, scratchFolderNotRetired);
       }
       return threadIds;
     },
@@ -252,6 +277,17 @@ export function createWindowThreadCapability(
       return openHostThreadContext(host, threadId);
     },
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
+    // ADR-0034: the host's root registry writes projects, as it writes the folders in them.
+    projects: {
+      join: async (rootId, projectId) => {
+        await (await client()).request('projects/join', { projectId, rootId });
+      },
+      locate: async (rootId) =>
+        (await (await client()).request('workspace/roots/locate', { rootId })).root,
+      rename: async (projectId, name) => {
+        await (await client()).request('projects/rename', { name, projectId });
+      },
+    },
     // This frame's desktop-ui client: the host reads its own store; Main serves none.
     providers: {
       readOpenRouterModel: async (model) =>
@@ -390,6 +426,18 @@ export function createWindowThreadCapability(
     subscribeEntryChanges: (listener) => {
       entryListeners.add(listener);
       return () => entryListeners.delete(listener);
+    },
+    // ADR-0034: the host asks Main's picker where, moves the scratch folder and binds the thread.
+    turnScratchIntoProject: async (threadId) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      const { root } = await host.request('thread/workspace/scratch/project', {
+        commandId: crypto.randomUUID(),
+        threadId,
+      });
+      return root;
     },
     updateThreadBinding: async (threadId, metadata) => {
       const { color, icon, ...binding } = metadata;

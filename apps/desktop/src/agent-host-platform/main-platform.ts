@@ -14,6 +14,7 @@ import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
+import type { MainWorktreeReset } from './factory-reset-worktrees';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import {
@@ -28,6 +29,7 @@ import {
   PlatformObserverCandidatesSchema,
   PlatformRootsChangedSchema,
   PlatformShowFolderSchema,
+  PlatformTrashScratchFolderSchema,
 } from './platform-wire';
 
 const logger = createLogger('DesktopMainPlatform');
@@ -64,6 +66,11 @@ export interface DesktopPlatformCapabilities {
    */
   showWorkspaceFolder?(path: string): void;
   /**
+   * ADR-0034 scratch threads: moves a deleted thread's scratch folder to the system
+   * Trash. Refuses any path that is not a folder directly inside `<userData>/scratch`.
+   */
+  trashScratchFolder?(path: string): Promise<void>;
+  /**
    * The host's open folders changed: the OS recent documents and File > Open Recent follow
    * the recent-folders ledger.
    */
@@ -71,6 +78,8 @@ export interface DesktopPlatformCapabilities {
     readonly grantedPath?: string;
     readonly recentPaths: readonly string[];
   }): void;
+  /** ADR-0034: a reset's archive of the managed worktrees, asked on this connection only. */
+  readonly worktreeReset?: MainWorktreeReset;
 }
 type Execute = <T>(
   token: CancellationToken,
@@ -139,6 +148,7 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
+  const worktreeReset = capabilities.worktreeReset?.bind(connection);
   const nativeChildren = capabilities.nativeChildren;
   if (nativeChildren) {
     connection.onNotification('platform/native-child/started', (input: unknown) =>
@@ -218,6 +228,8 @@ export function serveDesktopPlatform(
       })(input);
       await capabilities.lifecycleDelays?.delay('platform-ready');
       signal.throwIfAborted();
+      // The host composed its git cluster before it confirms Main ready.
+      worktreeReset?.ready();
       return null;
     })
   );
@@ -297,9 +309,25 @@ export function serveDesktopPlatform(
         return null;
       })
   );
+  connection.onRequest(
+    'platform/workspace/trash-scratch-folder',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { path } = wireDecoder(PlatformTrashScratchFolderSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
+        if (!capabilities.trashScratchFolder) {
+          throw new Error('Desktop cannot move a scratch folder to the Trash');
+        }
+        await capabilities.trashScratchFolder(path);
+        return null;
+      })
+  );
   serveHostToolServices(connection, execute, capabilities.hostTools);
   const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
+      worktreeReset?.close();
       for (const controller of controllers) {
         controller.abort(new Error('Desktop platform is closing'));
       }

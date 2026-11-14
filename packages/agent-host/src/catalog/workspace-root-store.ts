@@ -21,10 +21,11 @@ const WorkspaceRootReplySchema = Schema.Struct({
         createdAt: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
         displayName: Id,
         id: Id,
-        kind: Schema.Literals(['path', 'worktree']),
+        kind: Schema.Literals(['path', 'worktree', 'scratch']),
         lastVerifiedAt: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
         path: Id,
         projectId: Schema.NullOr(Id),
+        projectName: Schema.NullOr(Id),
         status: Schema.Literals(['live', 'disconnected']),
       })
     )

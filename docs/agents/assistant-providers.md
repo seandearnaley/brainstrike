@@ -18,7 +18,7 @@ The host admits concrete models and executable tools; clients submit non-secret 
   - Anthropic routes (its own API and OpenRouter's `anthropic/*`) get valid tool-call IDs and only their own thinking, judged by the serving provider's options key (`anthropic`, or `openrouter` for OpenRouter's `reasoning_details`). Signed thinking another SDK provider stamped is dropped for every target.
   - Over the input limit, the request keeps every system message and the most recent conversation that fits, starting at a user turn so no tool call loses its result, measured exactly as it is accounted; a request that fits is measured once. When even the latest turn can't fit, the run refuses with `provider.context-overflow`.
   - Tokenizer-measured models (the direct OpenAI rows) are counted on one worker thread that holds the o200k encoder ([`token-counter.ts`](../../packages/agent/src/token-counter.ts)), never on the host's main thread. The host starts it when the composer's memory read or a run's admission names such a model. A worker that cannot load or exits reads as `counter-initialization-failed`; there is no main-thread fallback.
-- OpenAI uses stored responses. Expired stored items are typed, non-retryable failures; replaying without them needs the user's decision.
+- OpenAI with an API key uses stored responses. Expired stored items are typed, non-retryable failures; replaying without them needs the user's decision.
 
 ## Credentials and privacy
 
@@ -30,7 +30,12 @@ Decision: [ADR-0014](../adr/0014-provider-credentials-and-openai-storage.md). Ow
 - An admitted auth input is authoritative; it never falls back to another runtime or environment identity.
 - Missing credentials and unreadable secrets are different failures.
 - Bedrock precedence: environment bearer, stored bearer, environment chain, stored chain. Resolve AWS chains only through the injected host capability.
-- No provider authenticates through a subscription sign-in.
+- Sign in with ChatGPT ([ADR-0038](../adr/0038-sign-in-with-chatgpt.md)) is the `chatgpt` provider, apart from `openai` and its API key.
+  - The host's [sign-in](../../packages/host-capabilities/src/provider-auth/chatgpt-sign-in.ts) is the only reader and writer of its record. A client sees a state and an email; no secrets channel returns the tokens.
+  - A request gets its token from the host's closure, which renews it first when due. The base URL is pinned to `https://api.openai.com/v1`.
+  - Its requests set `store: false` and carry no output limit, temperature or top-p. OpenAI's plan refusals are never retried.
+  - An OpenAI item is replayed only to the route that produced it ([`openai-route-items.ts`](../../packages/agent/src/providers/openai-route-items.ts)). The plan route marks its items; the other route's reasoning is dropped and its text and tool calls go out as plain content, so a thread can move between `openai` and `chatgpt`.
+  - No other provider authenticates through a subscription sign-in.
 - Environment diagnostics hold names, paths and loader messages, never secret values or fingerprints.
 
 ## MCP configuration and lifetime

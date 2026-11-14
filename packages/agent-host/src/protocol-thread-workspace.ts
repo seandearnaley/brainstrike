@@ -82,6 +82,22 @@ export const THREAD_WORKSPACE_METHOD_SCHEMAS = {
     patch: ThreadWorkspaceBindingSchema,
   }),
   'thread/workspace/read': Schema.Struct(Thread),
+  /**
+   * ADR-0034 scratch threads: before a thread's first run, gives a thread with
+   * no folder, while none is open in the workspace, a folder the host makes for
+   * it, and binds the thread to it through the binding's own command. A thread
+   * that already works in a folder keeps it.
+   */
+  'thread/workspace/scratch': Schema.Struct({ ...Command, ...Thread }),
+  /**
+   * ADR-0034 build decisions, the desktop's private client only: the thread's
+   * scratch folder becomes a project. The host asks Main's folder picker where,
+   * moves the folder into the folder chosen under its own name, records it as
+   * a folder of the person's with a project of its own under the same root id,
+   * and binds the thread to it there through the binding's own command.
+   * Refused while the thread or one of its workers has a run in progress.
+   */
+  'thread/workspace/scratch/project': Schema.Struct({ ...Command, ...Thread }),
   'thread/workspace/set': Schema.Struct({
     ...Command,
     ...Thread,
@@ -95,5 +111,16 @@ export const THREAD_WORKSPACE_RESULT_SCHEMAS = {
   }),
   'thread/workspace/binding/update': Schema.Struct({ accepted: Schema.Literal(true) }),
   'thread/workspace/read': Schema.Struct({ snapshot: Schema.NullOr(WorkspaceSnapshotSchema) }),
+  /**
+   * The thread's scratch folder, which it now works in; null when it has none:
+   * a folder is open in the workspace, or the thread works in another folder.
+   */
+  'thread/workspace/scratch': Schema.Struct({
+    root: Schema.NullOr(Schema.Struct({ displayName: Id, path: Id, rootId: Id })),
+  }),
+  /** The folder where it now is, a project; null when the person cancelled the picker. */
+  'thread/workspace/scratch/project': Schema.Struct({
+    root: Schema.NullOr(Schema.Struct({ displayName: Id, path: Id, rootId: Id })),
+  }),
   'thread/workspace/set': Schema.Struct({ accepted: Schema.Literal(true) }),
 } as const;

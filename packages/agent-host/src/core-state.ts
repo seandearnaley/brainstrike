@@ -379,6 +379,11 @@ export interface HostRunState {
    * thread's next run or rewind waits for it; an unjoined owner keeps it set.
    */
   settlement?: Promise<void> | undefined;
+  /**
+   * ADR-0034 Automatic isolation: the folders its workers were noted sharing, by the call that
+   * dispatched them (`<toolCallId>\0<rootId>`), so each is said once at that call.
+   */
+  sharedByWorkers?: Set<string>;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
   steps: number;

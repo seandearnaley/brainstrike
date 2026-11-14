@@ -265,6 +265,7 @@ function installWorktreesBridge(): void {
         suggestedName: 'bright-fox',
       },
     })),
+    decideSetupConsent: vi.fn(),
     getSettings: vi.fn(async () => ({
       ok: true as const,
       value: {
@@ -284,8 +285,11 @@ function installWorktreesBridge(): void {
       },
     })),
     list: worktreeListSpy,
+    listArchived: vi.fn(),
     listManagedPaths: vi.fn(),
+    listSetupConsent: vi.fn(),
     restore: vi.fn(),
+    revokeSetupConsent: vi.fn(),
     setSettings: vi.fn(),
   };
 }

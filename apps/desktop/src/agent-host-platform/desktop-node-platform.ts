@@ -9,6 +9,7 @@ import {
   type HostStartupContext,
   type HostTurnSnapshotRoot,
   hostPermissionGate,
+  hostScratchFolders,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
   readHostPermissionPolicy,
@@ -28,13 +29,17 @@ import {
   disposeHostTools,
   hostCommandSessionManager,
 } from '@brainstrike/host-capabilities/command-sessions';
-import { createGitWorkspace } from '@brainstrike/host-capabilities/git-workspace';
+import {
+  createGitWorkspace,
+  generateWorktreeName,
+} from '@brainstrike/host-capabilities/git-workspace';
 import {
   getGlobalHooksPath,
   loadHostRunHooks,
   trustedHookRoots,
 } from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
+import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import {
   evictLspServersForRoot,
   forgetSharedNativeToolThread,
@@ -66,6 +71,7 @@ import {
 } from './desktop-run-admission';
 import { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
 import { desktopManagedWorktreeDirectory } from './desktop-worktree-directory';
+import { serveWorktreeResetToMain } from './factory-reset-worktrees';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import { lentCredentialCipher } from './lent-credential-cipher';
 import {
@@ -194,6 +200,10 @@ export async function createDesktopHostConfiguration(
     credentialCipher: lentCredentialCipher(request),
     env: process.env,
     launch: platformOptions,
+    // Sign in with ChatGPT opens its page through Main's one external opener.
+    openExternal: async (url) => {
+      await request(MCP_STORE_METHODS.openExternal, { url });
+    },
     startup,
   });
   // ADR-0017: Main supervises the native processes this host starts, and ends their
@@ -234,6 +244,14 @@ export async function createDesktopHostConfiguration(
   if (!userDataDir) {
     throw new Error('The desktop agent host needs its app paths for MCP settings');
   }
+  // Main's native folder picker: the folder chosen, or null when the person cancelled.
+  const pickFolder = async (): Promise<string | null> => {
+    const picked = wireDecoder(PlatformPickFolderResultSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(await request('platform/workspace/pick-folder', {}));
+    return 'path' in picked ? picked.path : null;
+  };
   // ADR-0029 stage 4: the workspace's open folders. The registry writes their records and the
   // recent-folders ledger; Main keeps only the picker.
   const rootRegistry = createHostRootRegistry({
@@ -243,13 +261,7 @@ export async function createDesktopHostConfiguration(
     managedWorktreeAuthorizer: async (candidate) =>
       (await gitWorkspace.service['worktrees/classify-path']({ path: candidate }, startup.signal))
         .classification,
-    pickFolder: async () => {
-      const picked = wireDecoder(PlatformPickFolderResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/workspace/pick-folder', {}));
-      return 'path' in picked ? picked.path : null;
-    },
+    pickFolder,
     publishRootsChanged: async (change) => {
       wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
         await request('platform/workspace/roots-changed', change)
@@ -286,6 +298,26 @@ export async function createDesktopHostConfiguration(
     store: startup.store,
   });
   await startup.register(() => gitWorkspace.close());
+  // ADR-0015, ADR-0034: Main's Factory Reset and Clear Database archive every managed worktree,
+  // asked on this connection only; no client connection serves it.
+  const worktreeReset = serveWorktreeResetToMain(connection, () => gitWorkspace.archiveForReset());
+  await startup.register(async () => worktreeReset.close());
+  // ADR-0034 scratch threads: a thread sent with no folder while none is open works in a folder
+  // made here, under userData, which a factory reset deletes. Main moves a deleted thread's to
+  // the system Trash, and every one to it once Clear Database has deleted their rows. One turned
+  // into a project moves where the person picks, and is no longer among them.
+  const scratchFolders = hostScratchFolders({
+    directory: path.join(userDataDir, 'scratch'),
+    name: generateWorktreeName,
+    pickFolder,
+    roots: rootRegistry.scratch,
+    store: startup.store,
+    trash: async (folder) => {
+      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+        await request('platform/workspace/trash-scratch-folder', { path: folder })
+      );
+    },
+  });
   // The open folders mount before any client reads the catalog's live roots.
   await rootRegistry.start();
   // A run's workspace borrow holds the registry's mounts; removing a folder ends it.
@@ -545,6 +577,7 @@ export async function createDesktopHostConfiguration(
     // The shadow-git owner restores a host thread's rewind and its redo.
     rewindFiles: gitWorkspace.rewindFiles,
     rootRegistry: rootRegistry.service,
+    scratchFolders,
     selectProjectionRewrites: selectHostProjectionRewrites,
     terminals: terminals.service,
     validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {

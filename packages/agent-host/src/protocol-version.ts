@@ -120,4 +120,34 @@
 // it moved the thread into, and `checkout.shared` (a thread that edits a folder another thread's
 // run is editing and was not moved), a new variant; `worktrees.archived` (the idle worktrees the
 // cap archived after a worktree was created for the thread; ADR-0034 decision 7), a new variant.
-export const AGENT_HOST_PROTOCOL_VERSION = 25;
+// v26 (2026-11-12): scratch threads (ADR-0034, Sean 2026-11-12). A root record Main reads over
+// `host/workspace-roots` may be of kind `scratch`, a folder the host made for a thread sent with
+// no folder while none was open; Main decodes the kind strictly, so an older Main cannot read
+// these records. Each root `workspace/roots/*` answers carries `scratch`, required.
+// `thread/workspace/scratch` gives a thread with no folder its scratch folder and binds it before
+// its first run, a new method. A `thread/delete` result carries `scratchFolderNotRetired` when the
+// deleted thread's scratch folder was not moved to the Trash, an optional field.
+// v27 (2026-11-12): the host keeps repository setup script consent (ADR-0034, Sean 2026-11-12), so
+// every worktree it creates, its own included, runs the script of a repository approved at the
+// script's hash. `worktrees/create` no longer takes `repositorySetupDecision`; the host reads its
+// own record. `worktrees/create-context` answers the standing decision with the script
+// (`repositorySetup.decision`), required. `worktrees/setup-consent/decide`,
+// `worktrees/setup-consent/list` and `worktrees/setup-consent/revoke` are new methods. Removing
+// the parameter and the required field are why this is a version bump. Additive since:
+// `worktrees/list-archived` (the archived managed worktrees of a root's repository, newest archive
+// first, which the where-control's picker restores; ADR-0034 decision 7), a new method.
+// v28 (2026-11-12): projects can be named, joined and relinked (ADR-0034 build decisions). A root
+// record Main reads over `host/workspace-roots` carries `projectName`, the name the person gave
+// its project, or null; Main decodes the record strictly, so it cannot read an older host's
+// records and an older Main cannot read these. The required field is why this is a version bump.
+// `projects/rename`, `projects/join` and `workspace/roots/locate` are new methods, and a project
+// request the state store declines crosses as a typed `project.*` refusal. Additions since: Sign
+// in with ChatGPT (ADR-0038) for the desktop's private client (`auth/chatgpt/sign-in`,
+// `auth/chatgpt/cancel`, `auth/chatgpt/sign-out`, `auth/chatgpt/status`), new methods; a login
+// credential may not be a ChatGPT sign-in, which only that flow writes.
+// v29 (2026-11-12): a scratch thread's folder becomes a project (ADR-0034 build decisions).
+// `thread/workspace/scratch/project`, for the desktop's private client, asks Main's folder picker
+// where, moves the scratch folder there and turns its root into a folder of the person's with a
+// project of its own under the same root id; a new method. Its refusals are typed
+// (`workspace.scratch-*`).
+export const AGENT_HOST_PROTOCOL_VERSION = 29;

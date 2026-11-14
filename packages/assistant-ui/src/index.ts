@@ -194,6 +194,8 @@ export {
 export { SharedFolderChip } from './workspace-bar/shared-folder-chip';
 export {
   WorkspaceBar,
+  type WorkspaceBarArchivedWorktree,
+  type WorkspaceBarArchivedWorktrees,
   type WorkspaceBarBaseRefOption,
   type WorkspaceBarBranchMenu,
   type WorkspaceBarBranchRow,
@@ -205,6 +207,7 @@ export {
   type WorkspaceBarRepositorySetupConsent,
   type WorkspaceBarReveal,
   type WorkspaceBarRoot,
+  type WorkspaceBarScratchProject,
   type WorkspaceBarThreadCheckout,
   type WorkspaceBarTrust,
   type WorkspaceBarTrustAsk,

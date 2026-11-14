@@ -32,6 +32,7 @@ export type ProviderModelDefaultPolicy =
 export const PROVIDER_MODEL_DEFAULT_POLICIES = {
   anthropic: { kind: 'all' },
   bedrock: { kind: 'seed', modelIds: BEDROCK_RECOMMENDED_MODEL_IDS },
+  chatgpt: { kind: 'all' },
   google: { kind: 'all' },
   openai: { kind: 'all' },
   openrouter: { kind: 'seed', modelIds: OPENROUTER_RECOMMENDED_CODING_MODEL_IDS },

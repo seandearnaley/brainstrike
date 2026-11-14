@@ -3,6 +3,7 @@ export * from './assistant-task-list.ts';
 export * from './bedrock-defaults.ts';
 export * from './boundary-failure.ts';
 export * from './canvas-link.ts';
+export * from './chatgpt-sign-in.ts';
 export * from './child-execution-configuration.ts';
 export * from './child-input.ts';
 export * from './child-model.ts';

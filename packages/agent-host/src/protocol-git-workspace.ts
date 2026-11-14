@@ -21,6 +21,7 @@ import type {
   WorktreeCreateResult,
   WorktreeListEntry,
   WorktreeSettings,
+  WorktreeSetupConsent,
 } from '@brainstrike/types';
 import { Schema } from 'effect';
 
@@ -287,10 +288,20 @@ const WorktreeCheckoutStatusSchema = Schema.Struct({
   path: Text,
   upstream: NullableText,
 }) satisfies Schema.ConstraintDecoder<WorktreeCheckoutStatus>;
+/** A person's answer for a repository's setup script (ADR-0034). */
+const SetupDecision = Schema.Literals(['approved', 'denied']);
+const ScriptSha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
+const WorktreeSetupConsentSchema = Schema.Struct({
+  decidedAt: Text,
+  decision: SetupDecision,
+  repositoryId: Text,
+  scriptSha256: ScriptSha256,
+}) satisfies Schema.ConstraintDecoder<WorktreeSetupConsent>;
 const WorktreeCreateContextSchema = Schema.Struct({
   managedParentPath: Text,
   repositorySetup: Schema.NullOr(
     Schema.Struct({
+      decision: Schema.NullOr(SetupDecision),
       repositoryId: Text,
       repositoryPath: Text,
       scriptPath: Text,
@@ -411,13 +422,6 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
     ]),
     createdBy: Creator,
     name: Text,
-    repositorySetupDecision: Schema.optionalKey(
-      Schema.Struct({
-        decision: Schema.Literals(['approved', 'denied']),
-        repositoryId: Text,
-        scriptSha256: Text,
-      })
-    ),
     rootId: Id,
     ...RunProvenance,
   }),
@@ -425,6 +429,8 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
   'worktrees/create-context': RootRequest,
   'worktrees/inspect-archive': Schema.Struct({ worktreeId: Id }),
   'worktrees/list': None,
+  // ADR-0034 decision 7: the archived worktrees of a root's repository, newest archive first.
+  'worktrees/list-archived': RootRequest,
   'worktrees/managed-paths': None,
   'worktrees/restore': Schema.Struct({ worktreeId: Id }),
   'worktrees/settings/read': None,
@@ -432,6 +438,14 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
     managedDirectory: NullableText,
     setupCommand: WorktreeSetupCommandSchema,
   }),
+  /** Only a person's answer (the create sheet's Allow or Skip); the host re-hashes the script. */
+  'worktrees/setup-consent/decide': Schema.Struct({
+    decision: SetupDecision,
+    rootId: Id,
+    scriptSha256: ScriptSha256,
+  }),
+  'worktrees/setup-consent/list': None,
+  'worktrees/setup-consent/revoke': Schema.Struct({ repositoryId: Id }),
 } as const;
 
 export const GIT_WORKSPACE_RESULT_SCHEMAS = {
@@ -457,8 +471,12 @@ export const GIT_WORKSPACE_RESULT_SCHEMAS = {
   'worktrees/create-context': gitResult(WorktreeCreateContextSchema),
   'worktrees/inspect-archive': gitResult(WorktreeArchivePreviewSchema),
   'worktrees/list': gitResult(WorktreeListSchema),
+  'worktrees/list-archived': gitResult(Schema.Array(ManagedWorktreeRowSchema)),
   'worktrees/managed-paths': gitResult(ManagedWorktreePathsSchema),
   'worktrees/restore': gitResult(WorktreeCreateResultSchema),
   'worktrees/settings/read': gitResult(WorktreeSettingsSchema),
   'worktrees/settings/write': gitResult(WorktreeSettingsSchema),
+  'worktrees/setup-consent/decide': gitResult(WorktreeSetupConsentSchema),
+  'worktrees/setup-consent/list': gitResult(Schema.Array(WorktreeSetupConsentSchema)),
+  'worktrees/setup-consent/revoke': gitResult(Schema.Struct({ revoked: Schema.Boolean })),
 } as const;

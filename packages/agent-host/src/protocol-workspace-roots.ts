@@ -6,13 +6,15 @@ const NoParams = Schema.Record(Schema.String, Schema.Never);
 
 /**
  * A mounted folder: `available` is false while it cannot be mounted (an unplugged drive).
- * `worktree` marks a managed worktree, a thread's checkout that is never an open folder
- * (ADR-0034).
+ * `worktree` marks a managed worktree, a thread's checkout that is never an open folder, and
+ * `scratch` a scratch folder, which the host made for a thread sent with no folder and is never
+ * an open folder either (ADR-0034).
  */
 const OpenRootSchema = Schema.Struct({
   available: Schema.Boolean,
   path: AbsolutePath,
   rootId: Id,
+  scratch: Schema.Boolean,
   worktree: Schema.Boolean,
 });
 export type HostOpenRoot = (typeof OpenRootSchema)['Type'];
@@ -29,11 +31,35 @@ const RecentRootSchema = Schema.Struct({
  * agent host. The host's root registry is the one writer of the root records,
  * their open order and the recent-folders ledger; Main keeps only the folder
  * picker, which the host asks for (`platform/workspace/pick-folder`). Only the
- * desktop's private clients reach these methods.
+ * desktop's private clients reach these methods. The registry also writes the
+ * projects the folders belong to (ADR-0034), through the same store domain.
  */
 export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
-  /** Folder grant without the picker: the path must be a recent folder or a managed worktree. */
+  /**
+   * ADR-0034: the person moves the folder of `rootId` into the project `projectId`, so its
+   * threads list with that project's. The project it leaves is deleted once no folder is in it.
+   * Nothing joins by a remote URL or a commit, and the folder's trust and approved hooks stay its
+   * own. Refused for a managed worktree or a scratch folder, and for an unknown folder or project.
+   */
+  'projects/join': Schema.Struct({ projectId: Id, rootId: Id }),
+  /**
+   * ADR-0034: names a project. The name is trimmed and an empty one clears it, so the project is
+   * named by its folder again. Refused for a name over 80 characters and an unknown project.
+   */
+  'projects/rename': Schema.Struct({ name: Schema.String, projectId: Id }),
+  /**
+   * Folder grant without the picker: the path must be a folder this app recorded, a recent
+   * folder or a managed worktree. A recorded scratch folder mounts as its thread's (ADR-0034).
+   */
   'workspace/roots/add': Schema.Struct({ path: AbsolutePath }),
+  /**
+   * ADR-0034 relink: a recorded folder that is no longer where it was is pointed, through the
+   * native picker, at the folder the person chooses. The record keeps its id, so its threads and
+   * project follow it; its trust is asked again at the new place, as any folder's is. Refused for
+   * a managed worktree or a scratch folder, for a folder still at its recorded place, and for a
+   * folder recorded under another id. `root` is null when the person cancelled the picker.
+   */
+  'workspace/roots/locate': Schema.Struct({ rootId: Id }),
   /**
    * Opens a folder as the window's project (ADR-0034): with `path`, a folder granted before
    * (Recents), else through the native picker. Every other open folder closes; one a running
@@ -46,7 +72,10 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
   'workspace/roots/recent': NoParams,
   /** Closes the folder; its record keeps its identity for a later re-add. */
   'workspace/roots/remove': Schema.Struct({ rootId: Id }),
-  /** Mounts the open folders again and answers them in their order. */
+  /**
+   * Mounts the open folders again and answers them in their order, then the managed worktrees
+   * and scratch folders, each mounted for its thread and never open (ADR-0034).
+   */
   'workspace/roots/restore': NoParams,
   /** E2E only: replaces the open folders (with their ids) and the recent-folders ledger. */
   'workspace/roots/seed-for-e2e': Schema.Struct({
@@ -55,7 +84,10 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
   }),
 } as const;
 export const WORKSPACE_ROOTS_RESULT_SCHEMAS = {
+  'projects/join': Schema.Null,
+  'projects/rename': Schema.Null,
   'workspace/roots/add': OpenRootSchema,
+  'workspace/roots/locate': Schema.Struct({ root: Schema.NullOr(OpenRootSchema) }),
   'workspace/roots/open': Schema.Struct({ root: Schema.NullOr(OpenRootSchema) }),
   'workspace/roots/pick': Schema.Struct({ root: Schema.NullOr(OpenRootSchema) }),
   'workspace/roots/recent': Schema.Struct({ roots: Schema.Array(RecentRootSchema) }),

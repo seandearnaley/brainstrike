@@ -9,7 +9,19 @@
     the composer's folder, branch and checkout chips become one control that says where a thread
     works.
   - 2026-11-12 (owner decisions, below): decision 7's cap keeps 15 idle managed worktrees per
-    repository; built.
+    repository; built, with a control that restores an archived worktree.
+  - 2026-11-12 (owner decisions, below): a thread sent with no folder while none is open works
+    in a scratch folder the host makes for it.
+  - 2026-11-12 (owner decision, below): repository setup script consent moves from the renderer
+    to the host, so a worktree the host makes runs the script too.
+  - 2026-11-12 (build decisions, under the project record below): a project can be named, a
+    folder joined to another project, and a moved folder located; built.
+  - 2026-11-12 (build decisions, below): Factory Reset archives every managed worktree before
+    it deletes their ledger.
+  - 2026-11-12 (build decisions, below): Clear Database archives every managed worktree too,
+    and moves every scratch folder to the system Trash once it has cleared.
+  - 2026-11-12 (build decisions, under scratch threads below): a scratch thread's folder can be
+    turned into a project; built. Starting one from a thread that ran with no folder is not.
 - **Date:** 2026-11-01
 - **Related:** ADR 0017 (root authority), 0018 (derived indexer), 0026 (two-lane
   search), 0028 (a created worktree binds its thread), 0029 (host owns the
@@ -156,9 +168,10 @@ supersede the decisions above where they differ.
       folder's. The worktree listing decides which repository a checkout
       belongs to, as before, so a folder adopted as a worktree goes under its
       repository's project, not the project it kept.
-    - Every folder of one project lists in one section: today a folder
-      picked again at a new place while a record still leads to the old one,
-      and a second clone once joining is built. The section is named by a
+    - Every folder of one project lists in one section: a folder picked again
+      at a new place while a record still leads to the old one, and a folder
+      the person moved into the project (Move to project…, below). The section
+      is named by its project's name once the person gave one; otherwise by a
       repository before a folder, then by name, whichever thread comes first.
     - A repository whose own checkout is not an open folder has no project to
       read and keeps its common-dir section, and a folder recorded before
@@ -167,8 +180,62 @@ supersede the decisions above where they differ.
     - Collapse state under a project is kept, not pruned, as for a
       repository. Saved collapse state of sections from before (keyed on the
       common dir or the root id) does not carry over.
-  - Not built: relinking a moved folder, joining a second clone and naming a
-    project.
+  - Built: naming a project, joining a folder to another project and relinking
+    a moved folder. How each is built was not part of Sean's answers; these are
+    build decisions, and later work may revisit them:
+    - **A project has a name the person gives it.** State DB version 18 adds
+      `projects.name`, NULL while it has none; every project keeps its row and
+      starts unnamed. The roots domain is its one writer (`rename-project`):
+      it trims the name, an empty one clears it, and one longer than 80
+      characters is refused and changes nothing. A root record carries
+      `projectName` beside `projectId`, which Main decodes strictly (host
+      protocol version 28, `projects/rename`). A project section in the
+      Threads panel reads and sorts by the name when there is one, and is
+      named as before when there is none. Its header's menu has Rename
+      project…, an inline form like a group's rename; an empty name names the
+      project by its folder again. Clear Database deletes the name with its
+      project.
+    - **Joining is something the person does.** Move to project… in a project
+      section's menu lists the other projects the panel shows, and moves the
+      folder that names the section into the one chosen (`join-project`,
+      `projects/join`). Its folder row then names that project, and the
+      project it left is deleted in the same commit once no folder is in it.
+      A managed worktree and a scratch folder are refused, having no project
+      of their own, and so is a folder or project the store does not have.
+      Nothing joins folders by a remote URL or a commit.
+    - **Joining writes nothing to trust or hook approvals.** Both stay keyed
+      by each folder's own canonical path (ADR-0032), so a joined folder keeps
+      its own answers and takes none of its new project's folders'. Being in
+      one project is not proof that two folders are the same folder.
+    - **Relinking was not reachable, so it is built as Locate folder….** A
+      folder moved outside the app and picked again at its new place got a
+      new root id and a new project: the registry matches a picked folder to
+      a record by its canonical path, which the move changed, and the store's
+      re-pin (`repin`) reached only a record whose own path now led
+      elsewhere. A project section whose folder is not mounted now offers
+      Locate folder… (`workspace/roots/locate`): the person picks where the
+      folder is now, and the registry re-pins that record to it through the
+      store's `repin`, so it keeps its root id, and with it its threads and
+      its project. It is refused for a managed worktree or a scratch folder,
+      for a folder still at its recorded place (it opens from Recents), and
+      for a folder another record has. The Explorer then shows the folder by
+      its path, as it shows a reopened one.
+    - **A managed worktree's record never moves to another folder.** A folder
+      opened before it was adopted as a managed worktree keeps kind `path`,
+      so the store's re-pin itself refuses, in its own commit, to point a
+      record the worktree ledger names (or a thread's own folder) at another
+      folder; moved, it would part from the checkout the ledger records.
+    - **A relink that committed is read again even when the Explorer cannot
+      show the folder.** The panel re-reads the folder rows after every
+      project action, whatever its outcome, and a refusal it shows goes with
+      the rename form and with Project grouping.
+    - **Trust does not follow a relink.** The person's pick is not proof that
+      it is the same folder, so it is asked again at its new place, as any
+      folder is. Its old place's answer stays with that path.
+    - **A store refusal is typed.** The roots domain declines these requests
+      with a `project.*` code and a message the person can act on
+      (`StateStoreRefusalError`), the host passes them on as typed refusals,
+      and the panel shows them.
 - **The interface word is "Project".** Labels that say workspace or folder for
   this are renamed as each screen is touched.
 - **Built so far: the Threads panel lists threads by project** (#5329, #5337).
@@ -238,7 +305,9 @@ revisit:
     made in place, where its parent works, and never moves its parent. The
     person's own thread shows the note for it, at the run and the call that
     dispatched the worker, through any workers between; the worker's thread
-    shows none.
+    shows none. Every worker under that call notes at it, so each folder is
+    noted once there, however many of them edit it (a build decision: the
+    dispatching run keeps the call and folder pairs it has noted).
   - A thread whose workers are still working stays with them (ADR-0028
     rule 5) and shares the folder, with the note. That includes a worker
     dispatched in the same step as the edit, which begins while the worktree
@@ -321,9 +390,9 @@ Not built:
   idle-worktree cap (owner decisions, 2026-11-12) archives it once its
   repository has more than 15 idle worktrees.
 - An action that brings a worktree's changes back.
-- The repository's setup script for a worktree the host made. Consent for it
-  is kept by the renderer, so the host skips the script and the worktree shows
-  the reason. Moving that consent to the host is a change of owner.
+
+The repository's setup script for a worktree the host made was on this list
+until consent for it moved to the host (owner decision, 2026-11-12, below).
 
 ### The control that says where a thread works
 
@@ -516,8 +585,8 @@ revisit:
   path under it still refuses an active run and nested repositories too.
 - **Where the notice goes.** To the thread the creation was for, as a row in
   its transcript at every detail level: each archived worktree with its branch
-  and its snapshot ref, where its uncommitted changes are kept. It does not
-  promise a restore the app cannot offer yet (Not built, below). The host's worktree and
+  and its snapshot ref, where its uncommitted changes are kept, and where to
+  restore one (restoring, below). The host's worktree and
   the model's name their run and thread. The person's New worktree… now names
   the selected thread, which it already required. The row shows with the run
   that made the worktree, or with the thread's latest run when the person made
@@ -528,8 +597,452 @@ revisit:
   thread before its first send): the row has no run to be shown with, and an
   archive is never left untold (from Codex's and Claude's review).
 
-Not built: a control that restores an archived worktree (the host's
-`worktrees/restore` has none yet), and a cap after a thread is deleted.
+Built: restoring an archived worktree. These are build decisions, not Sean's,
+and later work may revisit them:
+
+- **Where.** The where-control's Other worktree… picker has an Archived
+  section below the live worktrees: the archived managed worktrees of the
+  repository the thread's folder is in, newest archive first, each with its
+  name, branch, when it was archived and Restore and use. The picker's filter
+  narrows it with the live list. The host lists them from the ledger's archived
+  rows (`worktrees/list-archived`, a method added under protocol v27). The list
+  belongs to the folder it was read for: when the thread's folder moves to
+  another repository, the first repository's rows are neither shown nor
+  restorable there, and a restore that finishes after the folder moved does not
+  move the thread into it.
+- **What it does.** Restore and use calls the host's existing
+  `worktrees/restore`, the one writer: it recreates the worktree on its branch
+  and replays its archive snapshot, so its uncommitted changes come back. Then
+  it does what Use does: it opens the worktree's folder and binds the thread
+  through the binding's own command. Like every checkout change it waits for
+  the thread's run to end. A worktree a thread is bound to is not idle, so the
+  cap does not archive it again while the thread works there. Nothing new is
+  stored: no restore time, and a restored worktree keeps its first creation
+  time (above).
+- **Failure is visible.** A refused restore says why in a toast, as Use's,
+  Create's and Archive's failures do, so it is seen after the picker closes, and
+  in the picker while it is open: its folder is taken, its snapshot ref is gone,
+  its branch has moved, or its branch is checked out in another worktree (git's
+  own words). Nothing is retried or done instead. A worktree that was restored
+  but that the thread could not enter (its folder did not open, the binding
+  refused, or the thread's folder moved meanwhile) says so too; it is no longer
+  archived, so Use can choose it.
+- **The notice** says where to restore: Other worktree… in the composer's
+  Where this thread works menu, then Restore and use under Archived.
+- Files git ignores, which archiving deletes, do not come back.
+
+Not built: a cap after a thread is deleted.
+
+## Owner decisions, 2026-11-12: scratch threads
+
+Sean's answers, approved as written:
+
+- **A thread first sent while it has no folder and no folder is open in the
+  workspace works in a scratch folder.** The app makes the folder and binds
+  the thread to it before the run starts, so file tools work from the first
+  message. Before, with no folder open, they refused ("No folder is open in
+  the workspace…").
+  - With any folder open nothing changes: the run gets the live folders and
+    the Explorer's focused one.
+  - A thread that never sends makes nothing.
+- **The folder lives under Electron's userData**, `<userData>/scratch/<name>`,
+  named as managed worktrees are (`generateWorktreeName`). Factory Reset
+  already deletes userData.
+- **App-made folders are trusted with no question** (ADR-0032, owner
+  decisions 2026-11-10): at the moment the app makes the folder, the host
+  records it as `trusted` through `writeHostWorkspaceTrust`, never for a
+  folder that already existed.
+- **Deleting the thread moves its scratch folder to the system Trash.**
+- Approved changes of owner: the host makes a folder and registers it as a
+  root without the folder picker; Core binds the thread before its run is
+  admitted; a new durable record marks scratch folders, with a state DB and
+  protocol bump, joining the reset lifecycle (ADR-0015).
+
+Built: all of the above. State DB version 17 (`scratch_folders`, root kind
+`scratch`), host protocol version 26 (`thread/workspace/scratch`, the root
+kind and the roots' `scratch` flag), `HostPlatform.scratchFolders`, and Main's
+`platform/workspace/trash-scratch-folder`.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **The renderer asks, the host decides.** The new-thread first send calls
+  `thread/workspace/scratch` before `run/start` when its draft has no folder
+  and the window shows no open folder. The host makes nothing while a folder
+  is open: its root registry checks, in its own order of changes, so a folder
+  opened meanwhile is seen and the thread runs as before. A thread that
+  already works in a folder keeps it; the answer names its scratch folder when
+  that is the one.
+- **Made outside Core's admission queue, bound through the binding's
+  command.** The queue is shared by every thread, so the folder is made
+  outside it, as Automatic isolation makes a worktree, and the binding
+  commits through `updateWorkspaceBinding`, its only writer. A deletion of the
+  thread or the host's close aborts the making; the binding is then refused.
+- **One folder per thread, reused.** The store refuses a second scratch folder
+  for a thread, and a scratch command repeated after the folder was made, but
+  before the binding committed, finds the recorded folder and binds it.
+- **Its root is the thread's own, like a managed worktree's.** It is recorded
+  in the commit that records `scratch_folders`, so no other registration can
+  make a root a scratch folder. It is live, mounted for its thread at every
+  launch, never an open folder, never in Recents, has no project, and is
+  refused as the window's project. It reaches the renderer marked `scratch`.
+- **The Explorer shows only the active thread's.** The thread-checkout seam
+  that puts the active thread's worktree in the Explorer now carries its
+  scratch folder too (`ThreadCheckout.threadRootId`, renamed from
+  `worktreeRootId`), with no Local folder. Every other thread's is left out,
+  as other threads' worktrees are. Its header and the composer's
+  where-control read `<folder> · Local`: the folder is a project with one
+  checkout (decision 1), in the words a folder outside git already had.
+- **A run with no folder of its own never sees another thread's scratch
+  folder.** Main's admission roots leave scratch roots out, so a thread's
+  trusted folder (and its instructions) never reach another thread's run. A
+  thread bound to its scratch folder acquires it through its binding, and the
+  folder may be that run's selected folder.
+- **A run names the Explorer's focus only when its thread can see that
+  folder:** an open folder, or one of the thread's own (its binding's).
+  While the active thread shows no folder, the Explorer keeps its last focus,
+  which can be another thread's scratch folder or worktree; a send then names
+  no folder, rather than one admission refuses (`threadSelectionFolderId`).
+  The Explorer's focus itself is left as it is, so a restore that has not
+  mounted the folders yet keeps it.
+- **Made at its canonical path.** The host resolves the scratch directory
+  before naming a folder in it, so the root, its watch and its trust answer
+  spell it one way (a profile reached through a symbolic link, as the OS
+  temporary folder is on macOS, otherwise showed no changes in the Explorer).
+- **Retired by thread, not by binding.** A deleted thread's scratch folder is
+  the one recorded for it, so it goes even when the thread had moved to
+  another folder. After the thread's rows are erased, outside the admission
+  queue: the folder unmounts once its borrows end, its root and record are
+  deleted together, its trust answer goes, and Main moves it to the Trash.
+  Main moves only a folder directly inside `<userData>/scratch`, by canonical
+  path. A folder already removed outside Brainstrike is logged and skipped.
+  The thread is gone by then, so a failure (a volume with no Trash, a system
+  with none) does not fail the deletion: it is logged, the deletion's answer
+  names the folder and Main's reason (`scratchFolderNotRetired`), and the
+  window says so in a notice, so the person can remove the folder.
+- **The Threads panel lists every scratch thread in one Scratch section.** In
+  Project grouping a thread whose folder is a scratch folder lists in one
+  section labelled Scratch, after every project and folder section and before
+  No project. Before, each listed in a section of its own named by its folder
+  (`quiet-otter`), as if each were a project.
+  - Its id is the sentinel `folder-scratch`, built like `folder-unassigned`,
+    so no `project:`, `repository:` or `folder:` id can produce it. Its
+    collapse state is kept like the other keys: the prune reads only
+    `folder:` keys.
+  - Which folders are scratch folders comes from their `roots` records: Main's
+    `readRoots` answer marks a root of kind `scratch`
+    (`ThreadCatalogRoot.scratch`), never a path or a name. The kind already
+    reached Main on the catalog wire, so the host protocol is unchanged. The mounted roots'
+    `scratch` flag was not used: it is missing until the folders are restored
+    at each launch and for a folder that cannot be mounted, and either would
+    list the thread under its folder's name again.
+  - A scratch folder that has become a repository's own checkout still lists
+    in Scratch.
+  - Each row's checkout chip names its folder instead of Local, because the
+    section does not, so two scratch threads are told apart. Under 420px it is
+    its folder icon alone, as a worktree's chip is its branch icon. Other
+    groupings read no `roots` rows, so their chips still read Local.
+  - The section offers no New thread here: a new scratch thread starts from
+    the ordinary New thread with no folder open.
+
+### Turning a scratch thread into a project
+
+Built: the first half of "Turn into a project", a scratch thread's folder
+becoming a project. These are build decisions, not Sean's answers, and later
+work may revisit them:
+
+- **Where.** The where-control (`workspace-bar-where-chip`) shows Turn into a
+  project… while the thread works in a scratch folder, read from its folder's
+  descriptor (`scratch`). Like every checkout change it waits for the thread's
+  run to end: the row is disabled with the reason while the run is in
+  progress. The host refuses too (`workspace.scratch-project-running`) while
+  the thread or one of its workers has a run in progress, before the picker is
+  shown and again once the person has chosen, since this checkout change moves
+  the folder a run works in. That second check, the move and the binding
+  update share one slot of Core's admission queue, which every run admission
+  takes: a run asked for meanwhile is admitted after the move, at the folder's
+  new place. A refusal is said under the row and in a toast, in the host's
+  words.
+- **Destination.** Main's native folder picker chooses a parent folder, through
+  the host's `platform/workspace/pick-folder`, the route Open Folder, Add
+  Folder and the open-folder list already use. The project folder is
+  `<parent>/<scratch folder name>`. Refused, with nothing moved: a path that
+  already holds anything (`workspace.scratch-project-exists`), a parent that is
+  gone, and a parent among the scratch folders themselves.
+- **Move.** One rename, by the host's scratch platform (`hostScratchFolders`
+  in `scratch-folders.ts`), the folder's maker. It moves only a folder directly
+  inside `<userData>/scratch`, both compared at their canonical paths, the
+  guard Main's Trash uses (`scratch-folder-trash.ts`). A destination on another
+  disk (`EXDEV`) is refused with the reason (`workspace.scratch-project-other-disk`:
+  pick a folder on the same disk); nothing is copied instead. The root
+  registry unmounts the folder first, once its borrows end (its terminals and
+  language servers go, as a removed folder's do), and mounts it again at the
+  new place under the same root id.
+- **Record.** One new roots-domain operation, `scratch-to-project`, in one
+  commit: the root keeps its id, its kind becomes `path`, its path, canonical
+  path and name are the new ones, its `scratch_folders` row is deleted, and it
+  gets the project recorded for its new place, or a new one, as `register`
+  gives a folder its project. It is refused, changing nothing, for a root the
+  store does not have, one that is not a scratch folder, and a place another
+  record has, each a typed store refusal (`project.*`). No schema change.
+- **It is an open folder now, and in Recents.** The operation opens it at the
+  end of the open folders, as a folder the person adds is, and the registry
+  records it in Recents and tells Main. A folder of the person's that is not
+  open is not mounted at the next launch, so the thread's next run would be
+  refused as for a removed folder.
+- **The thread follows.** The root id is kept, so the thread's threads list,
+  its Explorer mount and its binding's root stay. The binding's own command
+  then rewrites its path and name (`operatingRootPath`,
+  `operatingRootDisplayName`), because run admission checks that path against
+  the mount. The window shows the folder at its new place by its path, as it
+  shows a scratch folder the host made, and the Threads panel reads the root
+  records again, so the thread leaves Scratch for its project's section.
+- **Trust is asked at the new place.** The person chose that place, and the
+  ruling that an app-made folder is trusted covered the scratch place only. No
+  trust or hook record is written, as Locate folder… writes none. The answer
+  the app wrote for the scratch place stays with that path, as a located
+  folder's old place's does; nothing reads it unless a scratch folder is made
+  there again, which the app trusts anyway.
+- **Deleting the thread later leaves the project, and so does Clear
+  Database.** A deleted thread's scratch folder goes to the Trash by its
+  scratch record, which this folder no longer has, and Clear Database moves
+  only folders inside `<userData>/scratch`.
+- **Order and what a failure leaves.** Move first, then the record, then the
+  binding. The host logs where it moves the folder before the rename.
+  - A move that fails changes nothing: the folder is mounted again where it
+    was, still the thread's scratch folder.
+  - A record that fails after the move says where the folder now is
+    (`workspace.scratch-project-unrecorded`); nothing is mounted there. The
+    scratch record still names the old place, which is gone, so the thread's
+    next run is refused, and the person adds the folder from where it is.
+  - A record that commits but whose mount fails says so
+    (`workspace.scratch-project-unmounted`); the folder is open, and mounts at
+    the next launch or from Recents.
+  - A binding that does not commit after the record says where the folder is
+    (`workspace.scratch-project-unbound`). The binding still names the old
+    path, so the thread's next run is refused until the folder is chosen for
+    it again.
+  - A host that stops between the rename and the record's commit leaves the
+    first case without its message: the folder is at its new place, named in
+    the host's log, and the scratch record names a place that is gone. One that
+    stops between the record and the binding leaves the last case. Both windows
+    are a few milliseconds; nothing retries or repairs them.
+- **The host method** is `thread/workspace/scratch/project`, for the desktop's
+  private client only (host protocol version 29), answering the folder where
+  it now is, or null when the person cancelled the picker.
+
+Not built:
+
+- Cleaning up scratch folders on Clear Database. Their rows go with the
+  roots; the folders stay in the profile until Factory Reset, as worktrees do.
+  Built since (Clear Database retires the worktrees and scratch folders,
+  below).
+- Starting a project from a thread that already ran with no folder, the second
+  half of "Turn into a project". Such a thread has no folder to move.
+- Mounting only the scratch folders of open threads. Every one mounts at
+  launch, as every managed worktree does, each with its own handle.
+
+## Owner decision, 2026-11-12: setup script consent moves to the host
+
+Sean's decision, approved: an approved change of owner.
+
+- **Repository setup script consent moves from the renderer to the host.**
+  The renderer kept it in its own storage, so the host skipped the script for
+  every worktree it made itself (Automatic isolation, the model's
+  `manageWorktree`), and the worktree said "Repository setup script consent is
+  required before it can run." Now one host record answers for every
+  creation: a repository approved at the script's current hash runs its setup
+  for the worktrees the host makes too.
+
+Built. The answer is still asked in the create sheet ("Run repository setup
+script?", Allow script / Skip script), changed there, and revoked in
+Settings › Workspace. Host protocol version 27.
+
+Decisions the build made, which are not Sean's and which later work may
+revisit:
+
+- **One record, keyed by repository.** One state-store setting,
+  `worktrees.setup.consent`, holds
+  `{ [repositoryId]: { decision, scriptSha256, decidedAt } }`, as the trusted
+  locations are one setting (ADR-0032): the store cannot list keys by prefix.
+  The repository id is the realpath'd git common dir, as before, so every
+  checkout of the repository shares the answer. An answer replaces the
+  repository's earlier one, and changes are serialized per store so two
+  answers never drop each other's. A record the host did not write fails the
+  read instead of reading as no answer.
+- **One reader and writer** (`worktree-setup-consent.ts` in host-capabilities'
+  git cluster), which reaches the store through `createWorktreeWorkspace`.
+  The writer resolves the root's repository, reads the script again and
+  refuses an answer whose hash differs from the one the person was shown, as
+  `hooks/trust` refuses one; nothing is recorded then. It is called only for
+  a person's answer, never by a run.
+- **Three host methods on the git cluster**, for the desktop's private client:
+  `worktrees/setup-consent/decide { rootId, decision, scriptSha256 }`,
+  `worktrees/setup-consent/list` (for Settings) and
+  `worktrees/setup-consent/revoke { repositoryId }`.
+  `worktrees/create-context` answers the standing decision with the script
+  (`repositorySetup.decision`) only when it was given for the script's
+  current hash, so the rule that an answer for other bytes asks again is the
+  host's, not the renderer's.
+- **The worktree service reads the record on every create**
+  (`readRepositorySetupConsent`), so the person's own worktree, the branch
+  menu's "Switch in a new worktree", the model's `manageWorktree` and
+  Automatic isolation run setup alike. `worktrees/create` no longer takes a
+  decision. `resolveSetupCommand` still re-hashes the script before it runs and
+  fails closed to a visible skip. A record that cannot be read fails the
+  worktree's setup, visibly, not its creation.
+- **The script runs from a private copy of the approved bytes.** Setup reads
+  the script once, checks that buffer's hash against the answer, writes that
+  same buffer to a file in a private directory (`mkdtemp` under the OS temp
+  directory, mode 0700, the file 0600) and runs `/bin/sh` on it, with the
+  worktree as its working directory as before. The copy is removed however
+  setup ends, timeout and failure included. So the script's `$0` is that copy,
+  not `.brainstrike/worktree-setup.sh`, and it reaches the repository through
+  its working directory and `BRAINSTRIKE_ROOT_PATH`. A review of the first
+  build found the hole this closes: setup checked the file's hash and then
+  opened it by path again, so a run that could write the source checkout
+  could swap the script in between and have a worktree the host made run
+  bytes the person never approved.
+- **The sheet asks the host, then reads the host's answer back.** Allow and
+  Skip call `decide` and then `create-context` again; a refusal (the script
+  changed since the sheet opened) is shown in the sheet, which keeps asking.
+- **No migration.** The renderer's record
+  (`brainstrike:worktree-setup-consent.v1`) is no longer read or removed;
+  Brainstrike is greenfield, as ADR-0032 did for hook records. Each repository
+  is asked once more.
+- **Reset.** The record is a host setting: Clear Database keeps it, as it keeps
+  workspace trust and hook approvals, and Factory Reset deletes it with the
+  state store. That is the lifecycle the renderer's record had.
+
+A known cost: setup runs inside the worktree service's one-at-a-time lock,
+with its 300-second timeout. So once a repository is approved, Automatic
+isolation's refused first edit waits for the setup script to finish before
+the turn carries on in the new worktree, and other worktree operations queue
+behind it. No timer was added for it.
+
+Not built: telling apart scripts that differ between a repository's
+checkouts. The script is read from the checkout the worktree is made from,
+and one answer per repository holds one hash, so approving one checkout's
+script makes another checkout's different script ask again.
+
+## Factory Reset archives the managed worktrees, 2026-11-12
+
+Build decisions, not Sean's, which later work may revisit. Managed worktrees
+live in `~/.brainstrike/worktrees` or the folder chosen in Settings, outside
+userData, and their ledger is in the state DB. Factory Reset deleted the
+ledger with the state DB and purged userData, but nothing removed the folders:
+they stayed on disk, unknown to the app, still in each repository's
+`git worktree list`, and possibly holding the person's uncommitted work.
+
+- **Before the state DB goes, every active managed worktree is archived**
+  through the worktree service's own archive, the one a person's Archive
+  worktree… and the cap use. Its snapshot ref
+  (`refs/brainstrike/worktree-archive/<id>`) keeps its uncommitted changes in
+  its repository, the branch stays, and the folder and git's registration go,
+  so the person's work survives the reset in their own repository.
+- **It forces as the cap does**, with the archive preview's own confirmation
+  of ignored files, which are deleted. Every thread goes with the reset, so a
+  worktree a thread is bound to is archived too. A locked worktree, one with
+  nested repositories and one a run is active in are never forced; they stay
+  in place, as does one whose archive fails (`worktree-reset-archive.ts`).
+- **The person is told before they confirm** (from review of the build).
+  Sean's answer that archiving deletes ignored files covered the idle cap.
+  The build extends it to the reset, and the Factory Reset dialog says so up
+  front: managed worktrees are archived into their repositories, uncommitted
+  work kept as a snapshot ref and branches kept, and their ignored files, such
+  as `.env` files and installed dependencies, deleted. Confirming is then an
+  informed choice. The option not taken was to leave every worktree with
+  ignored files in place.
+- **What stays is named, and never stops the reset.** Each worktree left on
+  disk is named with its path and why in the reset's result
+  (`managedWorktrees`) and in Main's log. When the archive cannot run at all
+  (no host, or a store it cannot open) the outcome says why, and the reset
+  still completes: the person chose it, and Factory Reset is how a damaged
+  store is recovered. Nothing deletes a worktree folder outside the archive.
+- **The window shows it** (from review of the build). The window that asked
+  for the reset is replaced before the reset answers it, so no result reached
+  the person. Main keeps the outcome, and the replacement window takes it
+  once as it starts (`db:takeResetOutcome`, renamed below) and shows a notice: each
+  worktree left on disk with its path and why, or why none could be archived,
+  with a line that archived work is in each repository's
+  `refs/brainstrike/worktree-archive/*` and its branch. A clean archive shows
+  only how many were archived. A reset that fails after the archive does not
+  keep the outcome; the log has it.
+- **Where it runs.** Main owns the reset (ADR-0015). After the reset's
+  background runtimes stop and before it retires the profile, the last moment
+  the host still serves the ledger, Main asks the host it launched, starting
+  it first if it is gone. The archives take one turn of the worktree
+  service's queue, and the service makes and restores no worktree after it, so
+  a run still in progress cannot make one the reset would leave unnamed; the
+  host closes next.
+- **Only Main can ask** (from the commit security review). The request
+  (`reset/worktrees/archive`, renamed below) travels on Main's private platform
+  connection to the host, where Main's MCP retire for the reset already goes,
+  and Main sends it once the host has confirmed Main ready. It is not a client
+  method: the desktop's client connection, which every window and Main's own
+  client share as `desktop-ui`, has no such method, so a window cannot force
+  every worktree's archive or stop the service making worktrees. The option
+  not taken was a client origin of Main's own, which every desktop-only
+  method would then have had to admit.
+- **What it does not cover.**
+  - A run in progress when the reset starts keeps its worktree, named as
+    above: the host ends runs only when it closes, after this step.
+  - A worktree a run's shell command makes after this step is not seen: the
+    service did not make it.
+  - A reset that fails after this step leaves the worktrees archived: the
+    ledger says so, and their snapshot refs and branches hold the work.
+  - Clear Database keeps settings and deletes the ledger rows, and still
+    leaves the folders. It is out of scope. Built since (below).
+
+## Clear Database retires the worktrees and scratch folders, 2026-11-12
+
+Build decisions, not Sean's, which later work may revisit. Clear Database
+keeps settings and deletes content, and with it the worktree ledger
+(`brainstrike_worktrees`) and every scratch thread's rows (`threads`,
+`roots`, `scratch_folders`). The folders stayed: the managed worktrees
+outside userData, still in each repository's `git worktree list` and
+possibly holding uncommitted work, and the scratch folders in
+`<userData>/scratch`, which Clear Database keeps. Factory Reset covers the
+first (above) and deletes userData, the second with it; Clear Database
+covered neither.
+
+- **The worktrees are archived as Factory Reset archives them.** After the
+  clear's runtimes stop and before Main asks the host to clear content, Main
+  asks the host for the same archive, on the same private platform
+  connection, with the same rules: forced past ignored files with the
+  preview's confirmation, as the idle cap is, and never past an active run, a
+  lock or nested repositories. Both resets delete every thread, so none
+  counts as bound. The host closes after the clear, so the service making no
+  worktree after the archive lasts until then. The request is renamed
+  `reset/worktrees/archive`, since both resets send it; it is still not a
+  client method.
+- **The scratch folders go to the Trash only once the clear succeeded.**
+  Main lists `<userData>/scratch` and moves each folder directly inside it to
+  the system Trash through the guard a deleted thread's folder goes through
+  (`trashEveryScratchFolder` in `scratch-folder-trash.ts`), as Sean ruled
+  for deleting a scratch thread. Never before the clear: a failed clear keeps
+  the threads those folders belong to. A file or a link there is left alone,
+  and a missing `scratch` folder is nothing to move.
+- **What stays is named, and never fails the clear.** Each worktree left on
+  disk is named with its path and why, each scratch folder the Trash refused
+  with why, and so is a step that could not run at all (no host, or a
+  `scratch` folder that cannot be read). The person chose the clear, and it
+  completes.
+- **One outcome path.** The reset's outcome now carries which reset ran,
+  its worktrees and, for Clear Database, its scratch folders. Main keeps it
+  and the replacement window takes it once (`db:takeResetOutcome`, renamed
+  from `db:takeResetWorktreeOutcome`, `takeResetOutcome` on the bridge), and
+  shows a notice for each: what stayed with why, or how many were archived
+  or moved.
+- **The person is told before they confirm.** The Clear content dialog says
+  that managed worktrees are archived into their repositories, uncommitted
+  work kept as a snapshot ref and branches kept, their ignored files deleted,
+  and that scratch folders are moved to the Trash.
+- **What it does not cover.** The same gaps as Factory Reset's archive
+  (above). No host makes a scratch folder while they are moved: the clear
+  closed the host, and the next one starts after the window is replaced.
+  A clear that fails after the archive leaves the worktrees archived and
+  every scratch folder in place.
 
 ## Consequences
 

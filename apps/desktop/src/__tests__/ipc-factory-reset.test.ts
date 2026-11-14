@@ -34,7 +34,7 @@ describe('current profile reset and path IPC', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' });
     const completion = Promise.withResolvers<{ success: boolean; message?: string }>();
     const reset = vi.fn(() => completion.promise);
-    const close = registerFactoryResetIpcHandlers(reset);
+    const close = registerFactoryResetIpcHandlers({ reset, takeResetOutcome: () => null });
     const result = invoke('db:resetLocal');
     expect(reset).toHaveBeenCalledOnce();
     completion.resolve({ message: 'reset refused', success: false });
@@ -47,19 +47,35 @@ describe('current profile reset and path IPC', () => {
   it('preserves Windows reset admission without invoking the owner', async () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     const reset = vi.fn(async () => ({ success: true }));
-    const close = registerFactoryResetIpcHandlers(reset);
+    const close = registerFactoryResetIpcHandlers({ reset, takeResetOutcome: () => null });
     await expect(invoke('db:resetLocal')).resolves.toMatchObject({ success: false });
     expect(reset).not.toHaveBeenCalled();
     close();
   });
   it('refuses non-window callers and malformed reset arguments before mutation', async () => {
     const reset = vi.fn(async () => ({ success: true }));
-    const close = registerFactoryResetIpcHandlers(reset);
+    const close = registerFactoryResetIpcHandlers({ reset, takeResetOutcome: () => null });
     await expect(invokeFromUntrackedSender('db:resetLocal')).rejects.toThrow(
       'Desktop IPC db:resetLocal requires an app window sender.'
     );
     await expect(invoke('db:resetLocal', 'extra')).rejects.toThrow();
     expect(reset).not.toHaveBeenCalled();
+    close();
+  });
+  it("hands the replacement window the reset's outcome from the reset owner", async () => {
+    const outcome = {
+      managedWorktrees: { reason: 'The agent host is not running.', status: 'failed' as const },
+      mode: 'content' as const,
+      scratchFolders: { retained: [], status: 'trashed' as const, trashed: [] },
+    };
+    const takeResetOutcome = vi.fn(() => outcome);
+    const close = registerFactoryResetIpcHandlers({
+      reset: vi.fn(async () => ({ success: true })),
+      takeResetOutcome,
+    });
+    await expect(invoke('db:takeResetOutcome')).resolves.toEqual(outcome);
+    expect(takeResetOutcome).toHaveBeenCalledOnce();
+    await expect(invoke('db:takeResetOutcome', 'extra')).rejects.toThrow();
     close();
   });
   it('returns the injected current profile path and removes its handler', async () => {

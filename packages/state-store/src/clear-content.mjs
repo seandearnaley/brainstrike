@@ -15,6 +15,8 @@ const CONTENT_TABLES = [
   'run_sync',
   'purge_intent',
   'roots',
+  // A thread's scratch folder goes with its root (ADR-0034).
+  'scratch_folders',
   // A project goes with the folders and threads it groups; its folders first, which reference it.
   'project_folders',
   'projects',

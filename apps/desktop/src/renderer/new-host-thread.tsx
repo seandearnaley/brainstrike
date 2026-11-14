@@ -15,7 +15,7 @@ import {
   type CommittedAssistantLogSourceSnapshot,
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
-import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
+import { useFileExplorerStoreContext, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import {
   type ReactElement,
   useCallback,
@@ -29,6 +29,7 @@ import { hostRunSettings, settleLostSend } from './committed-host-conversation';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import type { HostThreadRuns } from './host-thread-runs';
 import { sendNewThreadFirstMessage } from './new-thread-first-send';
+import { threadSelectionFolderId } from './thread-selection-folder';
 import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
@@ -111,9 +112,18 @@ export function NewHostThread({
 }): ReactElement {
   const host = useAssistantThreadHost();
   const explorer = useFileExplorerStoreContext();
+  const { addRootDirectoryByPath } = useFileSystem();
   const threadId = newThreadId(resourceId);
   const selection = useNewThreadSelection();
-  const readSelectionFolderId = useCallback(() => explorer.getState().currentFolderId, [explorer]);
+  // ADR-0034: the draft names the Explorer's focus only while it can see that folder.
+  const readSelectionFolderId = useCallback(
+    () =>
+      threadSelectionFolderId(
+        explorer.getState(),
+        useAssistantThreadStore.getState().newThreadMetadataByResourceId[resourceId]
+      ),
+    [explorer, resourceId]
+  );
   const {
     catalogKey: _catalogKey,
     readConfiguration,
@@ -140,23 +150,43 @@ export function NewHostThread({
   useEffect(() => () => store.dispose(), [store]);
   // One first send creates the thread; another before it opens keeps its text.
   const sending = useRef(false);
+  // The scratch folder the send in progress made, which its run names once it is focused.
+  const scratchRootId = useRef<string | undefined>(undefined);
   const commands = useMemo<CommittedAssistantCommands>(() => {
     if (!host) {
       throw new Error('The new-thread composer requires the attached agent host.');
     }
     const repository = createHostAssistantThreadRepository(host);
-    // The draft binding (a folder or worktree picked here); none leaves the thread folderless.
+    // The draft binding (a folder or worktree picked here). With no folder picked and none open,
+    // the host makes the thread a scratch folder and binds it (ADR-0034), which the Explorer then
+    // shows and focuses, so the run is admitted there; with a folder open the thread has none.
     const bind = async (created: string): Promise<void> => {
       const draft = useAssistantThreadStore.getState().newThreadMetadataByResourceId[resourceId];
       if (draft) {
         await repository.updateThreadMetadata(created, draft);
       }
+      if (draft?.operatingRootId || explorer.getState().activeRootIds.length > 0) {
+        return;
+      }
+      const { root } = await client.request('thread/workspace/scratch', {
+        commandId: crypto.randomUUID(),
+        threadId: created,
+      });
+      if (root === null) {
+        return;
+      }
+      scratchRootId.current = root.rootId;
+      if (!addRootDirectoryByPath) {
+        throw new Error('This window cannot show the scratch folder the thread works in.');
+      }
+      await addRootDirectoryByPath(root.path);
     };
     const sendFirst = async (message: AppendMessage): Promise<void> => {
       if (sending.current) {
         throw new MessageNotSentError('The new thread is still being created.');
       }
       sending.current = true;
+      scratchRootId.current = undefined;
       const current = settings.current;
       await sendNewThreadFirstMessage(
         {
@@ -170,7 +200,12 @@ export function NewHostThread({
             hostRunSettings({
               modelId: '',
               readConfiguration: () =>
-                current.readConfiguration(explorer.getState().currentFolderId),
+                current.readConfiguration(
+                  threadSelectionFolderId(explorer.getState(), {
+                    ...useAssistantThreadStore.getState().newThreadMetadataByResourceId[resourceId],
+                    ...(scratchRootId.current ? { operatingRootId: scratchRootId.current } : {}),
+                  })
+                ),
               readModelId: current.readModelId,
               readPlanMode: current.readPlanMode,
             }),
@@ -184,7 +219,7 @@ export function NewHostThread({
       });
     };
     return { onNew: sendFirst };
-  }, [client, explorer, host, replacement, resourceId, runs]);
+  }, [addRootDirectoryByPath, client, explorer, host, replacement, resourceId, runs]);
   const budgetGuardrail = useBudgetGuardrailBinding();
   return (
     <BudgetGuardrailProvider value={budgetGuardrail}>

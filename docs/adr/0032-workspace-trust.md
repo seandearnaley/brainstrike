@@ -13,6 +13,8 @@
     the app makes a folder yet, so that rule is written down for the feature that adds one.
   - 2026-11-11 (owner decision, below): a folder its group can write to is never a trusted
     location and is never covered by one.
+  - 2026-11-12 ([ADR-0034](0034-worktrees-are-thread-checkouts.md), owner decision): the host
+    keeps the worktree setup script's answer, beside hook approvals.
 - **Date:** 2026-10-30
 - **Ticket:** BST-2337 (BST-2338, BST-2339)
 - **Supersedes:** the **Trust** bullet of [ADR-0016](0016-workspace-trust-and-ignore-chain.md)
@@ -169,6 +171,17 @@ location, and none lets a folder approve itself.
     given in a managed worktree removes that folder's own record, and a revoke
     removes the own record of every worktree the ledger lists for the
     repository.
+  - The worktree setup script's answer is the host's too (ADR-0034, owner
+    decision 2026-11-12): one setting, `worktrees.setup.consent`, holds each
+    repository's Allow or Skip by its realpath'd git common dir and the
+    script's hash, written only for a person's answer
+    (`worktrees/setup-consent/decide`). Every worktree the host creates reads
+    it, its own included, and the script runs only while its bytes have that
+    hash.
+  - So a folder's three answers sit under three keys: workspace trust
+    (`workspace.trust/<path>`, which gates instructions and filters), its
+    repository's hooks (`hooks.approved/<path>`) and its repository's setup
+    script (`worktrees.setup.consent`). None implies another.
 - **A repository's own git filters wait for trust too** (BST-2454, owner
   decision 2026-11-10). A repository's config can name `filter.<driver>`
   clean, smudge and process commands that git runs whenever it reads or
@@ -283,16 +296,18 @@ They supersede the text above where they differ.
   a folder that already existed. A managed worktree is not one of these: it
   still shares its repository's answer, whether trusted, restricted or
   undecided.
-  - Nothing to build yet (checked 2026-11-10). The app makes no folder that
-    becomes a thread's working folder, apart from managed worktrees. Every
-    way a folder opens (`workspace/roots/add`, `open`, `pick`, `restore`) takes
-    a folder that already exists, the folder picker cannot create one, and a
-    thread with no folder gets none.
-  - The rule for the feature that adds such an action: at the moment the app
-    creates the folder, the host records it as `trusted` through its one
-    writer (`writeHostWorkspaceTrust`). It records nothing when the folder
-    already existed, so a path the app merely reuses still asks. The record is
-    the folder's own answer, which the person can change in Settings.
+  - The rule: at the moment the app creates the folder, the host records it
+    as `trusted` through its one writer (`writeHostWorkspaceTrust`). It records
+    nothing when the folder already existed, so a path the app merely reuses
+    still asks. The record is the folder's own answer, which the person can
+    change in Settings.
+  - Built 2026-11-12 for scratch folders (ADR-0034, scratch threads): a thread
+    sent with no folder while none is open works in a folder the host makes
+    under `<userData>/scratch`. The host makes the folder's leaf alone, so it
+    never existed, and records it as `trusted` before it is used. A thread's
+    folder that is reused is not recorded again. When the thread is deleted,
+    the answer is forgotten before the folder goes to the Trash
+    (`forgetHostWorkspaceTrust`). Creating a project in the app is not built.
 - **An untrusted folder does not cap the access mode** (BST-2341). A run keeps
   the access mode the composer shows, and the sandbox and permission policy
   still apply. The options not taken were capping at Ask, and capping at Ask

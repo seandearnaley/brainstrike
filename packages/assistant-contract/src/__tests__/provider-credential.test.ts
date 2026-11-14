@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isProviderCredential,
+  isSignedInChatGptCredential,
   MalformedCredentialError,
   type ProviderCredential,
   parseStoredCredential,
@@ -279,5 +280,57 @@ describe('isProviderCredential', () => {
     expect(isProviderCredential({ key: 'sk' })).toBe(false);
     expect(isProviderCredential({ key: 'sk', type: 'gcp' })).toBe(false);
     expect(isProviderCredential({ mode: 'iam', region: 'us-east-1', type: 'aws' })).toBe(false);
+  });
+});
+
+describe('chatgpt_sign_in credential (ADR-0038)', () => {
+  const registration = {
+    clientId: 'oaiapp_fixture',
+    email: 'ada@example.com',
+    hostId: 'urn:uuid:3f1f4d6e-58a6-4b7b-9d0e-6c1a2b3c4d5e',
+    subject: 'user-ada',
+    type: 'chatgpt_sign_in',
+  } as const;
+  const session = {
+    accessToken: 'access-fixture',
+    expiresAt: 1_800_000_000_000,
+    refreshToken: 'refresh-fixture',
+    scopes: ['openid', 'chatgpt.tokens.use.direct'],
+  };
+
+  it('round-trips the registration alone and with its session', () => {
+    for (const credential of [
+      { hostId: registration.hostId, type: 'chatgpt_sign_in' },
+      registration,
+      { ...registration, session },
+    ] satisfies ProviderCredential[]) {
+      expect(parseStoredCredential(JSON.stringify(credential))).toEqual(credential);
+    }
+  });
+
+  it('is a configured credential only while it holds a session that may spend the plan', () => {
+    expect(isSignedInChatGptCredential({ ...registration, session })).toBe(true);
+    // Kept through sign-out: a registration, not a credential.
+    expect(isSignedInChatGptCredential(registration)).toBe(false);
+    expect(
+      isSignedInChatGptCredential({ ...registration, session: { ...session, scopes: ['openid'] } })
+    ).toBe(false);
+  });
+
+  it('rejects a host ID that is not a UUID URN, and tokens with no client or account', () => {
+    const { clientId: _clientId, ...noClient } = registration;
+    const { subject: _subject, ...noAccount } = registration;
+    for (const malformed of [
+      { ...registration, hostId: 'ada@example.com' },
+      { ...noClient, session },
+      { ...noAccount, session },
+      { ...registration, session: { ...session, refreshToken: '' } },
+      { ...registration, session: { ...session, expiresAt: Number.NaN } },
+    ]) {
+      expect(isProviderCredential(malformed)).toBe(false);
+      expect(() => parseStoredCredential(JSON.stringify(malformed))).toThrow(
+        MalformedCredentialError
+      );
+    }
   });
 });

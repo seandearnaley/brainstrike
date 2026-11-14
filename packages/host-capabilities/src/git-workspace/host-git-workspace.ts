@@ -22,9 +22,10 @@ import type {
   HostTurnSnapshotRoot,
 } from '@brainstrike/agent-host';
 import type { GitWorkspaceEvent } from '@brainstrike/agent-host/protocol';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
-import type { ManagedWorktreeRow } from '@brainstrike/types';
+import type { ManagedWorktreeRow, WorktreeResetArchive } from '@brainstrike/types';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd.ts';
 import { createChangesMethods } from './changes-methods.ts';
 import { createHostThreadTurns } from './changeset-host-turns.ts';
@@ -51,6 +52,7 @@ import {
 } from './worktree-service.ts';
 import { readWorktreeSettings, writeWorktreeSettings } from './worktree-settings.ts';
 import { runWorktreeSetup } from './worktree-setup.ts';
+import { readWorktreeSetupConsent } from './worktree-setup-consent.ts';
 import type { HostWorktreeServices } from './worktree-tool-dependencies.ts';
 import { createWorktreesMethods } from './worktrees-methods.ts';
 
@@ -74,7 +76,7 @@ export interface WorktreeWorkspaceOptions {
   readonly onStart?: () => void;
   /** The workspace roots this host serves: the catalog's, or a standalone host's launch roots. */
   readonly roots: WorkspaceRootResolver;
-  /** The host's state store: the worktree ledger and settings. */
+  /** The host's state store: the worktree ledger, settings and setup script consent. */
   readonly store: StateStore;
 }
 
@@ -153,6 +155,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
     ...(options.afterCreate ? { afterCreate: options.afterCreate } : {}),
     getWorktreeStore: async () => store,
     hasRunningThread,
+    readRepositorySetupConsent: (repositoryId) => readWorktreeSetupConsent(store, repositoryId),
     readSettings,
     resolveInventory: async (request) => {
       // `maxAgeMs: 0` guarantees a build that started after this call, which
@@ -204,6 +207,12 @@ export interface GitWorkspaceOptions
 }
 
 export interface GitWorkspace {
+  /**
+   * ADR-0015, ADR-0034: Factory Reset and Clear Database archive every active managed worktree
+   * before Main deletes the ledger. Never a client method: only Main asks, on its own platform
+   * connection.
+   */
+  archiveForReset(): Promise<BoundaryResult<WorktreeResetArchive>>;
   /** Core's thread reads: which runs are live, and their committed turns. */
   attachThreadReads(reads: HostThreadReads): void;
   /** One turn boundary's snapshot of each root, under the host thread's own ref. */
@@ -337,8 +346,10 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     run: workspace.run,
   });
   const worktrees = createWorktreesMethods({
+    listRepositoryWorktrees: (repoCommonDir) => workspace.listRepositoryWorktrees(repoCommonDir),
     readSettings,
     resolveService: () => worktreeService,
+    setupConsentStore: store,
     // BST-1342 containment applies at save time, so the user learns at once
     // rather than when a later create targets the saved path.
     writeSettings: (next) =>
@@ -391,12 +402,17 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     'worktrees/create-context': (request) => worktrees.createContext(request),
     'worktrees/inspect-archive': (request) => worktrees.inspectArchive(request),
     'worktrees/list': () => worktrees.list(),
+    'worktrees/list-archived': (request) => worktrees.listArchived(request),
     'worktrees/managed-paths': () => worktrees.listManagedPaths(),
     'worktrees/restore': (request) => worktrees.restore(request),
     'worktrees/settings/read': () => worktrees.getSettings(),
     'worktrees/settings/write': (request) => worktrees.setSettings(request),
+    'worktrees/setup-consent/decide': (request) => worktrees.decideSetupConsent(request),
+    'worktrees/setup-consent/list': () => worktrees.listSetupConsent(),
+    'worktrees/setup-consent/revoke': (request) => worktrees.revokeSetupConsent(request),
   };
   return {
+    archiveForReset: () => worktreeService.archiveForReset(),
     attachThreadReads: (reads) => {
       attached = reads;
       workspace.attachThreadReads(reads);

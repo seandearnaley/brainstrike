@@ -83,6 +83,25 @@ export interface AssistantHostWorkspaceDiscovery extends WorkspaceTrustCapabilit
   scanSkills(): Promise<SkillsScanResultSummary>;
 }
 
+/**
+ * ADR-0034: the person's projects, which the host's root registry writes. Each call resolves once
+ * its change committed and rejects with the host's refusal, which the caller shows.
+ */
+export interface AssistantHostProjects {
+  /**
+   * Moves the folder of `rootId` into the project `projectId`, so its threads list there. The
+   * folder's trust and approved hooks stay its own.
+   */
+  join(rootId: string, projectId: string): Promise<void>;
+  /**
+   * Points the record of a folder that moved at the folder the person picks; its threads and
+   * project follow it. Resolves the folder as mounted, or null when the person cancelled.
+   */
+  locate(rootId: string): Promise<{ readonly path: string; readonly rootId: string } | null>;
+  /** Names the project; an empty name clears it, so it is named by its folder again. */
+  rename(projectId: string, name: string): Promise<void>;
+}
+
 /** One committed canvas version, in the canvas panel's read shape. */
 export interface AssistantThreadHostCanvasVersion {
   readonly canvasId: string;
@@ -187,6 +206,8 @@ export interface AssistantThreadHostCapability {
   openThreadContext?(threadId: string): Promise<AssistantThreadContextSource>;
   /** True only for an identity this host owns; its metadata never reaches history. */
   ownsThread(threadId: string): Promise<boolean>;
+  /** Naming, joining and relinking projects; a host without a root registry (web) omits it. */
+  readonly projects?: AssistantHostProjects;
   /** Omitted by a host that answers no provider reads (web uses its own server). */
   readonly providers?: AssistantHostProviders;
   /**
@@ -262,6 +283,15 @@ export interface AssistantThreadHostCapability {
    * the workspace the host moved it to. A host without live entries omits it.
    */
   subscribeEntryChanges?(listener: () => void): () => void;
+  /**
+   * ADR-0034: the thread's scratch folder becomes a project. The host asks where with the folder
+   * picker, moves the folder there, records it as a folder of the person's under the same root id
+   * and binds the thread to it. Resolves where the folder now is, or null when the person
+   * cancelled; rejects with the host's typed refusal. A host without scratch folders omits it.
+   */
+  turnScratchIntoProject?(
+    threadId: string
+  ): Promise<{ readonly path: string; readonly rootId: string } | null>;
   /**
    * Commits an owned thread's workspace binding keys through the host. Any key
    * the host does not own rejects before a request, never reaching history.

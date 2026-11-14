@@ -22,6 +22,7 @@ export function registryRoot(
     lastVerifiedAt: 1,
     path: rootPath,
     projectId: kind === 'path' ? `project-${rootPath}` : null,
+    projectName: null,
     status: 'live',
   };
 }
@@ -46,6 +47,18 @@ export function createRegistryCatalogRequest(
       }
       case 'list-worktrees':
         return { roots: [...roots.values()].filter((root) => root.kind === 'worktree') };
+      // A restore mounts the scratch folders (ADR-0034); these tests make none.
+      case 'list-scratch':
+        return { roots: [...roots.values()].filter((root) => root.kind === 'scratch') };
+      case 'scratch-of-thread':
+      case 'register-scratch':
+      case 'forget-scratch':
+      case 'scratch-to-project':
+        throw new Error(`This catalog makes no scratch folders (${request.operation})`);
+      // The registry never names or joins projects (ADR-0034); the host's store does.
+      case 'rename-project':
+      case 'join-project':
+        throw new Error(`This catalog keeps no projects (${request.operation})`);
       case 'register': {
         const previous = roots.get(request.root.path);
         if (previous && previous.canonicalPath !== request.root.canonicalPath && !request.repin) {

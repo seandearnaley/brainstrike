@@ -3,6 +3,8 @@ import { Badge } from '@brainstrike/ui';
 import type { CredentialSourceState } from './provider-key-types';
 
 interface KeySourceBadgeProps {
+  /** What a credential the profile holds, or lacks, is called: a sign-in is not "stored". */
+  readonly labels?: { readonly absent: string; readonly stored: string } | undefined;
   readonly source: ProviderKeySource<string> | undefined;
   readonly sourceState: CredentialSourceState;
   readonly testId: string;
@@ -13,7 +15,12 @@ interface KeySourceBadgeProps {
  * unknown source is reported as unknown — never as "Not set", which would
  * claim a fact the failed listing cannot support.
  */
-export function KeySourceBadge({ source, sourceState, testId }: KeySourceBadgeProps) {
+export function KeySourceBadge({
+  labels = { absent: 'Not set', stored: 'Stored' },
+  source,
+  sourceState,
+  testId,
+}: KeySourceBadgeProps) {
   if (!source) {
     if (sourceState === 'loading') {
       return (
@@ -31,7 +38,7 @@ export function KeySourceBadge({ source, sourceState, testId }: KeySourceBadgePr
     }
     return (
       <Badge className="text-muted-foreground" data-testid={testId} variant="outline">
-        Not set
+        {labels.absent}
       </Badge>
     );
   }
@@ -49,7 +56,8 @@ export function KeySourceBadge({ source, sourceState, testId }: KeySourceBadgePr
   }
   return (
     <Badge data-testid={testId} variant="secondary">
-      Stored{modeSuffix}
+      {labels.stored}
+      {modeSuffix}
     </Badge>
   );
 }

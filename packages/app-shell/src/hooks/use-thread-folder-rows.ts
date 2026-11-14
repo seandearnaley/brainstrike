@@ -4,10 +4,11 @@
  * `folderRowsByRootId` from its caller; this hook is that caller's resolver.
  *
  * ONE batched `roots` query per distinct id set, read again whenever a root
- * registration commits. A registration can change a recorded folder's row
- * under the same id: a folder picked again at a new place takes that path and
- * name, and joins the project already there, and a folder recorded before
- * projects gets one when it is next opened. A newly connected folder reaches
+ * registration commits, or the person names a project or moves a folder into
+ * another (`notifyRootRecordsChanged`). A registration can change a recorded
+ * folder's row under the same id: a folder picked again at a new place takes
+ * that path and name, and joins the project already there, and a folder
+ * recorded before projects gets one when it is next opened. A newly connected folder reaches
  * the panel through the INPUT: a thread only lands in a folder section once its
  * `metadata.operatingRootId` names that root, and that write changes the thread
  * row, hence the distinct id set, hence this query.
@@ -52,6 +53,10 @@ export interface ThreadFolderRowsState {
    * Keyed by RAW `roots.id`, and each row's `path` is the RAW `roots.path`:
    * the path the folder was mounted through, which git may report under
    * another spelling. Join on the id, never on this path.
+   *
+   * While `loading`, the rows the previous read resolved for the ids still
+   * asked for, so a thread joining a folder leaves the other sections drawn
+   * (BST-2493); empty when there are none.
    */
   readonly rowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>;
 }
@@ -141,7 +146,10 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
                 displayName: row.displayName,
                 path: row.path,
                 projectId: row.projectId,
+                projectName: row.projectName,
                 rootId: row.id,
+                ...(row.scratch ? { scratch: true as const } : {}),
+                status: row.status,
               },
             ])
           );
@@ -177,11 +185,41 @@ export function useThreadFolderRows(rootIds: readonly string[]): ThreadFolderRow
 
   const isEmptyRequest = distinctRootIds.length === 0;
   const currentResolution = resolved?.key === rootIdsKey ? resolved : null;
-  const rowsByRootId =
-    isEmptyRequest || !currentResolution ? NO_FOLDER_ROWS : currentResolution.rowsByRootId;
   // An empty request is RESOLVED whatever the handle is — there was nothing to
   // ask. Anything else stays loading until ITS id set has come back.
   const loading = isEmptyRequest ? false : currentResolution === null;
+  if (isEmptyRequest) {
+    return { error: null, loading, rowsByRootId: NO_FOLDER_ROWS };
+  }
+  if (currentResolution) {
+    return {
+      error: currentResolution.error,
+      loading,
+      rowsByRootId: currentResolution.rowsByRootId,
+    };
+  }
+  return { error: null, loading, rowsByRootId: rowsStillAskedFor(resolved, distinctRootIds) };
+}
 
-  return { error: currentResolution?.error ?? null, loading, rowsByRootId };
+/**
+ * While a changed id set is read, the rows the previous read resolved for the
+ * ids still asked for (none after a failed read, whose map is empty). A row is
+ * the same `roots` record whichever set asked for it, so no folder is named
+ * wrongly; an id no longer asked for keeps no row.
+ */
+function rowsStillAskedFor(
+  previous: { readonly rowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow> } | null,
+  rootIds: readonly string[]
+): ReadonlyMap<string, ThreadFolderGroupingRow> {
+  if (!previous) {
+    return NO_FOLDER_ROWS;
+  }
+  const kept = new Map<string, ThreadFolderGroupingRow>();
+  for (const rootId of rootIds) {
+    const row = previous.rowsByRootId.get(rootId);
+    if (row) {
+      kept.set(rootId, row);
+    }
+  }
+  return kept.size === 0 ? NO_FOLDER_ROWS : kept;
 }

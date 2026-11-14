@@ -4,7 +4,11 @@ import type {
   ThreadListSectionHeader,
   ThreadListView,
 } from '@brainstrike/assistant-data';
-import { PINNED_SECTION_ID, UNASSIGNED_FOLDER_SECTION_ID } from '@brainstrike/assistant-data';
+import {
+  PINNED_SECTION_ID,
+  SCRATCH_FOLDER_SECTION_ID,
+  UNASSIGNED_FOLDER_SECTION_ID,
+} from '@brainstrike/assistant-data';
 import { THREAD_CONTROL_ROW_PITCH_PX } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 
@@ -21,6 +25,7 @@ const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
  */
 type ThreadPanelSectionNodeId =
   | typeof PINNED_SECTION_ID
+  | typeof SCRATCH_FOLDER_SECTION_ID
   | typeof UNASSIGNED_FOLDER_SECTION_ID
   | `date:${string}`
   | `folder:${string}`
@@ -86,6 +91,7 @@ export function getThreadPanelMemberSectionId(row: ThreadPanelGroupRow): string 
     case 'folder':
     case 'pinned':
     case 'repository':
+    case 'scratch':
     case 'unassigned':
       return row.id;
     default: {
@@ -106,6 +112,7 @@ export function getThreadPanelCollapseId(row: ThreadPanelGroupRow): string {
     case 'folder':
     case 'pinned':
     case 'repository':
+    case 'scratch':
     case 'unassigned':
       return row.id;
     default: {
@@ -247,14 +254,17 @@ function appendGroupedSection({
  * module cannot address fails loudly here instead of silently becoming an
  * unreachable treegrid node. The shapes are the ones `thread-list-sections.ts`
  * mints: `project:${projectId}`, `repository:${key}`, `folder:${rootId}`, the deliberately
- * unemittable `folder-unassigned` sentinel, `date:${bucket}` and the Pinned
- * section's id.
+ * unemittable `folder-scratch` and `folder-unassigned` sentinels, `date:${bucket}` and the
+ * Pinned section's id.
  */
 function requireViewSectionNodeId(
   sectionId: string
 ): Exclude<ThreadPanelSectionNodeId, `group:${string}`> {
   if (sectionId === UNASSIGNED_FOLDER_SECTION_ID) {
     return UNASSIGNED_FOLDER_SECTION_ID;
+  }
+  if (sectionId === SCRATCH_FOLDER_SECTION_ID) {
+    return SCRATCH_FOLDER_SECTION_ID;
   }
   if (sectionId === PINNED_SECTION_ID) {
     return PINNED_SECTION_ID;

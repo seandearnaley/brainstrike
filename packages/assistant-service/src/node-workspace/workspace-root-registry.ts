@@ -3,7 +3,7 @@ import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { descriptorFor } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
-import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { isFileNotFoundError } from './file-not-found-error.ts';
 import {
@@ -16,6 +16,7 @@ import {
 } from './workspace-recent-roots.ts';
 import { WorkspaceRootAvailability } from './workspace-root-availability.ts';
 import {
+  assertRelinkTarget,
   findRecordedWorkspaceRoot,
   markRootsDisconnectedExcept,
   recordedRoot,
@@ -35,6 +36,7 @@ import {
   resolveReadAgainstMountedRoot,
 } from './workspace-root-read.ts';
 import { workspaceRootRegistryDisposed } from './workspace-root-registry-disposed.ts';
+import { turnScratchRootIntoProject } from './workspace-root-scratch-project.ts';
 import { createNativeSecureRoot, resolveValidatedReadPath } from './workspace-root-seams.ts';
 import {
   createWorkspaceRootSourceLease,
@@ -65,12 +67,43 @@ interface AddRootOptions {
    */
   readonly grantedAfresh?: boolean;
   readonly recordInRecentRoots?: boolean;
+  /** ADR-0034 relink: the record the chosen folder stands in for, keeping its id and project. */
+  readonly relinkRootId?: string;
 }
 
 /** A managed worktree's descriptor: a thread's checkout, never an open folder (ADR-0034). */
 function asWorktree(descriptor: RootDescriptor): RootDescriptor {
   return { ...descriptor, handle: { ...descriptor.handle, worktree: true } };
 }
+
+/** A scratch folder's descriptor: the folder the host made for a thread, never an open folder. */
+function asScratch(descriptor: RootDescriptor): RootDescriptor {
+  return { ...descriptor, handle: { ...descriptor.handle, scratch: true } };
+}
+
+/** What a root's record says it is, on its descriptor (ADR-0034). */
+function describedAs(
+  kind: WorkspaceRootRecord['kind'],
+  descriptor: RootDescriptor
+): RootDescriptor {
+  if (kind === 'worktree') {
+    return asWorktree(descriptor);
+  }
+  return kind === 'scratch' ? asScratch(descriptor) : descriptor;
+}
+
+/** The folder a thread's scratch root is, as the host's scratch folders name it. */
+export interface ScratchWorkspaceRoot {
+  readonly displayName: string;
+  readonly path: string;
+  readonly rootId: string;
+}
+
+const scratchRoot = (root: WorkspaceRootRecord): ScratchWorkspaceRoot => ({
+  displayName: root.displayName,
+  path: root.path,
+  rootId: root.id,
+});
 
 /** A recorded folder whose path no longer resolves to the folder it was granted under. */
 export class WorkspaceRootIdentityChangedError extends Error {
@@ -137,9 +170,20 @@ export class WorkspaceRootRegistry {
     );
   }
 
+  /**
+   * ADR-0034 relink: points the record `rootId`, one of the person's folders that is no longer
+   * where it was, at the folder they chose in the picker. The record keeps its id, so its threads
+   * and its project follow it. Refused when another record has that folder.
+   */
+  locateRoot(rootId: string, handle: DirectoryHandle): Promise<RootDescriptor> {
+    return this.serializeWrite(() =>
+      this.addRootOwned(handle, { grantedAfresh: true, relinkRootId: rootId })
+    );
+  }
+
   private async addRootOwned(
     handle: DirectoryHandle,
-    { grantedAfresh = false, recordInRecentRoots = true }: AddRootOptions
+    { grantedAfresh = false, recordInRecentRoots = true, relinkRootId }: AddRootOptions
   ): Promise<RootDescriptor> {
     const presentationPath = path.normalize(handle.path);
     // Read the catalog before opening the probe so a failed read cannot leak it.
@@ -171,6 +215,9 @@ export class WorkspaceRootRegistry {
       const existing = this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
       const db = await this.getRootsCatalog();
+      if (relinkRootId !== undefined) {
+        await assertRelinkTarget(db, relinkRootId, { canonicalPath, path: presentationPath });
+      }
       // Reuse the retained folder identity after disconnect, including path aliases (BST-1990).
       const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
         this.findExistingStoredRoot(records, undefined, canonicalPath)
@@ -184,7 +231,8 @@ export class WorkspaceRootRegistry {
         {
           canonicalPath,
           path: entryPath,
-          preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
+          preferredId:
+            recorded?.rootId ?? mountedMatch?.rootId ?? relinkRootId ?? crypto.randomUUID(),
         },
         // Without the picker, the store refuses a recorded path that now resolves elsewhere.
         grantedAfresh
@@ -204,12 +252,12 @@ export class WorkspaceRootRegistry {
       });
       probeAdopted = true;
 
-      // Registering the record opened it, in the same commit: unless it is a managed worktree,
-      // which is mounted for its thread but never opened (ADR-0034).
+      // Registering the record opened it, in the same commit: unless it is a managed worktree or
+      // a scratch folder, which is mounted for its thread but never opened (ADR-0034).
       this.mounts.clearSessionMount(entry.rootId);
       this.closedForRuns.delete(entry.rootId);
-      const worktree = kind === 'worktree';
-      if (recordInRecentRoots && !worktree) {
+      const threadFolder = kind !== 'path';
+      if (recordInRecentRoots && !threadFolder) {
         // Retain the ledger read before mounting; a missing snapshot is an
         // invariant failure, never permission to overwrite the ledger as empty.
         if (recentRootEntries === null) {
@@ -227,8 +275,7 @@ export class WorkspaceRootRegistry {
         // already decided it doesn't belong in Recents.
         this.onRootGranted?.(entry.path);
       }
-      const descriptor = descriptorFor(entry, 'granted', true);
-      return worktree ? asWorktree(descriptor) : descriptor;
+      return describedAs(kind, descriptorFor(entry, 'granted', true));
     } finally {
       if (!probeAdopted) {
         try {
@@ -317,6 +364,15 @@ export class WorkspaceRootRegistry {
         'workspace.open-worktree',
         'This folder is a Brainstrike worktree, a checkout of its repository.',
         "Open the repository's folder, then choose the worktree in its thread."
+      );
+    }
+    if (opened.handle.scratch) {
+      // Granting it mounted it for the thread it was made for, which is all it ever is.
+      throw refusalError(
+        'input',
+        'workspace.open-scratch',
+        'This folder is a Brainstrike scratch folder, made for one thread.',
+        'Open that thread to work in it.'
       );
     }
     const others = (await this.readOpenRoots())
@@ -554,7 +610,8 @@ export class WorkspaceRootRegistry {
       const worktrees = (await this.readWorktreeRoots()).filter(
         (entry) => !openIds.has(entry.rootId)
       );
-      const entries = [...open, ...worktrees];
+      const scratch = await this.readScratchRoots();
+      const entries = [...open, ...worktrees, ...scratch];
       const kept = new Set([
         ...this.mounts.sessionMountIds(),
         ...this.closedForRuns,
@@ -570,6 +627,7 @@ export class WorkspaceRootRegistry {
       return [
         ...open.map((entry) => descriptorFor(entry, 'granted')),
         ...worktrees.map((entry) => asWorktree(descriptorFor(entry, 'granted'))),
+        ...scratch.map((entry) => asScratch(descriptorFor(entry, 'granted'))),
       ];
     });
   }
@@ -581,14 +639,22 @@ export class WorkspaceRootRegistry {
       (entry) => !openIds.has(entry.rootId)
     );
     const worktreeIds = new Set(worktrees.map((entry) => entry.rootId));
-    const entries = [...open, ...worktrees];
+    // A scratch folder mounts for its thread as a worktree does, and is never open (ADR-0034).
+    const scratch = await this.readScratchRoots();
+    const scratchIds = new Set(scratch.map((entry) => entry.rootId));
+    const threadFolderIds = new Set([...worktreeIds, ...scratchIds]);
+    const entries = [...open, ...worktrees, ...scratch];
     const describe = (
       entry: RecordedWorkspaceRoot,
       state: 'granted' | 'unknown'
-    ): RootDescriptor =>
-      worktreeIds.has(entry.rootId)
-        ? asWorktree(descriptorFor(entry, state))
+    ): RootDescriptor => {
+      if (worktreeIds.has(entry.rootId)) {
+        return asWorktree(descriptorFor(entry, state));
+      }
+      return scratchIds.has(entry.rootId)
+        ? asScratch(descriptorFor(entry, state))
         : descriptorFor(entry, state);
+    };
     this.availability.retain(entries);
     const descriptors: RootDescriptor[] = [];
     // A folder an open closed for a running run stays mounted, though it is not restored.
@@ -632,11 +698,11 @@ export class WorkspaceRootRegistry {
     if (this.readOnlyRefusal()) {
       return descriptors;
     }
-    // A worktree is re-registered for its thread but never joins Recents.
+    // A worktree or scratch folder is re-registered for its thread but never joins Recents.
     await recordRestoredRecentRoots(
       this.recents,
       this.getRootsCatalog,
-      recentRootCandidates.filter((entry) => !worktreeIds.has(entry.rootId))
+      recentRootCandidates.filter((entry) => !threadFolderIds.has(entry.rootId))
     );
     await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
     await this.convergeDatabase(duplicateRootIds);
@@ -663,6 +729,14 @@ export class WorkspaceRootRegistry {
   private async readWorktreeRoots(): Promise<RecordedWorkspaceRoot[]> {
     const { roots } = await (await this.getRootsCatalog()).workspaceRoots({
       operation: 'list-worktrees',
+    });
+    return roots.map(recordedRoot);
+  }
+
+  /** Every scratch folder's root (ADR-0034), as the catalog records them. */
+  private async readScratchRoots(): Promise<RecordedWorkspaceRoot[]> {
+    const { roots } = await (await this.getRootsCatalog()).workspaceRoots({
+      operation: 'list-scratch',
     });
     return roots.map(recordedRoot);
   }
@@ -784,11 +858,168 @@ export class WorkspaceRootRegistry {
     }
   }
 
-  /** The path of the folder (never a worktree) this app records at the path, if any. */
+  /**
+   * The path of the folder this app records at the path, if any: a folder the person granted, or
+   * a scratch folder the host made (ADR-0034). Never a worktree, which the ledger grants.
+   */
   private async findRecordedFolderByPath(requestedPath: string): Promise<string | undefined> {
     const normalized = path.normalize(requestedPath);
     const { roots } = await (await this.getRootsCatalog()).workspaceRoots({ operation: 'list' });
-    return roots.find((root) => root.kind === 'path' && pathsEqual(root.path, normalized))?.path;
+    return roots.find((root) => root.kind !== 'worktree' && pathsEqual(root.path, normalized))
+      ?.path;
+  }
+
+  /**
+   * ADR-0034 scratch threads: the thread's scratch folder, mounted for it and never opened or
+   * recorded in Recents. The one recorded for the thread is mounted again if it is not mounted.
+   * Otherwise, while no folder is open, `make` creates a new folder, which is mounted and then
+   * recorded as the thread's in the commit that records its root. Null, with nothing made, while
+   * a folder is open. One change among the registry's others, so an open meanwhile is seen.
+   */
+  addScratchRoot(request: {
+    readonly make: () => Promise<string>;
+    readonly signal: AbortSignal;
+    readonly threadId: string;
+  }): Promise<ScratchWorkspaceRoot | null> {
+    return this.serializeWrite(async () => {
+      request.signal.throwIfAborted();
+      const catalog = await this.getRootsCatalog();
+      const [recorded] = (
+        await catalog.workspaceRoots({ operation: 'scratch-of-thread', threadId: request.threadId })
+      ).roots;
+      if (recorded) {
+        if (!this.mounts.get(recorded.id)) {
+          // Mounted again, under the identity it was made with, and live again in its record.
+          await this.mount(recordedRoot(recorded));
+          await recordWorkspaceRoot(catalog, {
+            canonicalPath: recorded.canonicalPath,
+            path: recorded.path,
+            preferredId: recorded.id,
+          });
+        }
+        return scratchRoot(recorded);
+      }
+      if ((await this.readOpenRoots()).length > 0) {
+        return null;
+      }
+      const folder = path.normalize(await request.make());
+      const probe = await this.createSecureRoot(folder);
+      let adopted = false;
+      try {
+        this.assertActive();
+        request.signal.throwIfAborted();
+        const canonicalPath = path.normalize(probe.canonicalPath);
+        const [root] = (
+          await catalog.workspaceRoots({
+            operation: 'register-scratch',
+            root: {
+              canonicalPath,
+              displayName: path.basename(folder) || folder,
+              path: folder,
+              preferredId: crypto.randomUUID(),
+            },
+            threadId: request.threadId,
+          })
+        ).roots;
+        if (!root) {
+          throw new Error('The scratch folder was not recorded');
+        }
+        // A record whose folder its maker then removes is never left behind.
+        await this.installSourceRoot(
+          { addedAt: root.createdAt, path: folder, rootId: root.id },
+          probe
+        ).catch(async (cause: unknown) => {
+          await this.forgetUnmountedScratch(request.threadId, cause);
+        });
+        adopted = true;
+        logger.info('Made a scratch folder for a thread', {
+          rootId: root.id,
+          threadId: request.threadId,
+        });
+        return scratchRoot(root);
+      } finally {
+        if (!adopted) {
+          probe.close();
+        }
+      }
+    });
+  }
+
+  /** Deletes the record of a scratch folder that was not mounted, then rethrows why. */
+  private async forgetUnmountedScratch(threadId: string, cause: unknown): Promise<never> {
+    try {
+      await (await this.getRootsCatalog()).workspaceRoots({
+        operation: 'forget-scratch',
+        threadId,
+      });
+    } catch (cleanup) {
+      throw new AggregateError(
+        [cause, cleanup],
+        'The scratch folder was not mounted, and its record could not be deleted'
+      );
+    }
+    throw cause;
+  }
+
+  /**
+   * ADR-0034 build decisions: the thread's scratch folder becomes a folder of the person's where
+   * `move` puts it, under the same root id (`workspace-root-scratch-project.ts`).
+   */
+  turnScratchIntoProject(request: {
+    readonly move: (folder: string) => Promise<string>;
+    readonly threadId: string;
+  }): Promise<ScratchWorkspaceRoot> {
+    return this.serializeWrite(() =>
+      turnScratchRootIntoProject(request, {
+        catalog: this.getRootsCatalog,
+        createSecureRoot: this.createSecureRoot,
+        install: (entry, probe) => this.installSourceRoot(entry, probe),
+        mount: (entry) => this.mount(entry),
+        recordRecent: async (folder) => {
+          await recordRecentRoot(this.recents, folder);
+          this.onRootGranted?.(folder);
+        },
+        retire: async (rootId) => {
+          await this.retireMount(rootId);
+          this.availability.forget(rootId);
+        },
+      })
+    );
+  }
+
+  /** The thread's scratch folder as recorded, or null (ADR-0034). */
+  readScratchRoot(threadId: string): Promise<ScratchWorkspaceRoot | null> {
+    return this.serializeMutation(async () => {
+      const [recorded] = (
+        await (
+          await this.getRootsCatalog()
+        ).workspaceRoots({
+          operation: 'scratch-of-thread',
+          threadId,
+        })
+      ).roots;
+      return recorded ? scratchRoot(recorded) : null;
+    });
+  }
+
+  /**
+   * After its thread is deleted: the scratch folder unmounts, once every borrow of it ends, and
+   * its root and record are deleted together. What it deleted, or null for a thread with none.
+   */
+  forgetScratchRoot(threadId: string): Promise<ScratchWorkspaceRoot | null> {
+    return this.serializeWrite(async () => {
+      const catalog = await this.getRootsCatalog();
+      const [recorded] = (
+        await catalog.workspaceRoots({ operation: 'scratch-of-thread', threadId })
+      ).roots;
+      if (!recorded) {
+        return null;
+      }
+      await this.retireMount(recorded.id);
+      this.availability.forget(recorded.id);
+      await catalog.workspaceRoots({ operation: 'forget-scratch', threadId });
+      return scratchRoot(recorded);
+    });
   }
 
   /** A change to the open folders: refused up front while the catalog is read-only. */

@@ -2,6 +2,8 @@
 
 - **Status:** Accepted. ChatGPT subscription sign-in and the provider OAuth engine were removed on
   2026-10-22 by owner decision; the subscription bullets below are history.
+  [ADR-0038](0038-sign-in-with-chatgpt.md) adds OpenAI's published Sign in with ChatGPT as the
+  `chatgpt` provider.
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914; OpenAI storage from BST-1918
 

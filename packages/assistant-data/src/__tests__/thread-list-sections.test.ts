@@ -17,6 +17,7 @@ import {
   type ThreadFolderGroupingRow,
   type ThreadListOrdering,
   type ThreadRepositoryRow,
+  threadFolderSectionLabel,
   UNASSIGNED_FOLDER_SECTION_ID,
 } from '../thread-list-sections';
 
@@ -447,14 +448,32 @@ describe('getGroupMemberIds', () => {
 /** No thread's folder is a repository's checkout: every thread groups by its folder. */
 const NO_REPOSITORIES: ReadonlyMap<string, ThreadRepositoryRow> = new Map();
 
+/** A mounted folder whose project has no name of its own. */
+const UNNAMED_LIVE = { projectName: null, status: 'live' } as const;
+
 describe('folder grouping', () => {
   // Folders recorded before projects existed and not opened since: each is a section of its own.
   const rows: ReadonlyMap<string, ThreadFolderGroupingRow> = new Map([
     [
       'root-a',
-      { displayName: 'brainstrike', path: '/ws/brainstrike', projectId: null, rootId: 'root-a' },
+      {
+        ...UNNAMED_LIVE,
+        displayName: 'brainstrike',
+        path: '/ws/brainstrike',
+        projectId: null,
+        rootId: 'root-a',
+      },
     ],
-    ['root-b', { displayName: 'alpha', path: '/ws/alpha', projectId: null, rootId: 'root-b' }],
+    [
+      'root-b',
+      {
+        ...UNNAMED_LIVE,
+        displayName: 'alpha',
+        path: '/ws/alpha',
+        projectId: null,
+        rootId: 'root-b',
+      },
+    ],
   ]);
 
   function folderThread(
@@ -621,6 +640,7 @@ describe('folder grouping', () => {
 
 describe('project sections in folder grouping', () => {
   const checkout: ThreadFolderGroupingRow = {
+    ...UNNAMED_LIVE,
     displayName: 'brainstrike',
     path: '/ws/brainstrike',
     projectId: 'project-brainstrike',
@@ -630,12 +650,24 @@ describe('project sections in folder grouping', () => {
     ['root-a', checkout],
     [
       'root-b',
-      { displayName: 'alpha', path: '/ws/alpha', projectId: 'project-alpha', rootId: 'root-b' },
+      {
+        ...UNNAMED_LIVE,
+        displayName: 'alpha',
+        path: '/ws/alpha',
+        projectId: 'project-alpha',
+        rootId: 'root-b',
+      },
     ],
     // A managed worktree's root has no project of its own: it is a checkout of its repository.
     [
       'root-wt',
-      { displayName: 'swift-badger', path: '/wt/swift-badger', projectId: null, rootId: 'root-wt' },
+      {
+        ...UNNAMED_LIVE,
+        displayName: 'swift-badger',
+        path: '/wt/swift-badger',
+        projectId: null,
+        rootId: 'root-wt',
+      },
     ],
   ]);
   const repository: ThreadRepositoryRow = {
@@ -646,6 +678,7 @@ describe('project sections in folder grouping', () => {
     key: '/ws/brainstrike/.git',
     path: '/ws/brainstrike',
     projectId: 'project-brainstrike',
+    projectName: null,
   };
 
   function at(id: string, rootId: string | null, day: number): AssistantMemoryThread {
@@ -760,6 +793,7 @@ describe('project sections in folder grouping', () => {
       [
         'root-copy',
         {
+          ...UNNAMED_LIVE,
           displayName: 'alpha copy',
           path: '/ws/alpha-copy',
           projectId: 'project-alpha',
@@ -821,6 +855,39 @@ describe('project sections in folder grouping', () => {
       const [section] = view.sections;
       expect(section?.header.kind === 'repository' && section.header.repository).toBe(repository);
     }
+  });
+
+  it('names and sorts a project section by the name the person gave its project, else by its folder', () => {
+    const named: ReadonlyMap<string, ThreadFolderGroupingRow> = new Map([
+      ...rows,
+      ['root-b', { ...(rows.get('root-b') as ThreadFolderGroupingRow), projectName: 'Zed app' }],
+    ]);
+    const view = buildThreadListSections({
+      folderRowsByRootId: named,
+      folderSortBy: 'recency',
+      groupBy: 'folder',
+      ordering,
+      repositoryByThreadId: new Map([['local', { ...repository, projectName: 'Core' }]]),
+      threads: [at('local', 'root-a', 1), at('other-folder', 'root-b', 2)],
+    });
+
+    if (view.kind !== 'folders') {
+      throw new Error('expected folders');
+    }
+    // `alpha` would sort before `brainstrike`; their names put Core before Zed app.
+    expect(
+      view.sections.map((section) =>
+        section.header.kind === 'unassigned' || section.header.kind === 'scratch'
+          ? null
+          : threadFolderSectionLabel(section.header)
+      )
+    ).toEqual(['Core', 'Zed app']);
+    expect(view.sections.map((section) => section.id)).toEqual([
+      'project:project-brainstrike',
+      'project:project-alpha',
+    ]);
+    const unnamed = { ...checkout, projectName: null };
+    expect(threadFolderSectionLabel({ folder: unnamed, kind: 'folder' })).toBe('brainstrike');
   });
 
   it('never lets a folder, repository or project id collide', () => {

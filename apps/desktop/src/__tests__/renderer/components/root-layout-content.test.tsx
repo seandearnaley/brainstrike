@@ -88,11 +88,15 @@ const WORKTREES_BRIDGE: WorktreesBridge = {
   create: vi.fn(),
   createBranchHere: vi.fn(),
   createContext: vi.fn(),
+  decideSetupConsent: vi.fn(),
   getSettings: vi.fn(),
   inspectArchive: vi.fn(),
   list: vi.fn(),
+  listArchived: vi.fn(),
   listManagedPaths: vi.fn(),
+  listSetupConsent: vi.fn(),
   restore: vi.fn(),
+  revokeSetupConsent: vi.fn(),
   setSettings: vi.fn(),
 };
 

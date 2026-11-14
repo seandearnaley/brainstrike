@@ -63,7 +63,7 @@ function renderRootSections(
   const shownA = options.worktree ? worktreeHandle : handleA;
   const shownAId = options.worktree ? ROOT_ID_WORKTREE : ROOT_ID_A;
   const checkout = options.worktree
-    ? { localRootId: ROOT_ID_A, worktreeRootId: ROOT_ID_WORKTREE }
+    ? { localRootId: ROOT_ID_A, threadRootId: ROOT_ID_WORKTREE }
     : null;
   const adapter = new MockFileSystemAdapter();
   vi.spyOn(adapter, 'readDirectoryStreaming').mockImplementation(

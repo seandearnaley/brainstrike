@@ -21,6 +21,7 @@ import ElectronStore from 'electron-store';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
+import { createMainWorktreeReset } from './agent-host-platform/factory-reset-worktrees';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
@@ -124,6 +125,7 @@ import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery'
 import { registerAppLifetimeIpcHandlers } from './ipc-app-lifetime';
 import { registerAppUpdatesIpcHandlers } from './ipc-app-updates';
 import { registerBrowserIpcHandlers } from './ipc-browser';
+import { registerChatGptSignInIpcHandlers } from './ipc-chatgpt-sign-in';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { pickWorkspaceFolder } from './ipc-domains/file-system-ipc';
@@ -165,6 +167,7 @@ import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
+import { trashEveryScratchFolder, trashScratchFolder } from './scratch-folder-trash';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { markRendererFirstPaint, readStartupTimeline } from './startup-timeline';
@@ -528,7 +531,17 @@ const profileReset = createDesktopProfileResetOwner({
   retireProfile: () => hostProfile.retire(),
 });
 
+// ADR-0015, ADR-0034: asked only on Main's private platform connection to the host it launched.
+const mainWorktreeReset = createMainWorktreeReset();
+
 const handleResetLocal = createDesktopFactoryResetHandler({
+  // ADR-0034: the host archives every managed worktree into its repository before either reset
+  // deletes the ledger: Factory Reset with its state DB, Clear Database with its rows. A host
+  // that is gone starts first.
+  archiveManagedWorktrees: async () => {
+    await hostProfile.acquire();
+    return await mainWorktreeReset.archive();
+  },
   clearRetainedContent: async () => {
     const result = await hostProfile.clearAndRetireContent();
     for (const filePath of listErrorLogFilePaths(
@@ -617,6 +630,9 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     },
   ],
   sessionDataPath: app.getPath('sessionData'),
+  // ADR-0034: Clear Database deleted every scratch thread's row; their folders go to the Trash.
+  trashScratchFolders: () =>
+    trashEveryScratchFolder(app.getPath('userData'), (folder) => shell.trashItem(folder)),
   userDataPath: app.getPath('userData'),
 });
 
@@ -667,6 +683,7 @@ async function acquireProfileAfterReset() {
 const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(acquireProfileAfterReset);
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
 const applicationIpcDomain = createApplicationIpcDomain({
+  factoryReset: handleResetLocal,
   getUserDataPath: () => app.getPath('userData'),
   onClearContent: async () => {
     const result = await handleResetLocal.clearContent();
@@ -674,7 +691,6 @@ const applicationIpcDomain = createApplicationIpcDomain({
       throw new Error(result.message ?? 'Content clearing failed.');
     }
   },
-  onResetLocal: () => handleResetLocal.reset(),
 });
 /** The host's open folders changed (ADR-0029 stage 4): File > Open Recent follows. */
 function onWorkspaceRootsChanged(change: {
@@ -701,6 +717,18 @@ const agentHostPrivateClients = desktopBootstrap.privateClients;
 const agentHostMainClient = createAgentHostMainClient(
   hostProfile.acquire,
   agentHostPrivateClients.open
+);
+// Settings › Providers (ADR-0038): the host runs Sign in with ChatGPT and holds its tokens.
+ipcDisposers.add(
+  'chatgpt-sign-in',
+  registerChatGptSignInIpcHandlers({
+    cancel: async () => {
+      await agentHostMainClient.request('auth/chatgpt/cancel', {});
+    },
+    signIn: (newAccount) => agentHostMainClient.request('auth/chatgpt/sign-in', { newAccount }),
+    signOut: () => agentHostMainClient.request('auth/chatgpt/sign-out', {}),
+    status: (settled) => agentHostMainClient.request('auth/chatgpt/status', { settled }),
+  })
 );
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
@@ -1787,7 +1815,11 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     showWorkspaceFolder: (path) => {
       desktopBootstrap.workspaceOpenQueue.enqueue({ origin: 'agent-worktree', path });
     },
+    // ADR-0034: a deleted thread's scratch folder goes to the system Trash, from userData only.
+    trashScratchFolder: (folder) =>
+      trashScratchFolder(app.getPath('userData'), folder, (trashed) => shell.trashItem(trashed)),
     workspaceRootsChanged: onWorkspaceRootsChanged,
+    worktreeReset: mainWorktreeReset,
   });
 });
 

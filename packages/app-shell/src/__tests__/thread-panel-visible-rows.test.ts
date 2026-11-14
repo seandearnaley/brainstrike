@@ -1,12 +1,13 @@
 import type {
   AssistantMemoryThread,
   AssistantThreadGroup,
-  ThreadFolderRow,
+  ThreadFolderGroupingRow,
   ThreadListView,
 } from '@brainstrike/assistant-data';
 import {
   folderSectionId,
   projectSectionId,
+  SCRATCH_FOLDER_SECTION_ID,
   UNASSIGNED_FOLDER_SECTION_ID,
 } from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
@@ -34,6 +35,13 @@ function thread(id: string): AssistantMemoryThread {
 
 function group(id: string): AssistantThreadGroup {
   return { color: null, icon: null, id, name: id, rank: id, resourceId: 'workspace-a' };
+}
+
+/** A mounted folder with no project, as a folder section names it. */
+function folderRow(
+  row: Pick<ThreadFolderGroupingRow, 'displayName' | 'path' | 'rootId'>
+): ThreadFolderGroupingRow {
+  return { ...row, projectId: null, projectName: null, status: 'live' };
 }
 
 describe('buildThreadPanelVisibleRows', () => {
@@ -184,11 +192,11 @@ describe('buildThreadPanelVisibleRows', () => {
   });
 
   it('renders a folders view as section rows keyed by their own section ids', () => {
-    const folder: ThreadFolderRow = {
+    const folder = folderRow({
       displayName: 'brainstrike',
       path: '/tmp/brainstrike',
       rootId: 'root-1',
-    };
+    });
     const view: ThreadListView = {
       kind: 'folders',
       pinned: null,
@@ -231,11 +239,11 @@ describe('buildThreadPanelVisibleRows', () => {
   });
 
   it("renders a project's section, collapsed through its own section key", () => {
-    const folder: ThreadFolderRow = {
+    const folder = folderRow({
       displayName: 'brainstrike',
       path: '/tmp/brainstrike',
       rootId: 'root-1',
-    };
+    });
     const view: ThreadListView = {
       kind: 'folders',
       pinned: null,
@@ -265,7 +273,7 @@ describe('buildThreadPanelVisibleRows', () => {
   });
 
   it('collapses and discloses folder sections through their own section keys', () => {
-    const folder: ThreadFolderRow = { displayName: 'work', path: null, rootId: 'root-2' };
+    const folder = folderRow({ displayName: 'work', path: null, rootId: 'root-2' });
     const view: ThreadListView = {
       kind: 'folders',
       pinned: null,
@@ -299,6 +307,59 @@ describe('buildThreadPanelVisibleRows', () => {
     expect(collapsed.rows).toHaveLength(1);
     expect(collapsed.rows[0]).toMatchObject({ collapsed: true, totalCount: 60 });
     expect(collapsed.visibleThreadIds).toEqual([]);
+  });
+
+  it('renders the Scratch section under its own id, before No project, and collapses it', () => {
+    const view: ThreadListView = {
+      kind: 'folders',
+      pinned: null,
+      sections: [
+        {
+          header: { kind: 'scratch' },
+          id: SCRATCH_FOLDER_SECTION_ID,
+          threads: [thread('scratch-a'), thread('scratch-b')],
+        },
+        {
+          header: { kind: 'unassigned' },
+          id: UNASSIGNED_FOLDER_SECTION_ID,
+          threads: [thread('no-folder')],
+        },
+      ],
+    };
+
+    const open = buildThreadPanelVisibleRows({
+      collapsedGroupIds: {},
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(open.rows.map((row) => row.id)).toEqual([
+      'folder-scratch',
+      'scratch-a',
+      'scratch-b',
+      'folder-unassigned',
+      'no-folder',
+    ]);
+    expect(open.rows[0]).toMatchObject({
+      collapsed: false,
+      header: { kind: 'scratch' },
+      kind: 'group',
+      sectionKey: 'folder-scratch',
+      totalCount: 2,
+    });
+    expect(open.rows[1]).toMatchObject({ parentId: 'folder-scratch' });
+
+    const collapsed = buildThreadPanelVisibleRows({
+      collapsedGroupIds: { [SCRATCH_FOLDER_SECTION_ID]: true },
+      limitsBySectionKey: {},
+      view,
+    });
+    expect(collapsed.rows.map((row) => row.id)).toEqual([
+      'folder-scratch',
+      'folder-unassigned',
+      'no-folder',
+    ]);
+    expect(collapsed.rows[0]).toMatchObject({ collapsed: true, totalCount: 2 });
+    expect(collapsed.visibleThreadIds).toEqual(['no-folder']);
   });
 
   it('refuses a folder section id it did not mint instead of rendering it as a node', () => {
@@ -340,7 +401,7 @@ describe('thread panel section addresses', () => {
   });
 
   it('addresses folder sections by their section id, never by a group id', () => {
-    const folder: ThreadFolderRow = { displayName: 'work', path: null, rootId: 'root-2' };
+    const folder = folderRow({ displayName: 'work', path: null, rootId: 'root-2' });
     const row = groupRow({ folder, kind: 'folder' }, 'folder:root-2');
     expect(getThreadPanelMemberSectionId(row)).toBe('folder:root-2');
     expect(getThreadPanelCollapseId(row)).toBe('folder:root-2');
@@ -348,6 +409,10 @@ describe('thread panel section addresses', () => {
     const unassigned = groupRow({ kind: 'unassigned' }, UNASSIGNED_FOLDER_SECTION_ID);
     expect(getThreadPanelMemberSectionId(unassigned)).toBe('folder-unassigned');
     expect(getThreadPanelCollapseId(unassigned)).toBe('folder-unassigned');
+
+    const scratch = groupRow({ kind: 'scratch' }, SCRATCH_FOLDER_SECTION_ID);
+    expect(getThreadPanelMemberSectionId(scratch)).toBe('folder-scratch');
+    expect(getThreadPanelCollapseId(scratch)).toBe('folder-scratch');
   });
 });
 

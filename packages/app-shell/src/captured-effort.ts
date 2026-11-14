@@ -5,6 +5,7 @@ export function capturedEffort(execution: ChildExecutionConfiguration): string {
   const options = execution.providerOptions;
   switch (execution.provider) {
     case 'openai':
+    case 'chatgpt':
       return options?.openai?.reasoningEffort ?? 'Auto';
     case 'openrouter':
       return options?.openrouter?.reasoning?.enabled === false

@@ -42,7 +42,7 @@ test('terminal content clear removes content and blobs but preserves configurati
     });
     const presets = await store.viewFilterPresets({ operation: 'list' });
     const choices = await store.modelChoices({ operation: 'snapshot' });
-    await store.workspaceRoots({
+    const { roots: registered } = await store.workspaceRoots({
       operation: 'register',
       root: {
         canonicalPath: '/disposable/clear',
@@ -50,6 +50,23 @@ test('terminal content clear removes content and blobs but preserves configurati
         path: '/disposable/clear',
         preferredId: 'root',
       },
+    });
+    // A project's name (ADR-0034) goes with its project.
+    await store.workspaceRoots({
+      name: 'Named project',
+      operation: 'rename-project',
+      projectId: registered[0]?.projectId ?? '',
+    });
+    // A thread's scratch folder (ADR-0034) goes with the roots and threads.
+    await store.workspaceRoots({
+      operation: 'register-scratch',
+      root: {
+        canonicalPath: '/disposable/scratch/quiet-otter',
+        displayName: 'quiet-otter',
+        path: '/disposable/scratch/quiet-otter',
+        preferredId: 'scratch-root',
+      },
+      threadId: 'thread',
     });
     const content = prose(rng(1), BLOB_MIN_BYTES);
     const contentHash = sha256Hex(content);

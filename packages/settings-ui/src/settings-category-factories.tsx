@@ -34,7 +34,10 @@ import {
   WorktreeSettingsSection,
   type WorktreeSettingsSectionProps,
 } from './settings/system/worktree-settings-section';
-import { WorktreeSetupConsentSettingsSection } from './settings/system/worktree-setup-consent-settings-section';
+import {
+  WorktreeSetupConsentSettingsSection,
+  type WorktreeSetupConsents,
+} from './settings/system/worktree-setup-consent-settings-section';
 import type { SettingsCategory } from './settings-page-content';
 
 export function createAppearanceSettingsCategory(): SettingsCategory {
@@ -135,6 +138,8 @@ export function createFactoryResetSettingsCategory(
 export interface CreateWorkspaceSettingsCategoryOptions {
   readonly onSave: WorktreeSettingsSectionProps['onSave'];
   readonly settings: WorktreeSettingsSectionProps['settings'];
+  /** The host's setup script answers; absent where the host serves no worktrees. */
+  readonly setupConsent?: WorktreeSetupConsents | undefined;
   readonly status: WorktreeSettingsSectionProps['status'];
 }
 
@@ -149,7 +154,9 @@ export function createWorkspaceSettingsCategory(
           settings={options.settings}
           status={options.status}
         />
-        <WorktreeSetupConsentSettingsSection />
+        {options.setupConsent ? (
+          <WorktreeSetupConsentSettingsSection consents={options.setupConsent} />
+        ) : null}
       </div>
     ),
     description:

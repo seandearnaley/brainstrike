@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Locator, type Page } from '@playwright/test';
 import { createServer } from 'vite';
 import { HomePage } from './page-objects/home-page';
 import {
@@ -60,17 +60,28 @@ async function chooseModel(page: Page): Promise<void> {
   await page.getByRole('option').filter({ hasText: 'GPT-5.6 Terra (OpenRouter)' }).first().click();
 }
 
+/**
+ * The Explorer's header of the profile's `brainstrike` folder: the one-folder row, or its section
+ * while the active thread's scratch folder shows beside it (ADR-0034). A first send with no folder
+ * open makes that scratch folder, so "no folder" is no `brainstrike` header, not no header at all.
+ */
+function repositoryHeader(page: Page): Locator {
+  return page
+    .locator('[data-testid="single-root-header-row"], [data-testid="root-section-header-row"]')
+    .filter({ hasText: 'brainstrike' });
+}
+
 async function disconnectRoot(page: Page): Promise<void> {
-  await page.getByTestId('single-root-header-row').click({ button: 'right' });
+  await repositoryHeader(page).click({ button: 'right' });
   await page.getByRole('menuitem', { exact: true, name: 'Disconnect…' }).click();
   await page.getByRole('dialog').getByRole('button', { exact: true, name: 'Disconnect' }).click();
-  await expect(page.getByTestId('single-root-header-row')).toHaveCount(0);
+  await expect(repositoryHeader(page)).toHaveCount(0);
 }
 
 /** Adds the folder through the real picker; `hostRoot` is the profile's host Root. */
 async function addRoot(page: Page, hostRoot: string): Promise<string> {
   await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
-  await expect(page.getByTestId('single-root-header-row')).toContainText('brainstrike');
+  await expect(repositoryHeader(page)).toBeVisible();
   const roots = readOpenWorkspaceFolders(hostRoot);
   expect(roots).toHaveLength(1);
   expect(roots[0]?.status).toBe('live');
@@ -240,7 +251,7 @@ test('ordinary dev excludes a second app, then reopens A with its first Sends an
   await expect(
     reopenedA.page.getByTestId('assistant-ui-viewport').getByText('A_WITH_FOLDER', { exact: true })
   ).toBeVisible();
-  await expect(reopenedA.page.getByTestId('single-root-header-row')).toContainText('brainstrike');
+  await expect(repositoryHeader(reopenedA.page)).toBeVisible();
   await disconnectRoot(reopenedA.page);
   await expect(reopenedA.page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
   expect(ordinaryDev.provider.refusals()).toEqual([]);
@@ -263,7 +274,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
 
   const b = await ordinaryDev.launch('incident-b');
   expect(b.userData).not.toBe(a.userData);
-  await expect(b.page.getByTestId('single-root-header-row')).toHaveCount(0);
+  await expect(repositoryHeader(b.page)).toHaveCount(0);
   await expect(
     b.page.getByTestId('assistant-ui-viewport').getByText('A_NO_FOLDER', { exact: true })
   ).toHaveCount(0);
@@ -278,7 +289,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
 
   const returnedA = await ordinaryDev.launch('incident-a');
   expect(returnedA.userData).toBe(a.userData);
-  await expect(returnedA.page.getByTestId('single-root-header-row')).toHaveCount(0);
+  await expect(repositoryHeader(returnedA.page)).toHaveCount(0);
   for (const text of ['B_NO_FOLDER', 'B_WITH_FOLDER']) {
     await expect(
       returnedA.page.getByTestId('assistant-ui-viewport').getByText(text, { exact: true })

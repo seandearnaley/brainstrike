@@ -87,7 +87,10 @@ export function bindHostRootRegistryMethods(
       return registry[method](params);
     });
   };
+  serve('projects/join');
+  serve('projects/rename');
   serve('workspace/roots/add');
+  serve('workspace/roots/locate');
   serve('workspace/roots/open');
   serve('workspace/roots/pick');
   serve('workspace/roots/recent');

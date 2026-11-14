@@ -27,9 +27,20 @@ export interface ThreadFolderRow {
 export interface ThreadFolderGroupingRow extends ThreadFolderRow {
   /**
    * Null for a managed worktree's root, which is a checkout of its repository,
-   * and for a folder recorded before projects existed and not opened since.
+   * for a scratch folder, and for a folder recorded before projects existed and
+   * not opened since.
    */
   readonly projectId: string | null;
+  /** The name the person gave the project; null while it has none, so it is named by its folder. */
+  readonly projectName: string | null;
+  /**
+   * A scratch folder, which the host made for a thread sent with no folder while
+   * none was open (ADR-0034), as its `roots` record's kind says. Its threads
+   * list together in the Scratch section, not one section per folder.
+   */
+  readonly scratch?: true;
+  /** Whether the folder is mounted now; a disconnected one may have moved. */
+  readonly status: 'live' | 'disconnected';
 }
 
 /**
@@ -53,6 +64,8 @@ export interface ThreadRepositoryRow {
   readonly path: string;
   /** The project of its own checkout's folder; null while that folder is not open or has none. */
   readonly projectId: string | null;
+  /** That project's name; null while it has none. */
+  readonly projectName: string | null;
 }
 
 /** The run times a thread's activity is read from: its latest run, if it has one. */
@@ -96,7 +109,7 @@ export interface ThreadListGroupHeader {
 }
 /** A workspace-folder section (folder mode). */
 export interface ThreadListFolderHeader {
-  readonly folder: ThreadFolderRow;
+  readonly folder: ThreadFolderGroupingRow;
   readonly kind: 'folder';
 }
 /** A repository section (folder mode): its own checkout's threads and its worktrees'. */
@@ -107,6 +120,10 @@ export interface ThreadListRepositoryHeader {
 /** The trailing "No folder" section (folder mode only). */
 export interface ThreadListUnassignedHeader {
   readonly kind: 'unassigned';
+}
+/** Every scratch thread's section (folder mode only), before "No folder" (ADR-0034). */
+export interface ThreadListScratchHeader {
+  readonly kind: 'scratch';
 }
 /** A recency section (date mode): Today, Yesterday, Previous 7 days, a month. */
 export interface ThreadListDateHeader {
@@ -123,6 +140,7 @@ export type ThreadListSectionHeader =
   | ThreadListGroupHeader
   | ThreadListPinnedHeader
   | ThreadListRepositoryHeader
+  | ThreadListScratchHeader
   | ThreadListUnassignedHeader;
 
 interface ThreadListSectionBase {
@@ -135,10 +153,15 @@ export interface ThreadListGroupSection extends ThreadListSectionBase {
 }
 /**
  * `id` is `project:${projectId}`; for a repository or folder with no project,
- * `repository:${key}` or `folder:${rootId}`; or `folder-unassigned`.
+ * `repository:${key}` or `folder:${rootId}`; or `folder-scratch` or
+ * `folder-unassigned`.
  */
 export interface ThreadListFolderSection extends ThreadListSectionBase {
-  readonly header: ThreadListFolderHeader | ThreadListRepositoryHeader | ThreadListUnassignedHeader;
+  readonly header:
+    | ThreadListFolderHeader
+    | ThreadListRepositoryHeader
+    | ThreadListScratchHeader
+    | ThreadListUnassignedHeader;
 }
 /** `id` is `date:${bucket}`: `date:today`, `date:2026-08` and so on. */
 export interface ThreadListDateSection extends ThreadListSectionBase {
@@ -186,6 +209,15 @@ export const DATE_SECTION_ID_PREFIX = 'date:';
  * produce this id via `folderSectionId` and collide with the sentinel.
  */
 export const UNASSIGNED_FOLDER_SECTION_ID = 'folder-unassigned';
+
+/**
+ * Section id of the Scratch section in folder mode, where every thread whose
+ * folder is a scratch folder lists (ADR-0034). A sentinel like
+ * {@link UNASSIGNED_FOLDER_SECTION_ID}: a hyphen, never a prefix's colon, so no
+ * root, repository or project id can produce it, and the collapse-key prune,
+ * which reads only `folder:` keys, keeps it.
+ */
+export const SCRATCH_FOLDER_SECTION_ID = 'folder-scratch';
 
 /**
  * The prefix every root-bound folder section id carries. Exported so the one
@@ -301,9 +333,19 @@ function sortSection(
 
 type FolderSectionHeader = ThreadListFolderHeader | ThreadListRepositoryHeader;
 
-/** The name a section sorts and reads by, with its id as the tie-break. */
+/** The name of the repository or folder a header stands for. */
 function folderSectionName(header: FolderSectionHeader): string {
   return header.kind === 'repository' ? header.repository.displayName : header.folder.displayName;
+}
+
+/**
+ * What a project section is called and sorted by (ADR-0034): the name the person gave its
+ * project, else the name of the repository or folder that names it.
+ */
+export function threadFolderSectionLabel(header: FolderSectionHeader): string {
+  const projectName =
+    header.kind === 'repository' ? header.repository.projectName : header.folder.projectName;
+  return projectName ?? folderSectionName(header);
 }
 
 /** The path a section's header falls back to after its name, so the choice between two is total. */
@@ -341,11 +383,24 @@ interface FolderBucket {
 }
 
 /**
- * Where one thread sits in folder grouping: its repository when its folder is
- * one of that repository's checkouts, its folder otherwise, and `null` ("No
- * folder") when it has no folder or the folder has no display row. Either is
- * keyed on its project when it has one, so every folder of a project shares
- * one section.
+ * Whether the thread works in a scratch folder, as its folder's `roots` row
+ * says. Asked before its repository: a scratch folder lists in the Scratch
+ * section even if it has since become a repository's checkout.
+ */
+function worksInScratchFolder(
+  thread: AssistantMemoryThread,
+  folderRowsByRootId: ReadonlyMap<string, ThreadFolderGroupingRow>
+): boolean {
+  const rootId = getThreadPrimaryRootId(thread);
+  return rootId !== null && folderRowsByRootId.get(rootId)?.scratch === true;
+}
+
+/**
+ * Where one thread that works in no scratch folder sits in folder grouping:
+ * its repository when its folder is one of that repository's checkouts, its
+ * folder otherwise, and `null` ("No folder") when it has no folder or the
+ * folder has no display row. Either is keyed on its project when it has one,
+ * so every folder of a project shares one section.
  */
 function resolveFolderSection(
   thread: AssistantMemoryThread,
@@ -379,10 +434,12 @@ function resolveFolderSection(
  * Folder sections for the Threads panel: one section per project (a
  * repository's own checkout and its managed worktrees together, or a folder),
  * one per repository or folder that has no project,
- * alphabetical by display name, with a trailing "No folder" section for threads
- * whose primary root is missing, blank, or has no display row. An unresolved
- * root id is NOT an error here - the builder stays pure and the calling hook
- * logs it.
+ * alphabetical by display name, then ONE Scratch section for every thread
+ * that works in a scratch folder (ADR-0034: each has a folder of its own, and
+ * a section per folder would list each as a project), and a trailing "No
+ * folder" section for threads whose primary root is missing, blank, or has no
+ * display row. An unresolved root id is NOT an error here - the builder stays
+ * pure and the calling hook logs it.
  */
 function buildFolderSections(
   input: BuildThreadListSectionsFolderInput,
@@ -391,8 +448,13 @@ function buildFolderSections(
   // The bucket carries the header that opened it, so the section pass never has
   // to resolve it a second time.
   const bucketsById = new Map<string, FolderBucket>();
+  const scratchThreads: AssistantMemoryThread[] = [];
   const unassignedThreads: AssistantMemoryThread[] = [];
   for (const thread of threads) {
+    if (worksInScratchFolder(thread, input.folderRowsByRootId)) {
+      scratchThreads.push(thread);
+      continue;
+    }
     const section = resolveFolderSection(thread, input);
     if (section === null) {
       unassignedThreads.push(thread);
@@ -410,8 +472,8 @@ function buildFolderSections(
   const compareThreads = input.folderSortBy === 'name' ? compareByName : byRecency(input.ordering);
   const sections: ThreadListFolderSection[] = [...bucketsById.values()]
     .sort((left, right) => {
-      const byName = folderSectionName(left.header).localeCompare(
-        folderSectionName(right.header),
+      const byName = threadFolderSectionLabel(left.header).localeCompare(
+        threadFolderSectionLabel(right.header),
         undefined,
         { sensitivity: 'base' }
       );
@@ -422,6 +484,13 @@ function buildFolderSections(
       id: bucket.id,
       threads: bucket.threads.sort(compareThreads),
     }));
+  if (scratchThreads.length > 0) {
+    sections.push({
+      header: { kind: 'scratch' },
+      id: SCRATCH_FOLDER_SECTION_ID,
+      threads: scratchThreads.sort(compareThreads),
+    });
+  }
   if (unassignedThreads.length > 0) {
     sections.push({
       header: { kind: 'unassigned' },
@@ -684,7 +753,7 @@ function resolveSectionThreads(
 /**
  * Thread ids belonging to ONE section, addressed by `section.id` (a group id in
  * custom-groups mode, `project:${projectId}` / `repository:${key}` /
- * `folder:${rootId}` / `folder-unassigned` in folder mode,
+ * `folder:${rootId}` / `folder-scratch` / `folder-unassigned` in folder mode,
  * `date:…` in date mode, {@link PINNED_SECTION_ID} for the Pinned section).
  * `null` addresses the custom-groups Ungrouped section, which has no section id
  * of its own; folder mode has no such section and answers empty.

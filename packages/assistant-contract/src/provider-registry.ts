@@ -406,9 +406,10 @@ export interface LlmModelDefinition extends BaseModelDefinition {
 export type ProviderModelDefinition = LlmModelDefinition;
 
 /**
- * How a provider authenticates. `'aws'` is carried by `bedrock` (BST-1350).
+ * How a provider authenticates. `'aws'` is carried by `bedrock` (BST-1350),
+ * `'chatgpt_sign_in'` by `chatgpt` (Sign in with ChatGPT, ADR-0038).
  */
-export type ProviderAuthType = 'api_key' | 'aws';
+export type ProviderAuthType = 'api_key' | 'aws' | 'chatgpt_sign_in';
 
 export interface ProviderDefinition {
   authType: ProviderAuthType;
@@ -468,7 +469,7 @@ export interface ProviderDefinition {
   runtime: ProviderRuntime;
 }
 
-export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'bedrock';
+export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'bedrock' | 'chatgpt';
 
 /**
  * The provider/model catalog, parsed from `provider-catalog.json` at module

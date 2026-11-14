@@ -75,10 +75,14 @@ export function bindHostGitWorkspaceMethods(
   serve('worktrees/create-context');
   serve('worktrees/inspect-archive');
   serve('worktrees/list');
+  serve('worktrees/list-archived');
   serve('worktrees/managed-paths');
   serve('worktrees/restore');
   serve('worktrees/settings/read');
   serve('worktrees/settings/write');
+  serve('worktrees/setup-consent/decide');
+  serve('worktrees/setup-consent/list');
+  serve('worktrees/setup-consent/revoke');
   return {
     dispose: () => {
       unsubscribe?.();

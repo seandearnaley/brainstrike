@@ -75,7 +75,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'electronAPI', {
     value: {
       content: { clear: vi.fn() },
-      factoryReset: { resetLocal: vi.fn() },
+      factoryReset: { resetLocal: vi.fn(), takeResetOutcome: vi.fn(async () => null) },
     },
     writable: true,
   });
