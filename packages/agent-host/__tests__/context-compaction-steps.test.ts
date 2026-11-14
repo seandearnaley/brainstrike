@@ -7,14 +7,20 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   compactionCuts,
   overflowCompaction,
-  prepareCompactedContext,
+  prepareCompactedContext as prepareContext,
 } from '../src/context-compaction.ts';
 import type { HostRunState } from '../src/core-state.ts';
 import type { HostEvent, HostLogRow } from '../src/protocol.ts';
 import { hostIntakeMessage } from '../src/turn-input.ts';
+import { readCompactedContext } from './fixtures/compaction-context.ts';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
-type Input = Parameters<typeof prepareCompactedContext>[0];
+type Input = Parameters<typeof prepareContext>[0];
+
+/** The prepared context, read as its note's text and the turns after it (BST-2532). */
+async function prepareCompactedContext(input: Input) {
+  return readCompactedContext(await prepareContext(input));
+}
 
 function chain(count: number): HostRunState[] {
   return Array.from(
@@ -129,7 +135,7 @@ describe('a long run compacts between steps (BST-2531)', () => {
 
   it('summarizes the run’s older steps, keeping its question and its newest 20,000 tokens', async () => {
     const turn = long();
-    const summarize = vi.fn(async (_transcript: string) => summary);
+    const summarize = vi.fn(async (_context: readonly ModelMessage[]) => summary);
     const readLedger = vi.fn(readNothing);
     const { committed, prepared } = await stepCompactions(turn, { readLedger, summarize });
     expect(committed).toEqual([
@@ -146,11 +152,9 @@ describe('a long run compacts between steps (BST-2531)', () => {
         usage: receipt.usage,
       },
     ]);
-    // Steps 0 to 6: a call and its result each.
-    const transcript = summarize.mock.calls[0]?.[0] ?? '';
-    expect(transcript.split('\n')).toHaveLength(14);
-    expect(transcript).toContain('run-0-call-6');
-    expect(transcript).not.toContain('run-0-call-7');
+    // BST-2532: the summarizer read the run's next request: the whole turn,
+    // its newest steps included.
+    expect(summarize.mock.calls[0]?.[0]).toEqual(turn.messages);
     expect(prepared.messages).toEqual([turn.messages[0], ...turn.messages.slice(15)]);
     expect(prepared.note).toBe(`[Earlier conversation compacted]\n${summary.text}`);
     // The host's lists cover the steps it replaced; no whole turn, so no request.
@@ -282,15 +286,14 @@ describe('a long run compacts between steps (BST-2531)', () => {
 
   it('keeps a step that loaded a skill or holds an askUser answer word for word, and replaces the steps around it', async () => {
     const turn = protectedRun();
-    const summarize = vi.fn(async (_transcript: string) => summary);
+    const summarize = vi.fn(async (_context: readonly ModelMessage[]) => summary);
     const { committed, prepared } = await stepCompactions(turn, { summarize });
     expect(committed.map((event) => event.through)).toEqual([
       { kept: [2, 5], runId: 'run-0', stepNumber: 10 },
     ]);
-    const transcript = summarize.mock.calls[0]?.[0] ?? '';
-    expect(transcript).not.toContain('run-0-call-2');
-    expect(transcript).not.toContain('run-0-call-5');
-    expect(transcript).toContain('run-0-call-10');
+    // BST-2532: the summarizer reads the run's next request as it stands, kept
+    // steps included: leaving them out would change the cached prefix.
+    expect(summarize.mock.calls[0]?.[0]).toEqual(turn.messages);
     expect(prepared.messages).toEqual([
       turn.messages[0],
       ...stepMessages(turn, 2),

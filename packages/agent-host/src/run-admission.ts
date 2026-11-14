@@ -11,7 +11,7 @@ import {
   type ToolRiskCategory,
   WEB_SEARCH_TOOL_ID,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import type { StepResult, ToolSet } from 'ai';
+import type { LanguageModel, StepResult, ToolSet } from 'ai';
 import { Schema } from 'effect';
 import { leaseHostAdmission } from './admission-lease.ts';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.ts';
@@ -50,7 +50,6 @@ import type {
 } from './ports.ts';
 import type { HostEvent } from './protocol.ts';
 import { HostRunSnapshotSchema } from './protocol.ts';
-import type { HostProviderRequest } from './run-provider-request.ts';
 import { createHostSdkTools } from './sdk-tools.ts';
 import { settleHostToolOutputs } from './tool-artifacts.ts';
 import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.ts';
@@ -64,12 +63,13 @@ export function combineHostSystemContext(...context: readonly (string | undefine
 export function prepareHostProviderStep(
   provider: HostPreparedModelRequest,
   hostSystem: string | undefined,
-  request: HostProviderRequest | undefined,
+  /** Encloses the model in the run's provider request boundary, when the run has one. */
+  boundary: ((model: LanguageModel) => LanguageModel) | undefined,
   hookContext?: string
 ): HostPreparedModelRequest {
   return {
     ...provider,
-    model: request?.wrap(provider.model) ?? provider.model,
+    model: boundary?.(provider.model) ?? provider.model,
     // A UserPromptSubmit hook's context joins the run's instructions.
     ...combineHostSystemContext(provider.system, hostSystem, hookContext),
   };

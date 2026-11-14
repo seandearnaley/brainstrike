@@ -453,6 +453,21 @@ describe('scoring a thread of several turns', () => {
       reasonOf({ ...expecting, thread: thread(answers, { agentic: 1, deterministic: 0 }) })
     ).toMatch(/expects at least 2 compaction\(s\); the thread committed 1/u);
   });
+
+  test('an expect block can hold every compaction to one kind', () => {
+    const expecting = {
+      ...base,
+      expect: { compactions: { atLeast: 1, kind: 'agentic' as const } },
+    };
+    const answers = ['ok', 'ok', 'Port 8443.'];
+    expect(
+      scoreEvalAttempt({ ...expecting, thread: thread(answers, { agentic: 2, deterministic: 0 }) })
+    ).toEqual({ pass: true });
+    // A request trim (or a failed summary) commits a deterministic compaction.
+    expect(
+      reasonOf({ ...expecting, thread: thread(answers, { agentic: 1, deterministic: 2 }) })
+    ).toMatch(/expects only agentic compactions; the thread committed 2 deterministic/u);
+  });
 });
 
 describe('threadMetrics', () => {

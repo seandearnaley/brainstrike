@@ -31,7 +31,7 @@
             "content": {
               "$repeat": {
                 "text": "- Release 1: tightened request validation in src/server.ts\n",
-                "times": 480
+                "times": 840
               }
             },
             "path": "notes/release-1.md"
@@ -48,7 +48,7 @@
             "content": {
               "$repeat": {
                 "text": "- Release 2: tightened request validation in src/server.ts\n",
-                "times": 480
+                "times": 840
               }
             },
             "path": "notes/release-2.md"
@@ -65,7 +65,7 @@
             "content": {
               "$repeat": {
                 "text": "- Release 3: tightened request validation in src/server.ts\n",
-                "times": 480
+                "times": 840
               }
             },
             "path": "notes/release-3.md"
@@ -82,7 +82,7 @@
             "content": {
               "$repeat": {
                 "text": "- Release 4: tightened request validation in src/server.ts\n",
-                "times": 480
+                "times": 840
               }
             },
             "path": "notes/release-4.md"
@@ -99,7 +99,7 @@
             "content": {
               "$repeat": {
                 "text": "- Release 5: tightened request validation in src/server.ts\n",
-                "times": 480
+                "times": 840
               }
             },
             "path": "notes/release-5.md"

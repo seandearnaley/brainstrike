@@ -48,11 +48,22 @@ function compactions(rows: readonly HostLogRow[]): Compacted[] {
   return rows.flatMap((row) => (row.event.type === 'context.compacted' ? [row.event] : []));
 }
 
-/** The system text a request carried: the run's instructions and its compaction note. */
-function systemText(call: CallOptions | undefined): string {
-  return (call?.prompt ?? [])
-    .flatMap((message) => (message.role === 'system' ? [message.content] : []))
-    .join('\n');
+/**
+ * The compaction note a request carried: its leading host notice, the
+ * history's first message (BST-2532). The system text never holds it.
+ */
+function noteText(call: CallOptions | undefined): string {
+  const prompt = call?.prompt ?? [];
+  const system = prompt.flatMap((message) => (message.role === 'system' ? [message.content] : []));
+  if (system.some((text) => text.includes('[Earlier conversation compacted]'))) {
+    throw new Error('The compaction note is in the system text');
+  }
+  const note = prompt.find((message) => message.role !== 'system');
+  if (note?.role !== 'user') {
+    return '';
+  }
+  const text = note.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
+  return text.startsWith('<brainstrike_notice>') ? text : '';
 }
 
 function occurrences(text: string, part: string): number {
@@ -195,12 +206,18 @@ test('the note lists the files a compacted run edited and the tools it loaded, f
     });
   }
   // After several compactions the last request carries one note with one summary, and the lists.
-  const system = systemText(model.doStreamCalls.at(-1));
-  expect(occurrences(system, '[Earlier conversation compacted]')).toBe(1);
-  expect(occurrences(system, 'Goal: Move the service to port 8443.')).toBe(1);
-  expect(system).toContain('Files edited:\n- src/server.ts (2 edits)\n- docs/port.md (1 edit)');
-  expect(system).toContain('Tools loaded:\n- brainstrike_lspInspect');
-  expect(system).not.toContain('Earlier requests:');
+  const note = noteText(model.doStreamCalls.at(-1));
+  expect(
+    occurrences(
+      JSON.stringify(model.doStreamCalls.at(-1)?.prompt),
+      '[Earlier conversation compacted]'
+    )
+  ).toBe(1);
+  expect(occurrences(note, '[Earlier conversation compacted]')).toBe(1);
+  expect(occurrences(note, 'Goal: Move the service to port 8443.')).toBe(1);
+  expect(note).toContain('Files edited:\n- src/server.ts (2 edits)\n- docs/port.md (1 edit)');
+  expect(note).toContain('Tools loaded:\n- brainstrike_lspInspect');
+  expect(note).not.toContain('Earlier requests:');
 });
 
 test('a step the compaction kept word for word is not listed: its edit and its load are still in the request', async () => {
@@ -241,10 +258,10 @@ test('a step the compaction kept word for word is not listed: its edit and its l
     });
   }
   const last = model.doStreamCalls.at(-1);
-  const system = systemText(last);
-  expect(system).toContain('Files edited:\n- src/server.ts (2 edits)');
-  expect(system).not.toContain('docs/review.md');
-  expect(system).not.toContain('Tools loaded:');
+  const note = noteText(last);
+  expect(note).toContain('Files edited:\n- src/server.ts (2 edits)');
+  expect(note).not.toContain('docs/review.md');
+  expect(note).not.toContain('Tools loaded:');
   // The kept step itself is still sent, so the model reads its edit and load there.
   expect(JSON.stringify(last?.prompt)).toContain('docs/review.md');
   expect((last?.tools ?? []).map((tool) => tool.name)).toContain('brainstrike_lspInspect');
@@ -289,9 +306,9 @@ test('a wholly compacted turn’s request is in the note word for word, cut at i
   ]);
   // Its lines as the person wrote them, up to the limit and its marker.
   const kept = 1000 - first.indexOf('z');
-  const system = systemText(model.doStreamCalls.at(-1));
-  expect(system).toContain(
+  const note = noteText(model.doStreamCalls.at(-1));
+  expect(note).toContain(
     `Earlier requests:\n- Move the service to port 8443.\n  Keep the old default in a comment.\n  ${'z'.repeat(kept)} [truncated]`
   );
-  expect(system).not.toContain('z'.repeat(kept + 1));
+  expect(note).not.toContain('z'.repeat(kept + 1));
 });

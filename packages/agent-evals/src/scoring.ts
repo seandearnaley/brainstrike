@@ -294,7 +294,10 @@ export interface EvalAttempt {
   };
   /** The task's `expect` block, checked against the committed log. */
   readonly expect?: {
-    readonly compactions?: { readonly atLeast: number };
+    readonly compactions?: {
+      readonly atLeast: number;
+      readonly kind?: keyof EvalThreadSummary['compactions'];
+    };
     readonly parallelCalls?: { readonly atLeast: number; readonly toolId: string };
   };
   /** The task's follow-up turns, in order: turn 2 onwards. */
@@ -393,16 +396,23 @@ function unfinishedFollowUp(attempt: EvalAttempt): string | undefined {
   return;
 }
 
-/** Why the thread committed fewer compactions than the task's `expect` block asks for, if it did. */
+/**
+ * Why the thread's compactions fall short of the task's `expect` block, if
+ * they do: fewer than it asks for, or one of another kind than it names.
+ */
 function unmetCompactions(attempt: EvalAttempt): string | undefined {
   const expected = attempt.expect?.compactions;
   if (expected === undefined) {
     return;
   }
-  const { agentic = 0, deterministic = 0 } = attempt.thread?.compactions ?? {};
-  const committed = agentic + deterministic;
-  return committed < expected.atLeast
-    ? `The task expects at least ${expected.atLeast} compaction(s); the thread committed ${committed}`
+  const counts = { agentic: 0, deterministic: 0, ...attempt.thread?.compactions };
+  const committed = counts.agentic + counts.deterministic;
+  if (committed < expected.atLeast) {
+    return `The task expects at least ${expected.atLeast} compaction(s); the thread committed ${committed}`;
+  }
+  const other = expected.kind === 'agentic' ? 'deterministic' : 'agentic';
+  return expected.kind !== undefined && counts[other] > 0
+    ? `The task expects only ${expected.kind} compactions; the thread committed ${counts[other]} ${other}`
     : undefined;
 }
 
