@@ -862,7 +862,21 @@ revisit:
     at each launch and for a folder that cannot be mounted, and either would
     list the thread under its folder's name again.
   - A scratch folder that has become a repository's own checkout still lists
-    in Scratch.
+    in Scratch until Turn into a project… makes it a project: it is still in
+    the app's data folder. Its row's chip names its branch after the folder
+    (`quiet-otter · main`, or `detached`), and its hover text says so too
+    (`on branch main`, or `on a detached HEAD`), so two scratch repositories
+    are told apart and the row says it is one (BST-2510). Build decisions:
+    - The branch is the worktree listing's, which already walks scratch roots
+      (`repositoryByThreadId`, from `mapThreadRepositories`). One function,
+      `resolveThreadScratchFolder`, both places the thread in Scratch and gives
+      its row the folder with that listing entry, so the row never asks git
+      and the host protocol is unchanged.
+    - The folder's name and its branch are two texts, each cut on its own, so
+      a long branch never hides the name. Under 420px both wait, and the chip
+      is its folder icon alone, as before.
+    - A pinned scratch thread's chip names its branch too, in Project
+      grouping, as it names its folder.
   - Each row's checkout chip names its folder instead of Local, because the
     section does not, so two scratch threads are told apart. Under 420px it is
     its folder icon alone, as a worktree's chip is its branch icon. Other

@@ -4,7 +4,11 @@ import {
   checkoutName,
   LOCAL_CHECKOUT_NAME,
 } from '@brainstrike/assistant-contract/thread-checkout-name';
-import type { AssistantMemoryThread, ThreadFolderRow } from '@brainstrike/assistant-data';
+import type {
+  AssistantMemoryThread,
+  ThreadRepositoryRow,
+  ThreadScratchFolder,
+} from '@brainstrike/assistant-data';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
 import { AlertTriangle, FolderPen, GitBranch } from 'lucide-react';
@@ -151,16 +155,44 @@ function ThreadDetail({
  *
  * A thread in a scratch folder (ADR-0034) works in that folder itself, but in
  * Project grouping its section, Scratch, names no folder, so its chip names the
- * folder instead of Local: two scratch threads are told apart there.
+ * folder instead of Local: two scratch threads are told apart there. A scratch
+ * folder that has become a git repository stays in Scratch, and its chip names
+ * its branch as well, so two of those are told apart too.
  */
 type ThreadRowCheckout =
   | { readonly kind: 'local' }
-  | { readonly kind: 'scratch'; readonly name: string; readonly path: string | null }
+  | {
+      readonly branch: ThreadScratchBranch | null;
+      readonly kind: 'scratch';
+      readonly name: string;
+      readonly path: string | null;
+    }
   | { readonly kind: 'worktree'; readonly name: string; readonly path: string };
+
+/** A scratch folder's branch as its chip shows it, and as its hover text says it. */
+interface ThreadScratchBranch {
+  readonly label: string;
+  readonly title: string;
+}
+
+/**
+ * The branch of a scratch folder that is a repository's own checkout: its name, or `detached` on
+ * a detached HEAD, as a repository section's header shows it. Null while the folder is no git
+ * checkout, and for a bare repository, which names neither.
+ */
+function scratchBranch(repository: ThreadRepositoryRow | null): ThreadScratchBranch | null {
+  if (repository?.detached) {
+    return { label: 'detached', title: 'on a detached HEAD' };
+  }
+  if (repository?.branch) {
+    return { label: repository.branch, title: `on branch ${repository.branch}` };
+  }
+  return null;
+}
 
 function resolveThreadRowCheckout(
   thread: AssistantMemoryThread,
-  scratchFolder: ThreadFolderRow | null
+  scratchFolder: ThreadScratchFolder | null
 ): ThreadRowCheckout | null {
   const metadata = thread.metadata;
   if (!metadata?.operatingRootId) {
@@ -172,7 +204,12 @@ function resolveThreadRowCheckout(
     return { kind: 'worktree', name: checkoutName(path), path };
   }
   if (scratchFolder?.rootId === metadata.operatingRootId) {
-    return { kind: 'scratch', name: scratchFolder.displayName, path: scratchFolder.path };
+    return {
+      branch: scratchBranch(scratchFolder.repository),
+      kind: 'scratch',
+      name: scratchFolder.displayName,
+      path: scratchFolder.path,
+    };
   }
   return { kind: 'local' };
 }
@@ -182,10 +219,11 @@ export function ThreadMetadataBadges({
   thread,
 }: {
   /**
-   * The scratch folder the thread works in, from its `roots` row; null for any other thread and
-   * wherever the panel reads no `roots` rows (every grouping but Project).
+   * The scratch folder the thread works in, from its `roots` row, with the repository the listing
+   * names for it; null for any other thread and wherever the panel reads no `roots` rows (every
+   * grouping but Project).
    */
-  readonly scratchFolder: ThreadFolderRow | null;
+  readonly scratchFolder: ThreadScratchFolder | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement | null {
   const checkout = resolveThreadRowCheckout(thread, scratchFolder);
@@ -219,6 +257,16 @@ export function ThreadMetadataBadges({
   );
 }
 
+/** A checkout chip's text: cut to fit, and shown from 420px, where it no longer starves the title. */
+const THREAD_CHECKOUT_TEXT_CLASS_NAME = 'hidden max-w-24 truncate @[420px]/threads:inline';
+
+/**
+ * The dot between a scratch folder's name and its branch. A flex item of its
+ * own, so the badge's gap spaces both its sides: a space inside a truncated
+ * text is dropped at the start of its line. Hidden with the texts it divides.
+ */
+const THREAD_CHECKOUT_SEPARATOR_CLASS_NAME = 'hidden @[420px]/threads:inline';
+
 /**
  * The checkout chip. A Threads panel at its default width leaves a row about
  * 100px for the title and its badges together, and a text chip there cuts the
@@ -226,10 +274,12 @@ export function ThreadMetadataBadges({
  *
  * - a worktree chip is its branch icon alone, which still tells a worktree
  *   thread from a Local one, and its name is on hover; a scratch folder's chip
- *   is its folder icon alone, the same way;
+ *   is its folder icon alone, the same way, its branch hidden with its name;
  * - "Local", the unmarked case, gives way to the title.
  *
- * From 420px each reads in full, where the run badges open too.
+ * From 420px each reads in full, where the run badges open too. A scratch
+ * folder's branch is a text of its own, cut on its own, so a long branch never
+ * hides the folder's name, nor a long name the branch.
  */
 function ThreadCheckoutBadge({
   checkout,
@@ -247,15 +297,25 @@ function ThreadCheckoutBadge({
     );
   }
   const scratch = checkout.kind === 'scratch';
+  const branch = scratch ? checkout.branch : null;
   const label = `${scratch ? 'Scratch folder' : 'Worktree'} ${checkout.name}`;
+  const place = checkout.path === null ? label : `${label} at ${checkout.path}`;
   return (
     <ThreadBadge
       band="always"
       icon={scratch ? FolderPen : GitBranch}
       testId="thread-checkout-chip"
-      title={checkout.path === null ? label : `${label} at ${checkout.path}`}
+      title={branch === null ? place : `${place}, ${branch.title}`}
     >
-      <span className="hidden max-w-24 truncate @[420px]/threads:inline">{checkout.name}</span>
+      <span className={THREAD_CHECKOUT_TEXT_CLASS_NAME}>{checkout.name}</span>
+      {branch === null ? null : (
+        <>
+          <span aria-hidden="true" className={THREAD_CHECKOUT_SEPARATOR_CLASS_NAME}>
+            ·
+          </span>
+          <span className={THREAD_CHECKOUT_TEXT_CLASS_NAME}>{branch.label}</span>
+        </>
+      )}
     </ThreadBadge>
   );
 }
