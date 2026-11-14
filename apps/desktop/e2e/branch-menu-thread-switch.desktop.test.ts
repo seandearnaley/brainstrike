@@ -65,6 +65,11 @@ test('selecting another thread closes the open branch menu', async ({
    * menu is gone: it may fade where it was, but never shows anywhere else.
    */
   async function closesInPlace(switchThread: () => Promise<void>, selected: string) {
+    await expect(region.getByTestId('workspace-bar').filter({ visible: true })).toHaveAttribute(
+      'data-checkout-state',
+      'resolved',
+      { timeout: 30_000 }
+    );
     await openWhereMenu(region);
     // Past the where-menu's opening animation, so the submenu anchors to where its row rests.
     const whereMenu = page.getByRole('menu').first();

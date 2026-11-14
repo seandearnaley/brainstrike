@@ -393,3 +393,30 @@ export async function runHostScenario(
     threadId,
   };
 }
+
+/**
+ * The generated live-and-reopen property's share for one test file. Four files
+ * (live-reopen-fold{,-2,-3,-4}.test.ts) run it, 60 cases in all: one file of 60
+ * cases took up to 53 s of its 60 s budget under load (BST-2509), and separate
+ * files run on separate workers.
+ */
+const GENERATED_RUNS_PER_FILE = 15;
+
+/** A generated conversation sends each run its path and reads the same before and after each reopen. */
+export async function checkGeneratedConversations(): Promise<void> {
+  const cleanup: (() => Promise<void>)[] = [];
+  await fc.assert(
+    fc.asyncProperty(hostScenario({ maxCommands: 10 }), async (commands) => {
+      try {
+        const result = await runHostScenario(commands, cleanup);
+        // A live subscriber received exactly the rows the reopened store reads.
+        expect(result.published).toEqual(result.rows);
+      } finally {
+        for (const close of cleanup.splice(0).reverse()) {
+          await close();
+        }
+      }
+    }),
+    { numRuns: GENERATED_RUNS_PER_FILE }
+  );
+}
