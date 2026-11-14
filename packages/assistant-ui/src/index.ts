@@ -133,6 +133,11 @@ export {
   ProjectMemoryUndoProvider,
 } from './project-memory-note-card';
 export {
+  ProjectMemoryPanel,
+  type ProjectMemoryPanelNote,
+  type ProjectMemoryPanelNotes,
+} from './project-memory-panel';
+export {
   type RewindComposerState,
   useRewindComposerStore,
 } from './rewind-composer-store';

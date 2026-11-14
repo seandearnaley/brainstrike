@@ -173,5 +173,7 @@
 // `context.compacted` covers everything its branch's earlier summary covered as well:
 // `compactedRunIds` lists every whole turn it covers and `through` the newest step cut. It
 // carries what the host wrote from the log, `filesEdited`, `toolsLoaded` and `earlierRequests`,
-// required. The required fields are why this is a version bump.
+// required. The required fields are why this is a version bump. Additive since (BST-2534): a
+// project's Memory panel's `projects/memory/list`, `projects/memory/write` and
+// `projects/memory/delete`, new methods.
 export const AGENT_HOST_PROTOCOL_VERSION = 33;

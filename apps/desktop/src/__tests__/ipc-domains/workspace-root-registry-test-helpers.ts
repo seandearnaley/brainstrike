@@ -59,6 +59,7 @@ export function createRegistryCatalogRequest(
       case 'rename-project':
       case 'join-project':
       case 'repository-projects':
+      case 'project-folders':
         throw new Error(`This catalog keeps no projects (${request.operation})`);
       case 'register': {
         const previous = roots.get(request.root.path);

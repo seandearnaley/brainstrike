@@ -29,7 +29,8 @@
 
 - **One owner, one writer.** The host owns project memory. Only its memory module
   (`@brainstrike/host-capabilities/project-memory`) writes the files: the memory tool during a
-  turn, and Undo through Core. No background process writes memory.
+  turn, Undo through Core, and the person in the project's Memory panel (BST-2534). No
+  background process writes memory.
 - **Where it lives.** `<data root>/project-memory/<project id>/`, beside the state database. It
   is app-private: never in the repository, never in git.
 - **A thread's project** is the project of its checkout, as the Threads panel reads it (ADR-0034):
@@ -76,7 +77,8 @@
 - **Provenance.** A write is marked as coming from untrusted context when its run, or any earlier
   run on the thread's branch, compacted or not, read web or MCP tool output (web search, web
   extract, browser pages, an MCP tool, or a tool an earlier run had that this run no longer has).
-  The mark stays with the note until the note is deleted. The host keeps it beside the notes
+  The mark stays with the note until the note is deleted, or until the person saves it in the
+  Memory panel, which makes it theirs. The host keeps it beside the notes
   (`.provenance.json`, hidden from the tool), shows it on the card and on the note's index line.
 - **Every write is visible.** A write commits `memory.changed`, which the thread shows as a card:
   the note's title and text, the untrusted mark, and Undo. Undo (`memory/undo`) restores what the
@@ -101,7 +103,8 @@
   project another host recorded in the same data root.
 - A write after a delegated child's result is not marked untrusted, though the child may have
   read the web: the mark reads the calls on the thread's own branch, not a child thread's.
-- Reading, editing and deleting notes outside a thread is BST-2534.
+- Outside a thread, the person reads, edits and deletes notes in the project's Memory panel
+  (BST-2534, [project memory](../agents/project-memory.md)), whether or not the folder is trusted.
 
 ## Sources
 

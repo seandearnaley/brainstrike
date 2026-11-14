@@ -23,6 +23,33 @@ export function memoryNoteTitle(relative: string, text: string): string {
   return path.posix.basename(relative).replace(/\.[^.]+$/u, '') || relative;
 }
 
+const STEM_MAX_CHARACTERS = 60;
+const CHARACTERS = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/**
+ * A new note's file name without its extension (BST-2534): its first line in lower-case words
+ * joined by dashes, so a note with no heading is titled much as it begins; `note` when it has none.
+ * It is cut at 60 characters as a person counts them, so no letter loses half its code units or
+ * its accents.
+ */
+export function memoryNoteStem(text: string): string {
+  const first = text
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line !== '' && line !== '---');
+  const words = (first ?? '')
+    .replace(/^#+\s*/u, '')
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, '-')
+    .replace(/^[-\p{M}]+/u, '');
+  const stem = Array.from(CHARACTERS.segment(words), ({ segment }) => segment)
+    .slice(0, STEM_MAX_CHARACTERS)
+    .join('')
+    .replace(/-+$/u, '');
+  return stem === '' ? 'note' : stem;
+}
+
 /** A note's hook: its first line of text that is not a heading, cut to one short line. */
 function memoryNoteHook(text: string): string {
   const line = text

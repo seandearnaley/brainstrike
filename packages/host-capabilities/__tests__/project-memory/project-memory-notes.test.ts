@@ -17,7 +17,7 @@ import path from 'node:path';
 import type { MemoryInput } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { projectMemorySection } from '../../src/project-memory/memory-admission.ts';
-import { loadedMemoryIndex } from '../../src/project-memory/memory-index.ts';
+import { loadedMemoryIndex, memoryNoteStem } from '../../src/project-memory/memory-index.ts';
 import { ProjectMemoryNotes, ProjectMemoryRefusal } from '../../src/project-memory/memory-notes.ts';
 
 let dataRoot: string;
@@ -282,6 +282,120 @@ describe('project memory notes', () => {
 
     expect(renamed.change?.untrusted).toBe(true);
     expect(index()).toBe('- [Alpha](web/a.md) — first (untrusted)\n');
+  });
+});
+
+describe("a person's notes in the Memory panel", () => {
+  it('lists every note with its title, text, time and mark; a project with no folder yet has none', async () => {
+    await notes.execute(create('a.md', '# Alpha\nfirst\n'), trusted);
+    await notes.execute(create('team/b.md', '# Bravo\nfrom the web\n'), { untrusted: true });
+
+    expect(await notes.list()).toEqual([
+      {
+        modifiedAt: expect.any(Number),
+        path: '/memories/a.md',
+        text: '# Alpha\nfirst\n',
+        title: 'Alpha',
+        untrusted: false,
+      },
+      {
+        modifiedAt: expect.any(Number),
+        path: '/memories/team/b.md',
+        text: '# Bravo\nfrom the web\n',
+        title: 'Bravo',
+        untrusted: true,
+      },
+    ]);
+    await expect(new ProjectMemoryNotes(dataRoot, 'project-2').list()).resolves.toEqual([]);
+  });
+
+  it("a person's write replaces the note and its index line together, and clears its untrusted mark", async () => {
+    await notes.execute(create('api.md', '# API base\nIt is /v2.\n'), { untrusted: true });
+    expect(index()).toBe('- [API base](api.md) — It is /v2. (untrusted)\n');
+
+    const saved = await notes.save({ path: '/memories/api.md', text: '# API base\nIt is /v3.\n' });
+
+    expect(saved).toEqual({
+      modifiedAt: expect.any(Number),
+      path: '/memories/api.md',
+      text: '# API base\nIt is /v3.\n',
+      title: 'API base',
+      untrusted: false,
+    });
+    expect(index()).toBe('- [API base](api.md) — It is /v3.\n');
+    expect(existsSync(path.join(notes.folder, '.provenance.json'))).toBe(false);
+    expect((await notes.list())[0]?.untrusted).toBe(false);
+  });
+
+  it("a person's new note is named from its first line, beside the notes already there", async () => {
+    await notes.execute(create('deploy-steps.md', '# Deploy steps\nOld.\n'), trusted);
+
+    const titled = await notes.save({ text: '# Deploy steps\nTag first.\n' });
+    const plain = await notes.save({ text: 'Use pnpm, never npm.\n' });
+    const memory = await notes.save({ text: '# Memory\nNot the index.\n' });
+
+    expect([titled.path, plain.path, memory.path]).toEqual([
+      '/memories/deploy-steps-2.md',
+      '/memories/use-pnpm-never-npm.md',
+      '/memories/memory-2.md',
+    ]);
+    expect(readFileSync(path.join(notes.folder, 'deploy-steps.md'), 'utf8')).toBe(
+      '# Deploy steps\nOld.\n'
+    );
+    expect(index()).toBe(
+      [
+        '- [Deploy steps](deploy-steps-2.md) — Tag first.',
+        '- [Deploy steps](deploy-steps.md) — Old.',
+        '- [Memory](memory-2.md) — Not the index.',
+        '- [use-pnpm-never-npm](use-pnpm-never-npm.md) — Use pnpm, never npm.',
+        '',
+      ].join('\n')
+    );
+  });
+
+  it("refuses a person's note outside the folder, over the index, or holding a secret", async () => {
+    const outsideFolder = path.join(dataRoot, 'project-memory', 'project-2');
+    for (const target of ['/memories/../project-2/x.md', '/memories/%2e%2e/x.md']) {
+      await expect(notes.save({ path: target, text: 'x' })).rejects.toThrow(
+        `The path ${target} is outside /memories.`
+      );
+    }
+    await expect(
+      notes.save({ path: '/memories/MEMORY.md', text: '- [Fake](f.md)' })
+    ).rejects.toThrow('is kept by the app from the notes');
+    await expect(
+      notes.save({ text: `# Deploy token\nUse ghp_${'a'.repeat(36)} to deploy.\n` })
+    ).rejects.toBeInstanceOf(ProjectMemoryRefusal);
+    expect(existsSync(outsideFolder)).toBe(false);
+    await expect(notes.list()).resolves.toEqual([]);
+  });
+});
+
+describe("a new note's file name", () => {
+  const long = 'a'.repeat(59);
+  /** No half of a surrogate pair, no mark without its letter, and composed as NFC. */
+  const wellFormed = (name: string) =>
+    !(/\p{Cs}/u.test(name) || /^\p{M}/u.test(name)) && name === name.normalize('NFC');
+
+  it('keeps a character beyond the basic plane whole where the name is cut', () => {
+    // U+20000, a CJK ideograph that takes two UTF-16 units, is the 60th character.
+    expect(memoryNoteStem(`# ${long}\u{20000}${'b'.repeat(10)}\n`)).toBe(`${long}\u{20000}`);
+    expect(memoryNoteStem(`# ${'漢'.repeat(70)}\n`)).toBe('漢'.repeat(60));
+  });
+
+  it('turns an emoji into a word break, and never ends on half of one', () => {
+    for (const emoji of ['😀', '👩‍💻', '🇨🇦']) {
+      const stem = memoryNoteStem(`# ${long}${emoji}${'b'.repeat(10)}\n`);
+      expect(wellFormed(stem)).toBe(true);
+      expect(stem).toBe(long);
+    }
+    expect(memoryNoteStem('# Ship it 🚀 today\n')).toBe('ship-it-today');
+  });
+
+  it('keeps a combining mark with its letter, cut or not', () => {
+    expect(memoryNoteStem(`# ${long}q̇${'b'.repeat(10)}\n`)).toBe(`${long}q̇`);
+    expect(memoryNoteStem('# Café hours\n')).toBe('café-hours');
+    expect(wellFormed(memoryNoteStem('# ́ accent first\n'))).toBe(true);
   });
 });
 

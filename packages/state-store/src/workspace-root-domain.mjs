@@ -528,14 +528,30 @@ function refuseRepositoryPath(db, canonicalPath, paths) {
 
 /**
  * The projects kept for `canonicalPaths` (ADR-0034 build decisions, BST-2520): a read for the
- * host's worktree listing, which never makes a project. A state DB that opened damaged from
- * before projects, or before their names, answers none, or none named.
+ * host's worktree listing.
  * @param {import('better-sqlite3').Database} db
  * @param {readonly string[]} canonicalPaths
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
  */
 function repositoryProjects(db, canonicalPaths) {
-  if (canonicalPaths.length === 0 || !hasTable(db, 'project_folders')) {
+  return canonicalPaths.length === 0
+    ? { projects: [], roots: [] }
+    : projectFolders(db, 'folder.canonical_path IN (SELECT value FROM json_each(?))', [
+        JSON.stringify(canonicalPaths),
+      ]);
+}
+
+/**
+ * The project folders `where` selects, each with its project, by canonical path. A read that
+ * never makes a project; a state DB that opened damaged from before projects, or before their
+ * names, answers none, or none named.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} where
+ * @param {readonly unknown[]} values
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function projectFolders(db, where, values) {
+  if (!hasTable(db, 'project_folders')) {
     return { projects: [], roots: [] };
   }
   const name = hasColumn(db, 'projects', 'name') ? 'project.name' : 'NULL';
@@ -545,10 +561,10 @@ function repositoryProjects(db, canonicalPaths) {
         .prepare(
           `SELECT folder.canonical_path AS canonicalPath, project.id AS id, ${name} AS name
           FROM project_folders AS folder JOIN projects AS project ON project.id = folder.project_id
-          WHERE folder.canonical_path IN (SELECT value FROM json_each(?))
+          WHERE ${where}
           ORDER BY folder.canonical_path`
         )
-        .all(JSON.stringify(canonicalPaths))
+        .all(...values)
     ),
     roots: [],
   };
@@ -794,6 +810,9 @@ export function executeWorkspaceRootRequest(db, request, paths) {
   }
   if (request.operation === 'repository-projects') {
     return repositoryProjects(db, request.canonicalPaths);
+  }
+  if (request.operation === 'project-folders') {
+    return projectFolders(db, 'project.id = ?', [request.projectId]);
   }
   const projection = rootProjection(db);
   switch (request.operation) {

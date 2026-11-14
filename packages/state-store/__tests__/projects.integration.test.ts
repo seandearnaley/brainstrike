@@ -264,6 +264,33 @@ test('a folder joined to another project lists with it, and the project it left 
   }
 });
 
+test("a project's folders are read by its id, a repository's among them, and a deleted project has none", async () => {
+  const store = await StateStore.open(freshDir('projects-folders'));
+  const folders = async (projectId: string | null | undefined) =>
+    (await store.workspaceRoots({ operation: 'project-folders', projectId: projectId ?? '' }))
+      .projects;
+  try {
+    const alphaProject = await open(store, alpha);
+    const bravoProject = await open(store, bravo);
+    await rename(store, alphaProject, 'Shared');
+    await store.workspaceRoots({
+      canonicalPath: `${alpha.canonicalPath}/vendor/inner`,
+      operation: 'join-project',
+      projectId: alphaProject ?? '',
+    });
+
+    expect(await folders(alphaProject)).toEqual([
+      { canonicalPath: alpha.canonicalPath, id: alphaProject, name: 'Shared' },
+      { canonicalPath: `${alpha.canonicalPath}/vendor/inner`, id: alphaProject, name: 'Shared' },
+    ]);
+    await join(store, bravo.preferredId, alphaProject);
+    expect(await folders(bravoProject)).toEqual([]);
+    expect(await folders('no-such-project')).toEqual([]);
+  } finally {
+    await store.close();
+  }
+});
+
 test('a project keeps its id and name while another folder is still in it', async () => {
   const store = await StateStore.open(freshDir('projects-join-kept'));
   try {
