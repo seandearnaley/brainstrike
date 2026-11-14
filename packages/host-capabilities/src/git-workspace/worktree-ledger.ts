@@ -80,6 +80,11 @@ function readSetupStatus(record: Record<string, unknown>): ManagedWorktreeSetupS
   return status;
 }
 
+/**
+ * The row the host's clients read. A store row also carries `baseCommit`, which only the host
+ * reads (`WorktreeLedger.baseCommit`); it is left out here, so no row the ledger answers can carry
+ * it onto the wire.
+ */
 function readRow(row: unknown): ManagedWorktreeRow {
   const record = readRecord(row);
   return {
@@ -125,10 +130,16 @@ export function newestArchiveFirst(
 }
 
 export interface WorktreeLedger {
+  /**
+   * The commit the worktree was made, or adopted, at (ADR-0034 archive on merge, BST-2518): null
+   * for a row recorded before state DB version 19. Throws when the ledger has no such row.
+   */
+  baseCommit(id: string): Promise<string | null>;
   get(id: string): Promise<ManagedWorktreeRow | null>;
   getByPath(worktreePath: string): Promise<ManagedWorktreeRow | null>;
   hasRunningThread(id: string): Promise<boolean>;
-  insert(row: ManagedWorktreeRow): Promise<ManagedWorktreeRow>;
+  /** Records a worktree with the commit it was made, or adopted, at. */
+  insert(row: ManagedWorktreeRow & { readonly baseCommit: string }): Promise<ManagedWorktreeRow>;
   listActive(): Promise<readonly ManagedWorktreeRow[]>;
   listForRepository(repoCommonDir: string): Promise<readonly ManagedWorktreeRow[]>;
   markArchived(id: string, snapshotRef: string): Promise<ManagedWorktreeRow>;
@@ -141,13 +152,23 @@ export function createWorktreeLedger(
   getStore: () => Promise<WorktreeLedgerPort>,
   hasRunningThread: (id: string) => Promise<boolean>
 ): WorktreeLedger {
+  async function storeRows(request: WorktreeLedgerRequest): Promise<readonly unknown[]> {
+    return (await (await getStore()).worktreeLedger(request)).rows;
+  }
   async function rows(request: WorktreeLedgerRequest): Promise<readonly ManagedWorktreeRow[]> {
-    return (await (await getStore()).worktreeLedger(request)).rows.map(readRow);
+    return (await storeRows(request)).map(readRow);
   }
   async function mutate(request: WorktreeLedgerRequest): Promise<ManagedWorktreeRow> {
     return requireRow(await rows(request), 'id' in request ? request.id : 'insert');
   }
   return {
+    baseCommit: async (id) => {
+      const [row] = await storeRows({ id, operation: 'get' });
+      if (row === undefined) {
+        throw new Error(`Managed worktree "${id}" is not in the ledger.`);
+      }
+      return readNullableString(readRecord(row), 'baseCommit');
+    },
     get: async (id) => (await rows({ id, operation: 'get' }))[0] ?? null,
     getByPath: async (path) => (await rows({ operation: 'by-path', path }))[0] ?? null,
     hasRunningThread,

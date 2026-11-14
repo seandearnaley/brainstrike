@@ -67,6 +67,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
       publish: (archive) => {
         told.push(archive);
       },
+      readBaseCommit: (worktreeId) => ledger.baseCommit(worktreeId),
       readRoots: async () => roots,
       readThreads: () => readThreads(),
       run: execFileGitRunner,
@@ -105,6 +106,7 @@ describe('the idle-worktree cap (real git + real SQLite)', () => {
       row: {
         archivedAt: null,
         archiveSnapshotRef: null,
+        baseCommit: git(repository, ['rev-parse', 'main']).trim(),
         baseRef: 'main',
         branch: `bs/${name}`,
         createdAt: new Date(Date.UTC(2026, 0, 1, 0, order)).toISOString(),

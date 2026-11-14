@@ -282,13 +282,14 @@ export async function adoptWorktree(
   if (headRun.exitCode !== 0) {
     return gitCommandFailed(headRun);
   }
+  const head = headRun.stdout.trim();
   const row: ManagedWorktreeRow = {
     archivedAt: null,
     archiveSnapshotRef: null,
     // The worktree existed before Brainstrike knew about it, so there is no
     // creation base to record. HEAD-at-adoption is the honest reference point:
     // "unpushed" then means "committed here since we started managing it".
-    baseRef: headRun.stdout.trim(),
+    baseRef: head,
     branch: descriptor.branch,
     createdAt: new Date().toISOString(),
     createdBy: params.createdBy,
@@ -303,7 +304,8 @@ export async function adoptWorktree(
     setupStatus: 'none',
     threadId: params.threadId ?? null,
   };
-  await deps.ledger.insert(row);
+  // Archive on merge goes by the same point: the branch moved once committed to here (BST-2518).
+  await deps.ledger.insert({ ...row, baseCommit: head });
   return { ok: true, value: row };
 }
 

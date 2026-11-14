@@ -162,6 +162,7 @@ test('a managed worktree has no project of its own: it is a checkout of its repo
       row: {
         archivedAt: null,
         archiveSnapshotRef: null,
+        baseCommit: 'a'.repeat(40),
         baseRef: 'a'.repeat(40),
         branch: 'feature',
         createdAt: '2026-11-10T00:00:00.000Z',
@@ -293,6 +294,7 @@ test('a managed worktree, a scratch folder, an unknown folder and an unknown pro
   const ledgerRow = (id: string, path: string) => ({
     archivedAt: null,
     archiveSnapshotRef: null,
+    baseCommit: 'a'.repeat(40),
     baseRef: 'a'.repeat(40),
     branch: id,
     createdAt: '2026-11-12T00:00:00.000Z',
@@ -363,6 +365,7 @@ test("a managed worktree's record is never re-pinned to another folder, even one
       row: {
         archivedAt: null,
         archiveSnapshotRef: null,
+        baseCommit: 'a'.repeat(40),
         baseRef: 'a'.repeat(40),
         branch: 'adopted',
         createdAt: '2026-11-12T00:00:00.000Z',

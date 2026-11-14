@@ -5,7 +5,8 @@
  * cap archives: through the worktree service's serialized archive with the
  * cap's skip rules (`archiveIdleWorktree`), which keeps its snapshot ref and its
  * branch and deletes the files git ignores. The archive asks again in its own
- * turn whether the branch still counts as merged.
+ * turn whether the check can run in the repository and whether the branch
+ * still counts as merged (BST-2518).
  *
  * The thread that made each worktree (the ledger's `threadId`) is told, with
  * its latest run. A worktree no thread made, or whose thread is gone or has no
@@ -37,6 +38,8 @@ export interface MergedWorktreeArchiveDeps {
   ) => Promise<BoundaryResult<WorktreeArchiveResult>>;
   /** Tells a thread which of the worktrees it made were archived. */
   readonly publish: (archive: HostIdleWorktreeArchive) => void;
+  /** The commit the ledger recorded as a worktree's at its creation (`WorktreeLedger.baseCommit`). */
+  readonly readBaseCommit: (worktreeId: string) => Promise<string | null>;
   /** Git as the host runs it in the person's folders. */
   readonly run: GitCommandRunner;
 }
@@ -71,25 +74,15 @@ export async function archiveMergedWorktrees(
   }
   const { repoCommonDir } = pass;
   const repository = invokeIn(deps.run, repoCommonDir);
-  const target = await resolveMergeTarget(repository);
-  if (!target.ok) {
-    if (target.error.kind === 'refusal') {
-      logger.info('Archive on merge does not run in this repository', {
-        reason: target.error,
-        repoCommonDir,
-      });
-    } else {
-      logger.error('Archive on merge could not read the repository', {
-        error: target.error,
-        repoCommonDir,
-      });
-    }
+  const target = await resolveTarget(repository, repoCommonDir);
+  if (!target) {
     return archivedIds;
   }
-  const check = (row: ManagedWorktreeRow) =>
+  const check = (row: ManagedWorktreeRow, baseCommit: string | null, against: MergeTarget) =>
     readWorktreeMerged({
+      baseCommit,
       repository,
-      target: target.value,
+      target: against,
       worktree: invokeIn(deps.run, row.path),
     });
   const told = new Map<string, MergedArchive['worktrees']>();
@@ -104,7 +97,8 @@ export async function archiveMergedWorktrees(
       logger.debug('A worktree whose folder is gone is not checked for a merge', context);
       continue;
     }
-    const verdict = await check(row);
+    const baseCommit = await deps.readBaseCommit(row.id);
+    const verdict = await check(row, baseCommit, target);
     if (!verdict.ok) {
       logger.error('Could not tell whether a worktree has merged', {
         ...context,
@@ -119,8 +113,14 @@ export async function archiveMergedWorktrees(
     const { branch } = verdict.value;
     const entry = await archiveMerged(deps, row, branch, {
       isBound: () => pass.isBound(row),
+      // Asked whole again: the repository's config (a merge driver, a promisor remote) and its
+      // default branch may have changed since the pass resolved them.
       isMerged: async () => {
-        const again = await check(row);
+        const now = await resolveTarget(repository, repoCommonDir);
+        if (now?.defaultBranch !== target.defaultBranch) {
+          return false;
+        }
+        const again = await check(row, baseCommit, now);
         return again.ok && again.value.merged && again.value.branch === branch;
       },
     });
@@ -134,9 +134,35 @@ export async function archiveMergedWorktrees(
     }
   }
   for (const [threadId, worktrees] of told) {
-    deps.publish(mergedArchive(target.value, threadId, worktrees));
+    deps.publish(mergedArchive(target, threadId, worktrees));
   }
   return archivedIds;
+}
+
+/**
+ * The repository's default branch, when the merged check can run there; undefined, logged with
+ * why, when it cannot.
+ */
+async function resolveTarget(
+  repository: GitInvoke,
+  repoCommonDir: string
+): Promise<MergeTarget | undefined> {
+  const target = await resolveMergeTarget(repository);
+  if (target.ok) {
+    return target.value;
+  }
+  if (target.error.kind === 'refusal') {
+    logger.info('Archive on merge does not run in this repository', {
+      reason: target.error,
+      repoCommonDir,
+    });
+  } else {
+    logger.error('Archive on merge could not read the repository', {
+      error: target.error,
+      repoCommonDir,
+    });
+  }
+  return;
 }
 
 function mergedArchive(

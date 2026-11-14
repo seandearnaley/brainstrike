@@ -6,6 +6,7 @@ import { migrate, SCHEMA_VERSION, UPGRADES } from '../src/schema.mjs';
 import { STATE_DB, StateStore } from '../src/state-store.js';
 import { executeWorkspaceRootRequest } from '../src/workspace-root-domain.mjs';
 import { WORKSPACE_ROOT_SCHEMA } from '../src/workspace-root-schema.mjs';
+import { executeWorktreeLedgerRequest } from '../src/worktree-ledger-domain.mjs';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
 afterEach(() => cleanupDirs());
@@ -30,6 +31,23 @@ const DESKTOP_CATALOG = [
 const RUN_LOG = ['purge_intent', 'run_events', 'run_sync', 'settings', 'threads'];
 const MEMORY = ['brainstrike_memory_scopes', 'brainstrike_memory_entities'];
 const ISO = '2026-10-02T00:00:00.000Z';
+/** A managed worktree as the ledger records one, without the commit it was made at. */
+const WORKTREE = {
+  archivedAt: null,
+  archiveSnapshotRef: null,
+  baseRef: 'HEAD',
+  branch: 'bs/new',
+  createdAt: ISO,
+  createdBy: 'agent',
+  id: 'wt-new',
+  path: '/wt/new',
+  repoCommonDir: '/repo/.git',
+  runId: null,
+  setupOutput: null,
+  setupReason: null,
+  setupStatus: 'none',
+  threadId: null,
+} as const;
 /** The roots table as version 16 left it, before a root could be a scratch folder. */
 const V16_ROOTS = `CREATE TABLE roots (
   id TEXT PRIMARY KEY NOT NULL CHECK (length(id) > 0),
@@ -42,6 +60,8 @@ const V16_ROOTS = `CREATE TABLE roots (
   created_at REAL NOT NULL,
   last_verified_at REAL NOT NULL
 ) STRICT;`;
+/** Every table as version 18 left it, before a worktree recorded the commit it was made at. */
+const V18 = [...UPGRADES.slice(0, 16), V16_ROOTS, UPGRADES[16], UPGRADES[17]].join(';');
 
 async function openDb(): Promise<{ store: StateStore; db: Database.Database }> {
   const root = freshDir('schema');
@@ -74,8 +94,8 @@ describe('state DB migrations', () => {
     const cols = (t: string): string[] =>
       (db.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((c) => c.name);
     try {
-      // 112 appended setup_reason
-      expect(cols('brainstrike_worktrees').at(-1)).toBe('setup_reason');
+      // 112 appended setup_reason; state DB version 19 base_commit
+      expect(cols('brainstrike_worktrees').slice(-2)).toEqual(['setup_reason', 'base_commit']);
       // 115 dropped generation and appended authority_epoch + blocked_diagnostic; v5 thread_id
       expect(cols('brainstrike_mcp_tasks')).not.toContain('generation');
       expect(cols('brainstrike_mcp_tasks').slice(-3)).toEqual([
@@ -350,6 +370,48 @@ describe('state DB migrations', () => {
       for (const operation of ['list', 'list-open'] as const) {
         expect(executeWorkspaceRootRequest(db, { operation }, paths).roots, operation).toEqual([
           expect.objectContaining({ id: 'r1', projectId: 'p1', projectName: null }),
+        ]);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before worktree base commits keeps its worktrees, read with none recorded', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(`${V18};
+      INSERT INTO brainstrike_worktrees (id, repo_common_dir, path, base_ref, created_by)
+        VALUES ('wt-old', '/repo/.git', '/wt/old', 'HEAD', 'user');
+      PRAGMA user_version = 18;`);
+      migrate(db);
+      expect(executeWorktreeLedgerRequest(db, { id: 'wt-old', operation: 'get' }).rows).toEqual([
+        expect.objectContaining({ baseCommit: null, baseRef: 'HEAD', id: 'wt-old' }),
+      ]);
+      const recorded = { ...WORKTREE, baseCommit: 'b'.repeat(40) };
+      expect(executeWorktreeLedgerRequest(db, { operation: 'insert', row: recorded }).rows).toEqual(
+        [recorded]
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  test('a profile from before worktree base commits that opens damaged, so is not upgraded, reads its worktrees with none', () => {
+    const db = new Database(':memory:');
+    try {
+      db.exec(`${V18};
+      INSERT INTO brainstrike_worktrees (id, repo_common_dir, path, base_ref, created_by)
+        VALUES ('wt-old', '/repo/.git', '/wt/old', 'HEAD', 'user');
+      PRAGMA user_version = 18;`);
+      db.pragma('query_only = ON');
+      for (const request of [
+        { id: 'wt-old', operation: 'get' },
+        { operation: 'list-active' },
+        { operation: 'list-repository', repoCommonDir: '/repo/.git' },
+      ] as const) {
+        expect(executeWorktreeLedgerRequest(db, request).rows, request.operation).toEqual([
+          expect.objectContaining({ baseCommit: null, id: 'wt-old' }),
         ]);
       }
     } finally {

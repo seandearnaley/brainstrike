@@ -712,6 +712,8 @@ them:
   All of these must hold:
   - the worktree is on a branch, not detached, and has no uncommitted changes
     (untracked files count; ignored files do not);
+  - the branch has moved since the worktree was made: its tip is not the commit
+    the ledger recorded at creation (BST-2518, below);
   - the branch has commits of its own: its tip is not on the default branch's
     first-parent history. The host asks `merge-base --is-ancestor`, then counts
     `rev-list --first-parent <branch>..<default>` and checks whether the default
@@ -719,8 +721,9 @@ them:
     is not an ancestor, and a merged branch's tip is a merge's second parent, so
     both count. A branch only moved along that history (fast-forwarded to it,
     rebased onto it with nothing of its own left, or reset to an older commit of
-    it) has none, nor has a worktree made and never committed to; each is left
-    to the idle cap. So is a branch the default branch took by a fast-forward
+    it) has none; each is left to the idle cap. A worktree made and never
+    committed to is left to it by the rule above, wherever it was made (this
+    rule alone did not leave it, BST-2518). So is a branch the default branch took by a fast-forward
     merge, which sits on that history. The first build compared the tip with the
     branch reflog's oldest entry, which counted a fast-forward, a rebase or a
     reset as commits of its own (from review);
@@ -729,8 +732,8 @@ them:
     this repository makes through Mergify, as well as an ordinary one;
     `merge-base --is-ancestor` alone misses squash merges.
   "Merged" (`reason: 'merged'`) is the rule's name, not a claim: a commit and
-  its own revert add nothing either, so the notice says the branch adds nothing
-  new rather than that it merged.
+  its own revert add nothing either, so the notice says merging the branch
+  would change nothing rather than that it merged (BST-2518, below).
 - **The default branch** is `origin/HEAD`'s target, else `origin/main`
   (`resolveDefaultBaseRef`, moved unchanged into `default-branch.ts`, which
   `branch-vs-base` changesets also use). The host never fetches, so merged
@@ -781,16 +784,74 @@ them:
   (`threadId`) is told, in the same `worktrees.archived` row with
   `reason: 'merged'` and `defaultBranch` in place of `limit` (host protocol v30).
   It shows with the thread's latest run, since the run that made the worktree
-  may be far back: "The branch {branch} adds nothing that {default} doesn't
-  already have, so its worktree {name} was archived.", then the cap's notice's
-  own sentences on what the archive kept, that files git ignores were deleted,
-  and how to restore it. A thread's worktrees from one pass share one row. A
+  may be far back: "Merging the branch {branch} into {default} would change
+  nothing, so its worktree {name} was archived.", then that its commits stay on
+  its branch and in its archive snapshot, that files git ignores were deleted,
+  and how to restore it (BST-2518 reworded both). A thread's worktrees from one pass share one row. A
   worktree no thread made, or whose thread is gone or has no run yet, is
   archived and logged, untold.
 - **Rows from before v30 still read.** The cap's rows carry
   `reason: 'idle-cap'`. A row a v25 to v29 host committed has no `reason`; it is
   the cap's shape, so it decodes and shows as the cap's notice, and a thread
   told before v30 still opens. This is not a migration: nothing is rewritten.
+
+Follow-up build decisions (BST-2518, from an independent review of BST-2504;
+mine, not Sean's, and later work may revisit them):
+
+- **A branch counts as merged only once it has moved.** "Commits of its own"
+  (off the first-parent history) is not "committed to since it was made": a
+  worktree defaults to the person's `HEAD`, often a feature branch, and one
+  made at a commit the default branch later took by a merge commit or a squash,
+  or at origin's tip that a pull then merged in as a second parent, was archived
+  though never committed to, and so was one made moments before another and not
+  yet bound. The ledger now records the commit each worktree was made at
+  (`brainstrike_worktrees.base_commit`, state DB version 19): the creation
+  reads the new worktree's `HEAD` after `git worktree add`, inside the insert's
+  undo, so a failed read removes the worktree as a failed insert does; adoption
+  records `HEAD` at adoption, as it records `baseRef`. The ledger's insert is
+  the one writer and always writes it. The column is added as v18 added
+  `projects.name`: no migration, so a row recorded before version 19 has none,
+  and the merged check reads such a row as not merged
+  (`base-commit-unrecorded`), never as merged. A damaged DB served unupgraded
+  probes the column. The commit stays off the wire: `ManagedWorktreeRow` (which
+  clients decode strictly) does not carry it, so the host protocol is unchanged;
+  the host reads it with `WorktreeLedger.baseCommit`. It is checked in the pass
+  and again in the archive's own turn. Clear Database and Factory Reset take it
+  with its row (ADR-0015); it needs no reset step of its own.
+- **Main reverting a merged branch.** A branch merged by a merge commit whose
+  merge main then reverted still merges as nothing (git counts it merged), so
+  it is archived, and "adds nothing that main doesn't already have" was untrue:
+  its files are gone from main. The rule stays (its commits stay on the branch
+  and in the snapshot, and Restore brings the folder back); the notice now says
+  what holds for every branch the rule takes, that merging it into the default
+  branch would change nothing.
+- **The archive's own turn asks everything again.** It resolves the default
+  branch and the checks before it (git version, a merge driver in the
+  repository's own config, a partial clone) again, not only the branch, so a
+  `merge.<name>.driver` written after the pass began never runs in the
+  re-check's `merge-tree`. A changed default branch also leaves the worktree.
+- **A partial clone archives nothing on merge.** `merge-tree` reads blobs, and
+  in a partial clone git fetches a missing one from the promisor remote on
+  demand, which breaks "the host never fetches". Git can be told not to
+  (`--no-lazy-fetch`, `GIT_NO_LAZY_FETCH=1`) only from Git 2.45 (its release
+  notes), and archive on merge runs from 2.38; without the blob the merge
+  cannot be told either. So a repository with a promisor remote
+  (`extensions.partialClone`, or a `remote.<name>.promisor` that is true)
+  archives nothing on merge (`worktree.partial-clone`) and logs why, on every
+  git. Tested with a real blobless clone: the blob the merge would need is
+  still missing after the pass. `merge-tree --write-tree` still writes the
+  merge's trees into the person's object store as loose objects; for a branch
+  that merges as nothing they are the default branch's own, which git already
+  has.
+- **Unrelated history is not merged.** A branch whose history meets the
+  default branch's first-parent history nowhere, merged in as a second parent
+  (`--allow-unrelated-histories`), has no commit that many first parents down,
+  and that failed `rev-parse` was logged as an error each pass. It is now not
+  merged (`unrelated-history`), logged at debug as any other reason.
+- **Wording.** The merged notice no longer reuses the cap's sentence on
+  uncommitted changes, which a worktree archived on merge never has, and the
+  platform's log for an archive with no thread listening no longer says "Idle
+  worktrees"; it names the archive's reason.
 
 ## Owner decisions, 2026-11-12: scratch threads
 
