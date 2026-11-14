@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * pnpm --filter @brainstrike/agent-evals eval [--task <id>] [--mode scripted|replay|live] [--live]
+ * pnpm --filter @brainstrike/agent-evals eval [--task <id>] [--mode scripted|replay|live] [--live] [--trials <n>]
  * pnpm --filter @brainstrike/agent-evals record --task <id> --model <provider::model>  (owner only)
  *
  * See docs/agents/agent-evals.md.
@@ -69,10 +69,20 @@ function liveCredential(loaded: LoadedEvalTask): Record<string, string> {
   return { [name]: value };
 }
 
+/** How many times each task runs: once, or `--trials`. */
+function trialCount(value: string | undefined): number {
+  const trials = value === undefined ? 1 : Number(value);
+  if (!(Number.isInteger(trials) && trials > 0)) {
+    throw new Error(`--trials must be a positive whole number, not ${value}`);
+  }
+  return trials;
+}
+
 async function evalCommand(values: {
   readonly live?: boolean;
   readonly mode?: string;
   readonly task?: string;
+  readonly trials?: string;
 }): Promise<boolean> {
   const mode = evalMode(values.mode);
   if (mode === 'live') {
@@ -82,17 +92,23 @@ async function evalCommand(values: {
   if (selected.length === 0) {
     throw new Error(`No task can run in ${mode} mode`);
   }
+  const trials = trialCount(values.trials);
   const batch = randomUUID();
   const results: EvalResult[] = [];
   for (const loaded of selected) {
-    process.stderr.write(`${loaded.task.id} (${mode})…\n`);
-    results.push(
-      await runEvalTask(loaded, {
-        batch,
-        ...(mode === 'live' ? { credential: liveCredential(loaded) } : {}),
-        mode,
-      })
-    );
+    for (let trial = 1; trial <= trials; trial += 1) {
+      process.stderr.write(
+        `${loaded.task.id} (${mode}${trials > 1 ? `, trial ${trial}/${trials}` : ''})…\n`
+      );
+      results.push(
+        await runEvalTask(loaded, {
+          batch,
+          ...(mode === 'live' ? { credential: liveCredential(loaded) } : {}),
+          mode,
+          trial,
+        })
+      );
+    }
   }
   const file = resultsFilePath(RESULTS_DIR, new Date(), mode);
   await appendEvalResults(file, results);
@@ -109,6 +125,7 @@ async function main(args: readonly string[]): Promise<boolean> {
       mode: { type: 'string' },
       model: { type: 'string' },
       task: { type: 'string' },
+      trials: { type: 'string' },
     },
     strict: true,
   });
@@ -123,7 +140,12 @@ async function main(args: readonly string[]): Promise<boolean> {
     return await evalCommand(values);
   }
   if (command === 'record') {
-    if (!(values.task && values.model) || values.mode !== undefined || values.live) {
+    if (
+      !(values.task && values.model) ||
+      values.mode !== undefined ||
+      values.live ||
+      values.trials !== undefined
+    ) {
       throw new Error('Usage: record --task <id> --model <provider::model>');
     }
     process.stdout.write(
@@ -132,7 +154,7 @@ async function main(args: readonly string[]): Promise<boolean> {
     return true;
   }
   throw new Error(
-    'Usage: eval [--task <id>] [--mode scripted|replay|live] [--live] | record --task <id> --model <id>'
+    'Usage: eval [--task <id>] [--mode scripted|replay|live] [--live] [--trials <n>] | record --task <id> --model <id>'
   );
 }
 
