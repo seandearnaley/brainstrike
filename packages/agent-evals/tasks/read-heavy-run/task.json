@@ -1,0 +1,21 @@
+{
+  "expect": {
+    "compactions": {
+      "atLeast": 2,
+      "kind": "agentic"
+    }
+  },
+  "id": "read-heavy-run",
+  "inputTokenLimit": 60000,
+  "model": "openai::gpt-6-luna",
+  "prompt": "Read chapters/chapter-01.md through chapters/chapter-13.md in full, in order, one file per step: make exactly one read call, wait for its result, then make the next. Do not read two files in the same step. One chapter has a line that starts with PASSWORD: — remember it. When you have read all 13, write only the password to answer.txt at the workspace root. Do not ask me anything. Use workspace-relative paths and do not pass a root.",
+  "timeoutMs": 300000,
+  "title": "Grow one run by reads past its budget, compacting mid-run, and answer from a fact only the summary still holds",
+  "verify": {
+    "command": [
+      "node",
+      "--test",
+      ".verify/answer.hidden.test.ts"
+    ]
+  }
+}

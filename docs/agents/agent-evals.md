@@ -125,6 +125,12 @@ cap, and stops itself.
   ```
 
   The inline name is the first one read, so it wins over any Anthropic key already in the shell.
+- `long-single-run` is a scripted task: live, the model asks a question an eval cannot answer, and
+  told not to, writes about 46,000 output tokens in three steps and times out before any
+  compaction. For a live compaction measurement use `read-heavy-run` (13 chapters read a page per
+  step at a 60,000 pin; scripted, two agentic compactions, the first replacing the chapter that
+  holds the answer): its 24-chapter draft cost $0.11 to $0.14 a passing trial on
+  `anthropic::claude-haiku-5-5`; the 13-chapter task is not yet measured live.
 
 ## Scoring and results
 
