@@ -303,6 +303,8 @@ export interface EvalAttempt {
   readonly hostError?: string;
   /** The first turn's run. */
   readonly run?: Pick<EvalRunSummary, 'verdict'> & { readonly metrics?: EvalRunMetrics };
+  /** Why a live run's spend cap started none of the thread's later turns. */
+  readonly spendCapped?: string;
   /** The whole thread, the first turn included: each turn's run and answer, and its compactions. */
   readonly thread?: Pick<EvalThreadSummary, 'answers' | 'compactions'> & {
     /** Every turn's metrics as one: what `expect.parallelCalls` is read from. */
@@ -346,6 +348,10 @@ export function scoreEvalAttempt(attempt: EvalAttempt): EvalScore {
         ? 'The run is unfinished: the log has no run.finished'
         : `The run ${verdict.outcome}${verdict.detail === undefined ? '' : `: ${verdict.detail}`}`
     );
+  }
+  // The cap is why the later turns never ran.
+  if (attempt.spendCapped !== undefined) {
+    return fail(attempt.spendCapped);
   }
   const turn = unfinishedFollowUp(attempt);
   if (turn !== undefined) {

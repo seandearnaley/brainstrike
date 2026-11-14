@@ -28,6 +28,14 @@ import {
   threadMetrics,
 } from './scoring.ts';
 import { type ScriptedEvalModel, scriptedModelId } from './scripted-platform.ts';
+import {
+  addThreadSpend,
+  type EvalSpendCap,
+  type MeasuredSpend,
+  measuredUsd,
+  NOTHING_SPENT,
+  spendCapCheck,
+} from './spend-cap.ts';
 import { type LoadedEvalTask, scriptTurns } from './task.ts';
 
 const require = createRequire(import.meta.url);
@@ -55,8 +63,26 @@ export interface EvalRunOptions {
     substitutions: readonly ProviderCassetteSubstitution[]
   ) => Promise<ProviderEgress | undefined>;
   readonly mode: EvalMode;
+  /** The `provider::model` a replay or live run uses; the task's own when absent. */
+  readonly model?: string;
+  /**
+   * A live run's hard cap and what its batch measured before this run: no turn
+   * after the first starts once the two reach it (`spend-cap.ts`).
+   */
+  readonly spendCap?: EvalSpendCap;
   /** Which run of the task this is within its batch, from 1; 1 when the task runs once. */
   readonly trial?: number;
+}
+
+/** The model a run's turns name: the script's own when scripted, else `options.model` or the task's. */
+function runModelId(loaded: LoadedEvalTask, options: EvalRunOptions): string {
+  if (options.mode === 'scripted') {
+    if (options.model !== undefined) {
+      throw new Error('A scripted run plays its script as its own model; it takes no other');
+    }
+    return scriptedModelId(loaded.task.id);
+  }
+  return options.model ?? loaded.task.model;
 }
 
 /** The env names the provider's key may be read from, in precedence order. */
@@ -165,9 +191,10 @@ function credentialEnv(loaded: LoadedEvalTask, options: EvalRunOptions): Record<
     case 'scripted':
       return {};
     case 'replay': {
-      const [name] = providerCredentialEnvNames(loaded.task.model);
+      const model = runModelId(loaded, options);
+      const [name] = providerCredentialEnvNames(model);
       if (!name) {
-        throw new Error(`${loaded.task.model} has no credential env name`);
+        throw new Error(`${model} has no credential env name`);
       }
       return { [name]: REPLAY_KEY };
     }
@@ -195,22 +222,49 @@ export async function runEvalTask(
 interface HostStage {
   readonly boundary?: EvalAttempt['boundary'];
   readonly failures: readonly string[];
+  readonly spendCapped?: string;
   /** Every turn that started, from the thread's committed log. */
   readonly thread?: EvalThreadSummary;
   readonly timedOut?: number;
 }
 
 /**
+ * Why the spend cap starts no `turn` (from 2) on this thread, if it does: what
+ * the batch measured before the thread plus the thread's own ledger so far.
+ */
+function turnSpendCapStop(
+  cap: EvalSpendCap | undefined,
+  turn: number,
+  thread: EvalThreadSummary | undefined
+): string | undefined {
+  if (!cap || turn === 1) {
+    return;
+  }
+  const checked = spendCapCheck(
+    cap.capUsd,
+    addThreadSpend({ usd: cap.spentUsd }, thread?.spend, 'this thread')
+  );
+  return 'stop' in checked
+    ? `The spend cap stopped the thread before turn ${turn}: ${checked.stop}`
+    : undefined;
+}
+
+/**
  * The task's turns on one thread, each after the one before completed. A turn
- * that errors, times out or does not complete ends the thread there.
+ * that errors, times out or does not complete ends the thread there, and under
+ * a spend cap no turn starts once the measured spend reaches it.
  */
 async function driveTurns(
   host: EvalHost,
   loaded: LoadedEvalTask,
-  mode: EvalMode
-): Promise<Pick<HostStage, 'failures' | 'thread' | 'timedOut'>> {
+  options: EvalRunOptions
+): Promise<
+  Pick<HostStage, 'failures' | 'spendCapped' | 'timedOut'> & {
+    readonly thread: EvalThreadSummary | undefined;
+  }
+> {
   const { task } = loaded;
-  const modelId = mode === 'scripted' ? scriptedModelId(task.id) : task.model;
+  const modelId = runModelId(loaded, options);
   const runIds: string[] = [];
   let threadId: string | undefined;
   let thread: EvalThreadSummary | undefined;
@@ -219,7 +273,11 @@ async function driveTurns(
       thread = readThreadFromLog(await host.rows(threadId), runIds);
     }
   };
-  for (const prompt of turnPrompts(loaded)) {
+  for (const [index, prompt] of turnPrompts(loaded).entries()) {
+    const spendCapped = turnSpendCapStop(options.spendCap, index + 1, thread);
+    if (spendCapped !== undefined) {
+      return { failures: [], spendCapped, thread };
+    }
     const driven = await driveEvalRun(host, {
       modelId,
       prompt,
@@ -232,16 +290,16 @@ async function driveTurns(
     }
     await read();
     if (driven.status === 'error') {
-      return { failures: [driven.error], ...(thread ? { thread } : {}) };
+      return { failures: [driven.error], thread };
     }
     if (driven.status === 'timed-out') {
-      return { failures: [], ...(thread ? { thread } : {}), timedOut: task.timeoutMs };
+      return { failures: [], thread, timedOut: task.timeoutMs };
     }
     if (thread?.runs.at(-1)?.verdict.outcome !== 'completed') {
       break;
     }
   }
-  return { failures: [], ...(thread ? { thread } : {}) };
+  return { failures: [], thread };
 }
 
 /** Egress, host, turns and their committed log; the host and the egress are always released. */
@@ -253,6 +311,7 @@ async function runOnHost(
   const failures: string[] = [];
   let egress: ProviderEgress | undefined;
   let host: EvalHost | undefined;
+  let spendCapped: string | undefined;
   let thread: EvalThreadSummary | undefined;
   let timedOut: number | undefined;
   try {
@@ -272,8 +331,9 @@ async function runOnHost(
       ...(platformModule ? { platformModule } : {}),
       workspace: sandbox.workspace,
     });
-    const driven = await driveTurns(host, loaded, options.mode);
+    const driven = await driveTurns(host, loaded, options);
     failures.push(...driven.failures);
+    spendCapped = driven.spendCapped;
     thread = driven.thread;
     timedOut = driven.timedOut;
   } catch (cause) {
@@ -293,6 +353,7 @@ async function runOnHost(
   return {
     ...(boundary ? { boundary } : {}),
     failures,
+    ...(spendCapped === undefined ? {} : { spendCapped }),
     ...(thread ? { thread } : {}),
     ...(timedOut === undefined ? {} : { timedOut }),
   };
@@ -360,6 +421,15 @@ export async function attemptEvalTask(
         modelId: thread?.runs[0]?.modelId ?? null,
         pass: score.pass,
         reason: score.pass ? null : score.reason,
+        spendCap: options.spendCap
+          ? {
+              capUsd: options.spendCap.capUsd,
+              cutShort: attempt.spendCapped !== undefined,
+              spentUsd: measuredUsd(
+                addThreadSpend({ usd: options.spendCap.spentUsd }, thread?.spend, loaded.task.id)
+              ),
+            }
+          : null,
         startedAt,
         task: loaded.task.id,
         thread: thread
@@ -406,10 +476,78 @@ export async function attemptEvalTask(
       ...(loaded.task.followUps ? { followUps: loaded.task.followUps } : {}),
       ...(failures.length > 0 ? { hostError: failures.join('; ') } : {}),
       ...(runs[0] ? { run: runs[0] } : {}),
+      ...(stage.spendCapped === undefined ? {} : { spendCapped: stage.spendCapped }),
       ...(stage.thread ? { thread: { ...stage.thread, ...threadWide(runs) } } : {}),
       ...(stage.timedOut === undefined ? {} : { timedOut: stage.timedOut }),
       ...(verified.verifier ? { verifier: verified.verifier } : {}),
     },
     stage.thread
   );
+}
+
+export interface EvalBatchOptions extends Omit<EvalRunOptions, 'spendCap' | 'trial'> {
+  /** A live run's hard cap in US dollars: no turn, trial or task starts once the measured spend reaches it. */
+  readonly spendCapUsd?: number;
+  /** How many times each task runs, each in a fresh sandbox. */
+  readonly trials: number;
+}
+
+/** A trial the spend cap never started: a failed line saying why. */
+function notRunResult(
+  loaded: LoadedEvalTask,
+  options: Pick<EvalRunOptions, 'batch' | 'mode'>,
+  trial: number,
+  cap: { readonly capUsd: number; readonly spent: MeasuredSpend; readonly stop: string }
+): EvalResult {
+  const at = new Date().toISOString();
+  return {
+    batch: options.batch,
+    finishedAt: at,
+    metrics: null,
+    mode: options.mode,
+    modelId: null,
+    pass: false,
+    reason: `Not run: the spend cap stopped the batch: ${cap.stop}`,
+    spendCap: { capUsd: cap.capUsd, cutShort: true, spentUsd: measuredUsd(cap.spent) },
+    startedAt: at,
+    task: loaded.task.id,
+    thread: null,
+    trial,
+    verdict: null,
+    verifierExitCode: null,
+  };
+}
+
+/**
+ * Each task `trials` times, in order. Under a spend cap the batch adds up each
+ * thread's measured spend and starts no trial or task once it reaches the cap
+ * (or is unknown); each one it did not start is a failed line saying so.
+ */
+export async function runEvalBatch(
+  tasks: readonly LoadedEvalTask[],
+  options: EvalBatchOptions
+): Promise<EvalResult[]> {
+  const { spendCapUsd, trials, ...run } = options;
+  const results: EvalResult[] = [];
+  let spent = NOTHING_SPENT;
+  for (const loaded of tasks) {
+    for (let trial = 1; trial <= trials; trial += 1) {
+      const cap = spendCapUsd === undefined ? undefined : spendCapCheck(spendCapUsd, spent);
+      if (cap && 'stop' in cap) {
+        results.push(notRunResult(loaded, run, trial, { ...cap, spent }));
+        continue;
+      }
+      process.stderr.write(
+        `${loaded.task.id} (${run.mode}${trials > 1 ? `, trial ${trial}/${trials}` : ''})…\n`
+      );
+      const result = await runEvalTask(loaded, {
+        ...run,
+        ...(cap ? { spendCap: cap } : {}),
+        trial,
+      });
+      results.push(result);
+      spent = addThreadSpend(spent, result.thread?.spend, `${loaded.task.id} trial ${trial}`);
+    }
+  }
+  return results;
 }
