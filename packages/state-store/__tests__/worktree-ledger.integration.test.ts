@@ -6,6 +6,8 @@ afterEach(cleanupDirs);
 const row = {
   archivedAt: null,
   archiveSnapshotRef: null,
+  // The commit it was made at, recorded with it and kept through every change (BST-2518).
+  baseCommit: 'b'.repeat(40),
   baseRef: 'a'.repeat(40),
   branch: 'feature',
   createdAt: '2026-10-13T00:00:00.000Z',

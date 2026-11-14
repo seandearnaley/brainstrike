@@ -4,9 +4,14 @@
  *
  * It has merged only when all of these hold:
  * - the worktree is on a branch (not detached) and has no uncommitted changes;
+ * - the branch has moved since the worktree was made: its tip is not the commit
+ *   the ledger recorded at creation (BST-2518). A worktree never committed to
+ *   adds nothing, whatever the default branch took, and is the idle cap's;
  * - the branch has commits of its own: its tip is not on the default branch's
  *   first-parent history. A branch only moved along that history has none, and
- *   neither has one merged by a fast-forward, which the idle cap is left to;
+ *   neither has one merged by a fast-forward, which the idle cap is left to. A
+ *   branch whose history meets that history nowhere (merged in as unrelated
+ *   history) is not merged either;
  * - the branch adds nothing the default branch lacks: `git merge-tree
  *   --write-tree <default> <branch>` merges cleanly and writes the default
  *   branch's own tree. That holds for a squash merge as well as an ordinary one.
@@ -17,6 +22,10 @@
  * Nor does a repository whose own config names a merge driver: a content merge
  * would run that command, which the host never runs for a folder (BST-2454),
  * and a driver can also make the merge come out as the default branch's tree.
+ * Nor does a partial clone (BST-2518): a blob the merge needs may be missing,
+ * and git would fetch it from the promisor remote on demand. Git can be told
+ * not to (`--no-lazy-fetch`, `GIT_NO_LAZY_FETCH`) only from 2.45, and without
+ * the blob the merge cannot be told anyway.
  */
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { resolveDefaultBaseRef } from './default-branch.ts';
@@ -33,9 +42,12 @@ const PERSON_SCOPES = new Set(['global', 'system']);
 /** Why a worktree's branch does not count as merged. */
 export type WorktreeNotMergedReason =
   | 'adds-to-default'
+  | 'base-commit-unrecorded'
   | 'detached'
   | 'no-commits-of-its-own'
-  | 'uncommitted-changes';
+  | 'uncommitted-changes'
+  | 'unmoved'
+  | 'unrelated-history';
 
 export type WorktreeMergedVerdict =
   | { readonly branch: string; readonly merged: true }
@@ -53,8 +65,20 @@ function lines(output: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-/** Refused when git is older than 2.38 or the repository's own config names a merge driver. */
+/**
+ * Refused when git is older than 2.38, the repository's own config names a merge driver, or the
+ * repository is a partial clone.
+ */
 async function checkMergeTreeRuns(repository: GitInvoke): Promise<BoundaryResult<null>> {
+  const version = await checkGitVersion(repository);
+  if (!version.ok) {
+    return version;
+  }
+  const driver = await checkNoRepositoryDriver(repository);
+  return driver.ok ? await checkNotPartialClone(repository) : driver;
+}
+
+async function checkGitVersion(repository: GitInvoke): Promise<BoundaryResult<null>> {
   const versionRun = await repository(['--version']);
   if (versionRun.exitCode !== 0) {
     return gitCommandFailed(versionRun);
@@ -71,6 +95,11 @@ async function checkMergeTreeRuns(repository: GitInvoke): Promise<BoundaryResult
       `Git 2.38 or newer is needed to tell whether a worktree's branch has merged; found ${version.join('.')}`
     );
   }
+  return { ok: true, value: null };
+}
+
+/** Refused when the repository's own config names a merge driver; the person's own may. */
+async function checkNoRepositoryDriver(repository: GitInvoke): Promise<BoundaryResult<null>> {
   const driverRun = await repository([
     'config',
     '--null',
@@ -95,6 +124,33 @@ async function checkMergeTreeRuns(repository: GitInvoke): Promise<BoundaryResult
         "This repository's own git config names a merge driver, which the host does not run to tell whether a branch has merged."
       );
     }
+  }
+  return { ok: true, value: null };
+}
+
+/** Refused when the repository has a promisor remote: it is a partial clone. */
+async function checkNotPartialClone(repository: GitInvoke): Promise<BoundaryResult<null>> {
+  const partialRun = await repository(['config', '--get', 'extensions.partialClone']);
+  const promisorRun = await repository([
+    'config',
+    '--type=bool',
+    '--get-regexp',
+    String.raw`^remote\..*\.promisor$`,
+  ]);
+  for (const run of [partialRun, promisorRun]) {
+    // Exit 1 with no output: the key is set nowhere.
+    if (run.exitCode !== 0 && !(run.exitCode === 1 && run.stdout.length === 0)) {
+      return gitCommandFailed(run);
+    }
+  }
+  // `key true` or `key false` per remote.
+  const promisor = lines(promisorRun.stdout).some((line) => line.endsWith(' true'));
+  if (partialRun.exitCode === 0 || promisor) {
+    return gitRefused(
+      'configuration',
+      'worktree.partial-clone',
+      'This repository is a partial clone: telling whether a branch has merged could fetch from its remote, which the host never does.'
+    );
   }
   return { ok: true, value: null };
 }
@@ -130,19 +186,39 @@ async function readBranchRef(worktree: GitInvoke): Promise<BoundaryResult<string
   return { ok: true, value: ref.startsWith('refs/heads/') ? ref : null };
 }
 
+/** The commit `ref` names; null when it names none. */
+async function readCommit(
+  repository: GitInvoke,
+  ref: string
+): Promise<BoundaryResult<string | null>> {
+  const commitRun = await repository(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+  // Exit 1 with no output: no such commit.
+  if (commitRun.exitCode === 1 && commitRun.stdout.length === 0) {
+    return { ok: true, value: null };
+  }
+  if (commitRun.exitCode !== 0) {
+    return gitCommandFailed(commitRun);
+  }
+  const commit = lines(commitRun.stdout)[0];
+  return commit === undefined
+    ? gitUnexpected('git named no commit for a ref it verified')
+    : { ok: true, value: commit };
+}
+
 /**
  * Whether the branch has commits of its own: its tip is not on the default branch's first-parent
  * history. A branch only moved along that history (fast-forwarded to it, rebased onto it with
  * nothing left of its own, or reset to an older commit of it) has none. A squash-merged branch's
  * tip is not an ancestor of the default branch, and a merged branch's tip is a merge's second
- * parent, so both have commits of their own.
+ * parent, so both have commits of their own. A tip merged in as a second parent whose history
+ * the first-parent history never meets is `'unrelated'`.
  */
 async function hasCommitsOfItsOwn(
   repository: GitInvoke,
   defaultRef: string,
-  branchRef: string
-): Promise<BoundaryResult<boolean>> {
-  const ancestorRun = await repository(['merge-base', '--is-ancestor', branchRef, defaultRef]);
+  tip: string
+): Promise<BoundaryResult<boolean | 'unrelated'>> {
+  const ancestorRun = await repository(['merge-base', '--is-ancestor', tip, defaultRef]);
   if (ancestorRun.exitCode === 1) {
     return { ok: true, value: true };
   }
@@ -155,7 +231,7 @@ async function hasCommitsOfItsOwn(
     'rev-list',
     '--first-parent',
     '--count',
-    `${branchRef}..${defaultRef}`,
+    `${tip}..${defaultRef}`,
   ]);
   if (depthRun.exitCode !== 0) {
     return gitCommandFailed(depthRun);
@@ -164,25 +240,21 @@ async function hasCommitsOfItsOwn(
   if (!/^\d+$/u.test(depth)) {
     return gitUnexpected('git returned an unrecognized commit count');
   }
-  const commitsRun = await repository([
-    'rev-parse',
-    `${defaultRef}~${depth}^{commit}`,
-    `${branchRef}^{commit}`,
-  ]);
-  if (commitsRun.exitCode !== 0) {
-    return gitCommandFailed(commitsRun);
+  // Past the first-parent root: the walk met none of the tip's history.
+  const onHistory = await readCommit(repository, `${defaultRef}~${depth}`);
+  if (!onHistory.ok) {
+    return onHistory;
   }
-  const [onHistory, tip] = lines(commitsRun.stdout);
-  return { ok: true, value: onHistory !== tip };
+  return { ok: true, value: onHistory.value === null ? 'unrelated' : onHistory.value !== tip };
 }
 
 /** Whether merging the branch into the default branch writes the default branch's own tree. */
 async function addsNothing(
   repository: GitInvoke,
   defaultRef: string,
-  branchRef: string
+  tip: string
 ): Promise<BoundaryResult<boolean>> {
-  const mergeRun = await repository(['merge-tree', '--write-tree', defaultRef, branchRef]);
+  const mergeRun = await repository(['merge-tree', '--write-tree', defaultRef, tip]);
   // Exit 1: the merge conflicts, so the branch changes what the default branch has.
   if (mergeRun.exitCode === 1) {
     return { ok: true, value: false };
@@ -199,17 +271,23 @@ async function addsNothing(
 }
 
 /**
- * Whether the worktree's branch counts as merged into `target`: it has commits of its own and
- * adds nothing `target` lacks. `repository` is git in the
- * repository's common dir; `worktree` is git in the worktree's folder.
+ * Whether the worktree's branch counts as merged into `target`: it has moved from `baseCommit`,
+ * the commit the ledger recorded as the worktree's at its creation, has commits of its own and
+ * adds nothing `target` lacks. A row with no recorded commit (one from before state DB version 19)
+ * is never merged. `repository` is git in the repository's common dir; `worktree` is git in the
+ * worktree's folder.
  */
 export async function readWorktreeMerged(input: {
+  readonly baseCommit: string | null;
   readonly repository: GitInvoke;
   readonly target: MergeTarget;
   readonly worktree: GitInvoke;
 }): Promise<BoundaryResult<WorktreeMergedVerdict>> {
   const notMerged = (reason: WorktreeNotMergedReason) =>
     ({ ok: true, value: { merged: false, reason } }) as const;
+  if (input.baseCommit === null) {
+    return notMerged('base-commit-unrecorded');
+  }
   const branchRef = await readBranchRef(input.worktree);
   if (!branchRef.ok) {
     return branchRef;
@@ -217,10 +295,24 @@ export async function readWorktreeMerged(input: {
   if (branchRef.value === null) {
     return notMerged('detached');
   }
+  const tip = await readCommit(input.repository, branchRef.value);
+  if (!tip.ok) {
+    return tip;
+  }
+  // An unborn branch (`checkout --orphan`) has no commit yet, so none of its own.
+  if (tip.value === null) {
+    return notMerged('no-commits-of-its-own');
+  }
+  if (tip.value === input.baseCommit) {
+    return notMerged('unmoved');
+  }
   const defaultRef = `refs/remotes/${input.target.defaultBranch}`;
-  const own = await hasCommitsOfItsOwn(input.repository, defaultRef, branchRef.value);
+  const own = await hasCommitsOfItsOwn(input.repository, defaultRef, tip.value);
   if (!own.ok) {
     return own;
+  }
+  if (own.value === 'unrelated') {
+    return notMerged('unrelated-history');
   }
   if (!own.value) {
     return notMerged('no-commits-of-its-own');
@@ -237,7 +329,7 @@ export async function readWorktreeMerged(input: {
   if (statusRun.stdout.length > 0) {
     return notMerged('uncommitted-changes');
   }
-  const adds = await addsNothing(input.repository, defaultRef, branchRef.value);
+  const adds = await addsNothing(input.repository, defaultRef, tip.value);
   if (!adds.ok) {
     return adds;
   }

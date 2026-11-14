@@ -61,6 +61,7 @@ import {
   inspectWorktreeArchivePreviewForPath,
   worktreePathExists,
 } from './worktree-archive-preview.ts';
+import { readCreatedAtCommit } from './worktree-base-commit.ts';
 import { archiveIdleWorktree } from './worktree-idle-archive.ts';
 import { createWorktreeLedger } from './worktree-ledger.ts';
 import { WorktreeOperationLifetime } from './worktree-operation-lifetime.ts';
@@ -203,6 +204,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
       return await ledger.insert({
         archivedAt: null,
         archiveSnapshotRef: null,
+        baseCommit: await readCreatedAtCommit(invokeIn(target)),
         baseRef: params.baseRef,
         branch: branchName,
         createdAt: new Date().toISOString(),

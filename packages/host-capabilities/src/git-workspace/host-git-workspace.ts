@@ -93,6 +93,8 @@ export interface WorktreeWorkspace {
   listRepositoryWorktrees(repoCommonDir: string): Promise<readonly ManagedWorktreeRow[]>;
   readonly loadRoots: () => Promise<{ id: string; path: string }[]>;
   readonly readSettings: () => ReturnType<typeof readWorktreeSettings>;
+  /** The commit the ledger recorded as a managed worktree's at its creation (BST-2518). */
+  readWorktreeBaseCommit(worktreeId: string): Promise<string | null>;
   /**
    * Git as the host runs it in the person's folders: a repository's own filter
    * commands stay off until its folder is trusted (BST-2454).
@@ -192,6 +194,7 @@ export function createWorktreeWorkspace(options: WorktreeWorkspaceOptions): Work
     listRepositoryWorktrees: (repoCommonDir) => ledger.listForRepository(repoCommonDir),
     loadRoots,
     readSettings,
+    readWorktreeBaseCommit: (worktreeId) => ledger.baseCommit(worktreeId),
     run,
     threadReads,
     tools: { resolveWorktreeService: () => worktrees },
@@ -265,7 +268,8 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
     listRepository: (repoCommonDir) => workspace.listRepositoryWorktrees(repoCommonDir),
     publish: (archive) => {
       if (archiveListeners.size === 0) {
-        logger.error('Idle worktrees were archived with no thread listening to be told', {
+        logger.error('Worktrees were archived with no thread listening to be told', {
+          reason: archive.reason,
           threadId: archive.threadId,
           worktreeIds: archive.worktrees.map(({ worktreeId }) => worktreeId),
         });
@@ -274,6 +278,7 @@ export function createGitWorkspace(options: GitWorkspaceOptions): GitWorkspace {
         listener(archive);
       }
     },
+    readBaseCommit: (worktreeId) => workspace.readWorktreeBaseCommit(worktreeId),
     readRoots: async () => (await store.workspaceRoots({ operation: 'list' })).roots,
     readThreads: async () =>
       (await workspace.threadReads().listThreads()).map(({ binding, latestRun, threadId }) => ({

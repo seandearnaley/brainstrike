@@ -7,8 +7,13 @@ import type { StateStore, WorktreeLedgerPort } from '@brainstrike/state-store';
 import { execFileGitRunner } from '../../src/git-workspace/git-methods.ts';
 import { createWorktreeService } from '../../src/git-workspace/worktree-service.ts';
 
-export function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' });
+/** Git in `cwd`; `input`, when given, is its stdin. */
+export function git(cwd: string, args: string[], input?: string): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    ...(input === undefined ? {} : { input }),
+  });
 }
 
 export function createTestWorkspace() {
