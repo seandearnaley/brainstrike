@@ -66,6 +66,25 @@ test('v12 MCP config writes require the base revision and return the new one', (
   }
 });
 
+test('v30 worktree archives name their reason, and a merged one its default branch', () => {
+  const decode = Schema.decodeUnknownSync(HostEventSchema, { onExcessProperty: 'error' });
+  const worktree = {
+    branch: 'bs/swift-badger',
+    name: 'swift-badger',
+    snapshotRef: 'refs/brainstrike/worktree-archive/wt-1',
+    worktreeId: 'wt-1',
+  };
+  const archived = { runId: 'run-1', type: 'worktrees.archived', worktrees: [worktree] };
+  const idle = { ...archived, limit: 15, reason: 'idle-cap' };
+  const merged = { ...archived, defaultBranch: 'origin/main', reason: 'merged' };
+  expect(decode(idle)).toEqual(idle);
+  expect(decode(merged)).toEqual(merged);
+  // A v29 archive named no reason.
+  expect(() => decode({ ...archived, limit: 15 })).toThrow();
+  expect(() => decode({ ...archived, reason: 'merged' })).toThrow();
+  expect(() => decode({ ...merged, worktrees: [{ ...worktree, branch: null }] })).toThrow();
+});
+
 test('the owned MCP settlement decoder keeps its original refusal', () => {
   expect(() => parseHostParams('mcp/elicitation/settle', {})).toThrow(
     'Invalid MCP elicitation settlement:'
