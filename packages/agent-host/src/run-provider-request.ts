@@ -7,6 +7,7 @@ import {
   createProviderRequestMiddleware,
   type ProviderRequestAccounting,
   type ProviderRequestContext,
+  ProviderRequestContextOverflowError,
   preparedPromptBreakdown,
   preparedPromptToolCalls,
 } from '@brainstrike/agent/provider-request';
@@ -19,6 +20,7 @@ import {
 } from '@brainstrike/assistant-contract/context-breakdown';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { type LanguageModel, type LanguageModelMiddleware, wrapLanguageModel } from 'ai';
+import type { HostCompactedContext } from './context-compaction.ts';
 import type { HostProjectionRewrite } from './ports.ts';
 import type { HostEvent } from './protocol.ts';
 
@@ -41,11 +43,13 @@ export class HostProviderRequest {
   private history: readonly MastraDBMessage[] | undefined;
   /** Committed tool-output rewrites as of the step's history read. */
   private rewrites: ReadonlyMap<string, HostProjectionRewrite> = new Map();
+  /** Whether the step's context opens with the branch's note, which a trim keeps. */
+  private leadingNote = false;
   /**
    * How the step's context names what a trim left out (`HostCompactedContext.trim`);
    * the step's first trimmed request takes it.
    */
-  private trim: ((kept: number) => Promise<Compacted | undefined>) | undefined;
+  private trim: HostCompactedContext['trim'] | undefined;
   /** The tool calls this run's previous provider request carried; none before its first. */
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
 
@@ -64,11 +68,12 @@ export class HostProviderRequest {
   prepare(
     history: readonly MastraDBMessage[],
     rewrites: ReadonlyMap<string, HostProjectionRewrite>,
-    trim: (kept: number) => Promise<Compacted | undefined>
+    step: Pick<HostCompactedContext, 'leadingNote' | 'trim'>
   ): void {
     this.history = history;
     this.rewrites = rewrites;
-    this.trim = trim;
+    this.leadingNote = step.leadingNote;
+    this.trim = step.trim;
   }
 
   /** Enclose the selected concrete model at its final public provider boundary. */
@@ -77,13 +82,13 @@ export class HostProviderRequest {
       throw new Error('Host provider preparation requires the selected concrete model');
     }
     const { selected } = this;
-    const middleware = createProviderRequestMiddleware({
+    return enclose(model, {
       context: async () => {
-        const { history } = this;
+        const { history, leadingNote } = this;
         if (history === undefined) {
           throw new Error('Provider request requires its prepared history');
         }
-        return { ...selected, history, rewrites: this.rewrites };
+        return { ...selected, history, leadingNote, rewrites: this.rewrites };
       },
       onPrepared: async (prepared) => {
         const toolCalls = preparedPromptToolCalls(prepared);
@@ -94,9 +99,11 @@ export class HostProviderRequest {
         if (name) {
           this.trim = undefined;
         }
-        // A trimmed request starts at a user message: it kept that one and every later one.
+        // A trimmed request starts at a user message: it kept that one and every
+        // later one, after the note it always keeps.
         const trim = await name?.(
-          prepared.params.prompt.filter(({ role }) => role === 'user').length
+          prepared.params.prompt.filter(({ role }) => role === 'user').length -
+            (this.leadingNote ? 1 : 0)
         );
         await this.record({
           accounting: prepared.accounting,
@@ -113,16 +120,51 @@ export class HostProviderRequest {
         );
       },
     });
-    return wrapLanguageModel({
-      // Both pins implement the public V4 primitive. The older provider's
-      // declaration omits readonly JSON, while the installed SDK permits it.
-      // Keep this DTO type bridge here; adding ai 7 to the legacy agent package
-      // would change its separate Mastra/ai 6 peer closure. Joined tests compare
-      // the prepared public params to the actual SDK model call without copies.
-      // https://github.com/vercel/ai/tree/main/packages/provider
-      // Remove this type bridge when both existing declaration pins agree.
-      middleware: middleware as unknown as LanguageModelMiddleware,
-      model,
-    });
   }
+}
+
+/** A concrete model inside the provider request middleware over `context`. */
+function enclose(
+  model: LanguageModel,
+  options: Parameters<typeof createProviderRequestMiddleware>[0]
+): LanguageModel {
+  if (typeof model === 'string') {
+    throw new Error('Host provider preparation requires the selected concrete model');
+  }
+  return wrapLanguageModel({
+    // Both pins implement the public V4 primitive. The older provider's
+    // declaration omits readonly JSON, while the installed SDK permits it.
+    // Keep this DTO type bridge here; adding ai 7 to the legacy agent package
+    // would change its separate Mastra/ai 6 peer closure. Joined tests compare
+    // the prepared public params to the actual SDK model call without copies.
+    // https://github.com/vercel/ai/tree/main/packages/provider
+    // Remove this type bridge when both existing declaration pins agree.
+    middleware: createProviderRequestMiddleware(options) as unknown as LanguageModelMiddleware,
+    model,
+  });
+}
+
+/**
+ * BST-2532: the run's provider request boundary around a side call that sends
+ * the run's own next request, a compaction's summary: the same filtering,
+ * rewrites and measurement, over the branch's committed history as that
+ * request reads it. Over the run's input limit it refuses rather than trim:
+ * a summary of only the newest part would let the compaction drop the rest
+ * unsummarized. It commits no `provider.request.prepared`, since the call is
+ * not one of the run's requests; its receipt is the compaction's own `usage`.
+ */
+export function hostSideRequestBoundary(
+  selected: ProviderRequestContext,
+  history: readonly MastraDBMessage[],
+  rewrites: ReadonlyMap<string, HostProjectionRewrite>
+): (model: LanguageModel) => LanguageModel {
+  return (model) =>
+    enclose(model, {
+      context: () => ({ ...selected, history, rewrites }),
+      onPrepared: ({ accounting }) => {
+        if (accounting.removedMessages > 0 && selected.inputTokenLimit !== undefined) {
+          throw new ProviderRequestContextOverflowError(accounting, selected.inputTokenLimit);
+        }
+      },
+    });
 }

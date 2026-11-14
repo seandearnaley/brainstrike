@@ -1,32 +1,142 @@
 /**
  * A run's request context over its committed branch: healed interrupted
  * history, tool-output rewrites and the compaction overlay, in the legacy
- * order, and the compactions a context overflow or the trigger commits.
+ * order, and the compactions a context overflow or the trigger commits; and
+ * the one builder of a step's request, which a compaction's summary call
+ * shares (BST-2532).
  */
 import { resolveProviderError } from '@brainstrike/agent/provider-runtime';
-import type { ModelMessage } from 'ai';
+import type { LanguageModel, ModelMessage } from 'ai';
 import { hostCompactionLedger } from './compaction-ledger.ts';
+import { summarizeOnRunRequest } from './compaction-summary-call.ts';
 import {
   type HostCompactedContext,
   type HostCompactionLedgerReader,
+  type HostContextSummarizer,
   overflowCompaction,
   prepareCompactedContext,
-  summarizeHostContext,
 } from './context-compaction.ts';
+import { hostContextNotes } from './context-notes.ts';
 import type { HostRequestExtras } from './context-size.ts';
 import type { HostRunExecutionPorts } from './core-run-execution.ts';
 import type { HostRunState as Run } from './core-state.ts';
 import { healInterruptedRunHistory } from './interrupted-history.ts';
-import type { HostRunAdmission } from './ports.ts';
-import { applyProjectionRewrites, prepareProjectionRewrites } from './projection-rewrites.ts';
+import type { HostPreparedModelRequest, HostRunAdmission } from './ports.ts';
+import {
+  applyProjectionRewrites,
+  committedRewrites,
+  prepareProjectionRewrites,
+} from './projection-rewrites.ts';
 import type { HostEvent } from './protocol.ts';
-import { combineHostSystemContext, hostStepActiveTools } from './run-admission.ts';
+import {
+  combineHostSystemContext,
+  createAdmittedHostSdkTools,
+  hostRunTools,
+  hostStepActiveTools,
+  prepareHostProviderStep,
+} from './run-admission.ts';
 import { hostRunAncestors, hostRunContext } from './run-branch.ts';
+import { hostProviderHistory } from './run-history.ts';
+import { hostSideRequestBoundary } from './run-provider-request.ts';
 
 type Ports = Pick<
   HostRunExecutionPorts,
-  'append' | 'compactions' | 'foldRows' | 'platform' | 'readCommittedRows' | 'rewrites' | 'runs'
+  | 'append'
+  | 'compactions'
+  | 'foldRows'
+  | 'platform'
+  | 'readCommittedRows'
+  | 'records'
+  | 'rewrites'
+  | 'runs'
 >;
+
+/** Encloses the step's model in the run's provider request boundary, when the run has one. */
+type HostRequestBoundary = ((model: LanguageModel) => LanguageModel) | undefined;
+
+/** A step's request beside its tools; without a provider port the step keeps the run's model. */
+export type HostStepPrepared = Omit<HostPreparedModelRequest, 'model'> & {
+  readonly model?: LanguageModel;
+};
+
+/**
+ * A step's request beside its tools, as the step sends it: the provider's
+ * preparation of `messages`, the run's instructions with the per-step notes
+ * and a hook's context, the model inside the run's request boundary, and the
+ * tools the step offers. A run's steps and its compaction's summary call are
+ * both built here, so the summary call sends the run's own prefix.
+ */
+export async function hostStepRequest(
+  ports: Ports,
+  run: Run,
+  admission: HostRunAdmission,
+  messages: ModelMessage[],
+  boundary: HostRequestBoundary
+): Promise<HostStepPrepared> {
+  // Per-step notes from committed thread state (the legacy task-list note).
+  const notes = hostContextNotes(hostRunTools(run), ports.records.stateView(run.threadId));
+  const activeTools = await hostStepActiveTools(run, ports.platform);
+  // An approved call that entered a worktree resumes with a model step:
+  // it may answer, never act, in the run's old workspace (ADR-0028).
+  const gated = run.enteredWorktree
+    ? { activeTools: [], toolChoice: 'none' as const }
+    : activeTools
+      ? { activeTools }
+      : {};
+  if (!admission.provider) {
+    return {
+      messages,
+      // A UserPromptSubmit hook's context joins the run's instructions.
+      ...combineHostSystemContext(notes, run.promptContext),
+      ...gated,
+    };
+  }
+  const provider = await admission.provider.prepare({
+    configuration: admission.configuration,
+    messages,
+    modelId: run.modelId,
+    signal: run.controller.signal,
+    // BST-1932: a child reserves its last step for a tool-free summary.
+    stepNumber: run.steps,
+  });
+  return { ...prepareHostProviderStep(provider, notes, boundary, run.promptContext), ...gated };
+}
+
+/**
+ * BST-2532: the compaction's summary, asked on the run's next request. The
+ * request is built as the run's step builds it, over the branch's committed
+ * history, and goes through the same provider request boundary, so it opens
+ * with the prefix the run's last request cached.
+ */
+function summarizeRunContext(
+  ports: Ports,
+  run: Run,
+  admission: HostRunAdmission,
+  model: LanguageModel
+): HostContextSummarizer {
+  return async (context) => {
+    const rows = ports.readCommittedRows(run);
+    const boundary = admission.providerRequest
+      ? hostSideRequestBoundary(
+          admission.providerRequest,
+          hostProviderHistory(rows, { runId: run.id, threadId: run.threadId }),
+          committedRewrites(rows)
+        )
+      : undefined;
+    const step = await hostStepRequest(ports, run, admission, [...context], boundary);
+    return await summarizeOnRunRequest(
+      {
+        ...step,
+        model: step.model ?? boundary?.(model) ?? model,
+        tools: createAdmittedHostSdkTools(run, async () => {
+          throw new Error('A compaction summary call never runs a tool');
+        }),
+      },
+      run,
+      run.controller.signal
+    );
+  };
+}
 
 async function commitContextEvent(ports: Ports, run: Run, event: HostEvent): Promise<void> {
   await ports.append(run.threadId, [event], 'full', (rows) => ports.foldRows(rows));
@@ -140,13 +250,15 @@ export async function recoverHostContextOverflow(ports: Ports, run: Run): Promis
  * A step's request context, from the run's committed branch (BST-2531): heal
  * interrupted history, apply committed tool-output rewrites (and the policy's
  * new ones), then the compaction overlay (and a new compaction past the
- * trigger), in the legacy order.
+ * trigger, summarized on the run's next request), in the legacy order.
+ * `model` is the run's own, which a step without a provider port sends to.
  */
 export async function prepareRunContext(
   ports: Ports,
   run: Run,
   ancestors: readonly Run[],
-  admission: HostRunAdmission
+  admission: HostRunAdmission,
+  model: LanguageModel
 ): Promise<HostCompactedContext> {
   const messages = hostRunContext(ports.runs, run);
   const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
@@ -165,7 +277,7 @@ export async function prepareRunContext(
     // Read after `rewriteRunContext`, which may have committed this request's own.
     rewrites: ports.rewrites.read(run.threadId),
     signal: run.controller.signal,
-    summarize: (input) => summarizeHostContext(admission.model, run, input, run.controller.signal),
+    summarize: summarizeRunContext(ports, run, admission, model),
     unrewritten: healed,
   });
 }

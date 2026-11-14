@@ -44,8 +44,11 @@ The host decides when a thread compacts; a task only has to get there.
   a provider-backed one would.
 - The newest turns, and the newest steps of a run, up to 20,000 estimated tokens are never
   compacted, so a thread needs more than that before anything is droppable. With the fixed 6,000,
-  a pin much below 30,000 leaves nothing to drop when the trigger fires. `recall-after-compaction`
-  (eight turns, two of them probes) pins 30,000.
+  a pin of 30,000 leaves too little to drop when the trigger fires, so the request is trimmed
+  instead and every compaction is a deterministic `request-trim`. `recall-after-compaction` (eight
+  turns, two of them probes, five writes of about 12,700 tokens) pins 60,000: its request reaches
+  about 57,000 at the fourth write, above the 54,000 trigger and below the limit with the summary
+  instruction, and one agentic summary replaces the first three turns. No request is trimmed.
 - A compaction runs only when what it drops reaches the target or holds one protect window. Under a
   small pin the protected 20,000 and the fixed 6,000 sit near the trigger, so a single run needs
   room above them: `long-single-run` (one turn of 36 writes of about 5,000 tokens) pins 60,000 and
@@ -138,7 +141,9 @@ the reason:
 7. unmet `expect`
    - `parallelCalls: { toolId, atLeast }` requires that many calls of the tool in
      one step, in any turn
-   - `compactions: { atLeast }` requires that many committed compactions on the thread
+   - `compactions: { atLeast, kind? }` requires that many committed compactions on the thread;
+     `kind` holds every one to `agentic` or `deterministic`, so a task meant to measure a summary
+     fails when its thread is trimmed or its summary fails
 8. a probe whose answer leaves out a fact
 
 - Metrics come from the committed log, never CLI output: steps, tool calls by name,

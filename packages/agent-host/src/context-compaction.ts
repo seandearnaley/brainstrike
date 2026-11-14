@@ -1,16 +1,12 @@
 import {
-  COMPACTION_SUMMARIZER_INSTRUCTIONS,
-  hasCompactionSummarySchema,
-} from '@brainstrike/agent/provider-runtime';
-import {
   type BoundaryFailure,
   BoundaryFailureError,
   deriveContextCompactionThreshold,
-  fault,
   INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { generateText, type LanguageModel, type ModelMessage } from 'ai';
+import type { ModelMessage } from 'ai';
+import { hostNotice, quoted } from './child-delivery.ts';
 import type { HostCompactionLedger } from './compaction-ledger.ts';
 import {
   applyOverlay,
@@ -25,6 +21,7 @@ import {
   type Turn,
   trimmedSegments,
 } from './compaction-segments.ts';
+import { type HostContextSummary, HostContextSummaryRefusal } from './compaction-summary-call.ts';
 import {
   estimateTokens,
   type HostContextRewrites,
@@ -33,9 +30,8 @@ import {
 } from './context-size.ts';
 import type { HostRunState } from './core-state.ts';
 import { correlatedFailure } from './failure-correlation.ts';
-import { type Json, jsonValue } from './json-value.ts';
 import type { HostEvent, HostLogRow } from './protocol.ts';
-import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.ts';
+import { hostIntakeMessage } from './turn-input.ts';
 
 export type { HostCompactionCuts } from './compaction-segments.ts';
 
@@ -87,12 +83,15 @@ function listed(header: string, entries: readonly string[]): string[] {
     : ['', `${header}:`, ...entries.map((entry) => `- ${entry.replaceAll('\n', '\n  ')}`)];
 }
 
-/** The overlay note: the branch's one current summary, then what the host wrote from the log. */
-function compactionNote(event: Compacted | undefined): string | undefined {
-  if (!event) {
-    return;
-  }
-  return [
+/**
+ * The overlay note (BST-2532): the branch's one current summary, then what the
+ * host wrote from the log, as the history's leading message. It is the host's
+ * notice, never the person's words, and it stays out of the system text, so a
+ * compaction leaves the run's cached instructions and tool definitions as
+ * they were.
+ */
+function compactionNoteMessage(event: Compacted): ModelMessage {
+  const note = [
     '[Earlier conversation compacted]',
     event.summary,
     ...listed(
@@ -104,6 +103,17 @@ function compactionNote(event: Compacted | undefined): string | undefined {
     ...listed('Tools loaded', event.toolsLoaded),
     ...listed('Earlier requests', event.earlierRequests),
   ].join('\n');
+  return hostIntakeMessage(
+    hostNotice(
+      'Brainstrike wrote this notice, not the user. The earlier part of this conversation was compacted into it; the messages after it continue from there.',
+      [quoted(note)]
+    )
+  );
+}
+
+/** The branch's context as its requests carry it: the current summary's note, then its turns. */
+function withNote(current: Compacted | undefined, messages: ModelMessage[]): ModelMessage[] {
+  return current ? [compactionNoteMessage(current), ...messages] : messages;
 }
 
 /** Core-owned fold of committed compactions per thread; the run log is the only record. */
@@ -126,110 +136,6 @@ export class HostContextCompactions {
   read(threadId: string): readonly Compacted[] {
     return this.threads.get(threadId) ?? [];
   }
-}
-
-/**
- * The summarizer side call's usage receipt, in `model.usage`'s shape: the
- * model it ran on and the SDK usage exactly as reported.
- */
-export interface HostContextSummaryUsage {
-  readonly modelId: string;
-  readonly usage: Json;
-}
-
-export interface HostContextSummary extends HostContextSummaryUsage {
-  readonly text: string;
-}
-
-/** The summarizer answered, but not in the required six-section shape. */
-export class HostContextSummarySchemaError extends BoundaryFailureError {
-  readonly receipt: HostContextSummaryUsage;
-
-  constructor(receipt: HostContextSummaryUsage) {
-    super(
-      fault({
-        category: 'availability',
-        code: 'compaction.summary-invalid',
-        message: 'Compaction summarizer response violated the required six-section schema.',
-      })
-    );
-    this.name = 'HostContextSummarySchemaError';
-    this.receipt = receipt;
-  }
-}
-
-function requireUsage(count: number | undefined, field: string): void {
-  if (!(typeof count === 'number' && Number.isFinite(count) && count >= 0)) {
-    throw new BoundaryFailureError(
-      fault({
-        category: 'availability',
-        code: 'compaction.summary-usage-missing',
-        message: `Compaction summarizer omitted provider-reported ${field}.`,
-      })
-    );
-  }
-}
-
-/**
- * Agentic summary on the run's own admitted model: the compaction summarizer
- * instructions, one step, no tools, provider-reported usage required, and the
- * six-section schema check.
- */
-export async function summarizeHostContext(
-  model: LanguageModel,
-  run: HostTelemetryIds & { readonly modelId: string },
-  input: string,
-  signal: AbortSignal
-): Promise<HostContextSummary> {
-  const { modelId } = run;
-  const result = await generateText({
-    abortSignal: signal,
-    model,
-    prompt: input,
-    system: COMPACTION_SUMMARIZER_INSTRUCTIONS,
-    ...hostTelemetry('brainstrike.context-compaction', run),
-  });
-  requireUsage(result.totalUsage.inputTokens, 'inputTokens');
-  requireUsage(result.totalUsage.outputTokens, 'outputTokens');
-  const receipt = { modelId, usage: jsonValue(result.totalUsage) };
-  if (!hasCompactionSummarySchema(result.text)) {
-    throw new HostContextSummarySchemaError(receipt);
-  }
-  return { ...receipt, text: result.text };
-}
-
-function transcriptContent(message: ModelMessage): unknown {
-  if (typeof message.content === 'string') {
-    return message.content;
-  }
-  return message.content.map((part) =>
-    part.type === 'image' || part.type === 'file'
-      ? { mediaType: part.mediaType, type: part.type }
-      : part
-  );
-}
-
-/**
- * One JSON line per message the segments replace, like the legacy projected
- * transcript; attachments by label only. A kept step stays in the request,
- * so the summary does not retell it.
- */
-function transcript(segments: readonly Segment[]): string {
-  return replacedSegments(segments)
-    .flatMap((segment) => segment.messages)
-    .map((message) => JSON.stringify({ content: transcriptContent(message), role: message.role }))
-    .join('\n');
-}
-
-/**
- * What the summarizer reads (BST-2527): the newly dropped messages, after the
- * summary it merges them into when the branch has one.
- */
-function summarizerInput(current: Compacted | undefined, segments: readonly Segment[]): string {
-  const dropped = transcript(segments);
-  return current
-    ? `Previous summary:\n${current.summary}\n\nNewly compacted messages:\n${dropped}`
-    : dropped;
 }
 
 function messageCount(segments: readonly Segment[]): number {
@@ -310,14 +216,24 @@ async function coveredFields(branch: CompactionBranch, selected: readonly Segmen
   return { ...fields, ...(await branch.readLedger(covered)) };
 }
 
+/**
+ * Asks for the summary on the run's next request (`summarizeOnRunRequest`),
+ * given the branch's context as that request carries it.
+ */
+export type HostContextSummarizer = (
+  context: readonly ModelMessage[]
+) => Promise<HostContextSummary>;
+
 interface CompactionRequest extends CompactionBranch {
   readonly candidates: readonly Segment[];
   /** The run's own reading of a summarizer failure; a typed host failure keeps its own. */
   readonly classify?: (cause: unknown) => BoundaryFailure;
+  /** The branch's context as the run's next request carries it, before this compaction. */
+  readonly context: readonly ModelMessage[];
   readonly reclaim: number;
   readonly run: HostRunState;
   readonly signal: AbortSignal;
-  readonly summarize: (input: string) => Promise<HostContextSummary>;
+  readonly summarize: HostContextSummarizer;
 }
 
 /**
@@ -348,7 +264,8 @@ function summarizerFailure(
 }
 
 /**
- * Past the trigger, the agentic summary merges the branch's current one with
+ * Past the trigger, the agentic summary merges the branch's current one, which
+ * its context opens with, into one summary of the whole context, and replaces
  * every droppable turn and step. When the summarizer fails, the legacy
  * deterministic fallback drops only the oldest turns and steps that reach the
  * target, and the committed event says why.
@@ -356,7 +273,7 @@ function summarizerFailure(
 async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
   let summary: HostContextSummary;
   try {
-    summary = await request.summarize(summarizerInput(request.current, request.candidates));
+    summary = await request.summarize(request.context);
   } catch (cause) {
     if (request.signal.aborted) {
       throw cause;
@@ -368,7 +285,7 @@ async function compactionEvent(request: CompactionRequest): Promise<Compacted> {
         'pre-request',
         'an agentic summarizer failure'
       )),
-      ...(cause instanceof HostContextSummarySchemaError ? cause.receipt : {}),
+      ...(cause instanceof HostContextSummaryRefusal ? cause.receipt : {}),
       summarizerFailure: summarizerFailure(request, cause),
     };
   }
@@ -487,12 +404,17 @@ export async function overflowCompaction(input: CompactionBounds): Promise<Compa
 
 /** A step's prepared request context, and how to read a trim of its request. */
 export interface HostCompactedContext {
+  /**
+   * Whether `messages` opens with the branch's note, which a trim of the
+   * request keeps as it keeps the system text (BST-2532).
+   */
+  readonly leadingNote: boolean;
+  /** The branch as the request carries it: the current summary's note first, then its turns. */
   readonly messages: ModelMessage[];
-  readonly note?: string;
   /**
    * The compaction that records what the provider request left out when it
-   * kept only its `kept` newest user messages; undefined when it left out
-   * nothing a compaction can name.
+   * kept only its `kept` newest user messages of the turns, the note not
+   * among them; undefined when it left out nothing a compaction can name.
    */
   readonly trim: (kept: number) => Promise<Compacted | undefined>;
 }
@@ -503,7 +425,8 @@ export interface HostCompactedContext {
  * compaction of the droppable earlier turns and the run's own older steps
  * when they reclaim enough (`compactionReclaims`), then apply every committed
  * compaction of this branch. Below the trigger nothing is committed. The note
- * reads the branch's one current summary (BST-2527).
+ * reads the branch's one current summary (BST-2527) and leads the history
+ * (BST-2532).
  *
  * The request is sized by what its provider last reported (`measureHostContext`).
  */
@@ -513,7 +436,7 @@ export async function prepareCompactedContext(
     readonly classify?: (cause: unknown) => BoundaryFailure;
     readonly commit: (event: Compacted) => Promise<void>;
     readonly signal: AbortSignal;
-    readonly summarize: (input: string) => Promise<HostContextSummary>;
+    readonly summarize: HostContextSummarizer;
   }
 ): Promise<HostCompactedContext> {
   const turns = splitTurns(input.chain, input.messages);
@@ -536,6 +459,7 @@ export async function prepareCompactedContext(
         ...branch,
         candidates,
         ...(input.classify ? { classify: input.classify } : {}),
+        context: withNote(branch.current, applyOverlay(turns, branch.cuts)),
         reclaim: current - target,
         run,
         signal: input.signal,
@@ -546,10 +470,9 @@ export async function prepareCompactedContext(
     }
   }
   const branch = compactionBranch(input, compactions);
-  const note = compactionNote(branch.current);
   return {
-    messages: applyOverlay(turns, branch.cuts),
-    ...(note ? { note } : {}),
+    leadingNote: branch.current !== undefined,
+    messages: withNote(branch.current, applyOverlay(turns, branch.cuts)),
     trim: async (kept) => {
       const dropped = trimmedSegments(turns, branch.cuts, kept);
       return run && dropped.length > 0

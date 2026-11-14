@@ -5,12 +5,12 @@ import {
 } from '@brainstrike/assistant-contract';
 import { jsonSchema, type ModelMessage } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
+import { HostContextSummarySchemaError } from '../src/compaction-summary-call.ts';
 import {
   compactionCuts,
   type HostCompactionCuts,
-  HostContextSummarySchemaError,
   overflowCompaction,
-  prepareCompactedContext,
+  prepareCompactedContext as prepareContext,
 } from '../src/context-compaction.ts';
 import type { HostReportedContext, HostRequestExtras } from '../src/context-size.ts';
 import { createHostRunState, HostRunMap, type HostRunState } from '../src/core-state.ts';
@@ -18,9 +18,15 @@ import type { HostProjectionRewrite } from '../src/ports.ts';
 import { applyProjectionRewrites } from '../src/projection-rewrites.ts';
 import type { HostEvent, HostLogRow } from '../src/protocol.ts';
 import { foldHostRunEvent, hostRunAncestors, hostRunContext } from '../src/run-branch.ts';
+import { compactionNoteText, readCompactedContext } from './fixtures/compaction-context.ts';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
-type Input = Parameters<typeof prepareCompactedContext>[0];
+type Input = Parameters<typeof prepareContext>[0];
+
+/** The prepared context, read as its note's text and the turns after it (BST-2532). */
+async function prepareCompactedContext(input: Input) {
+  return readCompactedContext(await prepareContext(input));
+}
 
 function chain(count: number): HostRunState[] {
   return Array.from(
@@ -110,7 +116,7 @@ describe('prepareCompactedContext', () => {
   });
 
   it('summarizes every unprotected turn past the trigger and commits the summarizer receipt', async () => {
-    const summarize = vi.fn(async (_transcript: string) => summary);
+    const summarize = vi.fn(async (_context: readonly ModelMessage[]) => summary);
     const { committed, prepared } = await pastTrigger({ summarize });
     expect(committed).toEqual([
       {
@@ -125,11 +131,9 @@ describe('prepareCompactedContext', () => {
         usage: receipt.usage,
       },
     ]);
-    // With no summary before it, the summarizer reads the dropped messages alone.
-    const transcript = summarize.mock.calls[0]?.[0] ?? '';
-    expect(transcript.split('\n')).toHaveLength(8);
-    expect(transcript).toContain('question 0');
-    expect(transcript).not.toContain('question 4');
+    // BST-2532: the summarizer reads the context the run's next request would
+    // carry, its kept turns included; with no summary before it, no note leads it.
+    expect(summarize.mock.calls[0]?.[0]).toEqual(turns(6, 40_000));
     expect(prepared.messages[0]).toEqual({ content: 'question 4', role: 'user' });
     expect(prepared.messages).toHaveLength(4);
     expect(prepared.note).toBe(`[Earlier conversation compacted]\n${summary.text}`);
@@ -796,7 +800,7 @@ describe('a thread carries one current summary (BST-2527)', () => {
   }
 
   it('merges the previous summary with the newly dropped turns into one that covers both', async () => {
-    const summarize = vi.fn(async (_input: string) => merged);
+    const summarize = vi.fn(async (_context: readonly ModelMessage[]) => merged);
     const { first, second } = await twice(summarize);
     expect(first.map((event) => event.compactedRunIds)).toEqual([sixRuns.slice(0, 4)]);
     expect(second.committed).toEqual([
@@ -814,14 +818,15 @@ describe('a thread carries one current summary (BST-2527)', () => {
         usage: receipt.usage,
       },
     ]);
-    // The summarizer read the previous summary and only what this compaction newly dropped.
-    const input = summarize.mock.calls[0]?.[0] ?? '';
+    // BST-2532: the summarizer read the run's next request: the previous
+    // summary's note first, then every turn no compaction had covered.
+    const context = summarize.mock.calls[0]?.[0] ?? [];
     expect(
-      input.startsWith(`Previous summary:\n${summary.text}\n\nNewly compacted messages:\n`)
+      compactionNoteText(context)?.startsWith(
+        `[Earlier conversation compacted]\n${summary.text}\n\n`
+      )
     ).toBe(true);
-    expect(input).toContain('question 4');
-    expect(input).toContain('question 5');
-    expect(input).not.toContain('question 3');
+    expect(context.slice(1)).toEqual(turns(8, 40_000).slice(8));
   });
 
   it('puts one summary in the note, with the lists the host wrote from the log', async () => {
@@ -906,11 +911,13 @@ describe('a thread carries one current summary (BST-2527)', () => {
     expect(below.prepared.note).toBe('[Earlier conversation compacted]\nGoal: the shared turns.');
     expect(below.prepared.messages[0]).toEqual({ content: 'question 2', role: 'user' });
 
-    const summarize = vi.fn(async (_input: string) => merged);
+    const summarize = vi.fn(async (_context: readonly ModelMessage[]) => merged);
     const past = await pastTrigger({ compactions: [shared, other], summarize });
-    const input = summarize.mock.calls[0]?.[0] ?? '';
-    expect(input).toContain('Previous summary:\nGoal: the shared turns.');
-    expect(input).not.toContain('the other branch');
+    const context = summarize.mock.calls[0]?.[0] ?? [];
+    expect(compactionNoteText(context)).toBe(
+      '[Earlier conversation compacted]\nGoal: the shared turns.'
+    );
+    expect(JSON.stringify(context)).not.toContain('the other branch');
     expect(past.committed.map((event) => event.compactedRunIds)).toEqual([sixRuns.slice(0, 4)]);
   });
 

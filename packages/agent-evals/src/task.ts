@@ -34,11 +34,18 @@ export const EvalTaskSchema = Schema.Struct({
    * `parallelCalls` names a tool the model must call at least `atLeast` times
    * in one step, so a parallel-read task fails when the reads arrive apart.
    * `compactions` is how many compactions the thread must commit, so a task
-   * meant to measure them fails when its turns never reach the trigger.
+   * meant to measure them fails when its turns never reach the trigger; its
+   * `kind` holds every one to that kind, so a task meant to measure a summary
+   * fails when its thread is trimmed instead (a trim is deterministic).
    */
   expect: Schema.optionalKey(
     Schema.Struct({
-      compactions: Schema.optionalKey(Schema.Struct({ atLeast: Positive })),
+      compactions: Schema.optionalKey(
+        Schema.Struct({
+          atLeast: Positive,
+          kind: Schema.optionalKey(Schema.Literals(['agentic', 'deterministic'])),
+        })
+      ),
       parallelCalls: Schema.optionalKey(
         Schema.Struct({
           atLeast: Schema.Int.check(Schema.isGreaterThan(1)),

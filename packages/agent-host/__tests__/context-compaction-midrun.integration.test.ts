@@ -141,7 +141,10 @@ test('a long run summarizes its older steps between two steps and carries on', a
   if (!last) {
     throw new Error('The run sent no request');
   }
-  expect(userTexts(last)).toEqual([QUESTION]);
+  // The summary leads the history as the host's notice (BST-2532), then the question.
+  const [note, ...asked] = userTexts(last);
+  expect(note).toMatch(/^<brainstrike_notice>\n[\s\S]*\[Earlier conversation compacted\]/u);
+  expect(asked).toEqual([QUESTION]);
   expect(callIds(last)).not.toContain('turn-1-call-1');
   expect(callIds(last)).toContain('turn-1-call-12');
   // The request's provenance leaves them out too.
@@ -347,6 +350,69 @@ test('a request the provider boundary still trims commits a compaction that says
     type: 'provider.request.prepared',
   });
 });
+
+test('a trimmed request keeps the branch’s note first and names what it left out (BST-2532)', async () => {
+  // About 25,000 tokens: with the first run's protected steps the request is
+  // over its 40,000-token limit, and both turns are protected, so it is trimmed.
+  const second = `Second ${'p'.repeat(100_000)}`;
+  const model = scriptedTurns(
+    [
+      { answer: 'Read them all.', prompt: QUESTION, steps: reads(12).map((call) => [call]) },
+      { answer: 'Second answered.', prompt: 'Second', steps: [] },
+    ],
+    SUMMARY
+  );
+  let store: StateStore | undefined;
+  const harness = await setupChildRunHost(
+    model,
+    cleanup,
+    { readFile: async () => ({ content: NOTES }) },
+    (platform) => async (request) => {
+      const admitted = await recordingAdmission([])(platform)?.(request);
+      if (!(admitted && store)) {
+        throw new Error('The fixture admission admitted nothing');
+      }
+      return {
+        ...admitted,
+        inputTokenLimit: 40_000,
+        providerRequest: { inputTokenLimit: 40_000, provider: 'openai' },
+        snapshot: { ...admitted.snapshot, maxSteps: 40 },
+      };
+    }
+  );
+  store = harness.store;
+  const firstRun = await harness.start(QUESTION);
+  await rowsUntil(harness, harness.threadId, finished(firstRun), 30_000);
+  const secondRun = await harness.start(second);
+  const rows = await rowsUntil(harness, harness.threadId, finished(secondRun), 30_000);
+  expect(rows.find(finished(secondRun))?.event).toMatchObject({ outcome: 'completed' });
+  expect(compactions(rows).find((event) => event.runId === firstRun)).toMatchObject({
+    kind: 'agentic',
+  });
+  // The trim names the first turn, as it would with no note.
+  const trims = compactions(rows).filter((event) => event.reason === 'request-trim');
+  expect(trims).toMatchObject([
+    { compactedRunIds: [firstRun], kind: 'deterministic', runId: secondRun },
+  ]);
+  // The trimmed request opens with the note, then the newest question alone.
+  const last = model.doStreamCalls.at(-1);
+  if (!last) {
+    throw new Error('The second run sent no request');
+  }
+  const [note, ...asked] = userTexts(last);
+  expect(note).toMatch(/^<brainstrike_notice>\n[\s\S]*\[Earlier conversation compacted\]/u);
+  expect(asked).toEqual([second]);
+  expect(callIds(last)).toEqual([]);
+  // What the request left out is what the trim names; the note is not among it.
+  const left = /\((\d+) messages\)/u.exec(trims[0]?.summary ?? '')?.[1];
+  const at = rows.findIndex(
+    (row) => row.event.type === 'context.compacted' && row.event === trims[0]
+  );
+  expect(rows[at - 1]?.event).toMatchObject({
+    accounting: { removedMessages: Number(left) },
+    type: 'provider.request.prepared',
+  });
+}, 60_000);
 
 test('a trimmed request the provider retries commits its trim once, beside both receipts', async () => {
   const { firstRun, rows, secondRun } = await trimmedSecondTurn(true);

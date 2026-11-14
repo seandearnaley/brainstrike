@@ -112,7 +112,7 @@ function visibleTurns(turns: readonly Turn[], cuts: HostCompactionCuts): Turn[] 
     .map((turn) => ({ messages: keptMessages(turn, cuts), run: turn.run }));
 }
 
-/** The branch's committed overlay: compacted turns and steps leave the request; their note joins the system text. */
+/** The branch's committed overlay: compacted turns and steps leave the request; their note leads it. */
 export function applyOverlay(turns: readonly Turn[], cuts: HostCompactionCuts): ModelMessage[] {
   return visibleTurns(turns, cuts).flatMap((turn) => turn.messages);
 }
