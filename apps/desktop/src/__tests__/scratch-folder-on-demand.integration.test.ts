@@ -188,6 +188,7 @@ function unrecordedLaunchStore(damage: string | null): HostRootRegistryStore {
   return {
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
+    root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     stateDamage: damage,
     workspaceRoots: async (request) => {

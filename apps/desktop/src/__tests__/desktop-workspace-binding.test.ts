@@ -26,6 +26,8 @@ function authorityMountedAt(place: string): DesktopWorkspaceBindingAuthority {
       rootId: root.rootId,
       signal: new AbortController().signal,
     }),
+    // No scratch folder here: the moved folder is one of the person's.
+    mountScratchFolders: async () => undefined,
     readLiveWorktreePath: async () => null,
     readRootNames: async () => new Map(),
     readRoots: async () => [{ displayName: 'survey-moved', path: place, rootId: ROOT_ID }],
