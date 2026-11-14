@@ -29,8 +29,10 @@ import {
   type HostContextSummaryUsage,
 } from './compaction-summary-call.ts';
 import {
+  estimateHostContext,
   estimateTokens,
   type HostContextRewrites,
+  type HostContextSize,
   type HostRequestExtras,
   measureHostContext,
 } from './context-size.ts';
@@ -364,7 +366,11 @@ interface CompactionBounds extends HostContextRewrites {
   readonly messages: readonly ModelMessage[];
   /** What the log holds for everything a compaction covers. */
   readonly readLedger: HostCompactionLedgerReader;
-  /** The run's instructions and tool definitions, read only when no size was reported. */
+  /**
+   * The run's instructions and tool definitions: read to size a request
+   * nothing reported, and past the trigger to put a reported size in the
+   * estimate's tokens. Each read prepares the provider's tools.
+   */
   readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
 }
 
@@ -381,20 +387,54 @@ function compactionBranch(
   } satisfies CompactionBranch;
 }
 
-/** The size of the run's next request (`measureHostContext`), with the branch as `cuts` leave it. */
+/** The messages of the run's next request as `branch` leaves them: the current summary's note, then the turns. */
+function requestMessages(
+  branch: Pick<CompactionBranch, 'current' | 'cuts'>,
+  turns: readonly Turn[]
+): ModelMessage[] {
+  return withNote(branch.current, applyOverlay(turns, branch.cuts));
+}
+
+/** The size of the run's next request (`measureHostContext`), with the branch as `branch` leaves it. */
 function measureBranch(
   input: CompactionBounds,
   turns: readonly Turn[],
-  cuts: HostCompactionCuts
-): Promise<number> {
+  branch: Pick<CompactionBranch, 'current' | 'cuts'>
+): Promise<HostContextSize> {
   return measureHostContext({
     chain: input.chain,
-    estimate: () => estimateTokens(applyOverlay(turns, cuts)),
+    estimate: () => estimateTokens(requestMessages(branch, turns)),
     messages: input.messages,
     readRequestExtras: input.readRequestExtras,
     rewrites: input.rewrites,
     unrewritten: input.unrewritten,
   });
+}
+
+/**
+ * What a compaction must reclaim to bring a request of `size` to `target`, in
+ * the estimated tokens that size what it can drop (BST-2541): the excess scaled
+ * by the request's estimate, note included, over its measured size. A provider
+ * may count a request as more tokens than chars/4 (Anthropic about 1.5 times
+ * read-heavy text); unscaled, the reclaim would ask more than the droppable
+ * steps' estimate can show, and the request would run on past the trigger. A
+ * size nothing reported is the estimate already.
+ */
+async function estimatedReclaim(
+  input: CompactionBounds,
+  messages: readonly ModelMessage[],
+  size: HostContextSize,
+  target: number
+): Promise<number> {
+  const excess = size.tokens - target;
+  if (!size.reported) {
+    return excess;
+  }
+  const estimated = await estimateHostContext({
+    estimate: () => estimateTokens(messages),
+    readRequestExtras: input.readRequestExtras,
+  });
+  return excess * (estimated / size.tokens);
 }
 
 /**
@@ -415,7 +455,7 @@ export async function overflowCompaction(input: CompactionBounds): Promise<Compa
   if (candidates.length === 0) {
     return;
   }
-  const current = await measureBranch(input, turns, branch.cuts);
+  const current = (await measureBranch(input, turns, branch)).tokens;
   const { target } = deriveContextCompactionThreshold(limit, input.compactionTokenCap);
   return await deterministicEvent(
     branch,
@@ -470,20 +510,21 @@ export async function prepareCompactedContext(
     const branch = compactionBranch(input, compactions);
     const candidates = compactionCandidates(turns, branch.cuts);
     const { target, trigger } = deriveContextCompactionThreshold(limit, input.compactionTokenCap);
-    const current = candidates.length === 0 ? 0 : await measureBranch(input, turns, branch.cuts);
+    const messages = requestMessages(branch, turns);
+    const size = candidates.length === 0 ? undefined : await measureBranch(input, turns, branch);
     // Past the trigger, only a compaction that can reclaim enough is worth its
     // summary; otherwise the request goes as it is, and a trim says so.
-    if (
-      candidates.length > 0 &&
-      current >= trigger &&
-      compactionReclaims(candidates, current - target)
-    ) {
+    const reclaim =
+      size && size.tokens >= trigger
+        ? await estimatedReclaim(input, messages, size, target)
+        : undefined;
+    if (reclaim !== undefined && compactionReclaims(candidates, reclaim)) {
       const event = await compactionEvent({
         ...branch,
         candidates,
         ...(input.classify ? { classify: input.classify } : {}),
-        context: withNote(branch.current, applyOverlay(turns, branch.cuts)),
-        reclaim: current - target,
+        context: messages,
+        reclaim,
         run,
         signal: input.signal,
         summarize: input.summarize,
@@ -495,7 +536,7 @@ export async function prepareCompactedContext(
   const branch = compactionBranch(input, compactions);
   return {
     leadingNote: branch.current !== undefined,
-    messages: withNote(branch.current, applyOverlay(turns, branch.cuts)),
+    messages: requestMessages(branch, turns),
     trim: async (kept) => {
       const dropped = trimmedSegments(turns, branch.cuts, kept);
       return run && dropped.length > 0
