@@ -174,7 +174,18 @@ export interface HostScratchFolders {
     readonly signal: AbortSignal;
     readonly threadId: string;
   }): Promise<HostScratchFolder | null>;
-  /** Main's folder picker, for where a scratch folder becomes a project; null when cancelled. */
+  /**
+   * ADR-0034 build decisions (BST-2513): a new folder for a thread with none of its own, made
+   * inside `parent`, the folder the person chose. It is named by `title`, slugged, or as a scratch
+   * folder is when that leaves no name, and opened as a folder of the person's with a project of
+   * its own. Its trust is not written: it is asked there. Rejects with a typed refusal when
+   * nothing was made, and removes a folder it made that the registry did not open.
+   */
+  newProjectFolder(request: {
+    readonly parent: string;
+    readonly title: string | undefined;
+  }): Promise<HostScratchFolder>;
+  /** Main's folder picker, for where a project folder goes; null when cancelled. */
   pickParentFolder(): Promise<string | null>;
   /** The thread's scratch folder as recorded, or null when it has none. Reads only. */
   read(request: { readonly threadId: string }): Promise<HostScratchFolder | null>;

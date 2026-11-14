@@ -219,6 +219,16 @@ export interface AssistantThreadHostCapability {
   readonly ledger?: AssistantThreadHostLedger;
   listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]>;
   /**
+   * ADR-0034 (BST-2513): a thread with no folder of its own gets a new project folder. The host
+   * asks for a parent with the folder picker, makes the folder there, opens it as a folder of the
+   * person's with a project of its own and binds the thread to it. Resolves the new folder, or
+   * null when the person cancelled; rejects with the host's typed refusal. A host without
+   * scratch folders omits it.
+   */
+  newProjectFolder?(
+    threadId: string
+  ): Promise<{ readonly path: string; readonly rootId: string } | null>;
+  /**
    * BST-2021: a thread's committed log, folded as its own view folds it, for a
    * subagent's lane in its parent's Context tab. A host without a committed
    * run log omits this.
