@@ -8,13 +8,13 @@ import {
   HostEventSchema,
   parseHostParams,
 } from '../src/protocol.js';
-import wireV30 from './fixtures/host-v30-methods.json' with { type: 'json' };
+import wireV31 from './fixtures/host-v31-methods.json' with { type: 'json' };
 
 test('every first-party host request/result/event grammar has one Effect owner', () => {
   const requests = Object.entries(HOST_METHOD_SCHEMAS);
   const results = Object.entries(HOST_RESULT_SCHEMAS);
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV30.version);
-  expect(requests.map(([name]) => name).sort()).toEqual(wireV30.methods);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV31.version);
+  expect(requests.map(([name]) => name).sort()).toEqual(wireV31.methods);
   expect(results.map(([name]) => name).sort()).toEqual(requests.map(([name]) => name).sort());
   expect(
     [...requests, ...results, ['event', HostEventSchema]]
@@ -24,7 +24,7 @@ test('every first-party host request/result/event grammar has one Effect owner',
 });
 
 test('protocol version and secret-bearing request refusal stay fixed', () => {
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(30);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(31);
   const badAccess = { access: 'x', catalogId: 'github', token: 'never-print-me' };
   expect(() => parseHostParams('mcp/config/install', badAccess)).toThrow(
     'Invalid MCP host request'
@@ -104,6 +104,66 @@ test('a stored worktree archive with no reason reads as the idle cap’s', () =>
   // With neither a reason nor a limit it is neither archive.
   const { limit: _, ...unlimited } = v29;
   expect(() => decodeStoredHostEvent(unlimited)).toThrow();
+});
+
+// v31 (BST-2511): a repository found inside an open folder has a project, which the listing names
+// on its own checkout's entry and which the person joins to another by that checkout's path.
+test('a v31 worktree listing entry names its project, and a repository joins a project by its path', () => {
+  const entry = {
+    branch: 'main',
+    containment: ['root-container'],
+    createdAt: null,
+    detached: false,
+    disabledReason: "This is the repository's primary checkout — use Hand off to Local instead.",
+    externalTool: null,
+    id: null,
+    lockedReason: null,
+    managed: false,
+    name: 'inner',
+    path: '/code/container/inner',
+    primary: true,
+    projectId: 'project-inner',
+    projectName: null,
+    provenance: 'scanned',
+    remedy: null,
+    repoCommonDir: '/code/container/inner/.git',
+    repositoryRoot: '/code/container/inner',
+    rootId: 'root-container',
+    rootIdIsExactMount: false,
+    setupReason: null,
+    setupStatus: 'none',
+    trust: 'validated',
+    trustReason: null,
+    usable: false,
+  };
+  const decodeList = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['worktrees/list'], {
+    onExcessProperty: 'error',
+  });
+  expect(decodeList({ ok: true, value: [entry] })).toEqual({ ok: true, value: [entry] });
+  // The field is required: an older host's entry, which has none, is not a v31 entry.
+  const { projectId: _, projectName: __, ...older } = entry;
+  expect(() => decodeList({ ok: true, value: [older] })).toThrow();
+
+  const repositoryPath = '/code/container/inner';
+  expect(parseHostParams('projects/join', { projectId: 'p', repositoryPath })).toEqual({
+    projectId: 'p',
+    repositoryPath,
+  });
+  expect(parseHostParams('projects/join', { projectId: 'p', rootId: 'r' })).toEqual({
+    projectId: 'p',
+    rootId: 'r',
+  });
+  expect(() => parseHostParams('projects/join', { projectId: 'p' })).toThrow();
+  // BST-2520: such a repository's first name makes its project, so it is named by its path too.
+  expect(parseHostParams('projects/rename', { name: 'Inner', repositoryPath })).toEqual({
+    name: 'Inner',
+    repositoryPath,
+  });
+  expect(parseHostParams('projects/rename', { name: 'Inner', projectId: 'p' })).toEqual({
+    name: 'Inner',
+    projectId: 'p',
+  });
+  expect(() => parseHostParams('projects/rename', { name: 'Inner' })).toThrow();
 });
 
 test('the owned MCP settlement decoder keeps its original refusal', () => {

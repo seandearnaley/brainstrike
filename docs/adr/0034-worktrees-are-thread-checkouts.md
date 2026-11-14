@@ -178,10 +178,57 @@ supersede the decisions above where they differ.
       the person moved into the project (Move to project…, below). The section
       is named by its project's name once the person gave one; otherwise by a
       repository before a folder, then by name, whichever thread comes first.
-    - A repository whose own checkout is not an open folder has no project to
-      read and keeps its common-dir section, and a folder recorded before
-      projects keeps its own. The project of a repository reached only
-      through a subfolder or a containing folder is not built.
+    - A repository whose own checkout is not an open folder, and that the
+      person has not named or moved into a project, has no project to read and
+      keeps its common-dir section, and a folder recorded before projects keeps
+      its own. A repository reached only through a subfolder opened by itself
+      is not found: nothing looks above an opened folder. One the person names
+      or moves gets a project of its own, below.
+    - **A repository found inside an open folder can have a project of its
+      own** (BST-2511, corrected by BST-2520). How it is built was not part of
+      Sean's answers; these are build decisions, and later work may revisit
+      them:
+      - The project is made by the person's first Rename project… or Move to
+        project… on the repository's section, in the store's commit for that
+        change, and nothing else makes one. The roots domain, the one writer
+        of projects, keeps it by the checkout's canonical path, as it keeps an
+        opened folder's, and writes no root, no trust and no hook approval
+        (`rename-project` and `join-project` by path; `projects/rename` and
+        `projects/join` with `repositoryPath`). A move with no project yet puts
+        the repository straight into the chosen one. BST-2511 made the project
+        on every worktree listing instead; that wrote rows for every submodule
+        and fixture repository the walk reached (a submodule keyed on
+        `<repository>/.git/modules/<path>`, which never matches its checkout),
+        left them behind when a repository moved or went, failed the whole
+        listing over one refused folder, and could race Clear Database.
+      - The store refuses, changing nothing, a path inside a `.git` folder
+        (which is never a checkout), a path inside a scratch folder or a
+        managed worktree, and an empty or relative path.
+      - The worktree listing only reads (`repository-projects`): one lookup
+        for the own checkouts of every repository it lists that is not an open
+        folder, whether or not an open folder holds it now, carried as
+        `projectId` and `projectName` on that checkout's entry (host protocol
+        version 31). So a named repository keeps its section while the folder
+        that holds it is closed, and a store that opened damaged still reads
+        it.
+      - Kept by the checkout's canonical path, the project is the same when
+        the repository is later opened by itself, and when the folder that
+        holds it is closed and opened again; Clear Database deletes it with
+        every project.
+      - Its section is `project:<id>` once it has a project, named by the
+        project's name or else the checkout's folder name, and
+        `repository:<commonDir>` before. Either way its menu has Rename
+        project… and Move to project…, by the rules a folder's rename and join
+        follow, and no Locate folder… and no New thread here, being no open
+        folder. The panel offers them for any repository section whose own
+        checkout is not an open folder, the folder that holds it closed
+        included; what may not have a project is the store's to refuse.
+      - Threads in its managed worktrees, and in its own checkout opened by
+        itself, list in its section. A thread in the folder that holds it
+        stays in that folder's project: it may work in any repository inside,
+        and nothing moves it by a guess.
+      - The panel reads the listing again after every project action, as it
+        reads the folder rows, so a renamed or moved repository regroups.
     - Collapse state under a project is kept, not pruned, as for a
       repository. Saved collapse state of sections from before (keyed on the
       common dir or the root id) does not carry over.
