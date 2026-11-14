@@ -359,18 +359,23 @@ function localBranch(
   return path ? (mode.picker.options.find((option) => option.path === path)?.branch ?? null) : null;
 }
 
-/** Local, the current worktree, and the two ways to another one. */
+/**
+ * Local, the current worktree, and the ways to another one: Other worktree…,
+ * New worktree… (one click, with the defaults) and Customize… (the create sheet).
+ */
 const CheckoutRows = ({
   checkout,
   localRoot,
   mode,
-  onOpenCreate,
+  onCustomize,
+  onNewWorktree,
   projectRoot,
 }: {
   readonly checkout: WorkspaceBarCheckout | undefined;
   readonly localRoot: WorkspaceBarRoot | undefined;
   readonly mode: WorkspaceBarMode;
-  readonly onOpenCreate: () => void;
+  readonly onCustomize: () => void;
+  readonly onNewWorktree: () => void;
   readonly projectRoot: WorkspaceBarRoot | undefined;
 }): ReactElement => {
   if (mode.disabledReason) {
@@ -388,6 +393,7 @@ const CheckoutRows = ({
     );
   }
   const changeReason = mode.checkoutChangeDisabledReason;
+  const createReason = mode.createDisabledReason;
   return (
     <>
       {projectRoot ? <ProjectRow root={projectRoot} /> : null}
@@ -408,13 +414,25 @@ const CheckoutRows = ({
       <DropdownMenuItem
         className="items-start pl-8"
         data-testid="workspace-bar-mode-new-worktree"
-        disabled={mode.pending || mode.createDisabledReason !== null}
-        onSelect={onOpenCreate}
+        disabled={mode.pending || createReason !== null}
+        onSelect={onNewWorktree}
       >
         <RowLabel
           label="New worktree…"
-          reason={mode.createDisabledReason}
+          reason={createReason}
           reasonTestId="workspace-bar-mode-create-disabled-reason"
+        />
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="items-start pl-8"
+        data-testid="workspace-bar-mode-new-worktree-customize"
+        disabled={mode.pending || createReason !== null}
+        onSelect={onCustomize}
+      >
+        <RowLabel
+          label="Customize…"
+          reason={createReason}
+          reasonTestId="workspace-bar-mode-new-worktree-customize-disabled-reason"
         />
       </DropdownMenuItem>
     </>
@@ -536,14 +554,16 @@ const FoldersSubmenu = ({
 /** The open where-menu: the checkout, then its branch and folders, then the worktree's own actions. */
 const WhereMenuBody = ({
   busy,
+  onCustomize,
   onDone,
-  onOpenCreate,
+  onNewWorktree,
   props,
 }: {
   /** A worktree operation is in progress (see `WhereChip`'s `operationMode`). */
   readonly busy: boolean;
+  readonly onCustomize: () => void;
   readonly onDone: () => void;
-  readonly onOpenCreate: () => void;
+  readonly onNewWorktree: () => void;
   readonly props: WhereChipProps;
 }): ReactElement => {
   const { branchMenu, checkout, mode, scratchProject, ...folders } = props;
@@ -580,7 +600,8 @@ const WhereMenuBody = ({
           checkout={checkout}
           localRoot={localRoot}
           mode={mode}
-          onOpenCreate={onOpenCreate}
+          onCustomize={onCustomize}
+          onNewWorktree={onNewWorktree}
           projectRoot={projectRoot}
         />
       ) : null}
@@ -701,11 +722,22 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
     triggerRef.current?.focus();
   }, [createOpen]);
 
-  const onOpenCreate = (): void => {
+  // The app-shell handlers own the visible failure toasts.
+  const onCustomize = (): void => {
     void mode
       ?.onOpenCreateSheet()
       .then(() => setCreateOpen(true))
-      // The app-shell handler owns the visible failure toast.
+      .catch(() => undefined);
+  };
+  // One click (ADR-0034): the sheet opens only to ask about the setup script.
+  const onNewWorktree = (): void => {
+    void mode
+      ?.onQuickCreate()
+      .then(({ needsSheet }) => {
+        if (needsSheet) {
+          setCreateOpen(true);
+        }
+      })
       .catch(() => undefined);
   };
 
@@ -756,8 +788,9 @@ export const WhereChip = (props: WhereChipProps): ReactElement => {
         >
           <WhereMenuBody
             busy={busy}
+            onCustomize={onCustomize}
             onDone={() => setOpen(false)}
-            onOpenCreate={onOpenCreate}
+            onNewWorktree={onNewWorktree}
             props={props}
           />
         </DropdownMenuContent>

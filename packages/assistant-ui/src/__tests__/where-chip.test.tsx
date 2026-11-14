@@ -58,6 +58,7 @@ function mode(overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode {
     onHandOffToLocal: undefined,
     onOpenCreateSheet: vi.fn(() => Promise.resolve()),
     onOpenPicker: vi.fn(),
+    onQuickCreate: vi.fn(() => Promise.resolve({ needsSheet: false })),
     pending: false,
     picker: {
       error: null,
@@ -364,6 +365,9 @@ describe('the where-control, open', () => {
     expect(screen.getByTestId('workspace-bar-mode-new-worktree')).toHaveTextContent(
       'New worktree…'
     );
+    expect(screen.getByTestId('workspace-bar-mode-new-worktree-customize')).toHaveTextContent(
+      'Customize…'
+    );
     expect(screen.getByTestId('workspace-bar-branch')).toHaveTextContent('Branch: bs/swift-badger');
     expect(screen.getByTestId('workspace-bar-folders')).toHaveTextContent(
       'Folders: brainstrike +1'
@@ -436,14 +440,51 @@ describe('each where-control row wires only its own handler', () => {
     expect(value.onHandOffToLocal).not.toHaveBeenCalled();
   });
 
-  it('New worktree… refreshes the create context and opens the sheet', async () => {
+  // ADR-0034, BST-2506: one click makes the worktree with Automatic isolation's defaults.
+  it('New worktree… creates with the defaults at once and opens no sheet', async () => {
     const user = setup();
     const value = inWorktree();
     render(<WorkspaceBar {...value.props} />);
     await openWhere(user);
     await user.click(screen.getByTestId('workspace-bar-mode-new-worktree'));
+    expect(value.mode.onQuickCreate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('worktree-create-dialog')).toBeNull();
+    expect(value.mode.onOpenCreateSheet).not.toHaveBeenCalled();
+    expect(value.onHandOffToLocal).not.toHaveBeenCalled();
+    expect(value.onOpenPicker).not.toHaveBeenCalled();
+  });
+
+  it('New worktree… opens the sheet when the repository’s setup script has no answer', async () => {
+    const user = setup();
+    const value = local({
+      mode: mode({
+        onQuickCreate: vi.fn(() => Promise.resolve({ needsSheet: true })),
+        repositorySetupConsent: {
+          decision: null,
+          onDecision: vi.fn(() => Promise.resolve()),
+          repositoryPath: '/ws/brainstrike',
+          scriptPath: '/ws/brainstrike/.brainstrike/worktree-setup.sh',
+        },
+      }),
+    });
+    render(<WorkspaceBar {...value} />);
+    await openWhere(user);
+    await user.click(screen.getByTestId('workspace-bar-mode-new-worktree'));
+    const sheet = await screen.findByTestId('worktree-create-dialog');
+    expect(within(sheet).getByRole('button', { name: 'Allow script' })).toBeVisible();
+    expect(within(sheet).getByTestId('worktree-create-submit')).toBeDisabled();
+    expect(value.mode?.onCreate).not.toHaveBeenCalled();
+  });
+
+  it('Customize… refreshes the create context and opens the sheet', async () => {
+    const user = setup();
+    const value = inWorktree();
+    render(<WorkspaceBar {...value.props} />);
+    await openWhere(user);
+    await user.click(screen.getByTestId('workspace-bar-mode-new-worktree-customize'));
     expect(await screen.findByTestId('worktree-create-dialog')).toBeVisible();
     expect(value.mode.onOpenCreateSheet).toHaveBeenCalledTimes(1);
+    expect(value.mode.onQuickCreate).not.toHaveBeenCalled();
     expect(value.onHandOffToLocal).not.toHaveBeenCalled();
     expect(value.onOpenPicker).not.toHaveBeenCalled();
   });
@@ -626,7 +667,7 @@ describe('a checkout change finishing', () => {
     const started = mode({ onCreate: vi.fn(() => created.promise) });
     const { rerender } = render(<WorkspaceBar {...local({ mode: started })} />);
     await openWhere(user);
-    await user.click(screen.getByTestId('workspace-bar-mode-new-worktree'));
+    await user.click(screen.getByTestId('workspace-bar-mode-new-worktree-customize'));
     await user.click(await screen.findByTestId('worktree-create-submit'));
     rerender(<WorkspaceBar {...local({ mode: { ...started, pending: true } })} />);
     expect(chip()).toHaveAttribute('aria-busy', 'true');
@@ -689,10 +730,16 @@ describe('while the thread runs', () => {
       />
     );
     await openWhere(user);
-    for (const row of ['handoff', 'archive', 'pick-worktree', 'new-worktree']) {
+    for (const row of [
+      'handoff',
+      'archive',
+      'pick-worktree',
+      'new-worktree',
+      'new-worktree-customize',
+    ]) {
       expect(screen.getByTestId(`workspace-bar-mode-${row}`)).toHaveAttribute('data-disabled');
     }
-    for (const row of ['handoff', 'archive', 'pick-worktree', 'create']) {
+    for (const row of ['handoff', 'archive', 'pick-worktree', 'create', 'new-worktree-customize']) {
       expect(screen.getByTestId(`workspace-bar-mode-${row}-disabled-reason`)).toHaveTextContent(
         RUN_IN_PROGRESS
       );

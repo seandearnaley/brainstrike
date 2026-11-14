@@ -17,7 +17,12 @@ import type { HostPlatform } from '@brainstrike/agent-host';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
-import type { GitRepository, GitStatus } from '@brainstrike/types';
+import {
+  DEFAULT_WORKTREE_BASE_REF,
+  type GitRepository,
+  type GitStatus,
+  WORKTREE_BRANCH_PREFIX,
+} from '@brainstrike/types';
 import { gitRefused } from './git-failure.ts';
 import {
   type HostWorktreeServices,
@@ -108,7 +113,12 @@ export function hostCheckoutIsolation(options: {
       const { suggestedName: name } = settled(await service.createContext({ rootId }));
       signal.throwIfAborted();
       const created = settled(
-        await worktreeTools.create({ baseRef: 'HEAD', branch: `bs/${name}`, name, rootId })
+        await worktreeTools.create({
+          baseRef: DEFAULT_WORKTREE_BASE_REF,
+          branch: `${WORKTREE_BRANCH_PREFIX}${name}`,
+          name,
+          rootId,
+        })
       );
       return {
         branch: created.worktree.branch,
