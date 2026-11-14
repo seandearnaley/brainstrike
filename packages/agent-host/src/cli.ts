@@ -463,7 +463,8 @@ ranked list; with no thread holding every word, it matches any word and says so.
 keeps threads bound to that workspace root; --since/--until bound message times.
 threads compact summarizes the thread's earlier turns and steps now, between runs; its next run
 starts from the summary. --focus says what the summary should keep (up to 500 characters). It
-prints the summary, or with --json the committed context.compacted event; a refusal commits nothing.
+prints the summary, or with --json the committed context.compacted event. A delegated child thread
+is refused; a refusal commits nothing.
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
 Standalone hosts use an explicit --model provider::model from the canonical catalog.

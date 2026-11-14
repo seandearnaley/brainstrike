@@ -15,10 +15,17 @@ import { type ScriptedTurn, scriptedTurns } from '../src/test-fixtures/scripted-
 import {
   blocked,
   type CallOptions,
+  childThreads,
   finished,
   recordingAdmission,
   rowsUntil,
   setupChildRunHost,
+  stream,
+  text,
+  toolCall,
+  toolNames,
+  userTexts,
+  worker,
 } from './fixtures/child-run-host.ts';
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -364,6 +371,36 @@ describe('Compact now', () => {
     expect(personWords(next)).toContain('First question.');
   });
 
+  test('a refused summary the provider billed is priced in the ledger, and commits no compaction', {
+    timeout: 60_000,
+  }, async () => {
+    const host = await threeTurns();
+    const summaryCosts = () =>
+      (
+        host.harness
+          .core()
+          .readLedger()
+          .threads.find((thread) => thread.threadId === host.threadId)?.perModel ?? []
+      ).filter((entry) => entry.runKind === 'compaction-summary');
+    expect(summaryCosts()).toEqual([]);
+    host.control.answer = 'Not the six sections.';
+
+    await expect(host.compact()).rejects.toMatchObject({ code: 'compaction.summary-invalid' });
+
+    expect(await host.compactions()).toEqual([]);
+    // Its receipt is the tip run's side call, as a thread title's is.
+    expect(summaryCosts()).toEqual([
+      expect.objectContaining({ inputTokens: expect.any(Number), outputTokens: 1 }),
+    ]);
+    const rows = await host.harness.core().read(host.threadId, 0);
+    expect(rows.at(-1)?.event).toMatchObject({
+      kind: 'compaction-summary',
+      modelId: MODEL,
+      runId: host.runs[2],
+      type: 'model.usage',
+    });
+  });
+
   test('is refused while a run is active, when nothing is droppable and without a credential; each commits nothing', {
     timeout: 60_000,
   }, async () => {
@@ -393,6 +430,44 @@ describe('Compact now', () => {
     expect(await host.compactions()).toEqual([]);
     expect(host.summaries).toEqual([]);
   });
+});
+
+test('a delegated child thread is refused before any admission, and commits nothing', {
+  timeout: 60_000,
+}, async () => {
+  const TASK = 'CHILD_TASK: read the notes.';
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (userTexts(call)[0]?.includes(TASK)) {
+        return stream(text('Child done.'));
+      }
+      const answered = call.prompt.some((message) => message.role === 'tool');
+      return !toolNames(call).includes('agent-worker') || answered
+        ? stream(text('Parent continues.'))
+        : stream(toolCall('agent-worker', { prompt: TASK }, 'delegate-1'));
+    },
+  });
+  const admissions: HostRunAdmissionRequest[] = [];
+  const harness = await setupChildRunHost(
+    model,
+    cleanup,
+    { personas: [worker] },
+    recordingAdmission(admissions)
+  );
+  const runId = await harness.start('Delegate the notes.');
+  await rowsUntil(harness, harness.threadId, finished(runId), 30_000);
+  await expect.poll(() => childThreads(harness)).toHaveLength(1);
+  const [child = ''] = await childThreads(harness);
+  await rowsUntil(harness, child, (row) => row.event.type === 'run.finished', 30_000);
+  const admitted = admissions.length;
+
+  await expect(
+    harness.core().compactNow.compact({ commandId: randomUUID(), threadId: child })
+  ).rejects.toMatchObject({ code: 'compaction.child-thread' });
+
+  expect(admissions).toHaveLength(admitted);
+  const rows = await harness.core().read(child, 0);
+  expect(rows.filter((row) => row.event.type === 'context.compacted')).toEqual([]);
 });
 
 describe('Compact now while its summary is asked', () => {

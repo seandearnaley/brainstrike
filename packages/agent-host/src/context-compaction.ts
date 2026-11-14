@@ -23,7 +23,11 @@ import {
   type Turn,
   trimmedSegments,
 } from './compaction-segments.ts';
-import { type HostContextSummary, HostContextSummaryRefusal } from './compaction-summary-call.ts';
+import {
+  type HostContextSummary,
+  HostContextSummaryRefusal,
+  type HostContextSummaryUsage,
+} from './compaction-summary-call.ts';
 import {
   estimateTokens,
   type HostContextRewrites,
@@ -539,11 +543,14 @@ export function assertRequestedCompaction(branch: HostRequestedBranch): void {
  * trigger, with the summary an automatic compaction asks for; that is the
  * only difference. `focus` is the person's words, recorded on the event. A
  * failed summary is refused with its own code and nothing is compacted: no
- * fallback drops what the person asked to have summarized.
+ * fallback drops what the person asked to have summarized. One the provider
+ * answered is still billed (`bill`).
  */
 export async function requestedCompaction(
   input: HostRequestedBranch &
     Pick<CompactionBounds, 'readLedger'> & {
+      /** Commits what a summary the provider answered, and was refused, cost. */
+      readonly bill: (receipt: HostContextSummaryUsage) => Promise<void>;
       /** The admission's reading of a summary call's failure. */
       readonly classify: (cause: unknown) => BoundaryFailure;
       readonly focus?: string | undefined;
@@ -563,6 +570,10 @@ export async function requestedCompaction(
   } catch (cause) {
     if (input.signal.aborted) {
       throw cause;
+    }
+    // An answer refused as a summary was still billed: its cost reaches the ledger.
+    if (cause instanceof HostContextSummaryRefusal) {
+      await input.bill(cause.receipt);
     }
     const failure = cause instanceof BoundaryFailureError ? cause.failure : input.classify(cause);
     logger.warn('A requested compaction’s summary failed; nothing was compacted', {

@@ -691,12 +691,13 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       }),
       /**
        * A run's model calls outside its steps, each costed under the model it
-       * ran on: the run's thread title and Auto-reviews.
+       * ran on: the run's thread title, Auto-reviews and a requested
+       * compaction's summary that was refused (BST-2536).
        */
       Schema.Struct({
         type: Schema.Literal('model.usage'),
         ...RunFields,
-        kind: Schema.Literals(['thread-title', 'auto-review']),
+        kind: Schema.Literals(['thread-title', 'auto-review', 'compaction-summary']),
         modelId: Id,
         usage: json(),
       }),

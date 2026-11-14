@@ -21,6 +21,7 @@
 import { randomUUID } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
+import type { HostContextSummaryUsage } from './compaction-summary-call.ts';
 import { assertRequestedCompaction, nothingToCompact } from './context-compaction.ts';
 import type { HostChildRuns } from './core-child-runs.ts';
 import type { HostRunEnds } from './core-run-end.ts';
@@ -66,8 +67,8 @@ export interface HostThreadCompactionPorts {
     events: readonly HostEvent[]
   ): Promise<void>;
   admit<T>(threadId: string, perform: () => Promise<T>): Promise<T>;
-  /** A child thread's run is admitted for its root. */
-  readonly children: Pick<HostChildRuns, 'rootThread'>;
+  /** A delegated child thread is its parent's: it never compacts on request. */
+  readonly children: Pick<HostChildRuns, 'isChild'>;
   readonly commands: Pick<HostCommandLedger, 'perform'>;
   /** The seams a request's context reads through. */
   context(): HostRequestContextPorts;
@@ -135,6 +136,14 @@ export class HostThreadCompactions {
   /** In the admission queue: the branch, what it can drop, and the next run's admission. */
   private async admit(params: Params, origin: HostClientOrigin | undefined): Promise<Admitted> {
     const { threadId } = params;
+    // Its run is admitted for its root and narrowed; this admission would not be.
+    if (this.ports.children.isChild(threadId)) {
+      throw refusalError(
+        'input',
+        'compaction.child-thread',
+        'A delegated thread cannot be compacted on request.'
+      );
+    }
     this.assertIdle(threadId);
     const { pending, platform, runs } = this.ports.owner();
     const threadRuns = runs.ofThread(threadId);
@@ -167,16 +176,14 @@ export class HostThreadCompactions {
     // A deletion or host close aborts it, as it aborts an admission in progress.
     pending.set(controller, threadId);
     try {
-      // As a run's: a child thread's for its root.
-      const root = this.ports.children.rootThread(threadId);
       const acquired = await acquireHostRunAdmission(platform, {
         ...hostRunCommandRequest(
-          { ...selection, runId: randomUUID(), threadId: root },
+          { ...selection, runId: randomUUID(), threadId },
           origin,
           undefined,
           controller.signal
         ),
-        ...this.ports.workspaces.admissionBinding(root),
+        ...this.ports.workspaces.admissionBinding(threadId),
       });
       const next = createHostRunState(
         threadId,
@@ -223,14 +230,25 @@ export class HostThreadCompactions {
     { admission, held, next, tip }: Admitted
   ): Promise<Compacted> {
     const { threadId } = params;
-    try {
-      const event = await compactRequestedBranch(
-        this.ports.context(),
-        tip,
-        next,
-        admission,
-        params.focus
+    const context = this.ports.context();
+    // A refused summary the provider billed: the tip run's side call, as its title is.
+    const bill = async ({ modelId, usage }: HostContextSummaryUsage): Promise<void> => {
+      const event: HostEvent = {
+        kind: 'compaction-summary',
+        modelId,
+        runId: tip.id,
+        type: 'model.usage',
+        usage,
+      };
+      await this.ports.admit(threadId, () =>
+        context.append(threadId, [event], 'full', context.foldRows)
       );
+    };
+    try {
+      const event = await compactRequestedBranch(context, tip, next, admission, {
+        bill,
+        focus: params.focus,
+      });
       await this.ports.admit(threadId, () =>
         this.ports.accept(threadId, 'thread/compact', params, jsonValue(event), [event])
       );

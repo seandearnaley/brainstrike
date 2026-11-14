@@ -8,7 +8,7 @@
 import { resolveProviderError } from '@brainstrike/agent/provider-runtime';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { hostCompactionLedger } from './compaction-ledger.ts';
-import { summarizeOnRunRequest } from './compaction-summary-call.ts';
+import { type HostContextSummaryUsage, summarizeOnRunRequest } from './compaction-summary-call.ts';
 import {
   type HostCompactedContext,
   type HostCompactionLedgerReader,
@@ -312,18 +312,24 @@ export function requestedRunBranch(ports: Ports, tip: Run): HostRequestedBranch 
  * ends with `tip`. Its summary is asked on the request the thread's next run
  * sends first: `next` holds that request's admission (the thread's selected
  * model and settings) under the tip's identity, so the request reads the
- * tip's branch, its tools and its cached prefix. The event belongs to the tip.
+ * tip's branch, its tools and its cached prefix. The event belongs to the tip;
+ * so does a refused summary's receipt, which `bill` commits.
  */
 export async function compactRequestedBranch(
   ports: Ports,
   tip: Run,
   next: Run,
   admission: HostRunAdmission,
-  focus: string | undefined
+  request: {
+    readonly bill: (receipt: HostContextSummaryUsage) => Promise<void>;
+    readonly focus: string | undefined;
+  }
 ): Promise<Compacted> {
+  const { bill, focus } = request;
   const branch = requestedRunBranch(ports, tip);
   return await requestedCompaction({
     ...branch,
+    bill,
     classify: (cause) => resolveProviderError(cause, admission.configuration).failure,
     focus,
     readLedger: readRunLedger(ports, tip, branch.chain, admission),
