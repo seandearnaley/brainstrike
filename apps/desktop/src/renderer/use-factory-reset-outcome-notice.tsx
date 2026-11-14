@@ -1,5 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type {
+  BrowsingDataClearFailure,
   ResetOutcome,
   ScratchFolderTrashOutcome,
   WorktreeResetOutcome,
@@ -101,31 +102,52 @@ function showScratchOutcome(reset: string, outcome: ScratchFolderTrashOutcome): 
   });
 }
 
+/** ADR-0015, BST-2515: Chromium's own clear of the browsing data, finished after the reset. */
+function showBrowsingDataOutcome(reset: string, failure: BrowsingDataClearFailure): void {
+  toast({
+    description: `${failure.reason} Some sites' HTTPS-only settings (HSTS) and connection hints may remain. Run Factory Reset again to clear them.`,
+    persistent: true,
+    title: `${reset} could not clear some browsing data`,
+    variant: 'destructive',
+  });
+}
+
+function showOutcome(outcome: ResetOutcome): void {
+  const reset = RESET_NAME[outcome.mode];
+  if (outcome.managedWorktrees) {
+    showWorktreeOutcome(reset, outcome.managedWorktrees);
+  }
+  if (outcome.scratchFolders) {
+    showScratchOutcome(reset, outcome.scratchFolders);
+  }
+  if (outcome.browsingData) {
+    showBrowsingDataOutcome(reset, outcome.browsingData);
+  }
+}
+
 /**
  * ADR-0034: Factory Reset and Clear Database archive the managed worktrees before they delete
  * their ledger, and Clear Database moves the scratch folders to the Trash after it. The window
  * that asked for the reset is replaced before the reset answers it, so the replacement window
  * takes the outcome from Main once, as it starts, and tells the person: each folder left on disk
  * with why, or why none could be handled, or how many were.
+ *
+ * ADR-0015, BST-2515: Chromium finishes its own clear of the browsing data after the reset. Its
+ * failure is in the outcome when Main knew it before the window took it, and pushed to every
+ * window when it comes later; the window listens before it takes, so neither path misses it.
  */
 export function useFactoryResetOutcomeNotice(): void {
   useEffect(() => {
-    const take = window.electronAPI?.factoryReset.takeResetOutcome;
-    if (!take) {
+    const factoryReset = window.electronAPI?.factoryReset;
+    if (!factoryReset) {
       return;
     }
+    const stopListening = factoryReset.onResetOutcome(showOutcome);
     // Taken once: the toast store outlives this effect, so a remount never loses it.
-    take().then(
+    factoryReset.takeResetOutcome().then(
       (outcome) => {
-        if (!outcome) {
-          return;
-        }
-        const reset = RESET_NAME[outcome.mode];
-        if (outcome.managedWorktrees) {
-          showWorktreeOutcome(reset, outcome.managedWorktrees);
-        }
-        if (outcome.scratchFolders) {
-          showScratchOutcome(reset, outcome.scratchFolders);
+        if (outcome) {
+          showOutcome(outcome);
         }
       },
       (error: unknown) => {
@@ -134,5 +156,6 @@ export function useFactoryResetOutcomeNotice(): void {
         });
       }
     );
+    return stopListening;
   }, []);
 }

@@ -82,6 +82,9 @@ export const DESKTOP_IPC_CHANNELS = {
     clearAll: 'db:clearAll',
     getUserDataPath: 'db:getUserDataPath',
     resetLocal: 'db:resetLocal',
+    // Main→renderer push: what a reset did, learned after the replacement window took its
+    // outcome (BST-2515: Chromium's own clear of the browsing data failed late).
+    resetOutcome: 'db:resetOutcome',
     takeResetOutcome: 'db:takeResetOutcome',
   },
   diagnostics: {

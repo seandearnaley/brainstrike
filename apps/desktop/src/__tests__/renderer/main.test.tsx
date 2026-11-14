@@ -104,7 +104,11 @@ describe('renderer main entry', () => {
     document.body.appendChild(rootEl);
     window.electronAPI = {
       content: { clear: vi.fn() },
-      factoryReset: { resetLocal: vi.fn(), takeResetOutcome: vi.fn(async () => null) },
+      factoryReset: {
+        onResetOutcome: vi.fn(() => () => undefined),
+        resetLocal: vi.fn(),
+        takeResetOutcome: vi.fn(async () => null),
+      },
       getUserDataPath: vi.fn(),
     } as never;
     window.modelCatalog = { read: vi.fn() } as never;

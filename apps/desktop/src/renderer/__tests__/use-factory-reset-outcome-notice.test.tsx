@@ -17,6 +17,7 @@ function installOutcome(outcome: ResetOutcome | null) {
   const takeResetOutcome = vi.fn(async () => outcome);
   window.electronAPI = {
     factoryReset: {
+      onResetOutcome: () => () => undefined,
       resetLocal: async () => ({ success: true }),
       takeResetOutcome,
       unavailableReason: undefined,
