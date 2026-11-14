@@ -15,7 +15,7 @@ import { seedRoot } from './utils/seed-root';
 // are more than one protect window, so summarizing them is worth a call.
 const REPLY = 'Every chapter read.';
 const READ = 'brainstrike_readWorkspaceFile';
-const SUMMARY = 'Goal: g\nState: s\nDecisions: d\nNext: n\nFiles touched: none';
+const SUMMARY = 'Goal: g\nConstraints: c\nDecisions: d\nErrors and fixes: none\nState: s\nNext: n';
 const chapter = (number: number) => `src/chapter-${String(number).padStart(2, '0')}.ts`;
 const CHAPTERS = 22;
 const FILES = Array.from({ length: CHAPTERS }, (_unused, index) => chapter(index + 1));
@@ -103,6 +103,12 @@ test('a run past its budget part-way through compacts its older steps behind a c
   await expect(card.getByTestId('compaction-summary-turns').locator('dd')).toHaveText(
     /^\d+ steps$/u
   );
+  // BST-2527: a tool the run loaded in a replaced step is listed; the run's own
+  // question is still in its requests, so no earlier request is.
+  if (calls?.[0]?.name === 'load_tool') {
+    await expect(card.getByRole('list', { name: 'Tools loaded' })).toContainText(READ);
+  }
+  await expect(card.getByRole('list', { name: 'Earlier requests' })).toHaveCount(0);
 
   // Every request after it keeps the question and leaves the replaced reads out.
   const runRequests = modelProvider.requests().filter(threadRun);

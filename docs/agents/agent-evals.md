@@ -45,7 +45,7 @@ The host decides when a thread compacts; a task only has to get there.
 - The newest turns, and the newest steps of a run, up to 20,000 estimated tokens are never
   compacted, so a thread needs more than that before anything is droppable. With the fixed 6,000,
   a pin much below 30,000 leaves nothing to drop when the trigger fires. `recall-after-compaction`
-  (six turns) pins 30,000.
+  (eight turns, two of them probes) pins 30,000.
 - A compaction runs only when what it drops reaches the target or holds one protect window. Under a
   small pin the protected 20,000 and the fixed 6,000 sit near the trigger, so a single run needs
   room above them: `long-single-run` (one turn of 36 writes of about 5,000 tokens) pins 60,000 and

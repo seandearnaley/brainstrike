@@ -169,20 +169,18 @@ export async function createHostToolDiscovery(
     model,
     toolNameMap,
   });
-  const step = async (run: HostRunKey): Promise<DiscoveryTools> =>
+  // The tools a step offers after `messages`: Mastra's context store reads their loads.
+  const over = async (messages: readonly MastraDBMessage[]): Promise<DiscoveryTools> =>
     (
       await processor.processInputStep({
-        ...createPersistedStepArgs(await options.readRunMessages(run), model, undefined),
+        ...createPersistedStepArgs(messages, model, undefined),
         tools: surface.coreTools,
       })
     ).tools;
+  const step = async (run: HostRunKey): Promise<DiscoveryTools> =>
+    over(await options.readRunMessages(run));
   // The declarations (descriptions, schemas) of a run that loaded nothing yet.
-  const initial = (
-    await processor.processInputStep({
-      ...createPersistedStepArgs([], model, undefined),
-      tools: surface.coreTools,
-    })
-  ).tools;
+  const initial = await over([]);
   const tools: Record<string, HostTool> = {
     [LIST_AVAILABLE_TOOLS_ID]: discoveryHostTool(
       initial[LIST_AVAILABLE_TOOLS_ID],
@@ -200,6 +198,8 @@ export async function createHostToolDiscovery(
   return {
     discovery: {
       activeTools: async (run) => Object.keys(await step(run)),
+      loadedTools: async (messages) =>
+        Object.keys(await over(messages)).filter((id) => !(id in initial)),
       toolIds: new Set(Object.keys(tools)),
     },
     tools,

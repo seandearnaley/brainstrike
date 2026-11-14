@@ -37,6 +37,10 @@ function turns(count: number, chars: number): ModelMessage[] {
 const receipt = { modelId: 'gpt-6-sol', usage: { inputTokens: 300, outputTokens: 40 } };
 const summary = { ...receipt, text: 'Goal: g\nState: s' };
 
+/** A log with nothing to list for any span. */
+const EMPTY_LEDGER = { earlierRequests: [], filesEdited: [], toolsLoaded: [] };
+const readNothing = async () => EMPTY_LEDGER;
+
 /** Past a 40,000-token budget's trigger, committing what compacts. */
 async function pastTrigger(overrides: Partial<Input>) {
   const committed: Compacted[] = [];
@@ -48,6 +52,7 @@ async function pastTrigger(overrides: Partial<Input>) {
     compactions: [],
     inputTokenLimit: 40_000,
     messages: turns(6, 40_000),
+    readLedger: readNothing,
     signal: new AbortController().signal,
     summarize: async () => summary,
     ...overrides,
@@ -125,9 +130,11 @@ describe('a long run compacts between steps (BST-2531)', () => {
   it('summarizes the run’s older steps, keeping its question and its newest 20,000 tokens', async () => {
     const turn = long();
     const summarize = vi.fn(async (_transcript: string) => summary);
-    const { committed, prepared } = await stepCompactions(turn, { summarize });
+    const readLedger = vi.fn(readNothing);
+    const { committed, prepared } = await stepCompactions(turn, { readLedger, summarize });
     expect(committed).toEqual([
       {
+        ...EMPTY_LEDGER,
         compactedRunIds: [],
         kind: 'agentic',
         modelId: 'gpt-6-sol',
@@ -146,6 +153,12 @@ describe('a long run compacts between steps (BST-2531)', () => {
     expect(transcript).not.toContain('run-0-call-7');
     expect(prepared.messages).toEqual([turn.messages[0], ...turn.messages.slice(15)]);
     expect(prepared.note).toBe(`[Earlier conversation compacted]\n${summary.text}`);
+    // The host's lists cover the steps it replaced; no whole turn, so no request.
+    expect(readLedger).toHaveBeenCalledWith({
+      kept: new Map(),
+      runs: new Set(),
+      steps: new Map([['run-0', 6]]),
+    });
   });
 
   it('never cuts between a call and its result', async () => {
@@ -166,6 +179,7 @@ describe('a long run compacts between steps (BST-2531)', () => {
     // Reclaiming 20,136 takes six steps.
     expect(committed).toEqual([
       {
+        ...EMPTY_LEDGER,
         compactedRunIds: [],
         kind: 'deterministic',
         reason: 'pre-request',
@@ -183,6 +197,7 @@ describe('a long run compacts between steps (BST-2531)', () => {
   it('applies a committed compaction of steps on every later step without committing again', async () => {
     const turn = long();
     const earlier: Compacted = {
+      ...EMPTY_LEDGER,
       compactedRunIds: [],
       kind: 'agentic',
       reason: 'pre-request',
@@ -240,6 +255,7 @@ describe('a long run compacts between steps (BST-2531)', () => {
         compactions: [],
         inputTokenLimit: 20_000,
         messages: turn.messages,
+        readLedger: readNothing,
       })
     ).toMatchObject({ through: { runId: 'run-0', stepNumber: 0 } });
   });
@@ -317,21 +333,51 @@ describe('a long run compacts between steps (BST-2531)', () => {
     expect(summarize).not.toHaveBeenCalled();
   });
 
+  /** A compaction of run-0 through `stepNumber` that kept `kept`, with nothing in its lists. */
+  const stepCompaction = (stepNumber: number, kept: number[]): Compacted => ({
+    ...EMPTY_LEDGER,
+    compactedRunIds: [],
+    kind: 'agentic',
+    reason: 'pre-request',
+    runId: 'run-0',
+    summary: `Through ${stepNumber}.`,
+    through: { kept, runId: 'run-0', stepNumber },
+    type: 'context.compacted',
+  });
+
   it('keeps every kept step of a run across its compactions', async () => {
     const turn = protectedRun();
-    const compaction = (stepNumber: number, kept: number[]): Compacted => ({
-      compactedRunIds: [],
-      kind: 'agentic',
-      reason: 'pre-request',
-      runId: 'run-0',
-      summary: `Through ${stepNumber}.`,
-      through: { kept, runId: 'run-0', stepNumber },
-      type: 'context.compacted',
-    });
     const { prepared } = await stepCompactions(turn, {
-      compactions: [compaction(3, [2]), compaction(10, [5])],
+      compactions: [stepCompaction(3, [2]), stepCompaction(10, [5])],
       inputTokenLimit: 200_000,
     });
+    expect(prepared.messages).toEqual([
+      turn.messages[0],
+      ...stepMessages(turn, 2),
+      ...stepMessages(turn, 5),
+      ...turn.messages.slice(23),
+    ]);
+  });
+
+  it('names every step its run kept, its own and its earlier summary’s, and lists none of them (BST-2527)', async () => {
+    // An earlier compaction through step 3 kept step 2; this one replaces steps 4 to 10 and keeps 5.
+    const turn = protectedRun();
+    const readLedger = vi.fn(readNothing);
+    const { committed, prepared } = await stepCompactions(turn, {
+      compactions: [stepCompaction(3, [2])],
+      readLedger,
+    });
+    expect(committed.map((event) => event.through)).toEqual([
+      { kept: [2, 5], runId: 'run-0', stepNumber: 10 },
+    ]);
+    // The host's lists leave out every kept step: each is still in the request.
+    expect(readLedger).toHaveBeenCalledWith({
+      kept: new Map([['run-0', new Set([2, 5])]]),
+      runs: new Set(),
+      steps: new Map([['run-0', 10]]),
+    });
+    // The note reads that one summary, and both kept steps stay word for word.
+    expect(prepared.note).toBe('[Earlier conversation compacted]\nGoal: g\nState: s');
     expect(prepared.messages).toEqual([
       turn.messages[0],
       ...stepMessages(turn, 2),
@@ -347,6 +393,7 @@ describe('a long run compacts between steps (BST-2531)', () => {
       compactions: [],
       inputTokenLimit: 40_000,
       messages: turn.messages,
+      readLedger: readNothing,
     });
     expect(event).toMatchObject({
       compactedRunIds: [],
@@ -358,6 +405,7 @@ describe('a long run compacts between steps (BST-2531)', () => {
   it('belongs only to a branch that holds the run whose steps it summarized', async () => {
     const own = longTurn('run-1', 12, 16_000);
     const compaction: Compacted = {
+      ...EMPTY_LEDGER,
       compactedRunIds: ['run-0'],
       kind: 'agentic',
       reason: 'pre-request',
@@ -373,6 +421,7 @@ describe('a long run compacts between steps (BST-2531)', () => {
         compactions: [compaction],
         inputTokenLimit: 200_000,
         messages: [...turns(1, 10), ...messages],
+        readLedger: readNothing,
         signal: new AbortController().signal,
         summarize: async () => summary,
       });
@@ -413,6 +462,7 @@ describe('a request trim is committed as a compaction (BST-2531)', () => {
       compactions,
       inputTokenLimit: 200_000,
       messages: [...turns(3, 400), ...turn.messages],
+      readLedger: readNothing,
       signal: new AbortController().signal,
       summarize: async () => summary,
     });
@@ -422,7 +472,8 @@ describe('a request trim is committed as a compaction (BST-2531)', () => {
   it('names the turns a trimmed request left out', async () => {
     const trim = await trimmable();
     // The request kept run-3's question, its notice and everything after it.
-    expect(trim(2)).toEqual({
+    expect(await trim(2)).toEqual({
+      ...EMPTY_LEDGER,
       compactedRunIds: ['run-0', 'run-1', 'run-2'],
       kind: 'deterministic',
       reason: 'request-trim',
@@ -437,7 +488,7 @@ describe('a request trim is committed as a compaction (BST-2531)', () => {
     const trim = await trimmable();
     // The request kept only the notice and what followed it. The notice is
     // part of step 3, which the request kept a part of: steps 0 to 2 are named.
-    expect(trim(1)).toMatchObject({
+    expect(await trim(1)).toMatchObject({
       compactedRunIds: ['run-0', 'run-1', 'run-2'],
       reason: 'request-trim',
       summary:
@@ -448,9 +499,10 @@ describe('a request trim is committed as a compaction (BST-2531)', () => {
 
   it('commits nothing for a request that kept every turn, or left out only what was compacted', async () => {
     const trim = await trimmable();
-    expect(trim(5)).toBeUndefined();
+    expect(await trim(5)).toBeUndefined();
     const compacted = await trimmable([
       {
+        ...EMPTY_LEDGER,
         compactedRunIds: ['run-0', 'run-1', 'run-2'],
         kind: 'agentic',
         reason: 'pre-request',
@@ -460,6 +512,26 @@ describe('a request trim is committed as a compaction (BST-2531)', () => {
         type: 'context.compacted',
       },
     ]);
-    expect(compacted(1)).toBeUndefined();
+    expect(await compacted(1)).toBeUndefined();
+  });
+
+  it('covers what the branch’s summary covered too, and keeps that summary (BST-2527)', async () => {
+    const trim = await trimmable([
+      {
+        ...EMPTY_LEDGER,
+        compactedRunIds: ['run-0', 'run-1'],
+        kind: 'agentic',
+        reason: 'pre-request',
+        runId: 'run-3',
+        summary: 'Goal: the first two turns.',
+        type: 'context.compacted',
+      },
+    ]);
+    expect(await trim(2)).toMatchObject({
+      compactedRunIds: ['run-0', 'run-1', 'run-2'],
+      reason: 'request-trim',
+      summary:
+        'Goal: the first two turns.\n\nDeterministic fallback: dropped 1 earlier turns (2 messages) after a request over the input budget; no summarization model ran.',
+    });
   });
 });

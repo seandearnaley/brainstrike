@@ -28,6 +28,16 @@
         ]
       },
       "prompt": "Without opening any file: which port did we settle on at the start, and which file sets it?"
+    },
+    {
+      "probe": {
+        "facts": [
+          "src/server.ts",
+          "notes/release-1.md",
+          "notes/release-5.md"
+        ]
+      },
+      "prompt": "Without opening any file: which files has this thread changed?"
     }
   ],
   "id": "recall-after-compaction",

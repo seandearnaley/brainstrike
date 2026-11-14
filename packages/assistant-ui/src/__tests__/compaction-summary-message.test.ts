@@ -7,7 +7,13 @@ import {
 } from '../compaction-summary-message';
 
 describe('readHostContextCompaction', () => {
+  const lists = {
+    earlierRequests: ['Move the port.'],
+    filesEdited: [{ edits: 2, path: 'src/server.ts' }],
+    toolsLoaded: ['brainstrike_lspInspect'],
+  };
   const part = {
+    ...lists,
     kind: 'agentic',
     modelId: 'openai::gpt-6-sol',
     reason: 'pre-request',
@@ -22,6 +28,7 @@ describe('readHostContextCompaction', () => {
 
   it('reads the summarizer failure a deterministic fallback recorded (BST-2204)', () => {
     const fallback = {
+      ...lists,
       kind: 'deterministic',
       reason: 'pre-request',
       summarizerFailure: {
@@ -38,6 +45,7 @@ describe('readHostContextCompaction', () => {
     const steps = { ...part, stepsCompacted: 7, turnsCompacted: 0 };
     expect(readHostContextCompaction(steps)).toEqual(steps);
     const trim = {
+      ...lists,
       kind: 'deterministic',
       reason: 'request-trim',
       summary: 'Dropped.',
@@ -53,6 +61,8 @@ describe('readHostContextCompaction', () => {
     ['with an empty summarizer model', { ...part, modelId: '' }],
     ['with usage missing its tokens', { ...part, usage: { inputTokens: 10 } }],
     ['with a summarizer failure missing its code', { ...part, summarizerFailure: {} }],
+    ['without the host’s lists (BST-2527)', { ...part, toolsLoaded: undefined }],
+    ['with a file of no edits', { ...part, filesEdited: [{ edits: 0, path: 'src/a.ts' }] }],
   ])('refuses a part %s', (_label, data) => {
     expect(() => readHostContextCompaction(data)).toThrow(Error);
   });

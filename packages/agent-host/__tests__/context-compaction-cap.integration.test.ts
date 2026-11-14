@@ -48,7 +48,7 @@ function answer(inputTokens: number | undefined): Chunk[] {
   ];
 }
 
-const SUMMARY = 'Goal: g\nState: s\nDecisions: d\nNext: n\nFiles touched: none';
+const SUMMARY = 'Goal: g\nConstraints: c\nDecisions: d\nErrors and fixes: none\nState: s\nNext: n';
 
 /** A model whose answers report `reported()` input tokens; its side calls summarize. */
 function reportingModel(reported: () => number | undefined): MockLanguageModelV4 {

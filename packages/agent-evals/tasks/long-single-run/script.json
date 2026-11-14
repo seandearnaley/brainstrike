@@ -434,5 +434,5 @@
       "toolId": "brainstrike_writeWorkspaceFile"
     }
   ],
-  "summary": "Goal:\nWrite the scene notes for chapters 1 to 36, one file each under notes/.\nState:\nThe notes for the earlier chapters are written.\nDecisions:\nOne line per scene, 360 lines a chapter.\nNext:\nWrite the remaining chapters.\nFiles touched:\nnotes/chapter-1.md and the chapters after it written so far"
+  "summary": "Goal:\nWrite the scene notes for chapters 1 to 36, one file each under notes/.\nConstraints:\nAll in this turn, with workspace-relative paths and no root.\nDecisions:\nOne line per scene, 360 lines a chapter.\nErrors and fixes:\nNone.\nState:\nThe notes for the earlier chapters are written.\nNext:\nWrite the remaining chapters."
 }

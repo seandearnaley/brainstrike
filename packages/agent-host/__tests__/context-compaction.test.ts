@@ -7,6 +7,7 @@ import { jsonSchema, type ModelMessage } from 'ai';
 import { describe, expect, it, vi } from 'vitest';
 import {
   compactionCuts,
+  type HostCompactionCuts,
   HostContextSummarySchemaError,
   overflowCompaction,
   prepareCompactedContext,
@@ -61,6 +62,10 @@ const CAP = CONTEXT_COMPACTION_DEFAULT_TOKEN_CAP;
 const receipt = { modelId: 'gpt-6-sol', usage: { inputTokens: 300, outputTokens: 40 } };
 const summary = { ...receipt, text: 'Goal: g\nState: s' };
 
+/** A log with nothing to list for any span. */
+const EMPTY_LEDGER = { earlierRequests: [], filesEdited: [], toolsLoaded: [] };
+const readNothing = async () => EMPTY_LEDGER;
+
 /**
  * Six turns of 10,006 estimated tokens (60,036) against a 40,000-token budget:
  * past the trigger; the protect window keeps run-4 and run-5 (20,012 tokens).
@@ -75,6 +80,7 @@ async function pastTrigger(overrides: Partial<Input> = {}) {
     compactions: [],
     inputTokenLimit: 40_000,
     messages: turns(6, 40_000),
+    readLedger: readNothing,
     signal: new AbortController().signal,
     summarize: async () => summary,
     ...overrides,
@@ -93,6 +99,7 @@ describe('prepareCompactedContext', () => {
       compactions: [],
       inputTokenLimit: 20_000,
       messages,
+      readLedger: readNothing,
       signal: new AbortController().signal,
       summarize,
     });
@@ -107,6 +114,7 @@ describe('prepareCompactedContext', () => {
     const { committed, prepared } = await pastTrigger({ summarize });
     expect(committed).toEqual([
       {
+        ...EMPTY_LEDGER,
         compactedRunIds: ['run-0', 'run-1', 'run-2', 'run-3'],
         kind: 'agentic',
         modelId: 'gpt-6-sol',
@@ -117,6 +125,7 @@ describe('prepareCompactedContext', () => {
         usage: receipt.usage,
       },
     ]);
+    // With no summary before it, the summarizer reads the dropped messages alone.
     const transcript = summarize.mock.calls[0]?.[0] ?? '';
     expect(transcript.split('\n')).toHaveLength(8);
     expect(transcript).toContain('question 0');
@@ -177,6 +186,7 @@ describe('prepareCompactedContext', () => {
     });
     expect(committed).toEqual([
       {
+        ...EMPTY_LEDGER,
         compactedRunIds: ['run-0', 'run-1', 'run-2'],
         kind: 'deterministic',
         reason: 'pre-request',
@@ -247,6 +257,7 @@ describe('prepareCompactedContext', () => {
   it('applies committed compactions without committing again', async () => {
     const commit = vi.fn(async () => undefined);
     const earlier: Compacted = {
+      ...EMPTY_LEDGER,
       compactedRunIds: ['run-0'],
       kind: 'agentic',
       reason: 'pre-request',
@@ -260,6 +271,7 @@ describe('prepareCompactedContext', () => {
       compactions: [earlier],
       inputTokenLimit: 20_000,
       messages: turns(3, 10),
+      readLedger: readNothing,
       signal: new AbortController().signal,
       summarize: async () => summary,
     });
@@ -284,6 +296,7 @@ describe('prepareCompactedContext', () => {
       compactions: [],
       inputTokenLimit: 20_000,
       messages,
+      readLedger: readNothing,
       signal: new AbortController().signal,
       summarize: async () => summary,
     });
@@ -299,6 +312,7 @@ describe('prepareCompactedContext', () => {
         compactions: [],
         inputTokenLimit: 20_000,
         messages: turns(1, 10),
+        readLedger: readNothing,
         signal: new AbortController().signal,
         summarize: async () => summary,
       })
@@ -598,6 +612,7 @@ describe('the committed log sizes a thread (BST-2526)', () => {
     thread.answer(4, { inputTokens: 170_000, outputTokens: 10_003 });
     // An overflow compaction of run-0 commits before run-5's next attempt.
     const overflow: Compacted = {
+      ...EMPTY_LEDGER,
       compactedRunIds: ['run-0'],
       kind: 'deterministic',
       reason: 'context-overflow',
@@ -626,8 +641,10 @@ describe('overflowCompaction', () => {
         compactions: [],
         inputTokenLimit: 50_000,
         messages: turns(6, 40_000),
+        readLedger: readNothing,
       })
     ).toEqual({
+      ...EMPTY_LEDGER,
       compactedRunIds: ['run-0', 'run-1', 'run-2'],
       kind: 'deterministic',
       reason: 'context-overflow',
@@ -644,6 +661,7 @@ describe('overflowCompaction', () => {
       compactions: [],
       inputTokenLimit: 200_000,
       messages: turns(6, 40_000),
+      readLedger: readNothing,
     });
     expect(event?.compactedRunIds).toEqual(['run-0']);
   });
@@ -656,6 +674,7 @@ describe('overflowCompaction', () => {
       compactionTokenCap: CAP,
       inputTokenLimit: BUDGET_1M,
       messages: turns(6, 40_000),
+      readLedger: readNothing,
     });
     expect(event?.compactedRunIds).toEqual(['run-0', 'run-1', 'run-2', 'run-3']);
   });
@@ -667,6 +686,7 @@ describe('overflowCompaction', () => {
         compactions: [],
         inputTokenLimit: 50_000,
         messages: turns(6, 40_000),
+        readLedger: readNothing,
         ...input,
       });
     expect(await overflow({ inputTokenLimit: undefined })).toBeUndefined();
@@ -680,6 +700,7 @@ describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
    * branch's own run-9, which this branch never had.
    */
   const sibling: Compacted = {
+    ...EMPTY_LEDGER,
     compactedRunIds: ['run-0', 'run-1', 'run-9'],
     kind: 'agentic',
     reason: 'pre-request',
@@ -696,6 +717,7 @@ describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
       compactions: [sibling],
       inputTokenLimit: 20_000,
       messages: turns(3, 10),
+      readLedger: readNothing,
       signal: new AbortController().signal,
       summarize: async () => summary,
     });
@@ -712,6 +734,7 @@ describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
       compactions: [own, sibling],
       inputTokenLimit: 20_000,
       messages: turns(3, 10),
+      readLedger: readNothing,
       signal: new AbortController().signal,
       summarize: async () => summary,
     });
@@ -725,6 +748,7 @@ describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
       compactions: [sibling],
       inputTokenLimit: 40_000,
       messages: turns(6, 40_000),
+      readLedger: readNothing,
     });
     expect(event?.compactedRunIds).toContain('run-0');
   });
@@ -739,5 +763,167 @@ describe('a compaction belongs to the branch it summarized (BST-2528)', () => {
     expect(compactionCuts(rows, new Set(['run-0', 'run-1', 'run-9'])).runs).toEqual(
       new Set(['run-0', 'run-1', 'run-9'])
     );
+  });
+});
+
+describe('a thread carries one current summary (BST-2527)', () => {
+  /** What the log holds for a span, as a stub reads it: each whole turn asked once and edited one file. */
+  const ledgerOf = () =>
+    vi.fn(async (span: HostCompactionCuts) => ({
+      earlierRequests: [...span.runs].map((id) => `asked in ${id}`),
+      filesEdited: [...span.runs].map((id) => ({ edits: 1, path: `${id}.ts` })),
+      toolsLoaded: ['brainstrike_lspInspect'],
+    }));
+  const merged = { ...receipt, text: 'Goal: merged' };
+  const sixRuns = ['run-0', 'run-1', 'run-2', 'run-3', 'run-4', 'run-5'];
+
+  /**
+   * A first compaction covered run-0 to run-3 before run-5's request; two
+   * turns later run-7's request is past the trigger again, and run-4 and
+   * run-5 are droppable.
+   */
+  async function twice(summarize: Input['summarize'], readLedger = ledgerOf()) {
+    const first = await pastTrigger({ readLedger });
+    const second = await pastTrigger({
+      chain: chain(8),
+      compactions: first.committed,
+      messages: turns(8, 40_000),
+      readLedger,
+      summarize,
+    });
+    return { first: first.committed, readLedger, second };
+  }
+
+  it('merges the previous summary with the newly dropped turns into one that covers both', async () => {
+    const summarize = vi.fn(async (_input: string) => merged);
+    const { first, second } = await twice(summarize);
+    expect(first.map((event) => event.compactedRunIds)).toEqual([sixRuns.slice(0, 4)]);
+    expect(second.committed).toEqual([
+      {
+        compactedRunIds: sixRuns,
+        earlierRequests: sixRuns.map((id) => `asked in ${id}`),
+        filesEdited: sixRuns.map((id) => ({ edits: 1, path: `${id}.ts` })),
+        kind: 'agentic',
+        modelId: 'gpt-6-sol',
+        reason: 'pre-request',
+        runId: 'run-7',
+        summary: 'Goal: merged',
+        toolsLoaded: ['brainstrike_lspInspect'],
+        type: 'context.compacted',
+        usage: receipt.usage,
+      },
+    ]);
+    // The summarizer read the previous summary and only what this compaction newly dropped.
+    const input = summarize.mock.calls[0]?.[0] ?? '';
+    expect(
+      input.startsWith(`Previous summary:\n${summary.text}\n\nNewly compacted messages:\n`)
+    ).toBe(true);
+    expect(input).toContain('question 4');
+    expect(input).toContain('question 5');
+    expect(input).not.toContain('question 3');
+  });
+
+  it('puts one summary in the note, with the lists the host wrote from the log', async () => {
+    const { second } = await twice(async () => merged);
+    expect(second.prepared.note).toBe(
+      [
+        '[Earlier conversation compacted]',
+        'Goal: merged',
+        '',
+        'Files edited:',
+        ...sixRuns.map((id) => `- ${id}.ts (1 edit)`),
+        '',
+        'Tools loaded:',
+        '- brainstrike_lspInspect',
+        '',
+        'Earlier requests:',
+        ...sixRuns.map((id) => `- asked in ${id}`),
+      ].join('\n')
+    );
+    expect(second.prepared.messages[0]).toEqual({ content: 'question 6', role: 'user' });
+  });
+
+  it('reads the lists for everything the compaction covers, not only what it newly dropped', async () => {
+    const { readLedger } = await twice(async () => merged);
+    expect(readLedger.mock.calls.at(-1)?.[0]).toEqual({
+      kept: new Map(),
+      runs: new Set(sixRuns),
+      steps: new Map(),
+    });
+  });
+
+  it('keeps the host’s lists and the previous summary when the summarizer fails', async () => {
+    const { second } = await twice(async () => {
+      throw new Error('provider unavailable');
+    });
+    expect(second.committed).toEqual([
+      {
+        compactedRunIds: sixRuns,
+        earlierRequests: sixRuns.map((id) => `asked in ${id}`),
+        filesEdited: sixRuns.map((id) => ({ edits: 1, path: `${id}.ts` })),
+        kind: 'deterministic',
+        reason: 'pre-request',
+        runId: 'run-7',
+        summarizerFailure: { code: 'boundary.internal', correlationId: expect.any(String) },
+        summary: `${summary.text}\n\nDeterministic fallback: dropped 2 earlier turns (4 messages) after an agentic summarizer failure; no summarization model ran.`,
+        toolsLoaded: ['brainstrike_lspInspect'],
+        type: 'context.compacted',
+      },
+    ]);
+    expect(
+      second.prepared.note?.startsWith(`[Earlier conversation compacted]\n${summary.text}\n\n`)
+    ).toBe(true);
+  });
+
+  /** Committed by `runId`, covering `compactedRunIds`, with nothing in its lists. */
+  const compaction = (runId: string, compactedRunIds: string[], text: string): Compacted => ({
+    ...EMPTY_LEDGER,
+    compactedRunIds,
+    kind: 'agentic',
+    reason: 'pre-request',
+    runId,
+    summary: text,
+    type: 'context.compacted',
+  });
+
+  it('never gives a sibling branch the summary another branch merged, and merges its own', async () => {
+    // Both branches hold run-0 to run-2. The other branch ran run-x after run-2
+    // and merged its own summary over run-0 to run-2 and run-x.
+    const shared = compaction('run-3', ['run-0', 'run-1'], 'Goal: the shared turns.');
+    const other = compaction(
+      'run-y',
+      ['run-0', 'run-1', 'run-2', 'run-x'],
+      'Goal: the other branch.'
+    );
+    const below = await pastTrigger({
+      chain: chain(5),
+      compactions: [shared, other],
+      inputTokenLimit: 20_000,
+      messages: turns(5, 10),
+    });
+    expect(below.committed).toEqual([]);
+    expect(below.prepared.note).toBe('[Earlier conversation compacted]\nGoal: the shared turns.');
+    expect(below.prepared.messages[0]).toEqual({ content: 'question 2', role: 'user' });
+
+    const summarize = vi.fn(async (_input: string) => merged);
+    const past = await pastTrigger({ compactions: [shared, other], summarize });
+    const input = summarize.mock.calls[0]?.[0] ?? '';
+    expect(input).toContain('Previous summary:\nGoal: the shared turns.');
+    expect(input).not.toContain('the other branch');
+    expect(past.committed.map((event) => event.compactedRunIds)).toEqual([sixRuns.slice(0, 4)]);
+  });
+
+  it('reads the compaction that covers the most of its branch, though a newer one covers less', async () => {
+    // A sibling branch later compacted run-0, which this branch also holds.
+    const own = compaction('run-4', ['run-0', 'run-1', 'run-2'], 'Goal: this branch.');
+    const sibling = compaction('run-y', ['run-0'], 'Goal: the first turn only.');
+    const { prepared } = await pastTrigger({
+      chain: chain(5),
+      compactions: [own, sibling],
+      inputTokenLimit: 20_000,
+      messages: turns(5, 10),
+    });
+    expect(prepared.note).toBe('[Earlier conversation compacted]\nGoal: this branch.');
+    expect(prepared.messages[0]).toEqual({ content: 'question 3', role: 'user' });
   });
 });

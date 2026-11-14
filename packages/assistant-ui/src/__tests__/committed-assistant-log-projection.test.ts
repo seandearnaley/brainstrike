@@ -47,6 +47,8 @@ const identity: CommittedAssistantRunIdentity = {
 function projector(): CommittedAssistantLogProjection {
   return new CommittedAssistantLogProjection({ identifyRun: () => identity, threadId });
 }
+/** A committed compaction's host-written lists, empty (BST-2527). */
+const NO_LISTS = { earlierRequests: [], filesEdited: [], toolsLoaded: [] };
 function answer(projection: CommittedAssistantLogProjection) {
   const message = projection
     .getSnapshot()
@@ -329,9 +331,15 @@ describe('rich committed-log presentation projection', () => {
     const summary =
       'Deterministic fallback: dropped 3 earlier turns (6 messages) after an agentic summarizer failure; no summarization model ran.';
     // The exact event the host commits when its summarizer fails past the trigger.
+    const lists = {
+      earlierRequests: ['Move the port to 8443.'],
+      filesEdited: [{ edits: 2, path: 'src/server.ts' }],
+      toolsLoaded: ['brainstrike_lspInspect'],
+    };
     projection.acceptCommitted([
       {
         event: {
+          ...lists,
           compactedRunIds: ['earlier-run'],
           kind: 'deterministic',
           reason: 'pre-request',
@@ -343,8 +351,9 @@ describe('rich committed-log presentation projection', () => {
         threadId,
       },
     ]);
+    // The host's lists ride beside the fallback's line, as committed.
     expect(answer(projection).content.at(-1)).toEqual({
-      data: { kind: 'deterministic', reason: 'pre-request', summary, turnsCompacted: 1 },
+      data: { ...lists, kind: 'deterministic', reason: 'pre-request', summary, turnsCompacted: 1 },
       name: HOST_CONTEXT_COMPACTED_DATA_NAME,
       type: 'data',
     });
@@ -603,6 +612,7 @@ describe('rich committed-log presentation projection', () => {
     projection.acceptCommitted([
       {
         event: {
+          ...NO_LISTS,
           compactedRunIds: ['earlier-run', 'middle-run'],
           kind: 'agentic',
           modelId: 'openai::gpt-6-sol',
@@ -624,6 +634,7 @@ describe('rich committed-log presentation projection', () => {
     ]);
     expect(answer(projection).content.at(-1)).toEqual({
       data: {
+        ...NO_LISTS,
         kind: 'agentic',
         modelId: 'openai::gpt-6-sol',
         reason: 'pre-request',
@@ -636,7 +647,7 @@ describe('rich committed-log presentation projection', () => {
     });
   });
 
-  it('counts the steps each compaction of a running turn replaced since the last one (BST-2531)', () => {
+  it('counts the steps of a running turn each compaction’s summary covers (BST-2531, BST-2527)', () => {
     const projection = projector();
     projection.acceptCommitted(rows);
     const last = rows.at(-1);
@@ -645,6 +656,7 @@ describe('rich committed-log presentation projection', () => {
     }
     const compacted = (seq: number, stepNumber: number, reason: string, kept?: number[]) => ({
       event: {
+        ...NO_LISTS,
         compactedRunIds: [],
         kind: 'deterministic',
         reason,
@@ -657,15 +669,18 @@ describe('rich committed-log presentation projection', () => {
       threadId,
     });
     // The first kept its steps 2 and 4 word for word, so it replaced five of seven.
+    // The second merged the first and names its kept steps too (BST-2527).
     projection.acceptCommitted([
       compacted(last.seq + 1, 6, 'pre-request', [2, 4]),
-      compacted(last.seq + 2, 10, 'request-trim'),
+      compacted(last.seq + 2, 10, 'request-trim', [2, 4]),
     ]);
     const cards = answer(projection).content.filter(
       (part) => part.type === 'data' && part.name === HOST_CONTEXT_COMPACTED_DATA_NAME
     );
+    // Its summary covers steps 0 to 10 but the two kept ones.
     expect(cards.map((part) => (part.type === 'data' ? part.data : undefined))).toEqual([
       {
+        ...NO_LISTS,
         kind: 'deterministic',
         reason: 'pre-request',
         stepsCompacted: 5,
@@ -673,9 +688,10 @@ describe('rich committed-log presentation projection', () => {
         turnsCompacted: 0,
       },
       {
+        ...NO_LISTS,
         kind: 'deterministic',
         reason: 'request-trim',
-        stepsCompacted: 4,
+        stepsCompacted: 9,
         summary: 'Dropped.',
         turnsCompacted: 0,
       },
@@ -687,6 +703,8 @@ describe('rich committed-log presentation projection', () => {
     ['no compacted runs', { compactedRunIds: [] }],
     ['a step it cannot read', { through: { runId, stepNumber: -1 } }],
     ['usage without its token counts', { modelId: 'openai::gpt-6-sol', usage: { totalTokens: 9 } }],
+    ['no host-written lists (BST-2527)', { earlierRequests: undefined }],
+    ['an unreadable edited file', { filesEdited: [{ path: 'src/a.ts' }] }],
   ])('stops before a committed compaction with %s', (_label, change) => {
     const projection = projector();
     projection.acceptCommitted(rows);
@@ -698,6 +716,7 @@ describe('rich committed-log presentation projection', () => {
       projection.acceptCommitted([
         {
           event: {
+            ...NO_LISTS,
             compactedRunIds: ['earlier-run'],
             kind: 'deterministic',
             reason: 'context-overflow',

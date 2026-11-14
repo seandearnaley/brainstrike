@@ -782,8 +782,27 @@ export function hostEventSchema(json: JsonSchemaFactory) {
       Schema.Struct({
         type: Schema.Literal('context.compacted'),
         ...RunFields,
-        /** The earlier runs whose whole turns the summary replaced. */
+        /**
+         * Every earlier run whose whole turn the summary covers: the ones this
+         * compaction replaced and every one the summary it merged covered
+         * (BST-2527). A branch reads one summary: the one covering most of it.
+         */
         compactedRunIds: Schema.mutable(Schema.Array(Id)),
+        /**
+         * BST-2527: what the host wrote from the log for everything the
+         * summary covers, with no model involved: the person's own request of
+         * each whole turn (each cut at a fixed length), every file the covered
+         * calls edited with its count of edits, and the tools they loaded.
+         */
+        earlierRequests: Schema.mutable(Schema.Array(Prompt)),
+        filesEdited: Schema.mutable(
+          Schema.Array(
+            Schema.Struct({
+              edits: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+              path: WorkspaceRelativePath,
+            })
+          )
+        ),
         kind: Schema.Literals(['agentic', 'deterministic']),
         modelId: Schema.optional(Id),
         /**
@@ -801,12 +820,18 @@ export function hostEventSchema(json: JsonSchemaFactory) {
             correlationId: Schema.optional(Schema.String.check(Schema.isUUID())),
           })
         ),
+        /**
+         * The model's merged sections, or a fallback's line after the summary
+         * it carried forward.
+         */
         summary: Schema.String.check(Schema.isMinCodePoints(1)),
         /**
          * BST-2531: the steps of `runId` up to and including `stepNumber`
-         * that the summary replaced; the run's user message stays, and so do
+         * that the summary covers; the run's user message stays, and so do
          * the `kept` steps among them (a skill load, an `askUser` or
-         * `submitPlan` result), word for word.
+         * `submitPlan` result), word for word: every one any compaction of
+         * the run kept (BST-2527). The newest run cut at a step, so a branch
+         * without it never reads the summary.
          */
         through: Schema.optional(
           Schema.Struct({
@@ -821,6 +846,7 @@ export function hostEventSchema(json: JsonSchemaFactory) {
             )
           )
         ),
+        toolsLoaded: Schema.mutable(Schema.Array(Id)),
         usage: Schema.optional(json()),
       }).check(
         Schema.makeFilter((event) =>
