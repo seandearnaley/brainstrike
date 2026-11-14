@@ -63,8 +63,8 @@
   - Limit: the first 200 lines or 25,000 characters, whichever comes first, with a marker that
     says where it was cut. Note files are not loaded; the model reads them with `view`.
   - A child run (subagent) gets the index too and never writes: the tool is parent-only.
-- **Limits.** Paths start with `/memories`; a `..` segment, a hidden name and `MEMORY.md` in any
-  case are refused, and the workspace path resolver (`resolveWorkspaceWritePath`) keeps every
+- **Limits.** Paths start with `/memories`; a `..` segment, a hidden name, `MEMORY.md` in any
+  case and a segment holding `<`, `>` or a line break are refused, and the workspace path resolver (`resolveWorkspaceWritePath`) keeps every
   write inside the folder through symlinks. A note holds at most 16,000 characters, the size Anthropic's `view` shows
   before it truncates.
 - **A note is data.** The section tells the model that notes are facts earlier threads saved,

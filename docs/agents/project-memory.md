@@ -24,7 +24,7 @@ Owners: [notes](../../packages/host-capabilities/src/project-memory/memory-notes
 - Paths: `/memories` or under it. A `.`, `..`, percent-encoded or hidden segment is refused before the workspace path resolver keeps the write inside the folder through symlinks. Reuse that resolver; never add another.
 - A note holds at most 16,000 characters. One that `scrubLikelySecretValues` flags is refused and committed as `memory.refused`, which never carries its text.
 - A write marks its notes untrusted until they are deleted when its run or any earlier run on the thread's branch (`committedRunAncestors`), compacted or not, read web or MCP tool output (`hostRunReadUntrustedContent`). A directory rename marks every note in it.
-- Index lines carry no angle brackets, so no note can open or close the `<memory_index>` block. `MEMORY.md` is refused in any case, as a case-insensitive volume would write the index.
+- Index lines carry no angle brackets, so no note can open or close the `<memory_index>` block: titles and hooks are escaped, and a path segment holding `<`, `>`, a control character or a line or paragraph separator is refused, so the path is listed as it is and still works with `view`. `MEMORY.md` is refused in any case, as a case-insensitive volume would write the index.
 - Admission makes the project's folder (`ProjectMemoryNotes.open`) and only the project's deletion removes it, so a run admitted before a `join-project` deleted its project is refused, as is an Undo there; never recreate the folder on a write.
 
 ## Loading

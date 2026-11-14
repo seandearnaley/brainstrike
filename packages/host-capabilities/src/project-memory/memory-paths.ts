@@ -12,6 +12,13 @@ export const MEMORY_ROOT = '/memories';
 /** The index the host keeps from the notes; the model only reads it. */
 export const MEMORY_INDEX_FILE = 'MEMORY.md';
 
+/**
+ * What no path segment may hold: an angle bracket, which could close the
+ * `<memory_index>` block the index is loaded in, and a control character or a
+ * line or paragraph separator, which could start an index line of its own.
+ */
+const UNSAFE_SEGMENT = /[<>\p{Cc}\p{Zl}\p{Zp}]/u;
+
 function outside(raw: string): ToolInputError {
   return new ToolInputError(`Error: The path ${raw} is outside ${MEMORY_ROOT}.`);
 }
@@ -19,8 +26,9 @@ function outside(raw: string): ToolInputError {
 /**
  * The path under the memory folder that a tool path names (`''` is the folder
  * itself). Refused: anything not under `/memories`, a `.` or `..` segment, a
- * percent-encoded path (an encoded `..` would be one), and a hidden name or
- * `node_modules`, which the vendor's listing leaves out.
+ * percent-encoded path (an encoded `..` would be one), an angle bracket or a
+ * line break (the index lists every note's path as it is), and a hidden name
+ * or `node_modules`, which the vendor's listing leaves out.
  */
 export function memoryRelativePath(raw: string): string {
   const forward = raw.trim().replace(/\\/gu, '/');
@@ -37,6 +45,11 @@ export function memoryRelativePath(raw: string): string {
   for (const segment of segments) {
     if (segment === '.' || segment === '..') {
       throw outside(raw);
+    }
+    if (UNSAFE_SEGMENT.test(segment)) {
+      throw new ToolInputError(
+        `Error: The path ${JSON.stringify(raw)} holds an angle bracket, a control character or a line break, which a memory path cannot hold.`
+      );
     }
     if (segment.startsWith('.') || segment.toLowerCase() === 'node_modules') {
       throw new ToolInputError(
