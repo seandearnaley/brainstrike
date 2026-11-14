@@ -8,6 +8,8 @@
     its workspace index are deleted; the indexer port now serves only the host state index.
   - 2026-11-11 (BST-2477): Main's lease close no longer probes the Root's flock; see
     [Native processes hold the Root](#native-processes-hold-the-root).
+  - 2026-11-14 (BST-2514): on Linux a process's start time is its start in ticks since boot
+    with the boot's id; see [A process's start time stays fixed](#a-processs-start-time-stays-fixed).
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914; implementation BST-1941 to BST-1946
 
@@ -131,6 +133,29 @@ gives its borrowers a refusal saying a process the previous host started still h
 profile's data folder. The refusal is final only once the named owner's own process has
 exited: an owner releases its record before it closes its flock, so a host that asks in
 between finds the flock held by an owner that is only leaving, and its launch acquires again.
+
+### A process's start time stays fixed
+
+Amended 2026-11-14 (BST-2514). A lock record, a host record and each supervised native child
+name a process by its pid and OS start time, and a checker compares the start it reads now with
+the recorded one, so that start must not change while the process runs. On Linux it did: the
+lock computed `ps -o lstart`'s text, the process's start in clock ticks since boot added to the
+boot's wall time (`btime` in `/proc/stat`). The kernel derives that boot time from the wall
+clock as it is now, so a clock step (an NTP step, a hypervisor resuming a VM) moves the start of
+every running process. In merge queue run 43543963993 three standalone-host tests failed
+together that way: each CLI command read a different start for its running host, judged it
+gone and started another host, which met the running host's own flock and was refused as
+`native-tail`, naming a host that was still running.
+
+- **Linux** reads the start in ticks since boot (field 22 of `/proc/<pid>/stat`) with the
+  boot's id (`/proc/sys/kernel/random/boot_id`), written `<seconds> s after boot <boot id>`.
+  Neither moves while the process runs, and the boot id keeps a record from an earlier boot
+  from naming a process that has the same pid and ticks. It still reads `/proc` only, starting
+  no `ps`.
+- **macOS** keeps `ps -o lstart`: the kernel records it once, at fork. **Windows** keeps
+  `GetProcessTimes`.
+- A record written with the earlier Linux text no longer matches its owner; its flock still
+  refuses the Root while that owner runs. No record is migrated.
 
 ## Consequences
 

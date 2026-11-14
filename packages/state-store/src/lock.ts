@@ -19,9 +19,10 @@
 // processes with it instead.
 //
 // Owner identity = { pid, start, host, root, token }. `start` is the OS-reported start time of `pid`, read the SAME way
-// for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse:
+// for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse. It stays fixed
+// for the process's whole life:
 //   darwin: `ps -o lstart= -p <pid>` with LC_ALL=C TZ=UTC (1 s resolution);
-//   linux: the same text, computed from /proc as procps computes it, so no process is started per read;
+//   linux: the start in clock ticks since boot, from /proc, with the boot's id (not `ps`'s lstart, BST-2514);
 //   win32: the creation time from GetProcessTimes (100 ns FILETIME).
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -111,34 +112,26 @@ function psEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-] as const;
 /** Linux reports /proc times in USER_HZ, which is 100 on every architecture (`man 5 proc`). */
 const LINUX_USER_HZ = 100;
+/** The kernel's id for the current boot: a start in ticks since boot names one process only within its boot. */
+const LINUX_BOOT_ID = '/proc/sys/kernel/random/boot_id';
 
 /**
- * The `ps -o stat=,lstart=` reading of {@link posixStartTime}, without starting `ps`: procps
- * computes `lstart` as the boot time (`btime` in /proc/stat, read fresh as procps reads it) plus
- * the process's start in clock ticks (field 22 of /proc/<pid>/stat), printed as `ctime` in UTC.
- * Every host process records and checks its native children this way, so a `ps` per spawn kept
- * the host's event loop blocked for each git command on a slow machine.
+ * When `pid` started, as `<seconds> s after boot <boot id>`: its start in clock ticks since boot
+ * (field 22 of /proc/<pid>/stat) and the id of that boot, both fixed for the process's life.
+ * Read from /proc, so no `ps` is started per read: every host process records and checks its
+ * native children this way, and a `ps` per spawn blocked the host's event loop for each git
+ * command on a slow machine.
+ *
+ * Not `ps -o lstart`: procps adds those ticks to the boot's wall time (`btime` in /proc/stat),
+ * which the kernel derives from the wall clock as it is now (`getboottime64`), so a clock step
+ * (an NTP step, a VM its hypervisor resumed) moves the start of every running process. A live
+ * owner read after a step looked gone, and the next host was refused the Root (BST-2514).
  */
 function linuxStartTime(pid: number): string | null {
   // Read first: without /proc the identity source is unavailable, which never implies a stale owner.
-  const bootTime = Number(/^btime (\d+)$/mu.exec(readFileSync('/proc/stat', 'utf8'))?.[1]);
+  const boot = readFileSync(LINUX_BOOT_ID, 'utf8').trim();
   let stat: string;
   try {
     stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
@@ -163,18 +156,11 @@ function linuxStartTime(pid: number): string | null {
     return null;
   }
   const startTicks = Number(fields[19]);
-  if (!(Number.isSafeInteger(startTicks) && Number.isSafeInteger(bootTime))) {
+  if (!(Number.isSafeInteger(startTicks) && startTicks >= 0 && boot !== '')) {
     throw new Error(`Unreadable start time in /proc for pid ${pid}`);
   }
-  const started = new Date((bootTime + Math.floor(startTicks / LINUX_USER_HZ)) * 1000);
-  const two = (value: number): string => String(value).padStart(2, '0');
-  return [
-    WEEKDAYS[started.getUTCDay()],
-    MONTHS[started.getUTCMonth()],
-    String(started.getUTCDate()).padStart(2, ' '),
-    `${two(started.getUTCHours())}:${two(started.getUTCMinutes())}:${two(started.getUTCSeconds())}`,
-    started.getUTCFullYear(),
-  ].join(' ');
+  const hundredths = String(startTicks % LINUX_USER_HZ).padStart(2, '0');
+  return `${Math.floor(startTicks / LINUX_USER_HZ)}.${hundredths} s after boot ${boot}`;
 }
 
 function posixStartTime(pid: number): string | null {
