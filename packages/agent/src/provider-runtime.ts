@@ -24,10 +24,6 @@ export {
   materializeHostProviderModel,
 } from './providers/model-router-sdk.ts';
 export {
-  createProviderNativeMemoryTool,
-  providerSupportsNativeMemory,
-} from './providers/native-memory.ts';
-export {
   createProviderNativeWebSearchTool,
   providerSupportsNativeWebSearch,
 } from './providers/native-web-search.ts';

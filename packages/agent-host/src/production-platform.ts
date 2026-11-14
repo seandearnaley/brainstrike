@@ -4,11 +4,9 @@ import {
 } from '@brainstrike/agent/provider-request';
 import {
   createProvider,
-  createProviderNativeMemoryTool,
   createProviderNativeWebSearchTool,
   materializeHostProviderModel,
   type ProviderAuthInput,
-  providerSupportsNativeMemory,
   providerSupportsNativeWebSearch,
   type RuntimeData,
   resolveRuntimeConfiguration,
@@ -42,7 +40,6 @@ import type {
 } from './ports.ts';
 import type { HostRunSnapshot } from './protocol.ts';
 import { prepareHostProviderTools } from './provider-schema-selection.ts';
-import { withHostNativeMemoryName } from './run-admission.ts';
 import type { HostStartupContext } from './runtime.ts';
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
@@ -166,19 +163,6 @@ function admittedNativeWebSearch(
   }
   const tool = createProviderNativeWebSearchTool(provider, auth);
   return tool ? { nativeWebSearch: tool } : {};
-}
-/** ADR-0040: Anthropic declares its own memory tool type over the host's executor. */
-function admittedNativeMemory(provider: string): Pick<HostRunAdmission, 'nativeMemory'> {
-  return providerSupportsNativeMemory(provider)
-    ? { nativeMemory: createProviderNativeMemoryTool }
-    : {};
-}
-/** ADR-0040: on Anthropic the memory tool is keyed by its vendor name, `memory`. */
-function admittedNativeMemoryTools(
-  tools: Readonly<Record<string, HostTool>>,
-  provider: string
-): Readonly<Record<string, HostTool>> {
-  return providerSupportsNativeMemory(provider) ? withHostNativeMemoryName(tools) : tools;
 }
 /** The provider's auth: the admission's own resolver when it brings one, else the host's. */
 async function admittedProviderAuth(
@@ -518,10 +502,7 @@ export async function createProductionHostPlatform<Configuration extends Product
         const model = await admittedModel(options, selected, auth);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
-        const authoredTools = mergeToolCatalogs(
-          admittedNativeMemoryTools(selected.tools, provider),
-          acquired?.mcp.tools ?? {}
-        );
+        const authoredTools = mergeToolCatalogs(selected.tools, acquired?.mcp.tools ?? {});
         const admittedTools = withHostDelegationTools(authoredTools, selected.delegation);
         // Hosted providers defer tools behind the legacy catalog search, over this run's committed steps.
         const discovery = await createHostToolDiscovery({
@@ -557,7 +538,6 @@ export async function createProductionHostPlatform<Configuration extends Product
           resolvedToolResultBudget: selected.resolvedToolResultBudget,
           reviewModel: admittedReviewModel(options, selected, provider),
           ...admittedNativeWebSearch(provider, auth),
-          ...admittedNativeMemory(provider),
           provider: {
             prepare: async ({ configuration, messages, signal }) => {
               signal.throwIfAborted();

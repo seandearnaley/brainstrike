@@ -40,12 +40,16 @@
   no memory.
 - **Trust.** Memory loads, and the tool is offered, only while that folder is trusted (ADR-0032),
   the same gate as the folder's `AGENTS.md`.
-- **The vendor's shape is adopted.**
-  - The tool is Anthropic's six commands, field for field, over `/memories`, with the
-    documented result strings. A run on the Anthropic provider declares the native type
-    (`memory_20250818`) and keys the tool `memory`, because the API and the AI SDK name its calls
-    so; every other provider gets the same commands as an ordinary function tool
-    (`brainstrike_memory`). The host decides and executes both the same way.
+- **The vendor's commands are adopted.**
+  - The tool is Anthropic's six commands from `memory_20250818`, field for field, over
+    `/memories`, with the documented result strings. Every provider, Anthropic included, gets them
+    as one ordinary function tool, `brainstrike_memory`.
+  - The native `memory_20250818` type is not used (decided 2026-11-14). Declaring it makes
+    the API add its own protocol to the system prompt: view the memory directory before anything
+    else, and record progress because the context may reset. That protocol is for surviving a
+    context reset, which the host's compaction summary already does. Project memory is for facts
+    later threads need, never task progress, and its index is already loaded, so a forced `view`
+    would be a wasted call on every run.
   - It removed a bespoke design: no note schema, no separate save, list and delete tools, no path
     model of our own.
   - The index is the host's, not the model's. After every write the host rewrites `MEMORY.md`
@@ -87,10 +91,8 @@
 
 ## Consequences
 
-- The Anthropic API adds its own memory protocol to the system prompt whenever the native tool is
-  declared: view the memory directory first, and record progress there. The section says
-  otherwise (never task progress; the index is already loaded), and the model receives both. The
-  AI SDK also sends the `context-management-2025-06-27` beta header with the tool.
+- On Anthropic the model reads the commands from the function schema and the section, without the
+  tool description the API supplies with the native type.
 - A note added in one run changes the tail of the next run's system text once. Providers that
   cache a prefix automatically keep the stable prompt before it; Anthropic's single tail
   breakpoint re-caches that run's request once.
@@ -104,5 +106,5 @@
 
 - Anthropic, "Memory tool": platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool.
 - AI SDK, "Anthropic provider": ai-sdk.dev/providers/ai-sdk-providers/anthropic, and
-  `@ai-sdk/anthropic` 4.0.94 (`memory_20250818`, wire name `memory`).
+  `@ai-sdk/anthropic` 4.0.94 (`memory_20250818`).
 - Claude Code, "How Claude remembers your project": code.claude.com/docs/en/memory.

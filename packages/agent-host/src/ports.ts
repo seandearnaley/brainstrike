@@ -403,13 +403,6 @@ export interface HostRunAdmission {
   readonly inputTokenLimit?: number | undefined;
   readonly model: LanguageModel;
   /**
-   * ADR-0040: the provider's own declaration of the memory tool (Anthropic's
-   * `memory_20250818`), wrapped around the host's executor so Core still
-   * decides and runs every call. Core declares it in place of the catalog
-   * memory tool's function schema; absent, the function tool is declared.
-   */
-  readonly nativeMemory?: (host: ToolSet[string]) => ToolSet[string];
-  /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
    * run's provider auth. Core swaps it in for the catalog web search only when
    * that tool resolves to `allow` at admission; it has no local execute.

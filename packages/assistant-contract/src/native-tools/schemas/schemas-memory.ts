@@ -1,8 +1,7 @@
 /**
- * Input schema for the project memory tool (ADR-0040): Anthropic's memory
- * tool commands (`memory_20250818`), field for field, so a run on Anthropic
- * declares the native tool and every other provider gets the same commands as
- * an ordinary function tool.
+ * Input schema for the project memory tool (ADR-0040): the commands of
+ * Anthropic's memory tool (`memory_20250818`), field for field, declared as an
+ * ordinary function tool on every provider.
  */
 import { Schema, SchemaIssue } from 'effect';
 

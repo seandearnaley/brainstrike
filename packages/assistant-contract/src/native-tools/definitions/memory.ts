@@ -3,10 +3,10 @@ import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
 import { MemoryInputSchema } from '../schemas/schemas-memory.ts';
 
 // ADR-0040: the project's memory, Anthropic's memory tool commands over
-// /memories. Risk 'read', as working memory was: it writes only the app's own
-// notes for the project, never the workspace, so it never asks. Critical: a
-// run that has memory loads its index, and a run on Anthropic declares the
-// native tool, which no discovery search can stand behind.
+// /memories as a function tool on every provider. Risk 'read', as working
+// memory was: it writes only the app's own notes for the project, never the
+// workspace, so it never asks. Critical: a run that has memory loads its
+// index, so the tool that reads and writes the notes is always there with it.
 export const memory = defineNativeTool({
   activity: {
     active: 'Using memory',

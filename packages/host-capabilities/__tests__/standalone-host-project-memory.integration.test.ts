@@ -18,6 +18,7 @@ import { ProjectMemoryNotes } from '../src/project-memory/memory-notes.ts';
 import {
   drainCleanup,
   recordedToolResults,
+  refusingProvider,
   type StandaloneHost,
   standaloneHost,
   trustedPlatformModule,
@@ -141,6 +142,37 @@ test("a note one thread saves is in the next thread's instructions in its projec
   const otherSystem = startedConfiguration(elsewhere.rows).system;
   expect(otherSystem).toContain('No notes yet.');
   expect(otherSystem).not.toContain('Test runtime');
+});
+
+test("an Anthropic model's run is given the memory function tool with its six commands, and no provider-defined memory tool", {
+  timeout: 120_000,
+}, async () => {
+  const provider = await refusingProvider();
+  const host = await standaloneHost(
+    { ANTHROPIC_BASE_URL: provider.baseUrl, BRAINSTRIKE_ANTHROPIC_API_KEY: 'memory-fixture-key' },
+    undefined,
+    {},
+    async ({ dataRoot, workspace }) => {
+      await recordProject(dataRoot, workspace);
+    }
+  );
+  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
+  await trust(host);
+
+  // The stand-in refuses the request; what the run sent is the point.
+  const ran = await host.run('anthropic::claude-opus-5');
+  expect(ran.result.code).toBe(1);
+  const tools = z
+    .array(z.record(z.string(), z.unknown()))
+    .parse(provider.requests.find(({ body }) => Array.isArray(body['tools']))?.body['tools']);
+  expect(tools.find((tool) => tool['name'] === 'brainstrike_memory')).toMatchObject({
+    input_schema: {
+      properties: {
+        command: { enum: ['view', 'create', 'str_replace', 'insert', 'delete', 'rename'] },
+      },
+    },
+  });
+  expect(tools.filter((tool) => tool['name'] === 'memory' || 'type' in tool)).toEqual([]);
 });
 
 test('an untrusted launch root loads no memory and offers no memory tool', {

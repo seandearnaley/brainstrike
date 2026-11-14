@@ -18,7 +18,7 @@ Owners: [notes](../../packages/host-capabilities/src/project-memory/memory-notes
 ## The tool
 
 - Anthropic's memory commands, field for field (`MemoryInputSchema`): `view`, `create`, `str_replace`, `insert`, `delete`, `rename` over `/memories`, with the vendor's result strings.
-  - On the Anthropic provider, Core declares the native `memory_20250818` around the same host executor (`nativeMemory`, `createAdmittedHostSdkTools`), keyed `memory` (`withHostNativeMemoryName`): the AI SDK maps the key to `memory` on the way out but names a client tool's call by its wire name on the way back. Every call still passes Core's decision and dispatch. Other providers get the function tool, `brainstrike_memory`.
+  - One function tool, `brainstrike_memory`, on every provider. Never declare Anthropic's native `memory_20250818` type: the API then adds its own protocol (view memory first, record progress against a context reset), which contradicts the section and costs a call per run; compaction already covers resets.
   - The tool is `critical` (always declared, never behind discovery) and `read` risk: it never asks, and plan mode keeps it.
   - It is parent-only (`PARENT_ONLY_TOOL_IDS`); a child reads the index through its instructions and never writes.
 - Paths: `/memories` or under it. A `.`, `..`, percent-encoded or hidden segment is refused before the workspace path resolver keeps the write inside the folder through symlinks. Reuse that resolver; never add another.
