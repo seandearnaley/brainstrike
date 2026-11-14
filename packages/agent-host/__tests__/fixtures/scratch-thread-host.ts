@@ -62,6 +62,16 @@ export async function scratchThreadHost(
     moveStarted?: () => void;
     /** Set to make the next move to the Trash fail with this cause, as a Trash that is missing does. */
     failTrash?: Error;
+    /** Set to make the registry refuse to open a new project folder with this cause. */
+    failOpen?: Error;
+    /** Holds every new project folder's opening until it resolves, as a slow mount does. */
+    holdOpen?: Promise<void>;
+    /** Told as a new project folder's opening begins. */
+    openStarted?: () => void;
+    /** Holds the picker's answer until it resolves, as a person choosing a while does. */
+    holdPick?: Promise<void>;
+    /** Told as the picker is shown. */
+    pickShown?: () => void;
     /** What Main's folder picker answers, in turn: a folder, or null for a cancel. */
     picks: (string | null)[];
     /** How many times the picker was shown. */
@@ -149,6 +159,31 @@ export async function scratchThreadHost(
         folders.delete(root.id);
         return { path: root.path };
       }),
+    // As the registry adds a folder chosen in the picker: recorded with a project, open, mounted.
+    open: (folder) =>
+      serially(async () => {
+        harness.openStarted?.();
+        await harness.holdOpen;
+        if (harness.failOpen) {
+          throw harness.failOpen;
+        }
+        const [root] = (
+          await store.workspaceRoots({
+            operation: 'register',
+            root: {
+              canonicalPath: await realpath(folder),
+              displayName: basename(folder),
+              path: folder,
+              preferredId: randomUUID(),
+            },
+          })
+        ).roots;
+        if (!root) {
+          throw new Error('The store recorded no folder');
+        }
+        folders.set(root.id, root.path);
+        return asFolder(root);
+      }),
     // As the registry does, without its mounts: the folder moves, then its record turns.
     promote: ({ move, threadId }) =>
       serially(async () => {
@@ -212,6 +247,8 @@ export async function scratchThreadHost(
       },
       pickFolder: async () => {
         harness.picked += 1;
+        harness.pickShown?.();
+        await harness.holdPick;
         return harness.picks.shift() ?? null;
       },
       rename: async (from, to) => {
@@ -251,6 +288,15 @@ export async function scratchThreadHost(
   return {
     /** The test's own folder, outside `<userData>`: where a person keeps projects. */
     base,
+    /** Closes the folder `open` opened, as the person disconnects it: it is unmounted. */
+    close: async (): Promise<void> => {
+      await store.workspaceRoots({
+        closeRootIds: [OPEN],
+        mountedPaths: [],
+        operation: 'disconnect-except',
+      });
+      folders.delete(OPEN);
+    },
     core,
     /**
      * Records `path` as a folder of the person's under `rootId` and mounts it there, as the

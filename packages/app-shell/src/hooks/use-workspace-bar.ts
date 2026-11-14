@@ -27,6 +27,7 @@ import { useWorktreesBridge } from '../workspace-git-services';
 import { useAssistantThreadRootBinding } from './use-assistant-thread-root-binding';
 import { useFollowPrimaryRecord } from './use-follow-primary-record';
 import { useLeaveWorktreeBetweenRuns } from './use-leave-worktree-between-runs';
+import { useNewProjectFolder } from './use-new-project-folder';
 import { useReconnectThreadFolders } from './use-reconnect-thread-folders';
 import { useScratchProject } from './use-scratch-project';
 import { type ThreadCheckoutState, useThreadCheckout } from './use-thread-checkout';
@@ -1044,6 +1045,14 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     threadId: selectedMemoryThreadId,
     threadState,
   });
+  // BST-2513: a sent thread with no folder of its own can have a new project folder made for it.
+  const newProjectFolder = useNewProjectFolder({
+    boundRootId: primaryRootId,
+    metadataPending: selectedThreadMetadataPending,
+    resourceId: memoryResourceId,
+    threadId: selectedMemoryThreadId,
+    threadState,
+  });
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
   const folderRequests = fileSystem.folderRequests;
   const shownSecondaryRoots = useMemo(
@@ -1067,6 +1076,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...folderDropEntry,
     // Make primary, Remove and Use another folder… wait for a run before leaving a worktree.
     ...leaveWorktreeActions,
+    newProjectFolder,
     ...(primaryRoot ? { primaryRoot: withFolderRequest(primaryRoot, folderRequests) } : {}),
     recentRoots,
     ...(reveal ? { reveal } : {}),

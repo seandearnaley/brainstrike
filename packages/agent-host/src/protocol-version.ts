@@ -181,4 +181,9 @@
 // read, and carries the person's `focus`. A refused summary the provider billed commits its usage
 // as the run's `model.usage` of kind `compaction-summary`. The new reason and kind are why this is
 // a version bump.
-export const AGENT_HOST_PROTOCOL_VERSION = 34;
+// v35 (2026-11-14): a thread with no folder of its own gets a new project folder (ADR-0034 build
+// decisions, BST-2513). `thread/workspace/folder/new`, for the desktop's private client, asks
+// Main's folder picker for a parent, makes a folder there named by the thread's title, opens it as
+// a folder of the person's with a project of its own and binds the thread to it; a new method.
+// Its refusals are typed (`workspace.folder-*`).
+export const AGENT_HOST_PROTOCOL_VERSION = 35;

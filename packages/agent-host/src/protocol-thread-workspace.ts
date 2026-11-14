@@ -101,6 +101,14 @@ export const THREAD_WORKSPACE_METHOD_SCHEMAS = {
     ...Thread,
     patch: ThreadWorkspaceBindingSchema,
   }),
+  /**
+   * ADR-0034 build decisions (BST-2513), the desktop's private client only: a thread with no
+   * folder of its own gets a new project folder. The host asks Main's folder picker for a parent,
+   * makes a folder there named by the thread's title, opens it as a folder of the person's with a
+   * project of its own, and binds the thread to it through the binding's own command. Refused
+   * while the thread or one of its workers has a run in progress, and for a thread with a folder.
+   */
+  'thread/workspace/folder/new': Schema.Struct({ ...Command, ...Thread }),
   'thread/workspace/read': Schema.Struct(Thread),
   /**
    * ADR-0034 scratch threads: before a thread's first run, gives a thread with
@@ -130,6 +138,10 @@ export const THREAD_WORKSPACE_RESULT_SCHEMAS = {
     binding: Schema.NullOr(ThreadWorkspaceBindingSchema),
   }),
   'thread/workspace/binding/update': Schema.Struct({ accepted: Schema.Literal(true) }),
+  /** The new folder, which the thread now works in; null when the person cancelled the picker. */
+  'thread/workspace/folder/new': Schema.Struct({
+    root: Schema.NullOr(Schema.Struct({ displayName: Id, path: Id, rootId: Id })),
+  }),
   'thread/workspace/read': Schema.Struct({ snapshot: Schema.NullOr(WorkspaceSnapshotSchema) }),
   /**
    * The thread's scratch folder, which it now works in; null when it has none:

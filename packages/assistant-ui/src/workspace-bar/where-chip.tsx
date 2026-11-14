@@ -19,6 +19,7 @@ import {
   ChevronDown,
   Folder,
   FolderGit2,
+  FolderInput,
   FolderOutput,
   FolderX,
   GitBranchPlus,
@@ -34,6 +35,7 @@ import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarCheckout,
   WorkspaceBarMode,
+  WorkspaceBarNewProjectFolder,
   WorkspaceBarRoot,
   WorkspaceBarScratchProject,
   WorkspaceBarThreadCheckout,
@@ -47,6 +49,8 @@ export type WhereChipProps = FolderMenuProps & {
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   readonly checkout?: WorkspaceBarCheckout | undefined;
   readonly mode?: WorkspaceBarMode | undefined;
+  /** See `WorkspaceBarProps.newProjectFolder`. */
+  readonly newProjectFolder?: WorkspaceBarNewProjectFolder | undefined;
   /** See `WorkspaceBarProps.openRequest`. */
   readonly openRequest?: number | undefined;
   /** See `WorkspaceBarProps.scratchProject`. */
@@ -479,31 +483,40 @@ const WorktreeActions = ({
 };
 
 /**
- * "Turn into a project…" while the thread works in a scratch folder (ADR-0034): it waits for the
- * thread's run to end, as the checkout rows do, and the last refusal stays under it.
+ * A change of the thread's own folder into a project (ADR-0034): "Turn into a project…" while it
+ * works in a scratch folder, "New project folder…" while it has no folder (BST-2513). Each waits
+ * for the thread's run to end, as the checkout rows do, and the last refusal stays under it.
  */
-const ScratchProjectRow = ({
-  scratch,
+const ProjectFolderRow = ({
+  action,
+  icon: Icon,
+  label,
+  onSelect,
+  testId,
 }: {
-  readonly scratch: WorkspaceBarScratchProject;
+  readonly action: Omit<WorkspaceBarScratchProject, 'onTurnIntoProject'>;
+  readonly icon: LucideIcon;
+  readonly label: string;
+  readonly onSelect: () => void;
+  readonly testId: string;
 }): ReactElement => (
   <>
     <DropdownMenuItem
-      className={scratch.disabledReason ? 'items-start' : undefined}
-      data-testid="workspace-bar-scratch-project"
-      disabled={scratch.pending || scratch.disabledReason !== null}
-      onSelect={scratch.onTurnIntoProject}
+      className={action.disabledReason ? 'items-start' : undefined}
+      data-testid={testId}
+      disabled={action.pending || action.disabledReason !== null}
+      onSelect={onSelect}
     >
-      <FolderOutput aria-hidden="true" className="size-3.5" />
+      <Icon aria-hidden="true" className="size-3.5" />
       <RowLabel
-        label="Turn into a project…"
-        reason={scratch.disabledReason}
-        reasonTestId="workspace-bar-scratch-project-disabled-reason"
+        label={label}
+        reason={action.disabledReason}
+        reasonTestId={`${testId}-disabled-reason`}
       />
     </DropdownMenuItem>
-    {scratch.refusal ? (
-      <RowNote testId="workspace-bar-scratch-project-refusal" tone="warning">
-        {scratch.refusal}
+    {action.refusal ? (
+      <RowNote testId={`${testId}-refusal`} tone="warning">
+        {action.refusal}
       </RowNote>
     ) : null}
   </>
@@ -557,7 +570,7 @@ const WhereMenuBody = ({
   readonly onNewWorktree: () => void;
   readonly props: WhereChipProps;
 }): ReactElement => {
-  const { branchMenu, checkout, mode, scratchProject, ...folders } = props;
+  const { branchMenu, checkout, mode, newProjectFolder, scratchProject, ...folders } = props;
   const { primaryRoot, secondaryRoots } = folders;
   const localRoot = secondaryRoots.find((root) => root.local);
   const inWorktree = Boolean(mode?.worktree) || localRoot !== undefined;
@@ -596,7 +609,24 @@ const WhereMenuBody = ({
           projectRoot={projectRoot}
         />
       ) : null}
-      {scratchProject ? <ScratchProjectRow scratch={scratchProject} /> : null}
+      {scratchProject ? (
+        <ProjectFolderRow
+          action={scratchProject}
+          icon={FolderOutput}
+          label="Turn into a project…"
+          onSelect={scratchProject.onTurnIntoProject}
+          testId="workspace-bar-scratch-project"
+        />
+      ) : null}
+      {newProjectFolder ? (
+        <ProjectFolderRow
+          action={newProjectFolder}
+          icon={FolderInput}
+          label="New project folder…"
+          onSelect={newProjectFolder.onNewProjectFolder}
+          testId="workspace-bar-new-project-folder"
+        />
+      ) : null}
       {closed.map((root) => (
         <RootRow
           hasOtherLiveFolder
@@ -606,7 +636,9 @@ const WhereMenuBody = ({
           {...rootHandlers}
         />
       ))}
-      {mode || scratchProject || closed.length > 0 ? <DropdownMenuSeparator /> : null}
+      {mode || scratchProject || newProjectFolder || closed.length > 0 ? (
+        <DropdownMenuSeparator />
+      ) : null}
       {primaryLive ? (
         <>
           {checkout ? (

@@ -268,6 +268,18 @@ export function createWindowThreadCapability(
     isHostThread: (threadId) => threads.has(threadId),
     ledger,
     listThreads,
+    // ADR-0034 (BST-2513): the host asks Main's picker where, makes the folder and binds the thread.
+    newProjectFolder: async (threadId) => {
+      const host = await threadClient(threadId);
+      if (!host) {
+        throw new Error('This thread is not owned by the agent host');
+      }
+      const { root } = await host.request('thread/workspace/folder/new', {
+        commandId: crypto.randomUUID(),
+        threadId,
+      });
+      return root;
+    },
     // BST-2021: a subagent's lane in its parent's Context tab.
     openThreadContext: async (threadId) => {
       const host = await threadClient(threadId);

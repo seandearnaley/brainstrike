@@ -14,12 +14,15 @@
  *   and it moves to the system Trash.
  * - A folder the person turns into a project moves out to the place they
  *   chose (ADR-0034 build decisions), and is no longer a scratch folder.
+ * - A thread with no folder of its own gets a new project folder where the
+ *   person chooses (`project-folders.ts`), which is never a scratch folder.
  */
 import { lstat, mkdir, readdir, realpath, rename, rmdir } from 'node:fs/promises';
 import { basename, dirname, join, sep } from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { HostScratchFolder, HostScratchFolders } from './ports.ts';
+import { makeHostProjectFolder } from './project-folders.ts';
 import {
   forgetHostWorkspaceTrust,
   type HostWorkspaceTrustStore,
@@ -44,6 +47,12 @@ export interface HostScratchFolderRoots {
   }): Promise<HostScratchFolder | null>;
   /** Unmounts the thread's scratch folder and deletes its root and record; what it deleted. */
   forget(threadId: string): Promise<{ readonly path: string } | null>;
+  /**
+   * ADR-0034 build decisions (BST-2513): `folder`, made where the person chose in the picker,
+   * becomes a folder of theirs, as one they choose there: recorded with a project of its own, at
+   * the end of the open folders, in Recents, and mounted. One change among the registry's.
+   */
+  open(folder: string): Promise<HostScratchFolder>;
   /**
    * ADR-0034 build decisions: the thread's scratch folder leaves its mount, `move` moves it and
    * resolves where it now is, and its root becomes a folder of the person's there under the same
@@ -243,6 +252,7 @@ export function hostScratchFolders(options: HostScratchFolderOptions): HostScrat
         return await undoFolder(options, made, cause);
       }
     },
+    newProjectFolder: (request) => makeHostProjectFolder(options, request),
     pickParentFolder: () => options.pickFolder(),
     read: ({ threadId }) => options.roots.read(threadId),
     retire: async ({ threadId }) => {

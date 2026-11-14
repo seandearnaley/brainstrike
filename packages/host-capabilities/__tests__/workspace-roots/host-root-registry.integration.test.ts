@@ -720,6 +720,42 @@ describe('host root registry', () => {
     ]);
   });
 
+  it('opens a new project folder the person placed with the picker as a folder of theirs: open, with a project, recent, and mounted again after a restart', async () => {
+    const place = path.join(folder('Projects'), 'release-notes');
+    mkdirSync(place);
+    const { owner, publishRootsChanged } = registry();
+
+    const opened = await owner.scratch.open(place);
+
+    expect(opened).toEqual({ displayName: 'release-notes', path: place, rootId: opened.rootId });
+    const { rootId } = opened;
+    expect(owner.registry.mountedRoots()).toEqual([{ canonicalPath: place, path: place, rootId }]);
+    expect((await store.workspaceRoots({ operation: 'list-open' })).roots).toEqual([
+      expect.objectContaining({
+        id: rootId,
+        kind: 'path',
+        path: place,
+        projectId: expect.any(String),
+      }),
+    ]);
+    await expect(owner.service['workspace/roots/recent']({})).resolves.toMatchObject({
+      roots: [{ path: place }],
+    });
+    expect(publishRootsChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ grantedPath: place })
+    );
+    // The person placed it: opening it writes no trust, which is asked there.
+    expect(await readHostWorkspaceTrust(store, place)).toBe('undecided');
+
+    await owner.close();
+    owners.splice(owners.indexOf(owner), 1);
+    const restarted = registry().owner;
+    await restarted.start();
+    expect(restarted.registry.mountedRoots()).toEqual([
+      { canonicalPath: place, path: place, rootId },
+    ]);
+  });
+
   it('a move that fails leaves the scratch folder mounted where it was, and a record that fails after the move says where the folder is', async () => {
     mkdirSync(path.join(base, 'scratch'));
     const made = path.join(base, 'scratch', 'quiet-otter');

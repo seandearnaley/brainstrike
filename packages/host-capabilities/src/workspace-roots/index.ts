@@ -367,6 +367,13 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
     scratch: {
       add: (request) => registry.addScratchRoot(request),
       forget: (threadId) => registry.forgetScratchRoot(threadId),
+      // ADR-0034 (BST-2513): a new project folder, made where the person chose in the picker, is
+      // granted as a folder they choose there: open, with a project, in Recents, so Main hears.
+      open: async (folder) => {
+        const added = await registry.addRoot(directoryHandle(folder));
+        await publish();
+        return { displayName: added.handle.name, path: added.handle.path, rootId: added.rootId };
+      },
       // ADR-0034: a folder of the person's now, open and in Recents, so Main hears of it.
       promote: async (request) => {
         const promoted = await registry.turnScratchIntoProject(request);
