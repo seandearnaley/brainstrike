@@ -31,14 +31,9 @@ import type { HostParams, HostResults } from './protocol.ts';
 
 type Scratch = HostResults['thread/workspace/scratch'];
 type Project = HostResults['thread/workspace/scratch/project'];
-/**
- * Runs `move` in one slot of Core's admission queue, which every run admission takes, so no run
- * is admitted while it runs. Its binding update says it holds the slot (`held`).
- */
-export type HostScratchAdmission = <T>(move: () => Promise<T>) => Promise<T>;
 type HostScratchCore = Pick<
   HostCore,
-  'assertAdmissible' | 'readWorkspaceBinding' | 'updateWorkspaceBinding'
+  'admitted' | 'assertAdmissible' | 'readWorkspaceBinding' | 'updateWorkspaceBinding'
 >;
 
 /** The platform's scratch folders, for a thread Core admits that is not a worker. */
@@ -150,8 +145,7 @@ export async function turnHostScratchIntoProject(
   core: HostScratchCore,
   children: Pick<HostChildRuns, 'isChild' | 'subtree'>,
   runs: ReadonlyMap<string, HostRunState>,
-  platform: Pick<HostPlatform, 'scratchFolders'>,
-  admitted: HostScratchAdmission
+  platform: Pick<HostPlatform, 'scratchFolders'>
 ): Promise<Project> {
   const { threadId } = params;
   const scratch = scratchFoldersFor(threadId, core, children, platform);
@@ -162,8 +156,9 @@ export async function turnHostScratchIntoProject(
   }
   // The picker may have been open a while: a run started, or the thread moved, meanwhile. The
   // check, the move and the binding then share one admission slot: a run of the thread or its
-  // workers asked for meanwhile is admitted after it, at the folder's new place.
-  return await admitted(async () => {
+  // workers asked for meanwhile is admitted after it, at the folder's new place. Its binding
+  // update says it holds the slot (`held`).
+  return await core.admitted(threadId, async () => {
     await readyScratch(threadId, scratch, core, children, runs);
     const root = await scratch.turnIntoProject({ parent, threadId });
     try {

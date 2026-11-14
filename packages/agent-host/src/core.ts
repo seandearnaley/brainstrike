@@ -405,9 +405,10 @@ export class HostCore {
   readonly scratchWorkspace = (params: HostParams<'thread/workspace/scratch'>) =>
     bindHostScratch(params, this, this.children, this.pendingAdmissions, this.platform);
   readonly scratchProject = (params: HostParams<'thread/workspace/scratch/project'>) =>
-    turnHostScratchIntoProject(params, this, this.children, this.runs, this.platform, (move) =>
-      this.admit(params.threadId, move)
-    );
+    turnHostScratchIntoProject(params, this, this.children, this.runs, this.platform);
+  /** One slot of `threadId`'s admission queue; a binding update in it passes `held`. */
+  readonly admitted = <T>(threadId: string, move: () => Promise<T>): Promise<T> =>
+    this.admit(threadId, move);
   assertAdmissible(threadId: string | undefined): void {
     const { closing, deletions, failedAdmissions, threads } = this;
     assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);

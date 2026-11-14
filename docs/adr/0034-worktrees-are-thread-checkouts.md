@@ -284,6 +284,27 @@ supersede the decisions above where they differ.
     - **Trust does not follow a relink.** The person's pick is not proof that
       it is the same folder, so it is asked again at its new place, as any
       folder is. Its old place's answer stays with that path.
+    - **The threads working in a located folder follow it there** (BST-2516).
+      A thread's binding names its folder by root id and keeps the folder's
+      path and name as hints, and a run's admission refuses a path hint that
+      is not where the root is mounted. Once a Locate commits, the host
+      rewrites those two hints, through the binding's own command, for every
+      thread whose binding names the located root as where it works
+      (`locate-rebinding.ts`, from the `workspace/roots/locate` route).
+      A thread with a run in progress is rewritten at once, in Core's
+      admission queue as any binding update is, rather than waiting for the run
+      to end as Turn into a project… does. That run keeps the binding it was
+      admitted with, at a place the folder had already left, so nothing it
+      holds changes, and the thread's next run is admitted at the new place.
+      Each rewrite reads the thread's binding again in its own admission slot
+      and commits there: a where-control change queued before it may have
+      moved the thread to another folder, and the hints must never land on
+      that folder's binding. A thread deleted meanwhile is skipped, not
+      counted as a failure.
+      A rewrite that fails is a fault the panel shows, naming what to do. A
+      path hint that still disagrees with the mount is refused as
+      `workspace.binding-root-moved`: "This thread's folder is no longer at
+      <path>. Choose it again from the where-control."
     - **A store refusal is typed.** The roots domain declines these requests
       with a `project.*` code and a message the person can act on
       (`StateStoreRefusalError`), the host passes them on as typed refusals,
