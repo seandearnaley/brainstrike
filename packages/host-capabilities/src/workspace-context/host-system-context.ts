@@ -65,6 +65,8 @@ export async function readHostSystemContext(options: {
   readonly personas?: readonly DelegationPersonaSummary[];
   /** Plan mode: the instructions say the run may only read and propose a plan. */
   readonly planMode: boolean;
+  /** ADR-0040: the run's project memory, whose section ends the instructions. */
+  readonly projectMemory?: { readonly childSection: string; readonly section: string };
   readonly readWorkspaceFile?: WorkspaceFileReader;
   readonly request: HostRunIntentRequest;
   readonly runtime: RuntimeData;
@@ -127,9 +129,10 @@ export async function readHostSystemContext(options: {
   }
   const { injected, referencedFileFailures } = workspace;
   options.request.signal.throwIfAborted();
-  const system = joinedSections([...sections, ...injected]);
+  // ADR-0040: the project's memory index follows the stable instructions.
+  const system = joinedSections([...sections, ...injected, options.projectMemory?.section]);
   const childSystem = options.personas?.length
-    ? joinedSections([...shared, ...injected])
+    ? joinedSections([...shared, ...injected, options.projectMemory?.childSection])
     : undefined;
   return {
     ...(referencedFileFailures.length ? { referencedFileFailures } : {}),

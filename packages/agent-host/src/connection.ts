@@ -394,6 +394,7 @@ export function bindHostConnection(
   handleCore('run/input', (params) => core.input(params));
   handleCore('run/stop', (params) => core.stop(params));
   handleCore('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handleCore('memory/undo', (params) => core.undoMemoryChange(params));
   handleCore('thread/rewind/preview', (params) => core.rewinds.preview(params));
   handleCore('thread/rewind', (params) => core.rewinds.rewind(params));
   handleCore('thread/rewind/redo', (params) => core.rewinds.redo(params));

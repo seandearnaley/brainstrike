@@ -24,6 +24,11 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { resolveHostDelegation } from '@brainstrike/host-capabilities/delegation';
+import type {
+  ProjectMemoryNotes,
+  RunProjectMemory,
+  readRunProjectMemory,
+} from '@brainstrike/host-capabilities/project-memory';
 import {
   type AttachedMentionFolders,
   attachedMentionReader,
@@ -56,6 +61,10 @@ import {
 type RuntimeWorkspaceRoots = NonNullable<RuntimeData['workspaceRoots']>;
 /** ADR-0032: the given roots the person trusted, in their order. */
 export type DesktopTrustedRoots = (roots: RuntimeWorkspaceRoots) => Promise<RuntimeWorkspaceRoots>;
+/** ADR-0040: the run's project memory, read from the host's store. */
+export type DesktopProjectMemory = (
+  input: Omit<Parameters<typeof readRunProjectMemory>[0], 'store'>
+) => Promise<RunProjectMemory | undefined>;
 /**
  * What a desktop run's admission reads from the facts Main owns (BST-1930
  * stage e): the model catalog, live roots and their binding leases, the
@@ -92,6 +101,8 @@ export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation
   readonly delegation?: HostDelegation | undefined;
   /** The admitted roots revalidated against their live owners, for the host's shared tools. */
   freshWorkspaceRoots(): Promise<RuntimeWorkspaceRoots>;
+  /** ADR-0040: the run's project notes, which its memory tool reads and writes. */
+  readonly projectMemory?: ProjectMemoryNotes | undefined;
   /** ADR-0028 step 3b: a person's message read mid-run reads its mentions as this prompt's were. */
   readPromptContext(prompt: string): Promise<HostPromptContext>;
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
@@ -179,6 +190,7 @@ function desktopContextReader(
 async function readDesktopNativeAdmission(
   reads: DesktopAdmissionReads,
   trustedRoots: DesktopTrustedRoots,
+  projectMemory: DesktopProjectMemory,
   configuration: (typeof PlatformModelConfigurationSchema)['Type'],
   intent: (typeof PlatformClientConfigurationSchema)['Type'],
   request: HostRunAdmissionRequest,
@@ -194,6 +206,8 @@ async function readDesktopNativeAdmission(
   readonly configurationRoots: RuntimeWorkspaceRoots;
   /** The admission's tools, described from the catalog; the host executes every one. */
   readonly descriptors: Record<string, DesktopToolDescriptor>;
+  /** ADR-0040: the run's project memory; none without a trusted project. */
+  readonly memory?: RunProjectMemory | undefined;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
@@ -233,6 +247,13 @@ async function readDesktopNativeAdmission(
     selection !== undefined || workspace !== undefined
   );
   const configurationRoots = await trustedRoots(roots);
+  request.signal.throwIfAborted();
+  // ADR-0040: the project of the folder the thread works in, while that folder is trusted.
+  const memory = await projectMemory({
+    configurationRoots,
+    operatingRootId: request.workspaceBinding?.operatingRootId,
+    roots,
+  });
   request.signal.throwIfAborted();
   // The thread's binding owns the roots a run executes in; the explorer's focus
   // names a folder only when it is one of the thread's.
@@ -290,6 +311,7 @@ async function readDesktopNativeAdmission(
     codeFence:
       intent.enabledNativeToolIds.includes(NATIVE_TOOL_ID.runPython) && (await hostFencesCode()),
     enabledNativeToolIds: intent.enabledNativeToolIds,
+    projectMemory: memory !== undefined,
     skills: workspaceSkills !== undefined,
   });
   return {
@@ -299,6 +321,7 @@ async function readDesktopNativeAdmission(
     configurationRoots,
     descriptors,
     freshRoots,
+    ...(memory ? { memory } : {}),
     readWorkspaceFile,
     revalidateWorkspace,
     runtime,
@@ -395,7 +418,9 @@ export function createDesktopRunAdmission(
   /** The policy the user saved, which the host keeps; undefined when none is saved. */
   savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>,
   /** ADR-0032: the host's workspace trust, which decides whose agent configuration loads. */
-  trustedRoots: DesktopTrustedRoots
+  trustedRoots: DesktopTrustedRoots,
+  /** ADR-0040: the host's project memory, which a run in a trusted project loads. */
+  projectMemory: DesktopProjectMemory
 ): DesktopRunAdmission {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -439,6 +464,7 @@ export function createDesktopRunAdmission(
     const native = await readDesktopNativeAdmission(
       reads,
       trustedRoots,
+      projectMemory,
       configuration,
       intent,
       request,
@@ -472,6 +498,7 @@ export function createDesktopRunAdmission(
         ...desktopPersonaFields(delegation),
         ...desktopContextReaderFields(restricted, native.readWorkspaceFile),
         planMode: request.planMode === true,
+        ...(native.memory ? { projectMemory: native.memory } : {}),
         request,
         runtime: native.runtime,
         tools: Object.fromEntries(
@@ -508,6 +535,7 @@ export function createDesktopRunAdmission(
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         nativeRuntime: desktopNativeRuntime(native.runtime, native.admittedSkills),
+        ...(native.memory ? { projectMemory: native.memory.notes } : {}),
         readPromptContext,
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),

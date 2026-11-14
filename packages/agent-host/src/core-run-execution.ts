@@ -27,6 +27,7 @@ import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetr
 import type { HostIntake } from './notices.ts';
 import { hostReadPersonInput } from './person-input.ts';
 import type { HostPlatform, HostRunAdmission, HostTool } from './ports.ts';
+import { hostMemoryRecord } from './project-memory-record.ts';
 import { committedRewrites, type HostProjectionRewrites } from './projection-rewrites.ts';
 import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
@@ -314,6 +315,15 @@ async function runRegisteredTool(
         }
       },
       retain: (work) => retainHostRunWork(run, work),
+    }),
+    // ADR-0040: the memory tool's writes, committed under this call.
+    memory: hostMemoryRecord({
+      append: (events) => ports.append(run.threadId, events, 'full', ports.foldRows),
+      rows: () => ports.readCommittedRows(run),
+      run,
+      runId: run.id,
+      toolCallId: action.toolCallId,
+      tools: hostRunTools(run),
     }),
     runId: run.id,
     // The shell's adopted worktrees arrive after the result; the run joins them.

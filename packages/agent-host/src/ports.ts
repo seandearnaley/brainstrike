@@ -57,6 +57,7 @@ import type { FileSearchBatch } from './protocol-file-search.ts';
 import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol-git-workspace.ts';
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
+import type { HostMemoryChange, HostMemoryRefusal } from './protocol-project-memory.ts';
 import type { TERMINAL_METHOD_SCHEMAS, TerminalEvent } from './protocol-terminals.ts';
 import type { HostWorkspaceTrustRoot } from './protocol-workspace-discovery.ts';
 import type {
@@ -207,6 +208,8 @@ export interface HostToolContext {
    */
   readonly enterWorktree?: ((worktree: HostEnteredWorktree) => Promise<void>) | undefined;
   readonly mcp?: HostMcpExecution | undefined;
+  /** ADR-0040: Core's record of the memory tool's writes; every write is shown in the thread. */
+  readonly memory?: HostMemoryRecord | undefined;
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
   readonly runId: string;
@@ -223,6 +226,27 @@ export interface HostToolContext {
   readonly toolCallId: string;
   /** Existing native/MCP progress is committed by the run-log owner. */
   readonly write?: (chunk: unknown) => Promise<void>;
+}
+/** ADR-0040: what Core knows and commits for one memory tool call. */
+export interface HostMemoryRecord {
+  /** Commit a write the tool made, which the thread shows as a card with Undo. */
+  readonly changed: (change: HostMemoryChange) => Promise<void>;
+  /** Commit a note the host refused to store, with why. */
+  readonly refused: (refusal: HostMemoryRefusal) => Promise<void>;
+  /**
+   * Whether the run has read web or MCP tool output (web search and extract,
+   * browser pages, the provider's own web search, an MCP tool): a note it
+   * writes is marked as coming from untrusted context.
+   */
+  readonly untrustedContext: () => boolean;
+}
+/**
+ * ADR-0040: the host's project memory files, for what Core does outside a
+ * tool call. Undo restores what one committed write replaced, and rejects
+ * with a typed refusal once the note has changed since.
+ */
+export interface HostProjectMemory {
+  undo(change: HostMemoryChange): Promise<void>;
 }
 /** Trusted run configuration; credential resolution stays inside the adapter. */
 export interface HostProviderRequest {
@@ -378,6 +402,13 @@ export interface HostRunAdmission {
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
   readonly model: LanguageModel;
+  /**
+   * ADR-0040: the provider's own declaration of the memory tool (Anthropic's
+   * `memory_20250818`), wrapped around the host's executor so Core still
+   * decides and runs every call. Core declares it in place of the catalog
+   * memory tool's function schema; absent, the function tool is declared.
+   */
+  readonly nativeMemory?: (host: ToolSet[string]) => ToolSet[string];
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
    * run's provider auth. Core swaps it in for the catalog web search only when
@@ -958,6 +989,8 @@ export interface HostPlatform {
   readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority; absent where the host owns no MCP config. */
   readonly mcpSettings?: HostMcpSettingsService;
+  /** ADR-0040: the project memory files, for Undo; absent, `memory/undo` is refused. */
+  readonly projectMemory?: HostProjectMemory | undefined;
   /** Provider reads from the host's own store; absent where it owns none. */
   readonly providers?: HostProviderService;
   readPermissionPolicy(

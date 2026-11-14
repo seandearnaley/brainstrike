@@ -664,6 +664,33 @@ export function hostPolicyDecision(
     yolo: policy.yolo,
   });
 }
+/** The key a run's memory tool has in its registry, by its catalog id. */
+function hostMemoryToolKey(tools: Readonly<Record<string, HostTool>>): string | undefined {
+  return Object.keys(tools).find(
+    (id) => (tools[id]?.permissionToolId ?? id) === NATIVE_TOOL_ID.memory
+  );
+}
+/**
+ * ADR-0040: the memory tool keyed `memory`, the vendor's name for its own tool
+ * type. Anthropic and the AI SDK name its calls so, so Core decides and runs
+ * them under that key.
+ */
+export function withHostNativeMemoryName(
+  tools: Readonly<Record<string, HostTool>>
+): Readonly<Record<string, HostTool>> {
+  const key = hostMemoryToolKey(tools);
+  const memory = key === undefined ? undefined : tools[key];
+  if (!memory || key === 'memory') {
+    return tools;
+  }
+  if (Object.hasOwn(tools, 'memory')) {
+    throw new Error('Another tool is already named memory');
+  }
+  return {
+    ...Object.fromEntries(Object.entries(tools).filter(([id]) => id !== key)),
+    memory,
+  };
+}
 /** Callbacks retain the existing Core writer and dispatcher; this owns no effects. */
 export function createAdmittedHostSdkTools(
   run: HostRunState,
@@ -699,6 +726,13 @@ export function createAdmittedHostSdkTools(
     },
     tools: hostRunTools(run),
   });
+  // ADR-0040: the provider's own memory tool declaration over the same executor.
+  const nativeMemory = run.admission?.nativeMemory;
+  const memoryId = hostMemoryToolKey(hostRunTools(run));
+  const memoryTool = memoryId === undefined ? undefined : tools[memoryId];
+  if (nativeMemory && memoryId !== undefined && memoryTool) {
+    tools[memoryId] = nativeMemory(memoryTool);
+  }
   const native = run.nativeWebSearch;
   return native ? { ...tools, [native.toolId]: native.tool } : tools;
 }

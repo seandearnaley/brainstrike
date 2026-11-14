@@ -67,6 +67,7 @@ export {
   type IndexerPort,
   largeText,
   PREVIEW_CHARS,
+  PROJECT_MEMORY_DIR,
   type PurgeReport,
   STATE_DB,
   STORE_ENTRIES,

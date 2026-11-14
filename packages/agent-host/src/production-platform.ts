@@ -4,9 +4,11 @@ import {
 } from '@brainstrike/agent/provider-request';
 import {
   createProvider,
+  createProviderNativeMemoryTool,
   createProviderNativeWebSearchTool,
   materializeHostProviderModel,
   type ProviderAuthInput,
+  providerSupportsNativeMemory,
   providerSupportsNativeWebSearch,
   type RuntimeData,
   resolveRuntimeConfiguration,
@@ -40,6 +42,7 @@ import type {
 } from './ports.ts';
 import type { HostRunSnapshot } from './protocol.ts';
 import { prepareHostProviderTools } from './provider-schema-selection.ts';
+import { withHostNativeMemoryName } from './run-admission.ts';
 import type { HostStartupContext } from './runtime.ts';
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
@@ -101,6 +104,8 @@ export interface ProductionHostPlatformOptions {
   readonly mcpPresentation?: HostPlatform['mcpPresentation'];
   /** The desktop's MCP settings authority (BST-1930 c5a). */
   readonly mcpSettings?: HostPlatform['mcpSettings'];
+  /** ADR-0040: the project memory files, for Undo. */
+  readonly projectMemory?: HostPlatform['projectMemory'];
   /** Provider reads from the same credential store. */
   readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
@@ -161,6 +166,19 @@ function admittedNativeWebSearch(
   }
   const tool = createProviderNativeWebSearchTool(provider, auth);
   return tool ? { nativeWebSearch: tool } : {};
+}
+/** ADR-0040: Anthropic declares its own memory tool type over the host's executor. */
+function admittedNativeMemory(provider: string): Pick<HostRunAdmission, 'nativeMemory'> {
+  return providerSupportsNativeMemory(provider)
+    ? { nativeMemory: createProviderNativeMemoryTool }
+    : {};
+}
+/** ADR-0040: on Anthropic the memory tool is keyed by its vendor name, `memory`. */
+function admittedNativeMemoryTools(
+  tools: Readonly<Record<string, HostTool>>,
+  provider: string
+): Readonly<Record<string, HostTool>> {
+  return providerSupportsNativeMemory(provider) ? withHostNativeMemoryName(tools) : tools;
 }
 /** The provider's auth: the admission's own resolver when it brings one, else the host's. */
 async function admittedProviderAuth(
@@ -271,6 +289,12 @@ type ProductionClientService =
   | 'providers'
   | 'terminals'
   | 'workspaceDiscovery';
+/** ADR-0040: the memory files Undo restores through, where the platform keeps project memory. */
+function productionProjectMemory(
+  options: Pick<ProductionHostPlatformOptions, 'projectMemory'>
+): Pick<HostPlatform, 'projectMemory'> {
+  return options.projectMemory ? { projectMemory: options.projectMemory } : {};
+}
 /** The services clients call on the host directly; each is absent where the platform has none. */
 function productionClientServices(
   options: Pick<ProductionHostPlatformOptions, ProductionClientService>
@@ -494,7 +518,10 @@ export async function createProductionHostPlatform<Configuration extends Product
         const model = await admittedModel(options, selected, auth);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
-        const authoredTools = mergeToolCatalogs(selected.tools, acquired?.mcp.tools ?? {});
+        const authoredTools = mergeToolCatalogs(
+          admittedNativeMemoryTools(selected.tools, provider),
+          acquired?.mcp.tools ?? {}
+        );
         const admittedTools = withHostDelegationTools(authoredTools, selected.delegation);
         // Hosted providers defer tools behind the legacy catalog search, over this run's committed steps.
         const discovery = await createHostToolDiscovery({
@@ -530,6 +557,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           resolvedToolResultBudget: selected.resolvedToolResultBudget,
           reviewModel: admittedReviewModel(options, selected, provider),
           ...admittedNativeWebSearch(provider, auth),
+          ...admittedNativeMemory(provider),
           provider: {
             prepare: async ({ configuration, messages, signal }) => {
               signal.throwIfAborted();
@@ -591,6 +619,7 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...(options.mcp ? { mcp: options.mcp } : {}),
     searchState: (request) => index.search(request),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
+    ...productionProjectMemory(options),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),
     ...(options.selectProjectionRewrites

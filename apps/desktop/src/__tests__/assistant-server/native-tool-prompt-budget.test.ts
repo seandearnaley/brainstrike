@@ -247,10 +247,18 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // `queryEmbeddingSpace` and `listEmbeddingSpaces`, their instructions and the
 // workspace index hint. A deliberate drop: measured 9752, so both bounds move
 // down to centre it (10,671 → 9,902 and 10,371 → 9,602), width 300 unchanged.
-/** The same 36 the eager-baseline gate above counts: the tool half is unchanged. */
-const AUTHORED_PROVIDER_TOOL_COUNT = 36;
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9902;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9602;
+//
+// BST-2530 RAISE (+623/+623 band move, width 300 preserved). Project memory
+// (ADR-0040) is a NEW capability: the critical `memory` tool, Anthropic's six
+// memory commands as one flat object a strict provider takes. Trim-first cut
+// its description by 36 tokens, since the instructions' memory section already
+// says what to save; merging it into a workspace file tool was rejected,
+// as the vendor's shape is the point. Measured 9752 → 10375, so both bounds move
+// to centre it (9,902 → 10,525 and 9,602 → 10,225).
+/** The same 37 the eager-baseline gate above counts: the tool half is unchanged. */
+const AUTHORED_PROVIDER_TOOL_COUNT = 37;
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_525;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_225;
 const OPENROUTER_PROMPT_BUDGET_MODEL = 'openai/gpt-5.6-terra';
 const PROMPT_BUDGET_SKILL = {
   containmentRoot: '/workspace',
@@ -705,24 +713,31 @@ describe('desktop native tool provider prompt budget', () => {
     // (8670 → 8710, 8970 → 9010), width 300 unchanged.
     // BST-2435: the three retrieval tools are deleted; measured 8120, so both
     // bounds move to centre it (8710 → 7970, 9010 → 8270), width 300 unchanged.
+    // BST-2530 (ADR-0040): +523 for the critical `memory` tool, Anthropic's six
+    // memory commands as one flat object a strict provider takes. Trim-first
+    // cut the description by 36 tokens (8679 → 8643): the section in the
+    // instructions says what to save, so the tool says only how. Measured 8643,
+    // so both bounds move to centre it (7970 → 8493, 8270 → 8793), width 300.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(7970);
+    ).toBeGreaterThanOrEqual(8493);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      8270
+      8793
     );
     // BST-2328: executeCommand is critical tier, so the same +40 lands here;
     // main measured 2292 and this 2332, so both bounds move to centre it
     // (2016 → 2182, 2316 → 2482), width 300 unchanged.
+    // BST-2530: `memory` is critical tier, so the same tool lands here; measured
+    // 2831, so both bounds move to centre it (2182 → 2681, 2482 → 2981).
     expect(
       criticalDefinitionTokens,
       'critical aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(2182);
+    ).toBeGreaterThanOrEqual(2681);
     expect(
       criticalDefinitionTokens,
       'critical aggregate outside its recorded band'
-    ).toBeLessThanOrEqual(2482);
+    ).toBeLessThanOrEqual(2981);
     expect({
       criticalToolCount: criticalProviderTools.length,
       eagerToolCount: eagerProviderTools.length,
@@ -738,7 +753,8 @@ describe('desktop native tool provider prompt budget', () => {
         ])
       ),
     }).toEqual({
-      criticalToolCount: 8,
+      // +1 for the critical `memory` tool (BST-2530).
+      criticalToolCount: 9,
       // Two deferred session tools add 809 authored-definition tokens while
       // leaving the critical request unchanged. Their nested unions
       // prevent providers from filling fields that belong to another action.
@@ -770,7 +786,8 @@ describe('desktop native tool provider prompt budget', () => {
       // −2 for the retired context selection tools (BST-2019).
       // +3 for browserClick, browserType and browserSelectOption (BST-2324).
       // −3 for the deleted retrieval tools (BST-2435).
-      eagerToolCount: 36,
+      // +1 for the project memory tool (BST-2530).
+      eagerToolCount: 37,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns

@@ -38,7 +38,9 @@ function admission(mounted: readonly Root[]) {
       liveWorkspaceRoots: async () => [...mounted],
     }),
     async () => undefined,
-    everyRootTrusted
+    everyRootTrusted,
+    // ADR-0040: these folders have no project, so no project memory.
+    async () => undefined
   );
 }
 /** A send from a thread bound to folder A while the explorer focuses `focusedRootId`. */
@@ -92,7 +94,9 @@ test('an unbound new chat with no mounted folders admits an empty workspace', as
   const selected = await createDesktopRunAdmission(
     mainReads(),
     async () => undefined,
-    everyRootTrusted
+    everyRootTrusted,
+    // ADR-0040: these folders have no project, so no project memory.
+    async () => undefined
   ).readConfiguration({
     configuration: capturedIntent({ model: 'gpt-6-sol', provider: 'openai' }),
     modelId: request.modelId,
@@ -114,7 +118,9 @@ test('an explicit selection from an unavailable folder is refused even for an un
     createDesktopRunAdmission(
       mainReads(),
       async () => undefined,
-      everyRootTrusted
+      everyRootTrusted,
+      // ADR-0040: these folders have no project, so no project memory.
+      async () => undefined
     ).readConfiguration({
       configuration: z.record(z.string(), z.json()).parse(
         Schema.decodeUnknownSync(PlatformClientConfigurationSchema, {
