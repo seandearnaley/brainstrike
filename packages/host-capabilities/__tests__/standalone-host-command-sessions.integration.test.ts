@@ -2,9 +2,7 @@
  * Through the trusted model seam, the standalone host starts a command
  * session in its launch root, lists it, and ends it when the host stops.
  */
-import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { processStartTime } from '@brainstrike/state-store';
-import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import {
@@ -46,11 +44,7 @@ test('the standalone host starts a command session in its launch root and lists 
   const { runId, threadId } = z
     .object({ runId: z.string(), threadId: z.string() })
     .parse(JSON.parse(asked.stdout.split('\n')[0] || 'null'));
-  const readRows = async () =>
-    Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(JSON.parse((await host.command(['threads', 'show', '--thread', threadId])).stdout)).rows;
+  const readRows = () => host.threadRows(threadId);
   const requested = (await readRows())
     .map((row) => row.event)
     .find((event) => event.type === 'interaction.requested');
