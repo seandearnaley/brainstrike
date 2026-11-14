@@ -12,6 +12,12 @@
  * cap at a time, and logs a failure with its repository and worktree. A
  * creation that names no thread, or whose thread is gone, has no one to tell,
  * so it runs no cap; the repository's next creation for a thread does.
+ *
+ * Each pass first archives the repository's idle worktrees whose branches have
+ * merged (BST-2504, `worktree-merged-archive.ts`), for every creation, so a
+ * merged worktree never counts toward the 15. The same pass runs once in each
+ * repository with live worktrees after the host opens (`afterOpen`), in the
+ * same queue, and stops when the host closes.
  */
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -24,7 +30,9 @@ import type {
   WorktreeArchiveResult,
   WorktreeCreateParams,
 } from '@brainstrike/types';
+import type { GitCommandRunner } from './git-service.ts';
 import { IDLE_ARCHIVE_LEFT_IN_PLACE } from './worktree-idle-archive.ts';
+import { archiveMergedWorktrees } from './worktree-merged-archive.ts';
 import { isPathWithin } from './worktree-paths.ts';
 import { createMutex, type WorktreeArchiveParams } from './worktree-service-inputs.ts';
 
@@ -38,9 +46,14 @@ export interface IdleWorktreeCapDeps {
   readonly archive: (
     params: WorktreeArchiveParams
   ) => Promise<BoundaryResult<WorktreeArchiveResult>>;
+  /** Every live ledger row, for the pass after the host opens. */
+  readonly listActive: () => Promise<readonly ManagedWorktreeRow[]>;
   /** A repository's ledger rows, archived ones too. */
   readonly listRepository: (repoCommonDir: string) => Promise<readonly ManagedWorktreeRow[]>;
-  /** Tells the thread a creation was for which worktrees the cap archived. */
+  /**
+   * Tells the thread a creation was for which worktrees the cap archived, and the thread that
+   * made a merged worktree that it was archived.
+   */
   readonly publish: (archive: HostIdleWorktreeArchive) => void;
   /** Every recorded folder, closed ones too: a binding names its folders by root id. */
   readonly readRoots: () => Promise<
@@ -57,6 +70,8 @@ export interface IdleWorktreeCapDeps {
       readonly threadId: string;
     }[]
   >;
+  /** Git as the host runs it in the person's folders, for archive on merge. */
+  readonly run: GitCommandRunner;
 }
 
 export interface IdleWorktreeCap {
@@ -68,9 +83,16 @@ export interface IdleWorktreeCap {
     worktree: ManagedWorktreeRow,
     params: WorktreeCreateParams
   ) => Promise<void>;
-  /** Starts no further cap, then waits for the ones in flight. */
+  /**
+   * After the host opens: archive on merge once in each repository with live worktrees, in the
+   * cap's queue. Settles when it has finished, and never rejects: a failure is logged.
+   */
+  readonly afterOpen: () => Promise<void>;
+  /** Starts no further pass, then waits for the ones in flight. */
   close(): Promise<void>;
 }
+
+type ListedThreads = Awaited<ReturnType<IdleWorktreeCapDeps['readThreads']>>;
 
 /** The worktrees the bindings name: as a thread's worktree, or by the path of any of its folders. */
 interface BindingClaims {
@@ -79,7 +101,7 @@ interface BindingClaims {
 }
 
 function bindingClaims(
-  threads: Awaited<ReturnType<IdleWorktreeCapDeps['readThreads']>>,
+  threads: ListedThreads,
   roots: Awaited<ReturnType<IdleWorktreeCapDeps['readRoots']>>
 ): BindingClaims {
   const rootPaths = new Map(roots.map((root) => [root.id, [root.path, root.canonicalPath]]));
@@ -133,6 +155,8 @@ function newestFirst(left: ManagedWorktreeRow, right: ManagedWorktreeRow): numbe
   return left.id < right.id ? 1 : -1;
 }
 
+type IdleCapArchive = Extract<HostIdleWorktreeArchive, { reason: 'idle-cap' }>;
+
 export function createIdleWorktreeCap(deps: IdleWorktreeCapDeps): IdleWorktreeCap {
   const turn = createMutex();
   const pending = new Set<Promise<void>>();
@@ -142,14 +166,49 @@ export function createIdleWorktreeCap(deps: IdleWorktreeCapDeps): IdleWorktreeCa
     const [threads, roots] = await Promise.all([deps.readThreads(), deps.readRoots()]);
     return bindingClaims(threads, roots);
   };
+  const isBound = async (row: ManagedWorktreeRow): Promise<boolean> =>
+    claimed(await readClaims(), row);
+
+  /** The repository's live worktrees no thread is bound to, besides the one just made. */
+  async function idleWorktrees(
+    repoCommonDir: string,
+    threads: ListedThreads,
+    createdId?: string
+  ): Promise<ManagedWorktreeRow[]> {
+    const rows = await deps.listRepository(repoCommonDir);
+    const claims = bindingClaims(threads, await deps.readRoots());
+    const active = rows.filter((row) => row.archivedAt === null && row.id !== createdId);
+    const bound = await Promise.all(active.map((row) => claimed(claims, row)));
+    return active.filter((_row, index) => !bound[index]);
+  }
+
+  /** Archive on merge in one repository; the ids it archived. A failure is logged. */
+  async function archiveMerged(
+    repoCommonDir: string,
+    idle: readonly ManagedWorktreeRow[],
+    threads: ListedThreads
+  ): Promise<ReadonlySet<string>> {
+    try {
+      return await archiveMergedWorktrees(deps, {
+        closing: () => closing,
+        idle,
+        isBound,
+        repoCommonDir,
+        threads,
+      });
+    } catch (error) {
+      logger.error('Archive on merge failed', { error, repoCommonDir });
+      return new Set();
+    }
+  }
 
   /** One idle worktree through the service's archive; undefined when it stays. */
   async function archiveOne(
     row: ManagedWorktreeRow
-  ): Promise<HostIdleWorktreeArchive['worktrees'][number] | undefined> {
+  ): Promise<IdleCapArchive['worktrees'][number] | undefined> {
     const context = { repoCommonDir: row.repoCommonDir, worktreeId: row.id };
     const outcome = await deps.archive({
-      idleCap: { isBound: async () => claimed(await readClaims(), row) },
+      idleCap: { isBound: () => isBound(row) },
       worktreeId: row.id,
     });
     if (!outcome.ok) {
@@ -173,11 +232,49 @@ export function createIdleWorktreeCap(deps: IdleWorktreeCapDeps): IdleWorktreeCa
   }
 
   async function archiveBeyondCap(
-    created: ManagedWorktreeRow,
+    idle: readonly ManagedWorktreeRow[],
     threadId: string,
     runId: string | undefined
   ): Promise<void> {
+    // A worktree left in place keeps its place: no younger one is archived in its stead.
+    const beyond = [...idle].sort(newestFirst).slice(IDLE_WORKTREE_CAP).reverse();
+    const archived: IdleCapArchive['worktrees'] = [];
+    for (const row of beyond) {
+      if (closing) {
+        logger.info('The host is closing; the idle-worktree cap stops', { worktreeId: row.id });
+        break;
+      }
+      const entry = await archiveOne(row);
+      if (entry) {
+        archived.push(entry);
+      }
+    }
+    if (archived.length > 0) {
+      deps.publish({
+        limit: IDLE_WORKTREE_CAP,
+        reason: 'idle-cap',
+        ...(runId ? { runId } : {}),
+        threadId,
+        worktrees: archived,
+      });
+    }
+  }
+
+  /** After a creation: archive on merge, then the cap for the thread the creation was for. */
+  async function passAfterCreate(
+    created: ManagedWorktreeRow,
+    params: WorktreeCreateParams
+  ): Promise<void> {
     const threads = await deps.readThreads();
+    const idle = await idleWorktrees(created.repoCommonDir, threads, created.id);
+    const merged = await archiveMerged(created.repoCommonDir, idle, threads);
+    const { runId, threadId } = params;
+    if (!threadId) {
+      logger.info('A worktree created for no thread runs no cap: there is no one to tell', {
+        worktreeId: created.id,
+      });
+      return;
+    }
     const thread = threads.find((listed) => listed.threadId === threadId);
     if (thread === undefined) {
       logger.info('The thread a worktree was made for is gone; with no one to tell, no cap runs', {
@@ -195,62 +292,63 @@ export function createIdleWorktreeCap(deps: IdleWorktreeCapDeps): IdleWorktreeCa
       });
       return;
     }
-    const rows = await deps.listRepository(created.repoCommonDir);
-    const claims = bindingClaims(threads, await deps.readRoots());
-    const active = rows.filter((row) => row.archivedAt === null && row.id !== created.id);
-    const bound = await Promise.all(active.map((row) => claimed(claims, row)));
-    const idle = active.filter((_row, index) => !bound[index]).sort(newestFirst);
-    // A worktree left in place keeps its place: no younger one is archived in its stead.
-    const beyond = idle.slice(IDLE_WORKTREE_CAP).reverse();
-    const archived: HostIdleWorktreeArchive['worktrees'] = [];
-    for (const row of beyond) {
+    await archiveBeyondCap(
+      idle.filter((row) => !merged.has(row.id)),
+      threadId,
+      runId
+    );
+  }
+
+  /** After the host opens: archive on merge in each repository with live worktrees. */
+  async function passAfterOpen(): Promise<void> {
+    const repositories = new Set((await deps.listActive()).map((row) => row.repoCommonDir));
+    for (const repoCommonDir of repositories) {
       if (closing) {
-        logger.info('The host is closing; the idle-worktree cap stops', { worktreeId: row.id });
+        logger.info('The host is closing; archive on merge after opening stops', {
+          repoCommonDir,
+        });
         break;
       }
-      const entry = await archiveOne(row);
-      if (entry) {
-        archived.push(entry);
-      }
-    }
-    if (archived.length > 0) {
-      deps.publish({
-        limit: IDLE_WORKTREE_CAP,
-        ...(runId ? { runId } : {}),
-        threadId,
-        worktrees: archived,
+      await turn(async () => {
+        const threads = await deps.readThreads();
+        await archiveMerged(repoCommonDir, await idleWorktrees(repoCommonDir, threads), threads);
       });
     }
   }
 
+  /** Tracks a pass so close waits for it; a failure is logged, never thrown. */
+  function track(task: Promise<void>, context: Readonly<Record<string, unknown>>): Promise<void> {
+    const tracked = task.catch((error: unknown) => {
+      logger.error('The idle-worktree cap failed', { ...context, error });
+    });
+    pending.add(tracked);
+    void tracked.finally(() => pending.delete(tracked));
+    return tracked;
+  }
+
   return {
     afterCreate: (worktree, params) => {
-      const { runId, threadId } = params;
-      if (!threadId) {
-        logger.info('A worktree created for no thread runs no cap: there is no one to tell', {
-          worktreeId: worktree.id,
-        });
-        return Promise.resolve();
-      }
       if (closing) {
         logger.info('The host is closing; no idle-worktree cap starts', {
           worktreeId: worktree.id,
         });
         return Promise.resolve();
       }
-      const task = turn(() => archiveBeyondCap(worktree, threadId, runId)).catch(
-        (error: unknown) => {
-          logger.error('The idle-worktree cap failed', {
-            error,
-            repoCommonDir: worktree.repoCommonDir,
-            threadId,
-            worktreeId: worktree.id,
-          });
+      return track(
+        turn(() => passAfterCreate(worktree, params)),
+        {
+          repoCommonDir: worktree.repoCommonDir,
+          threadId: params.threadId ?? null,
+          worktreeId: worktree.id,
         }
       );
-      pending.add(task);
-      void task.finally(() => pending.delete(task));
-      return task;
+    },
+    afterOpen: () => {
+      if (closing) {
+        logger.info('The host is closing; archive on merge after opening does not start');
+        return Promise.resolve();
+      }
+      return track(passAfterOpen(), { pass: 'after-open' });
     },
     close: async () => {
       closing = true;

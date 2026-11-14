@@ -216,10 +216,9 @@ function readArchivedWorktrees(event: Readonly<Record<string, unknown>>) {
 }
 
 /**
- * A committed `worktrees.archived` (ADR-0034 decision 7) as the run timeline's
- * always-visible notice: the idle worktrees the cap archived after a worktree
- * was made for this thread, each with its branch, where its work is kept, and
- * where the person restores one (the where-control's Other worktree… picker).
+ * A committed `worktrees.archived` as the run timeline's always-visible notice,
+ * by its reason: the idle worktrees the cap archived (ADR-0034 decision 7), or
+ * the worktrees this thread made whose branches have merged (BST-2504).
  */
 function worktreesArchivedNotice(
   event: Readonly<Record<string, unknown>>,
@@ -227,11 +226,41 @@ function worktreesArchivedNotice(
   runId: string,
   timestamp: string
 ): AssistantRunEvent {
+  const worktrees = readArchivedWorktrees(event);
+  const notice = { id: `run-event-${row.threadId}-${row.seq}`, runId, timestamp };
+  switch (event['reason']) {
+    case 'idle-cap':
+      return idleCapArchiveNotice(event, worktrees, notice);
+    case 'merged':
+      return mergedArchiveNotice(event, worktrees, notice);
+    default:
+      throw new Error('Committed worktree archive has an unsupported reason.');
+  }
+}
+
+type ArchivedWorktrees = ReturnType<typeof readArchivedWorktrees>;
+
+/** Where a notice sits: its id, its run, and its own time. */
+interface ArchiveNoticeAddress {
+  readonly id: string;
+  readonly runId: string;
+  readonly timestamp: string;
+}
+
+/**
+ * The idle worktrees the cap archived after a worktree was made for this thread, each with its
+ * branch, where its work is kept, and where the person restores one (the where-control's Other
+ * worktree… picker).
+ */
+function idleCapArchiveNotice(
+  event: Readonly<Record<string, unknown>>,
+  worktrees: ArchivedWorktrees,
+  notice: ArchiveNoticeAddress
+): AssistantRunEvent {
   const limit = event['limit'];
   if (typeof limit !== 'number') {
     throw new Error('Committed worktree archive has no limit.');
   }
-  const worktrees = readArchivedWorktrees(event);
   const [only] = worktrees.length === 1 ? worktrees : [];
   const named = worktrees
     .map(({ branch, name }) => `${name} (${branch === null ? 'detached' : `branch ${branch}`})`)
@@ -245,15 +274,48 @@ function worktreesArchivedNotice(
     } kept in its archive snapshot (${snapshots}), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore ${
       only ? 'it' : 'one'
     }, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.`,
-    id: `run-event-${row.threadId}-${row.seq}`,
+    id: notice.id,
     kind: 'worktree.archived',
     label: only
       ? `Archived idle worktree ${only.name}`
       : `Archived ${worktrees.length} idle worktrees`,
     metadata: { limit, worktrees },
-    runId,
+    runId: notice.runId,
     status: 'info',
-    timestamp,
+    timestamp: notice.timestamp,
+  };
+}
+
+/** The worktrees this thread made whose branches have merged into the default branch. */
+function mergedArchiveNotice(
+  event: Readonly<Record<string, unknown>>,
+  worktrees: ArchivedWorktrees,
+  notice: ArchiveNoticeAddress
+): AssistantRunEvent {
+  const defaultBranch = requiredString(event, 'defaultBranch');
+  const [only] = worktrees.length === 1 ? worktrees : [];
+  const named = worktrees.map(({ branch, name }) => {
+    if (branch === null) {
+      throw new Error('Committed merged worktree archive names a worktree with no branch.');
+    }
+    return { branch, name };
+  });
+  const detail = only
+    ? `The branch ${only.branch} has merged into ${defaultBranch}, so its worktree ${only.name} was archived. Restore it from Other worktree… if you need it again.`
+    : `The branches of these worktrees have merged into ${defaultBranch}, so they were archived: ${named
+        .map(({ branch, name }) => `${name} (branch ${branch})`)
+        .join(', ')}. Restore one from Other worktree… if you need it again.`;
+  return {
+    detail,
+    id: notice.id,
+    kind: 'worktree.archived',
+    label: only
+      ? `Archived merged worktree ${only.name}`
+      : `Archived ${worktrees.length} merged worktrees`,
+    metadata: { defaultBranch, reason: 'merged', worktrees },
+    runId: notice.runId,
+    status: 'info',
+    timestamp: notice.timestamp,
   };
 }
 

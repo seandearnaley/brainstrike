@@ -216,7 +216,9 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // 7), from the host's committed `worktrees.archived`: the idle worktrees it
   // archived after a worktree was made for this thread, shown with the run
   // that made it or, when the person made it, the thread's latest run. It is
-  // in `isAlwaysVisibleRunEvent`: nothing else says a worktree went away.
+  // also archive on merge's notice (BST-2504): the worktrees this thread made
+  // whose branches have merged, shown with its latest run. It is in
+  // `isAlwaysVisibleRunEvent`: nothing else says a worktree went away.
   'worktree.archived',
   'worktree.created',
   'worktree.setup',

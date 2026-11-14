@@ -1,6 +1,7 @@
 // @vitest-environment node
 // ADR-0034 decision 7: the idle worktrees the cap archived after a worktree
 // was made for this thread are named in its transcript, with how to get them back.
+// BST-2504: so are the worktrees it made whose branches have merged.
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { expect, it } from 'vitest';
 import { isAlwaysVisibleRunEvent } from '../assistant-run-event-derivation';
@@ -14,12 +15,15 @@ const runId = 'run-1';
 const createdAt = new Date('2026-11-12T12:00:00.000Z');
 const archivedAt = Date.parse('2026-11-12T12:05:00.000Z');
 
-function notices(worktrees: readonly Record<string, unknown>[]) {
+function notices(
+  worktrees: readonly Record<string, unknown>[],
+  archive: Record<string, unknown> = { limit: 15, reason: 'idle-cap' }
+) {
   const rows: readonly CommittedAssistantLogRow[] = [
     { event: { modelId: 'scripted', prompt: 'Fix the build.', runId, type: 'run.started' } },
     { event: { outcome: 'completed', runId, type: 'run.finished' } },
     // Committed after the run ended: the person made a worktree between runs.
-    { event: { limit: 15, runId, type: 'worktrees.archived', worktrees }, ts: archivedAt },
+    { event: { ...archive, runId, type: 'worktrees.archived', worktrees }, ts: archivedAt },
   ].map((row, index) => ({ ...row, seq: index + 1, threadId }));
   const projection = new CommittedAssistantLogProjection({
     identifyRun: () => ({
@@ -79,6 +83,49 @@ it('names each worktree when several were archived, a detached one by its name a
   expect(notice?.label).toBe('Archived 2 idle worktrees');
   expect(notice?.detail).toBe(
     'This repository had more than 15 worktrees that no thread is using, so the oldest were archived: swift-badger (branch bs/swift-badger), calm-otter (detached). The uncommitted changes of each are kept in its archive snapshot (refs/brainstrike/worktree-archive/wt-1, refs/brainstrike/worktree-archive/wt-2), its commits stay on its branch, and only files git ignores, such as installed dependencies, were deleted. To restore one, choose Other worktree… in the composer’s Where this thread works menu, then Restore and use under Archived.'
+  );
+});
+
+const MERGED = { defaultBranch: 'origin/main', reason: 'merged' };
+
+it('says a worktree was archived because its branch has merged, and where to restore it', () => {
+  const [notice] = notices([BADGER], MERGED);
+
+  expect(notice).toMatchObject({
+    detail:
+      'The branch bs/swift-badger has merged into origin/main, so its worktree swift-badger was archived. Restore it from Other worktree… if you need it again.',
+    label: 'Archived merged worktree swift-badger',
+    metadata: { defaultBranch: 'origin/main', reason: 'merged', worktrees: [BADGER] },
+    runId,
+    status: 'info',
+    timestamp: new Date(archivedAt).toISOString(),
+  });
+  expect(isAlwaysVisibleRunEvent(notice)).toBe(true);
+});
+
+it('names each merged worktree with its branch when several were archived', () => {
+  const [notice] = notices(
+    [
+      BADGER,
+      {
+        branch: 'bs/calm-otter',
+        name: 'calm-otter',
+        snapshotRef: 'refs/brainstrike/worktree-archive/wt-2',
+        worktreeId: 'wt-2',
+      },
+    ],
+    MERGED
+  );
+
+  expect(notice?.label).toBe('Archived 2 merged worktrees');
+  expect(notice?.detail).toBe(
+    'The branches of these worktrees have merged into origin/main, so they were archived: swift-badger (branch bs/swift-badger), calm-otter (branch bs/calm-otter). Restore one from Other worktree… if you need it again.'
+  );
+});
+
+it('refuses an archive notice with no reason it knows', () => {
+  expect(() => notices([BADGER], { limit: 15 })).toThrow(
+    'Committed worktree archive has an unsupported reason.'
   );
 });
 

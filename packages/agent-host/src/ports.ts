@@ -947,16 +947,27 @@ export interface HostCommandSessionExit {
   readonly threadId: string;
 }
 
+type HostWorktreesArchivedEvent = Extract<HostEvent, { type: 'worktrees.archived' }>;
+
 /**
- * ADR-0034 decision 7: the idle worktrees the platform's cap archived after a worktree was
- * created for `threadId`, which Core tells that thread (`worktrees.archived`).
+ * Worktrees the platform archived, which Core tells `threadId` (`worktrees.archived`): the idle
+ * worktrees its cap archived after a worktree was created for that thread (ADR-0034 decision 7),
+ * or worktrees the thread made whose branches have merged (`merged`, BST-2504).
  */
-export interface HostIdleWorktreeArchive
-  extends Pick<Extract<HostEvent, { type: 'worktrees.archived' }>, 'limit' | 'worktrees'> {
-  /** The run that made the worktree; absent when the person made it. */
+export type HostIdleWorktreeArchive = (
+  | Pick<
+      Extract<HostWorktreesArchivedEvent, { reason: 'idle-cap' }>,
+      'limit' | 'reason' | 'worktrees'
+    >
+  | Pick<
+      Extract<HostWorktreesArchivedEvent, { reason: 'merged' }>,
+      'defaultBranch' | 'reason' | 'worktrees'
+    >
+) & {
+  /** The run that made the worktree; absent when the person made it, and for `merged`. */
   readonly runId?: string;
   readonly threadId: string;
-}
+};
 
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;

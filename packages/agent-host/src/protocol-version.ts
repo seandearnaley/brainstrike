@@ -150,4 +150,8 @@
 // where, moves the scratch folder there and turns its root into a folder of the person's with a
 // project of its own under the same root id; a new method. Its refusals are typed
 // (`workspace.scratch-*`).
-export const AGENT_HOST_PROTOCOL_VERSION = 29;
+// v30 (2026-11-13): archive on merge (ADR-0034 build decisions, BST-2504). `worktrees.archived`
+// carries `reason`, required: `idle-cap` with `limit` as before, or `merged` with
+// `defaultBranch` (the branch the worktrees' branches merged into) and no `limit`, told to the
+// thread that made each worktree. The required field is why this is a version bump.
+export const AGENT_HOST_PROTOCOL_VERSION = 30;

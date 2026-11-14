@@ -2,7 +2,8 @@
  * ADR-0034 decision 7: when the platform's idle-worktree cap archives
  * worktrees after a creation for a thread, that thread is told in a committed
  * row its transcript shows with the run that made the worktree, or with its
- * latest run when the person made it between runs.
+ * latest run when the person made it between runs. Archive on merge (BST-2504)
+ * tells the thread that made a merged worktree, with its latest run.
  */
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
@@ -49,15 +50,20 @@ async function capHost() {
       },
     },
   });
-  const archive = (report: Omit<HostIdleWorktreeArchive, 'limit' | 'worktrees'>): void => {
+  const archive = (report: HostIdleWorktreeArchive): void => {
     for (const listener of listeners) {
-      listener({ limit: 15, worktrees: ARCHIVED, ...report });
+      listener(report);
     }
   };
   return { archive, harness, inFlight, listeners };
 }
 
 const archivedRow = (row: HostLogRow) => row.event.type === 'worktrees.archived';
+
+/** The cap's archive of `ARCHIVED` for a thread, after a creation by `runId` when set. */
+const idleCap = (
+  address: Pick<HostIdleWorktreeArchive, 'runId' | 'threadId'>
+): HostIdleWorktreeArchive => ({ limit: 15, reason: 'idle-cap', worktrees: ARCHIVED, ...address });
 
 test('tells the thread a run made the worktree for, with that run', async () => {
   const { archive, harness } = await capHost();
@@ -66,11 +72,17 @@ test('tells the thread a run made the worktree for, with that run', async () => 
   await harness.start('Carry on.');
   await harness.core().idle(harness.threadId);
 
-  archive({ runId: first, threadId: harness.threadId });
+  archive(idleCap({ runId: first, threadId: harness.threadId }));
 
   const rows = await rowsUntil(harness, harness.threadId, archivedRow);
   expect(rows.filter(archivedRow).map(({ event }) => event)).toEqual([
-    { limit: 15, runId: first, type: 'worktrees.archived', worktrees: ARCHIVED },
+    {
+      limit: 15,
+      reason: 'idle-cap',
+      runId: first,
+      type: 'worktrees.archived',
+      worktrees: ARCHIVED,
+    },
   ]);
 });
 
@@ -81,11 +93,51 @@ test("tells the thread the person made the worktree in, with the thread's latest
   const latest = await harness.start('Then summarise them.');
   await harness.core().idle(harness.threadId);
 
-  archive({ threadId: harness.threadId });
+  archive(idleCap({ threadId: harness.threadId }));
 
   const rows = await rowsUntil(harness, harness.threadId, archivedRow);
   expect(rows.filter(archivedRow).map(({ event }) => event)).toEqual([
-    { limit: 15, runId: latest, type: 'worktrees.archived', worktrees: ARCHIVED },
+    {
+      limit: 15,
+      reason: 'idle-cap',
+      runId: latest,
+      type: 'worktrees.archived',
+      worktrees: ARCHIVED,
+    },
+  ]);
+});
+
+test('tells the thread that made a merged worktree, with its latest run', async () => {
+  const { archive, harness } = await capHost();
+  await harness.start('Make a worktree and fix the bug there.');
+  await harness.core().idle(harness.threadId);
+  const latest = await harness.start('Thanks.');
+  await harness.core().idle(harness.threadId);
+  const merged = [
+    {
+      branch: 'bs/swift-badger',
+      name: 'swift-badger',
+      snapshotRef: 'refs/brainstrike/worktree-archive/wt-1',
+      worktreeId: 'wt-1',
+    },
+  ];
+
+  archive({
+    defaultBranch: 'origin/main',
+    reason: 'merged',
+    threadId: harness.threadId,
+    worktrees: merged,
+  });
+
+  const rows = await rowsUntil(harness, harness.threadId, archivedRow);
+  expect(rows.filter(archivedRow).map(({ event }) => event)).toEqual([
+    {
+      defaultBranch: 'origin/main',
+      reason: 'merged',
+      runId: latest,
+      type: 'worktrees.archived',
+      worktrees: merged,
+    },
   ]);
 });
 
@@ -104,7 +156,7 @@ test('tells the thread of an archive that finishes as the host starts to close',
   const run = await harness.start('Make a worktree.');
   await harness.core().idle(harness.threadId);
   inFlight.settle = async () => {
-    archive({ runId: run, threadId: harness.threadId });
+    archive(idleCap({ runId: run, threadId: harness.threadId }));
   };
 
   await harness.core().close();
@@ -116,6 +168,7 @@ test('tells the thread of an archive that finishes as the host starts to close',
   ).toEqual([
     expect.objectContaining({
       limit: 15,
+      reason: 'idle-cap',
       runId: run,
       type: 'worktrees.archived',
       worktrees: ARCHIVED,

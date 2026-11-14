@@ -96,8 +96,13 @@ export interface WorktreeArchiveParams {
    * archive refuses a worktree `isBound` names (asked in the archive's own turn, so a thread
    * that took it since keeps it), a locked one, one with nested repositories and one a run is
    * active in; anything else is forced, with the preview's own confirmation of ignored files.
+   * Archive on merge (BST-2504) also passes `isMerged`, asked in the same turn after those
+   * checks, so a worktree that took a commit or a change meanwhile stays.
    */
-  readonly idleCap?: { readonly isBound: () => Promise<boolean> };
+  readonly idleCap?: {
+    readonly isBound: () => Promise<boolean>;
+    readonly isMerged?: () => Promise<boolean>;
+  };
   readonly runId?: string;
   readonly worktreeId: string;
 }
