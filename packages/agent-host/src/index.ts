@@ -16,18 +16,6 @@ export {
   type KeyringNativeBackend,
 } from './adapters/keyring-native-worker.ts';
 export { createMcpHostToolAdapter } from './adapters/mcp.ts';
-export {
-  HostMemory,
-  type HostMemoryCapabilities,
-  type HostMemoryIdentity,
-  type HostMemoryStep,
-} from './adapters/memory.ts';
-export { StateStoreMemoryStorage } from './adapters/memory-storage.ts';
-export { type HostObservationSource, hostMemoryModels } from './adapters/observation-state.ts';
-export {
-  StateStoreHostMemory,
-  type StateStoreHostMemoryOptions,
-} from './adapters/state-store-host-memory.ts';
 export { hostChildCallSign } from './child-presentation.ts';
 export {
   type HostCliDefaults,
@@ -77,8 +65,6 @@ export {
 } from './process-entry.ts';
 export {
   createProductionHostPlatform,
-  type HostMemoryPreconditions,
-  type HostMemoryReadiness,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
 } from './production-platform.ts';

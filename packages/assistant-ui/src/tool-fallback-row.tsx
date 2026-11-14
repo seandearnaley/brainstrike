@@ -103,8 +103,8 @@ export function ToolFallbackRow({
         // (`namesTool`: "Called legacy.echo"), or the row would read it
         // twice. `targetTitle` stays the untruncated primary arg, so the
         // tooltip never labels the id as an argument.
-        // A verb whose arguments name no target (`targetArg: null`: working
-        // memory's markdown, a canvas's HTML) shows none, not the tool id.
+        // A verb whose arguments name no target (`targetArg: null`: a canvas's
+        // HTML) shows none, not the tool id.
         target={
           primaryArg?.display ?? (verb.namesTool || verb.targetArg === null ? null : toolName)
         }

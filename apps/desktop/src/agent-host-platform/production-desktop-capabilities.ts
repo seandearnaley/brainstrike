@@ -31,25 +31,6 @@ function desktopAdmissionReads(
       return row ? { isEnabled: row.isEnabled, providerId: row.providerId } : null;
     },
     ...(readCliOwnerIntent ? { cliOwnerIntent: readCliOwnerIntent } : {}),
-    /**
-     * The auto-observer candidates the model catalog has enabled: provider and
-     * model rows enabled, the gate the memory settings
-     * dropdown applies (main's resolveEffectiveObservationalMemorySettings).
-     */
-    enabledObservers: async (candidates) => {
-      const snapshot = await dependencies.modelCatalog.read();
-      const enabledProviders = new Set(
-        snapshot.providers.filter((provider) => provider.isEnabled).map((provider) => provider.id)
-      );
-      return snapshot.models
-        .filter(
-          (model) =>
-            model.isEnabled &&
-            enabledProviders.has(model.providerId) &&
-            candidates.includes(`${model.providerId}/${model.id}`)
-        )
-        .map((model) => `${model.providerId}/${model.id}`);
-    },
     // A scratch folder is its own thread's (ADR-0034): a run bound to it acquires it through its
     // binding, and a run with no folder of its own never sees another thread's.
     liveWorkspaceRoots: async () =>

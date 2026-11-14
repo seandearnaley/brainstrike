@@ -14,7 +14,6 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import {
-  chars4,
   estimateTokens,
   type HostContextRewrites,
   type HostRequestExtras,
@@ -23,8 +22,6 @@ import {
 import type { HostRunState } from './core-state.ts';
 import { correlatedFailure } from './failure-correlation.ts';
 import { type Json, jsonValue } from './json-value.ts';
-import type { HostPreparedStep } from './ports.ts';
-import { applyProjectionRewrites } from './projection-rewrites.ts';
 import type { HostEvent, HostLogRow } from './protocol.ts';
 import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.ts';
 import { isHostTurnInput } from './turn-input.ts';
@@ -165,7 +162,7 @@ function select(candidates: readonly Turn[], reclaim: number): Turn[] {
 }
 
 /**
- * The summarizer side call's usage receipt, in `memory.usage`'s shape: the
+ * The summarizer side call's usage receipt, in `model.usage`'s shape: the
  * model it ran on and the SDK usage exactly as reported.
  */
 export interface HostContextSummaryUsage {
@@ -401,14 +398,6 @@ function applyOverlay(turns: readonly Turn[], compactions: readonly Compacted[])
   return turns.filter((turn) => !compacted.has(turn.run.id)).flatMap((turn) => turn.messages);
 }
 
-/** Memory's request as the provider receives it: its messages, rewritten, and its system context. */
-function estimateStep(step: HostPreparedStep): number {
-  return (
-    estimateTokens(applyProjectionRewrites(step.messages, step.rewrites)) +
-    (step.system === undefined ? 0 : chars4(step.system))
-  );
-}
-
 /**
  * How far the run's next request is past its compaction trigger, which is how
  * much compaction reclaims to reach its target; undefined below the trigger.
@@ -440,44 +429,31 @@ async function reclaimPastTrigger(
  * compaction of this branch. Below the trigger nothing is committed.
  *
  * The request is sized by what its provider last reported (`measureHostContext`).
- * With Memory, a reported count is of the request Memory built; with nothing
- * reported, the trigger measures the request Memory builds, not the branch.
- * Either way only this branch's turns that request holds are compacted, and
- * Memory then rebuilds it without them (ADR-0013).
  */
 export async function prepareCompactedContext(
   input: CompactionBounds & {
     /** The run's reading of a summarizer failure, recorded on its fallback. */
     readonly classify?: (cause: unknown) => BoundaryFailure;
     readonly commit: (event: Compacted) => Promise<void>;
-    /** The run's Memory: the request it builds over the overlaid branch. */
-    readonly prepareStep?: (messages: readonly ModelMessage[]) => Promise<HostPreparedStep>;
     readonly signal: AbortSignal;
     readonly summarize: (transcript: string) => Promise<HostContextSummary>;
   }
 ): Promise<{
   readonly messages: ModelMessage[];
   readonly note?: string;
-  /** Memory's request, after any compaction this call committed. */
-  readonly step?: HostPreparedStep;
 }> {
   const turns = splitTurns(input.chain, input.messages);
   const compactions = [...input.compactions];
-  let step = await input.prepareStep?.(applyOverlay(turns, compactions));
   const limit = input.inputTokenLimit;
   const run = input.chain.at(-1);
   if (run && limit !== undefined) {
     const compacted = new Set(compactions.flatMap((event) => event.compactedRunIds));
-    const held = step?.historyRunIds;
-    const candidates = droppable(turns, compacted).filter(
-      (turn) => held === undefined || held.has(turn.run.id)
-    );
-    const memoryStep = step;
+    const candidates = droppable(turns, compacted);
     const reclaim =
       candidates.length === 0
         ? undefined
         : await reclaimPastTrigger(input, limit, () =>
-            memoryStep ? estimateStep(memoryStep) : estimateTokens(applyOverlay(turns, compactions))
+            estimateTokens(applyOverlay(turns, compactions))
           );
     if (reclaim !== undefined) {
       const event = await compactionEvent({
@@ -490,13 +466,11 @@ export async function prepareCompactedContext(
       });
       await input.commit(event);
       compactions.push(event);
-      step = await step?.rebuild();
     }
   }
   const note = compactionNote(compactions, new Set(input.chain.map((turn) => turn.id)));
   return {
     messages: applyOverlay(turns, compactions),
     ...(note ? { note } : {}),
-    ...(step ? { step } : {}),
   };
 }

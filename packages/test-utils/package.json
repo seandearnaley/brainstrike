@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "devDependencies": {
     "@mastra/core": "catalog:",
-    "@mastra/memory": "catalog:",
     "@playwright/test": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "catalog:",
@@ -45,7 +44,6 @@
     "./fixtures/committed-host-run-attempts.json": "./fixtures/committed-host-run-attempts.json",
     "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
     "./fixtures/recorded-grep-patterns.json": "./fixtures/recorded-grep-patterns.json",
-    "./fixtures/observation-memory": "./fixtures/observation-memory.mjs",
     "./vitest.base": "./src/vitest.base.ts",
     "./vitest-lost-file-reporter": "./vitest-lost-file-reporter.mjs",
     "./vitest-react-compiler": "./vitest-react-compiler.mjs",

@@ -10,7 +10,7 @@ Owners: [child admission](../../packages/agent-host/src/child-runs.ts), [persona
   - Ancestry comes from committed origins, never parsed IDs or UI paths.
   - Refused delegation creates no child conversation.
 - A persona narrows the parent's admitted tools.
-  - Read-only personas get their declared read-risk tools and cannot delegate or use working memory.
+  - Read-only personas get their declared read-risk tools and cannot delegate.
   - Only explicit workers delegate recursively, within the admitted depth limit.
   - The task list, `askUser` and `submitPlan` stay the parent's, even under `*`: a child reports a decision it needs to its parent (ADR-0028 rule 1).
 - Freeze the persona instructions, catalog and executable identities for the admitted run.
@@ -42,11 +42,11 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
   - A child run's terminal commit posts `notice.posted` on the parent's log in the same transaction, so whether a run reports is decided once, and the report outlives the child's thread.
   - A run takes the notices due on its own branch: not yet taken by a run on that branch (its `run.started` `delivery` names them), and dispatched by a run on that branch. An edit, regenerate or rewind that leaves the run that took one finds it due again; a branch that left the dispatching run never asked for that work.
   - A running run takes what is due at its next step (`prepareStep`): one user message of its own, committed as `model.messages` whose `delivery` names the notices. Nothing wakes for a notice a step took. A run whose last step makes no tool call has no next step, so its thread wakes after it ends.
-  - That message sits inside the turn. Readers that need the turn's input (compaction, projection rewrites, Memory's active slice) use `isHostTurnInput` (`turn-input.ts`), never the last user message by role.
+  - That message sits inside the turn. Readers that need the turn's input (compaction, projection rewrites) use `isHostTurnInput` (`turn-input.ts`), never the last user message by role.
   - A regenerated wake repeats its prompt, which is its delivery, so it takes nothing new.
   - Wakes use the parent thread's current committed selection and keep the original admitting client origin ([ADR-0019](../adr/0019-host-thread-run-selection.md)).
   - An edit, regenerate or rewind that forks above a turn whose workers still work ends that turn first, as its Stop would, so no worker of a branch the person left keeps writing beside the new one (`abandoned-turns.ts`). Sending on from the turn keeps it.
-  - An outcome is in full only in the delivery that first takes it on the branch. A later ledger of the turn lists that invocation by its outcome's opening, which still reaches the model after Memory's window drops the earlier message.
+  - An outcome is in full only in the delivery that first takes it on the branch. A later ledger of the turn lists that invocation by its outcome's opening, which still reaches the model after a compaction replaces the earlier message.
 - A command session that ends by itself is a notice too, posted on the thread that hears it: its starter while that runs, else the nearest busy or root ancestor. An idle child hands its untaken exits on to that thread. A notice no run took survives a restart and rides the next user turn (Q-2: nothing wakes for it).
 - `HostCore.idle(threadId)` resolves once the thread and its child threads have no run executing, ending or settling and no wake pending. A run waiting on a person counts as idle. It joins promises the runs and wakes already own, so it starts nothing and never waits on a clock.
   - Tests of wakes and deliveries act, `await core.idle(threadId)`, then assert. "Nothing woke" is then a plain count, with no sleep and no poll. While a test holds a worker's model, `idle` waits for it too, so release the worker first.
@@ -66,7 +66,7 @@ Owner: [Core child manager](../../packages/agent-host/src/core-child-runs.ts).
 - While a root has no run of its own, its working background children are named at its composer; their Stop is the turn's root Stop (accepted after that run ended).
 - Root Stop cancels the turn's descendants; child Stop leaves its parent and siblings running.
   - A Stop of any run that carries the turn (its first run, even ended, a wake or a continuation) ends every unfinished run of that turn on any thread (`turnRuns`). That Stop is the one "turn stopped" fact (`hostTurnStopped`), read by delivery, command-session exits, a worker whose delegation commit lands after the Stop (it ends stopped), and the approved-plan or worktree continuation, which is refused at its own admission when the Stop landed while it waited to start.
-- Join actual work and memory/provider owners before releasing resources.
+- Join actual work and provider owners before releasing resources.
 - Stopped turns keep results for the next user turn and don't auto-wake.
 - Restart marks child runs and interactions interrupted; it never replays them.
 - Deletion includes the authorized child subtree. Debug exports and usage projections keep their original scope and lineage.

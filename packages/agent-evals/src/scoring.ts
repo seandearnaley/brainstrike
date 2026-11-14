@@ -138,7 +138,7 @@ export interface EvalSourceSpend {
 
 /** Every model call the thread paid for, as the host's own cost ledger folds its log. */
 export interface EvalThreadSpend {
-  /** By the ledger's usage kind: `chat`, `compaction-summary`, `om-observation` and the rest. */
+  /** By the ledger's usage kind: `chat`, `compaction-summary`, `thread-title` and the rest. */
   readonly bySource: Readonly<Record<string, EvalSourceSpend>>;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;

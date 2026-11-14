@@ -5,11 +5,7 @@ import {
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import {
-  createLanguageModelProvider,
-  createProvider,
-  getDefaultModel,
-} from '../providers/provider-factory';
+import { createProvider, getDefaultModel } from '../providers/provider-factory';
 
 describe('provider-factory', () => {
   describe('createProvider', () => {
@@ -119,53 +115,6 @@ describe('provider-factory', () => {
       // Should not throw, will rely on environment variables
       const model = createProvider('openai');
       expect(model).toBeDefined();
-    });
-  });
-
-  describe('createLanguageModelProvider', () => {
-    it('returns the concrete hosted provider model unchanged', () => {
-      const model = createLanguageModelProvider('openai', 'test-key', 'gpt-5.4');
-
-      expect(model.modelId).toBe('gpt-5.4');
-      expect(model.doStream).toBeTypeOf('function');
-    });
-
-    it('materializes an explicit-key OpenRouter config as a concrete model', () => {
-      const model = createLanguageModelProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
-
-      expect(model.modelId).toBe('z-ai/glm-5.2');
-      expect(model.provider).toBe('openrouter');
-      expect(model.doStream).toBeTypeOf('function');
-    });
-
-    it('gives OpenRouter persistent-memory models a spec version @mastra/memory can execute', () => {
-      // The OM observer agent runs inside @mastra/memory's bundled core.
-      // ModelRouterLanguageModel declares specification 'v2', which that
-      // bundled agent executes — this pin keeps the wrapper from silently
-      // drifting to a spec literal the observer path cannot dispatch (the
-      // BST-947 field failure was the EMBEDDING model making exactly that
-      // class of mistake: a spec-'v4' embedder fell into @mastra/memory's
-      // legacy v1-only embed pipeline).
-      const model = createLanguageModelProvider(
-        'openrouter',
-        'test-key',
-        'google/gemini-2.5-flash'
-      );
-
-      expect(model.specificationVersion).toBe('v2');
-      expect(model.modelId).toBe('google/gemini-2.5-flash');
-    });
-
-    it('rejects a hosted router model without an explicit credential', () => {
-      expect(() => createLanguageModelProvider('openrouter', undefined, 'z-ai/glm-5.2')).toThrow(
-        /requires an explicit API key/iu
-      );
-    });
-
-    it('rejects providers outside the persistent-memory model boundary', () => {
-      expect(() =>
-        createLanguageModelProvider('bedrock', 'test-key', 'anthropic.claude-sonnet-5')
-      ).toThrow(/does not support provider: bedrock/iu);
     });
   });
 

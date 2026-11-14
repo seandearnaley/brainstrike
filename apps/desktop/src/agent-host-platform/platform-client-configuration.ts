@@ -49,24 +49,6 @@ export const PlatformModelConfigurationSchema = Schema.Struct({
     Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.MutableJson))
   ),
 });
-export const PlatformMemoryOptionsSchema = Schema.Struct({
-  lastMessages: Schema.Union([Schema.Literal(false), Schema.Int.check(Schema.isGreaterThan(0))]),
-  workingMemory: Schema.Struct({
-    enabled: Schema.Boolean,
-    scope: Schema.Literals(['thread', 'resource']),
-    template: Schema.String,
-  }),
-});
-export const PlatformMemorySettingsSchema = Schema.Struct({
-  observationalMemory: Schema.Struct({
-    enabled: Schema.Boolean,
-    messageTokens: Schema.Finite.check(Schema.isGreaterThan(0)),
-    modelTarget: Id,
-    observationTokens: Schema.Finite.check(Schema.isGreaterThan(0)),
-    retrievalMode: Schema.Literals(['off', 'messages']),
-    scope: Schema.Literals(['thread', 'resource']),
-  }),
-});
 /** BST-1932: the renderer's subagent preferences, captured with each run's input. */
 const PlatformSubagentsIntentSchema = Schema.Struct({
   delegationEnabled: Schema.Boolean,
@@ -85,8 +67,6 @@ export const PlatformClientConfigurationSchema = Schema.Struct({
   ),
   cliWorkspace: Schema.optional(CliWorkspaceSelectionSchema),
   enabledNativeToolIds: Schema.mutable(Schema.Array(Id)),
-  memoryOptions: PlatformMemoryOptionsSchema,
-  memorySettings: PlatformMemorySettingsSchema,
   modelConfiguration: PlatformModelConfigurationSchema,
   permissionPolicy: PlatformPolicySchema,
   selectionFolderId: Schema.optional(Id),

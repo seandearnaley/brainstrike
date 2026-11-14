@@ -15,20 +15,6 @@ export function desktopHostIntentFixture(): MutableFixture<
   })({
     agentLoop: { inputTokenLimit: 7000, maxSteps: 3 },
     enabledNativeToolIds: [],
-    memoryOptions: {
-      lastMessages: 1,
-      workingMemory: { enabled: false, scope: 'thread', template: 'Owner template' },
-    },
-    memorySettings: {
-      observationalMemory: {
-        enabled: false,
-        messageTokens: 1234,
-        modelTarget: 'auto',
-        observationTokens: 2345,
-        retrievalMode: 'messages',
-        scope: 'thread',
-      },
-    },
     modelConfiguration: {
       model: 'gpt-6-sol',
       modelSettings: { maxOutputTokens: 97, temperature: 0.31 },

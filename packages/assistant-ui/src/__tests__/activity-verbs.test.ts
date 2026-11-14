@@ -98,19 +98,9 @@ describe('verbForTool', () => {
     });
   });
 
-  // Live QA 2026-10-16: the host's discovery and working-memory tools are in
-  // nearly every thread and read "Used search_tools" / "Used updateWorkingMemory".
+  // Live QA 2026-10-16: the host's discovery tools are in nearly every thread
+  // and read "Used search_tools".
   it.each([
-    [
-      HOST_META_TOOL_ID.updateWorkingMemory,
-      {
-        active: 'Updating memory',
-        done: 'Updated memory',
-        family: 'memory',
-        request: 'Update memory',
-        targetArg: null,
-      },
-    ],
     [
       HOST_META_TOOL_ID.searchTools,
       {

@@ -63,20 +63,6 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   'delegation.ledger',
   'hook.blocked',
   'hook.notice',
-  'memory.configured',
-  'memory.history.loaded',
-  'memory.observation.completed',
-  // A background observation/buffering cycle FAILED (streamed by Mastra as a
-  // `data-om-*-failed` chunk). Deliberately its own kind: this was the only
-  // runtime evidence of the BST-940 field failure (a broken observer failing
-  // every cycle) and must stay visible in the run timeline, never dropped as
-  // an unrecognized chunk.
-  'memory.observation.failed',
-  'memory.observation.started',
-  'memory.reflection.completed',
-  'memory.reflection.started',
-  'memory.working.loaded',
-  'memory.working.updated',
   // One MCP server — or the whole client — contributed ZERO tools to this run
   // (BST-1602): discovery lost its timeout race, or that server's `listTools`
   // failed. The run still answers, with a materially reduced tool surface.

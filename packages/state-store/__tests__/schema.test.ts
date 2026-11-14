@@ -1,4 +1,4 @@
-// The current state DB owns run history, memory and the desktop content catalog.
+// The current state DB owns run history and the desktop content catalog.
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -29,7 +29,6 @@ const DESKTOP_CATALOG = [
   'view_filter_presets',
 ];
 const RUN_LOG = ['purge_intent', 'run_events', 'run_sync', 'settings', 'threads'];
-const MEMORY = ['brainstrike_memory_scopes', 'brainstrike_memory_entities'];
 const ISO = '2026-10-02T00:00:00.000Z';
 /** A managed worktree as the ledger records one, without the commit it was made at. */
 const WORKTREE = {
@@ -73,7 +72,7 @@ async function openDb(): Promise<{ store: StateStore; db: Database.Database }> {
 }
 
 describe('state DB migrations', () => {
-  test('holds the run log, native memory, thread, usage and recovered C-small tables', async () => {
+  test('holds the run log, thread, usage and recovered C-small tables', async () => {
     const { db } = await openDb();
     try {
       expect(db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
@@ -83,7 +82,7 @@ describe('state DB migrations', () => {
         )
         .pluck()
         .all() as string[];
-      expect(tables).toEqual([...C_SMALL, ...RUN_LOG, ...MEMORY, ...DESKTOP_CATALOG].sort());
+      expect(tables).toEqual([...C_SMALL, ...RUN_LOG, ...DESKTOP_CATALOG].sort());
     } finally {
       db.close();
     }

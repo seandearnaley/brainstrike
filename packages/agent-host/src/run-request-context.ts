@@ -14,7 +14,7 @@ import type { HostRequestExtras } from './context-size.ts';
 import type { HostRunExecutionPorts } from './core-run-execution.ts';
 import type { HostRunState as Run } from './core-state.ts';
 import { healInterruptedRunHistory } from './interrupted-history.ts';
-import type { HostPreparedStep, HostRunAdmission, HostRunOwner } from './ports.ts';
+import type { HostRunAdmission } from './ports.ts';
 import { applyProjectionRewrites, prepareProjectionRewrites } from './projection-rewrites.ts';
 import type { HostEvent } from './protocol.ts';
 import { combineHostSystemContext, hostStepActiveTools } from './run-admission.ts';
@@ -115,25 +115,20 @@ export async function recoverHostContextOverflow(ports: Ports, run: Run): Promis
 /**
  * The run's first request context: heal interrupted history, apply committed
  * tool-output rewrites (and the policy's new ones), then the compaction
- * overlay (and a new compaction past the trigger), in the legacy order. With
- * Memory, the trigger measures the request Memory builds (ADR-0013), and that
- * request is the first step's.
+ * overlay (and a new compaction past the trigger), in the legacy order.
  */
 export async function prepareRunContext(
   ports: Ports,
   run: Run,
   ancestors: readonly Run[],
   admission: HostRunAdmission,
-  messages: readonly ModelMessage[],
-  owner: HostRunOwner | undefined
+  messages: readonly ModelMessage[]
 ): Promise<{
   readonly messages: ModelMessage[];
   readonly note?: string;
-  readonly step?: HostPreparedStep;
 }> {
   const healed = healInterruptedRunHistory(messages, ancestors, run.threadId);
   const rewritten = await rewriteRunContext(ports, run, ancestors, healed);
-  const prepareStep = owner?.prepareHostStep?.bind(owner);
   return await prepareCompactedContext({
     chain: [...ancestors, run],
     classify: (cause) => resolveProviderError(cause, admission.configuration).failure,
@@ -141,12 +136,6 @@ export async function prepareRunContext(
     compactions: ports.compactions.read(run.threadId),
     compactionTokenCap: admission.compactionTokenCap,
     inputTokenLimit: admission.inputTokenLimit,
-    ...(prepareStep
-      ? {
-          prepareStep: (overlaid: readonly ModelMessage[]) =>
-            prepareStep({ messages: overlaid, stepNumber: run.steps }),
-        }
-      : {}),
     messages: rewritten,
     readRequestExtras: () => readHostRequestExtras(ports, run, admission, rewritten),
     // Read after `rewriteRunContext`, which may have committed this request's own.

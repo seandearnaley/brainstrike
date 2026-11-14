@@ -60,9 +60,6 @@ const AGENT_MAX_STEPS_MAX = SUBAGENT_SETTINGS_LIMITS.maxChildSteps.max;
 const INPUT_TOKEN_LIMIT_DEFAULT = 64_000;
 const INPUT_TOKEN_LIMIT_MIN = 4096;
 const INPUT_TOKEN_LIMIT_MAX = 256_000;
-const MEMORY_LAST_MESSAGES_DEFAULT = 40;
-const MEMORY_LAST_MESSAGES_MIN = 0;
-const MEMORY_LAST_MESSAGES_MAX = 200;
 
 const OPENAI_SUMMARY_OPTIONS: Array<{
   value: OpenAiReasoningSummary | 'off';
@@ -244,17 +241,12 @@ function FieldRefusal({ id, message }: { id: string; message: string | undefined
 const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsSectionProps) => {
   const maxStepsEnabled = typeof settings.agentMaxSteps === 'number';
   const inputTokenLimitEnabled = typeof settings.agentInputTokenLimit === 'number';
-  const memoryLastMessages = settings.memoryLastMessages ?? MEMORY_LAST_MESSAGES_DEFAULT;
-  const workingMemoryEnabled = settings.workingMemoryEnabled ?? true;
   const maxStepsErrorId = useId();
   const maxStepsHelpId = useId();
   const maxStepsInputId = useId();
   const inputTokenLimitErrorId = useId();
   const inputTokenLimitHelpId = useId();
   const inputTokenLimitInputId = useId();
-  const memoryErrorId = useId();
-  const memoryHelpId = useId();
-  const memoryInputId = useId();
   const maxSteps = useIntegerSettingField(
     maxStepsEnabled ? String(settings.agentMaxSteps) : '',
     { max: AGENT_MAX_STEPS_MAX, min: AGENT_MAX_STEPS_MIN, noun: 'steps' },
@@ -264,11 +256,6 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
     inputTokenLimitEnabled ? String(settings.agentInputTokenLimit) : '',
     { max: INPUT_TOKEN_LIMIT_MAX, min: INPUT_TOKEN_LIMIT_MIN, noun: 'input tokens' },
     (value) => onUpdate({ agentInputTokenLimit: value })
-  );
-  const memory = useIntegerSettingField(
-    String(memoryLastMessages),
-    { max: MEMORY_LAST_MESSAGES_MAX, min: MEMORY_LAST_MESSAGES_MIN, noun: 'messages' },
-    (value) => onUpdate({ memoryLastMessages: value })
   );
 
   return (
@@ -348,41 +335,6 @@ const AgentRuntimeSection = ({ settings, onUpdate, disabled }: ProviderSettingsS
           </div>
         </div>
         <FieldRefusal id={inputTokenLimitErrorId} message={inputTokenLimit.error} />
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="min-w-[160px] flex-1">
-            <Label className="text-foreground text-xs font-medium" htmlFor={memoryInputId}>
-              Recent messages
-            </Label>
-            <p className="text-muted-foreground text-xs" id={memoryHelpId}>
-              Recent messages retained for context. Set 0 to turn this off.
-            </p>
-          </div>
-          <Input
-            aria-describedby={`${memoryHelpId}${memory.error ? ` ${memoryErrorId}` : ''}`}
-            aria-invalid={Boolean(memory.error)}
-            className="h-9 w-28 min-w-0 shrink-0 text-sm"
-            disabled={disabled}
-            id={memoryInputId}
-            inputMode="numeric"
-            max={MEMORY_LAST_MESSAGES_MAX}
-            min={MEMORY_LAST_MESSAGES_MIN}
-            type="number"
-            {...memory.inputProps}
-          />
-        </div>
-        <FieldRefusal id={memoryErrorId} message={memory.error} />
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-foreground text-xs font-medium">Working memory</p>
-            <p className="text-muted-foreground text-xs">Keep useful context between steps.</p>
-          </div>
-          <Switch
-            aria-label="Enable working memory"
-            checked={workingMemoryEnabled}
-            disabled={disabled}
-            onCheckedChange={(checked) => onUpdate({ workingMemoryEnabled: checked })}
-          />
-        </div>
       </div>
     </section>
   );

@@ -154,7 +154,6 @@ function toolCallIds(
 function assistantSegment(
   row: CommittedModelRow,
   id: string,
-  resourceId: string,
   previous: readonly MastraDBMessage[],
   messages: readonly ModelMessage[],
   modelMetadata: ReturnType<typeof committedModelMetadata>
@@ -163,11 +162,7 @@ function assistantSegment(
   if (ts === undefined) {
     throw new Error('Native segment requires its committed SQLite timestamp');
   }
-  const native = new MessageList({
-    generateMessageId: () => id,
-    resourceId,
-    threadId: row.threadId,
-  });
+  const native = new MessageList({ generateMessageId: () => id, threadId: row.threadId });
   // Conversion borrows preceding calls to recover result arguments. A
   // later approval/result row never updates the earlier call segment, so the
   // converter gets its own copy: of the segments this row borrows from only,
@@ -209,14 +204,9 @@ function assistantSegment(
 function intakeSegment(
   row: CommittedModelRow,
   id: string,
-  resourceId: string,
   messages: readonly ModelMessage[]
 ): MastraDBMessage {
-  const native = new MessageList({
-    generateMessageId: () => id,
-    resourceId,
-    threadId: row.threadId,
-  });
+  const native = new MessageList({ generateMessageId: () => id, threadId: row.threadId });
   native.add(
     messages.map((message) => ({ ...message, id })),
     'input'
@@ -234,8 +224,7 @@ function intakeSegment(
 function runSegments(
   segments: readonly CommittedModelRow[],
   committed: ReadonlyMap<HostLogRow, ModelMessage[]>,
-  automaticAllows: ReadonlySet<string>,
-  resourceId: string
+  automaticAllows: ReadonlySet<string>
 ): MastraDBMessage[] {
   const converted: MastraDBMessage[] = [];
   const previous: MastraDBMessage[] = [];
@@ -256,11 +245,10 @@ function runSegments(
     // model as one user message of their own, inside the run's turn.
     const segment =
       event.type === 'model.messages' && event.delivery
-        ? intakeSegment(row, id, resourceId, messages)
+        ? intakeSegment(row, id, messages)
         : assistantSegment(
             row,
             id,
-            resourceId,
             previous,
             messages.map((message) => withoutApprovals(message, automaticAllows)),
             modelMetadata
@@ -295,10 +283,7 @@ function committedModelMessages(row: CommittedModelRow): ModelMessage[] {
  * the provider request's provenance read. Each segment addresses its existing
  * row; there is no message-ID writer.
  */
-export function committedTranscript(
-  rows: readonly HostLogRow[],
-  resourceId: string
-): MastraDBMessage[] {
+export function committedTranscript(rows: readonly HostLogRow[]): MastraDBMessage[] {
   const committed = new Map(
     rows
       .filter(isCommittedModelRow)
@@ -327,7 +312,6 @@ export function committedTranscript(
         content: { format: 2, parts: [{ text: started.event.prompt, type: 'text' }] },
         createdAt: identity.createdAt,
         id: identity.userMessageId,
-        resourceId,
         role: 'user',
         threadId: started.threadId,
       });
@@ -336,7 +320,7 @@ export function committedTranscript(
       (row): row is CommittedModelRow =>
         isCommittedModelRow(row) && row.threadId === started.threadId && row.event.runId === runId
     );
-    for (const segment of runSegments(segments, committed, automaticAllows, resourceId)) {
+    for (const segment of runSegments(segments, committed, automaticAllows)) {
       append(segment);
     }
   }

@@ -5,21 +5,30 @@
  */
 import {
   createProviderRequestMiddleware,
-  type PreparedProviderRequest,
+  type ProviderRequestAccounting,
   type ProviderRequestContext,
   preparedPromptBreakdown,
   preparedPromptToolCalls,
 } from '@brainstrike/agent/provider-request';
 import {
+  type AssistantContextBreakdown,
   applyPromptToolCallWindow,
   diffPromptToolCallWindow,
   type PromptToolCall,
+  type PromptToolCallWindow,
 } from '@brainstrike/assistant-contract/context-breakdown';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { type LanguageModel, type LanguageModelMiddleware, wrapLanguageModel } from 'ai';
-import type { HostProjectionRewrite, HostRunContext } from './ports.ts';
+import type { HostProjectionRewrite } from './ports.ts';
 
-type HostProviderRequestRecorder = HostRunContext['recordProviderRequest'];
+/** One prepared request, as Core commits it (`provider.request.prepared`). */
+export interface HostProviderRequestReceipt {
+  readonly accounting: ProviderRequestAccounting;
+  readonly breakdown: AssistantContextBreakdown;
+  readonly modelId: string;
+  readonly provider: string;
+  readonly toolCallWindow: PromptToolCallWindow;
+}
 
 /** One run's provider requests: each step prepares what its request sends before the call. */
 export class HostProviderRequest {
@@ -31,21 +40,14 @@ export class HostProviderRequest {
   private previousRequestToolCalls: ReadonlyMap<string, PromptToolCall> | undefined;
 
   private readonly selected: ProviderRequestContext;
-  private readonly record: HostProviderRequestRecorder;
-  private readonly prepared: ((prepared: PreparedProviderRequest) => Promise<void>) | undefined;
+  private readonly record: (receipt: HostProviderRequestReceipt) => Promise<void>;
 
-  /**
-   * @param prepared - Told each prepared request after its receipt commits; its
-   *   failure fails that model call.
-   */
   constructor(
     selected: ProviderRequestContext,
-    record: HostProviderRequestRecorder,
-    prepared?: (prepared: PreparedProviderRequest) => Promise<void>
+    record: (receipt: HostProviderRequestReceipt) => Promise<void>
   ) {
     this.selected = selected;
     this.record = record;
-    this.prepared = prepared;
   }
 
   /** A step is being prepared: no request goes out until it is. */
@@ -72,14 +74,11 @@ export class HostProviderRequest {
       context: async () => {
         const { history } = this;
         if (history === undefined) {
-          throw new Error('Provider request requires its prepared Memory selection');
+          throw new Error('Provider request requires its prepared history');
         }
         return { ...selected, history, rewrites: this.rewrites };
       },
       onPrepared: async (prepared) => {
-        if (!this.record) {
-          throw new Error('Provider preparation requires the host-owned receipt writer');
-        }
         const toolCalls = preparedPromptToolCalls(prepared);
         const toolCallWindow = diffPromptToolCallWindow(this.previousRequestToolCalls, toolCalls);
         await this.record({
@@ -94,7 +93,6 @@ export class HostProviderRequest {
           this.previousRequestToolCalls,
           toolCallWindow
         );
-        await this.prepared?.(prepared);
       },
     });
     return wrapLanguageModel({

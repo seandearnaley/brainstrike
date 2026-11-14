@@ -1,4 +1,3 @@
-import { HOST_OBSERVER_AWAITING_REASONS } from '@brainstrike/agent-host/protocol';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
   ReferencedFileFailureSchema,
@@ -6,15 +5,10 @@ import {
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
 import { Schema } from 'effect';
-import {
-  PlatformMemoryOptionsSchema,
-  PlatformMemorySettingsSchema,
-  PlatformModelConfigurationSchema,
-} from './platform-client-configuration';
+import { PlatformModelConfigurationSchema } from './platform-client-configuration';
 
 export {
   PlatformClientConfigurationSchema,
-  PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
   platformPermissionPolicy,
 } from './platform-client-configuration';
@@ -100,11 +94,6 @@ export const PlatformSelectionSchema = Schema.Struct({
   durableConfiguration: Schema.Record(Schema.String, Schema.MutableJson),
   inputTokenLimit: Schema.Int.check(Schema.isGreaterThan(0)),
   maxSteps: Schema.Int.check(Schema.isGreaterThan(0)),
-  memory: Schema.Struct({
-    observerAwaiting: Schema.optional(Schema.Literals(HOST_OBSERVER_AWAITING_REASONS)),
-    options: PlatformMemoryOptionsSchema,
-    settings: PlatformMemorySettingsSchema,
-  }),
   nativeRuntime: PlatformNativeRuntimeSchema,
   referencedFileFailures: Schema.optional(
     Schema.mutable(Schema.Array(ReferencedFileFailureSchema))
@@ -143,27 +132,8 @@ export const PlatformRootsChangedSchema = Schema.Struct({
   recentPaths: Schema.Array(Id),
 });
 export type PlatformSelection = (typeof PlatformSelectionSchema)['Type'];
-/**
- * thread/memory/read: the admission's pure preconditions, with nothing
- * acquired. Not ready carries what the admission fails with.
- */
-export const PlatformMemoryReadinessSchema = Schema.Union([
-  Schema.Struct({
-    ready: Schema.Literal(false),
-    reason: Schema.String.check(Schema.isMinCodePoints(1)),
-  }),
-  Schema.Struct({
-    memory: PlatformSelectionSchema.fields.memory,
-    ready: Schema.Literal(true),
-    resourceId: Id,
-  }),
-]);
 /** BST-1930 stage e: the reads Main serves the host's run admission. */
 export const PlatformCatalogModelSchema = Schema.Struct({ model: Id, provider: Id });
 export const PlatformCatalogModelResultSchema = Schema.NullOr(
   Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id })
 );
-export const PlatformObserverCandidatesSchema = Schema.Struct({
-  candidates: Schema.mutable(Schema.Array(Id)),
-});
-export const PlatformObserverCandidatesResultSchema = Schema.mutable(Schema.Array(Id));

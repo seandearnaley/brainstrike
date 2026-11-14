@@ -42,7 +42,7 @@ function approvalRequests(rows: readonly HostLogRow[]): Map<string, boolean> {
 
 /** Every converted part of one call, across the committed segments that carry it. */
 function invocations(rows: readonly HostLogRow[], toolCallId: string): unknown[] {
-  return committedTranscript(rows, 'recorded-resource')
+  return committedTranscript(rows)
     .flatMap((message) => message.content.parts)
     .filter(
       (part) => part.type === 'tool-invocation' && part.toolInvocation.toolCallId === toolCallId
@@ -94,7 +94,7 @@ test('a result committed in a later row than its call converts with that call', 
   if (!result) {
     throw new Error('The recorded run commits no result in a row of its own');
   }
-  const segment = committedTranscript(rows, 'recorded-resource').find(
+  const segment = committedTranscript(rows).find(
     (message) => message.id === committedRowAddress(result)
   );
   expect(segment?.content.parts).toContainEqual(
@@ -170,7 +170,7 @@ function convertedMessages(steps: number): number {
   const rows = longRun(steps);
   const add = vi.spyOn(MessageList.prototype, 'add');
   try {
-    expect(committedTranscript(rows, 'recorded-resource')).toHaveLength(steps + 1);
+    expect(committedTranscript(rows)).toHaveLength(steps + 1);
     return add.mock.calls.reduce(
       (count, [messages]) => count + (Array.isArray(messages) ? messages.length : 1),
       0

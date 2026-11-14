@@ -67,14 +67,14 @@ describe('boundary failure taxonomy', () => {
     );
     const typed = fault({
       category: 'authorization',
-      code: 'memory.observer-failed',
+      code: 'auto-review.reviewer-failed',
       correlationId,
-      message: 'Memory observe failed.',
+      message: 'Auto-review failed.',
       providerEvidence: 'OpenAI returned HTTP 401.',
       remedy: 'Check the OpenAI API key.',
     });
     expect(describeBoundaryFailure(typed)).toBe(
-      `Memory observe failed. Check the OpenAI API key. Provider response: OpenAI returned HTTP 401. Reference: ${correlationId}`
+      `Auto-review failed. Check the OpenAI API key. Provider response: OpenAI returned HTTP 401. Reference: ${correlationId}`
     );
     // Without one, nothing is added; a model's context never carries it.
     expect(describeBoundaryFailure(INTERNAL_FAULT)).toBe(INTERNAL_FAULT.message);

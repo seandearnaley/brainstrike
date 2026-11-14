@@ -3,7 +3,6 @@ import { readDesktopRunConfiguration } from '@brainstrike/agent-host/desktop-run
 import {
   billedCostOf,
   catalogModel,
-  observerUsageModel,
   STATUS_BY_OUTCOME,
   tokensOf,
 } from '@brainstrike/agent-host/ledger-projection';
@@ -178,19 +177,13 @@ function usage(
     const call =
       event.type === 'model.step'
         ? { model: runModel, modelId: run.event.modelId, usage: event.usage }
-        : event.type === 'memory.usage'
+        : event.type === 'context.compacted' && event.usage !== undefined
           ? {
-              model: observerUsageModel(event.modelId),
-              modelId: event.modelId,
+              model: catalogModel(event.modelId ?? run.event.modelId),
+              modelId: event.modelId ?? run.event.modelId,
               usage: event.usage,
             }
-          : event.type === 'context.compacted' && event.usage !== undefined
-            ? {
-                model: catalogModel(event.modelId ?? run.event.modelId),
-                modelId: event.modelId ?? run.event.modelId,
-                usage: event.usage,
-              }
-            : undefined;
+          : undefined;
     if (!call) {
       return [];
     }

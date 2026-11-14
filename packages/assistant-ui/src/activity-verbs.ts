@@ -50,9 +50,8 @@ const namingVerb = (
 
 /**
  * The host's own model-facing tools beside its native catalog (tool
- * discovery and working memory), by their contract ids. Working memory's
- * argument is the memory's whole markdown, and listing takes no target, so
- * neither names one; a search names its query and a load the tool it loads.
+ * discovery), by their contract ids. Listing takes no target; a search names
+ * its query and a load the tool it loads.
  */
 const HOST_META_VERBS: Readonly<Record<HostMetaToolId, ActivityVerb>> = Object.freeze({
   [HOST_META_TOOL_ID.listAvailableTools]: verb(
@@ -76,13 +75,6 @@ const HOST_META_VERBS: Readonly<Record<HostMetaToolId, ActivityVerb>> = Object.f
     {
       targetArg: 'query',
     }
-  ),
-  [HOST_META_TOOL_ID.updateWorkingMemory]: verb(
-    'Updating memory',
-    'Updated memory',
-    'Update memory',
-    'memory',
-    { targetArg: null }
   ),
 });
 

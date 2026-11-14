@@ -747,7 +747,6 @@ export interface HostRunContinuationPorts {
     detail?: string
   ) => Promise<void>;
   readonly loop: (model: LanguageModel) => Promise<void>;
-  readonly openRun: () => Promise<unknown>;
   readonly platform: HostPlatform;
 }
 /**
@@ -768,7 +767,6 @@ export async function continueHostRun(run: Run, ports: HostRunContinuationPorts)
   }
   try {
     const admission = await ensureHostRunAdmission(ports.platform, run);
-    await ports.openRun();
     // The SDK collects approvals from one final tool message, preserving parallel calls.
     const responses = await createHostApprovalResponses(run, ports.platform, ports.dispatch);
     await ports.commitMessages(responses.length > 0 ? [{ content: responses, role: 'tool' }] : []);

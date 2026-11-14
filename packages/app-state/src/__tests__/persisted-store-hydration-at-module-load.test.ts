@@ -51,33 +51,4 @@ describe('persisted store hydration at module load', () => {
       [knownToolId as string]: false,
     });
   });
-
-  it('remaps a dropped memory model target during the module-load hydration', async () => {
-    localStorage.setItem(
-      'brainstrike:assistant-memory-preferences.v1',
-      JSON.stringify({
-        state: {
-          observationalMemory: {
-            enabled: true,
-            messageTokens: 4000,
-            // Dropped in the 2026 frontier refresh, persisted at the CURRENT
-            // version so `migrate` never runs.
-            modelTarget: 'anthropic/claude-opus-4-5',
-            observationTokens: 4000,
-            retrievalMode: 'off',
-            scope: 'thread',
-          },
-        },
-        version: 2,
-      })
-    );
-
-    const { useAssistantMemoryPreferencesStore } = await import(
-      '../stores/assistant-memory-preferences-store.ts'
-    );
-    const state = useAssistantMemoryPreferencesStore.getState();
-
-    expect(state.observationalMemory.modelTarget).toBe('anthropic/claude-opus-4-8');
-    expect(state.hasHydrated).toBe(true);
-  });
 });

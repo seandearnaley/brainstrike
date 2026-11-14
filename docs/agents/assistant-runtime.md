@@ -1,6 +1,6 @@
 # Assistant runtime
 
-Covers run execution, stream recovery, approvals, hooks, plan mode and tracing. Desktop and CLI share the Electron-free agent host; each root or child run uses the host-owned AI SDK loop. Mastra supplies memory, not a second loop, permission engine or transcript writer. See [ADR-0012](../adr/0012-ai-sdk-loop-mastra-memory-library.md) and [ADR-0017](../adr/0017-cli-first-agent-host.md).
+Covers run execution, stream recovery, approvals, hooks, plan mode and tracing. Desktop and CLI share the Electron-free agent host; each root or child run uses the host-owned AI SDK loop. Core assembles each request from the committed log and the host's compaction is the only thing that replaces history; Mastra supplies narrow utilities, not a second loop, permission engine, transcript writer or memory. See [ADR-0012](../adr/0012-ai-sdk-loop-mastra-memory-library.md), [ADR-0017](../adr/0017-cli-first-agent-host.md) and [ADR-0039](../adr/0039-host-is-the-only-compactor.md).
 
 ## Execution and recovery
 
@@ -26,8 +26,8 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
   - It triggers at 90% of the run's input budget or its compaction cap (200,000 tokens by default), whichever is less, and reclaims toward 7/9 of that trigger. `deriveContextCompactionThreshold` in `assistant-contract` is the one derivation; the admission carries the cap beside `inputTokenLimit`.
   - The size is what the provider last reported: the branch's latest `model.step` input tokens, else its latest `provider.request.prepared` `accounting.totalTokens`, plus the chars/4 estimate of what the branch committed after that request. A committed compaction voids every earlier report of its thread.
   - With nothing reported, it is the chars/4 estimate of the request's messages plus the run's instructions and tool definitions. Turns are always sized by the estimate when choosing which to drop.
-  - With Memory, a reported count is of the request Memory built; unreported, the estimate is of that request (selected turns, rewritten tool outputs, system context), not the branch. Either way only the earlier turns that request holds can be compacted.
-  - Memory then reassembles the request from the log without re-running its step preparation.
+  - Every turn on the branch that no compaction covers is sent; there is no history window.
+  - Each request passes the provider request boundary (`run-provider-request.ts`), which filters, measures and limits the prompt against the run's provenance (`run-history.ts`) and commits a `provider.request.prepared` receipt.
   - When the summarizer fails, the deterministic fallback's `context.compacted` records the typed failure code and its cause's log reference.
   - Context-overflow recovery measures the same way and drops toward the same target, at least one turn.
 
@@ -93,7 +93,6 @@ Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
   - Desktop and the CLI host read the same variables; any local OTLP/HTTP collector (e.g. Jaeger on port 4318) works.
 - Each call names itself in `gen_ai.agent.name` (`brainstrike.host-run`, `brainstrike.thread-title`, `brainstrike.context-compaction`) and carries `ai.settings.context.runId` and `ai.settings.context.threadId`. A new host-owned `streamText`/`generateText` call spreads `hostTelemetry(...)`.
 - Prompts, responses and tool payloads are excluded unless `BRAINSTRIKE_OTEL_RECORD_CONTENT=1`. Error messages are still recorded.
-- Memory observer and reflector calls run inside Mastra and are not traced.
 
 ## Clients and retirement
 
@@ -110,7 +109,7 @@ Owner: [host tracing](../../packages/agent-host/src/telemetry/otel.ts).
 - Retirement keeps reads open while dispatched work joins, so new requests still get closing refusals, and it answers every request it read.
   - A socket then pauses reads and joins complete-frame decoding and response writes before destroying the transport.
   - An empty dispatch queue alone doesn't prove the reader has finished its received frames.
-- Stop, deletion and host close fence admission and join provider, tool and memory work before releasing storage or Root.
+- Stop, deletion and host close fence admission and join provider and tool work and the run's admission before releasing storage or Root.
   - Stop commits its intent in the host's one admission queue and joins the stopped work outside it, so a tree slow to die holds only its own Stop's reply and that thread's next run, never another thread's command.
   - A terminal outcome doesn't prove physical retirement; failed joins stay visible and keep ownership.
 - Live/replay details: [persistence](assistant-persistence.md).

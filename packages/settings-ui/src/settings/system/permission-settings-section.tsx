@@ -58,7 +58,7 @@ import {
 import { AlertTriangle, X } from 'lucide-react';
 import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { listObservationalMemoryModelOptions } from '../models/assistant-memory-models';
+import { listAutoReviewModelOptions } from './auto-review-model-options';
 
 interface RiskCategoryMeta {
   category: ToolRiskCategory;
@@ -113,10 +113,9 @@ function isPermissionDecisionValue(value: string): value is PermissionDecision {
 
 /**
  * Accessible allow | ask | deny control for a single category, backed by a
- * native `<select>` (the same pattern as `assistant-memory-settings-section`).
- * Native semantics keep it keyboard/AT navigable without a Radix portal and
- * trivially testable. The `onChange` value is narrowed back to a
- * {@link PermissionDecision} before reaching the store.
+ * native `<select>`. Native semantics keep it keyboard/AT navigable without a
+ * Radix portal and trivially testable. The `onChange` value is narrowed back
+ * to a {@link PermissionDecision} before reaching the store.
  */
 function PolicySelect({ category, disabled, label, onChange, value }: PolicySelectProps) {
   return (
@@ -375,11 +374,7 @@ function AccessModeBlock({ disabled }: { disabled: boolean }) {
   const { models, providers } = useModelRegistryStore(
     useShallow((state) => ({ models: state.models, providers: state.providers }))
   );
-  const options = listObservationalMemoryModelOptions({
-    assistantMemoryBackendAvailable: true,
-    models,
-    providers,
-  });
+  const options = listAutoReviewModelOptions({ models, providers });
   const known =
     autoReviewModel === AUTO_REVIEW_MODEL_AUTO ||
     options.some((option) => option.target === autoReviewModel);

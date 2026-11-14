@@ -1,7 +1,6 @@
 /**
- * BST-1805: the Model Catalog page is about models. Assistant Memory and the
- * subagent budgets moved to their own settings categories, so the page must
- * not render them. The registry refresh lives in the category header
+ * BST-1805: the Model Catalog page is about models. The subagent budgets moved
+ * to their own settings category, so the page must not render them. The registry refresh lives in the category header
  * (`ModelCatalogHeaderActions`); the body is the catalog.
  */
 
@@ -48,12 +47,6 @@ vi.mock('../model-catalog', () => ({
   },
 }));
 
-vi.mock('../assistant-memory-settings-section', () => ({
-  AssistantMemorySettingsSection: () => (
-    <div data-testid="assistant-memory-settings-section-mock" />
-  ),
-}));
-
 vi.mock('../subagent-settings-section', () => ({
   SubagentSettingsSection: () => <div data-testid="subagent-settings-section-mock" />,
 }));
@@ -71,13 +64,12 @@ afterEach(() => {
 });
 
 describe('ModelSelectionPage', () => {
-  it('renders the catalog, and no memory or subagent settings', () => {
+  it('renders the catalog, and no subagent settings', () => {
     render(<ModelSelectionPage />);
 
     expect(screen.getByTestId('model-catalog-mock')).toBeInTheDocument();
     expect(catalogProps.current?.loaded).toBe(false);
     expect(screen.queryByTestId('model-registry-refresh')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-memory-settings-section-mock')).not.toBeInTheDocument();
     expect(screen.queryByTestId('subagent-settings-section-mock')).not.toBeInTheDocument();
   });
 

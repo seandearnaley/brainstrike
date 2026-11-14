@@ -9,7 +9,6 @@ const FIRST = 'Compaction first question';
 const SECOND = 'Compaction second question';
 const OVERFLOW = 'Compaction question that overflows';
 const FOLLOW_UP = 'Continue after the compacted context';
-const OBSERVER = /memory consciousness of an AI assistant\. Your observations/u;
 // The host protects the newest turns up to 20,000 estimated tokens (chars / 4),
 // plus the current turn and its predecessor. This answer fills that window, so
 // the first turn is the one an overflow can drop.
@@ -28,7 +27,7 @@ function lastUser(request: ModelProviderRequest): string {
   return JSON.stringify(users.at(-1) ?? null);
 }
 
-/** The thread's own run, which carries tools; side calls such as memory observation do not. */
+/** The thread's own run, which carries tools; side calls such as its title do not. */
 const threadRun = (request: ModelProviderRequest): boolean =>
   (request.requestBody as { stream?: unknown }).stream === true && request.toolNames.length > 0;
 
@@ -48,12 +47,7 @@ test('a context overflow compacts the host thread behind a durable divider and t
   let overflowAttempts = 0;
   modelProvider.setScript((request) => {
     if (!threadRun(request)) {
-      // Memory retries an observer reply that carries no observations.
-      return {
-        finalText: OBSERVER.test(JSON.stringify(request.messages))
-          ? '<observations>\n* The user is testing compaction.\n</observations>'
-          : 'Compaction check',
-      };
+      return { finalText: 'Compaction check' };
     }
     const user = lastUser(request);
     if (user.includes(OVERFLOW)) {

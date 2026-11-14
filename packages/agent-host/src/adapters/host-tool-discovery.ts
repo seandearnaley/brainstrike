@@ -37,7 +37,6 @@ type DiscoveryTools = Awaited<
  */
 export async function committedRunMessages(
   store: Pick<StateStore, 'read' | 'root'>,
-  resourceId: string,
   run: HostRunKey
 ): Promise<MastraDBMessage[]> {
   const rows = await Promise.all(
@@ -49,7 +48,7 @@ export async function committedRunMessages(
       'runId' in row.event && branch.has(row.event.runId) ? [committedRowAddress(row)] : []
     )
   );
-  return committedTranscript(rows, resourceId).filter((message) => own.has(message.id));
+  return committedTranscript(rows).filter((message) => own.has(message.id));
 }
 
 /** A discovery tool as Mastra's processor prepares it for one step. */

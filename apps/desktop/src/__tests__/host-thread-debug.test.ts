@@ -162,7 +162,6 @@ describe("a host thread's debug bundle, from its committed log", () => {
                       providerOptions,
                     },
                   },
-                  memoryResolution: { observationalMemory: 'disabled', observerTarget: null },
                 },
                 maxSteps: 12,
                 toolIdentities: {},

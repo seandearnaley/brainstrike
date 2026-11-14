@@ -569,8 +569,8 @@ export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, thread
   assertHostThreadSettled(threadRuns);
 }
 /**
- * A finished run's memory still settling: Core joins it before admitting the
- * thread's next run or rewind, so this refuses only one that raced its end.
+ * A finished run's resources still settling: Core joins them before admitting
+ * the thread's next run or rewind, so this refuses only one that raced its end.
  */
 export function assertHostThreadSettled(threadRuns: Iterable<HostRunState>): void {
   for (const run of threadRuns) {
@@ -578,7 +578,7 @@ export function assertHostThreadSettled(threadRuns: Iterable<HostRunState>): voi
       throw refusalError(
         'conflict',
         'run.settling',
-        "The thread's previous run is still saving its memory"
+        "The thread's previous run is still finishing"
       );
     }
   }

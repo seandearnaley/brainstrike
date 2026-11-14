@@ -299,10 +299,8 @@ export function deriveHostChildAdmission(
     configuration: parent.configuration,
     ...(delegates ? { delegation } : {}),
     model: parent.model,
-    // The shipped child Memory: the parent's configuration on the child's own
-    // thread; a read-only persona's run never reads or writes working memory.
-    ...(parent.openRun ? { openRun: parent.openRun } : {}),
-    ...(personaMode(persona) === 'worker' ? {} : { workingMemory: false as const }),
+    // The parent's provider request boundary, over the child's own thread.
+    ...(parent.providerRequest ? { providerRequest: parent.providerRequest } : {}),
     // A person's message to the child reads its mentioned files as the parent's would.
     ...(parent.readPromptContext ? { readPromptContext: parent.readPromptContext } : {}),
     ...(parent.reviewModel ? { reviewModel: parent.reviewModel } : {}),
