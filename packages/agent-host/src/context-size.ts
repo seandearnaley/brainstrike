@@ -161,6 +161,12 @@ export async function estimateHostContext(input: {
   return input.estimate() + (extras ? await estimateExtras(extras) : 0);
 }
 
+/** A request's size, and whether an earlier request's count sized it or it is the estimate itself. */
+export interface HostContextSize {
+  readonly reported: boolean;
+  readonly tokens: number;
+}
+
 /**
  * The size of the thread's next request, in this order: the provider's input
  * tokens on the branch's latest step that reported them; else the host's own
@@ -179,14 +185,16 @@ export async function measureHostContext(
     readonly messages: readonly ModelMessage[];
     readonly readRequestExtras?: (() => Promise<HostRequestExtras>) | undefined;
   }
-): Promise<number> {
+): Promise<HostContextSize> {
   const report = latestReport(input.chain, 'step') ?? latestReport(input.chain, 'request');
   if (report) {
-    return (
-      report.tokens -
-      freedSince(report, input.messages, input) +
-      estimateTokens(input.messages.slice(report.after))
-    );
+    return {
+      reported: true,
+      tokens:
+        report.tokens -
+        freedSince(report, input.messages, input) +
+        estimateTokens(input.messages.slice(report.after)),
+    };
   }
-  return await estimateHostContext(input);
+  return { reported: false, tokens: await estimateHostContext(input) };
 }

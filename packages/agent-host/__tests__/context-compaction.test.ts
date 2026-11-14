@@ -12,7 +12,11 @@ import {
   overflowCompaction,
   prepareCompactedContext as prepareContext,
 } from '../src/context-compaction.ts';
-import type { HostReportedContext, HostRequestExtras } from '../src/context-size.ts';
+import {
+  estimateTokens,
+  type HostReportedContext,
+  type HostRequestExtras,
+} from '../src/context-size.ts';
 import { createHostRunState, HostRunMap, type HostRunState } from '../src/core-state.ts';
 import type { HostProjectionRewrite } from '../src/ports.ts';
 import { applyProjectionRewrites } from '../src/projection-rewrites.ts';
@@ -469,6 +473,64 @@ describe('prepareCompactedContext sizes a thread by what its provider reported (
     expect(await compacted(['call-read'])).toBe(0);
     // Had the report already held the marker, nothing was freed since: 225,009.
     expect(await compacted([])).toBe(1);
+  });
+
+  it('reads the run’s instructions and tool definitions once past the trigger when nothing was reported (BST-2541)', async () => {
+    // Each read prepares the provider's tools and converts every schema.
+    const readRequestExtras = vi.fn(async (): Promise<HostRequestExtras> => ({ tools: {} }));
+    const { committed } = await pastTrigger({ readRequestExtras });
+    expect(committed).toHaveLength(1);
+    expect(readRequestExtras).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the earlier summary’s note in the request it sizes, so the fallback lands at or under the target (BST-2541)', async () => {
+    // Nine answered turns of 6,006 estimated tokens and run-9's question; an earlier compaction
+    // replaced run-0 and run-1 with a note of about 14,000 tokens. The provider counted run-8's
+    // request at exactly chars/4, so the next request measures what it estimates, about 56,000,
+    // about 14,000 over the 42,000 target of a 60,000 budget: three of the 6,006-token turns.
+    // Left out of the estimate, the note would scale that down to about 10,500, two turns,
+    // and the request would stay above the target.
+    const messages = opening(10, 24_000);
+    const earlier: Compacted = {
+      ...EMPTY_LEDGER,
+      compactedRunIds: ['run-0', 'run-1'],
+      kind: 'agentic',
+      reason: 'pre-request',
+      runId: 'run-2',
+      summary: 's'.repeat(55_700),
+      type: 'context.compacted',
+    };
+    const prepare = (input: Partial<Input>) =>
+      prepareContext({
+        chain: chain(10),
+        commit: async () => undefined,
+        compactions: [earlier],
+        inputTokenLimit: 1_000_000,
+        messages,
+        readLedger: readNothing,
+        signal: new AbortController().signal,
+        summarize: async () => summary,
+        ...input,
+      });
+    const sent = (await prepare({})).messages;
+    // run-8's request held the note, run-2 to run-7 and run-8's question: 14 messages.
+    const reported = estimateTokens(sent.slice(0, 14));
+    const committed: Compacted[] = [];
+    const prepared = await prepare({
+      chain: reportedChain(10, 8, { step: { after: 17, rewritten: [], tokens: reported } }),
+      commit: async (event) => {
+        committed.push(event);
+      },
+      inputTokenLimit: 60_000,
+      summarize: async () => {
+        throw new Error('provider unavailable');
+      },
+    });
+    expect(estimateTokens(sent)).toBeGreaterThanOrEqual(54_000);
+    expect(committed.map((event) => [event.kind, event.compactedRunIds])).toEqual([
+      ['deterministic', ['run-0', 'run-1', 'run-2', 'run-3', 'run-4']],
+    ]);
+    expect(estimateTokens(prepared.messages)).toBeLessThanOrEqual(42_000);
   });
 
   it('commits nothing while the reported size is under both 90% of the budget and the cap', async () => {
