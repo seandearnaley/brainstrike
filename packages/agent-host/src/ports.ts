@@ -446,6 +446,12 @@ export interface HostRunAdmission {
   readonly childTools?: Readonly<Record<string, HostTool>> | undefined;
   /** Join resources selected before the run is committed, including failed admission. */
   close?(): Promise<void>;
+  /**
+   * BST-2526: carried beside `inputTokenLimit`, the request size at which host
+   * compaction triggers when that is less than 90% of the budget
+   * (`deriveContextCompactionThreshold`). Absent, the budget alone bounds it.
+   */
+  readonly compactionTokenCap?: number | undefined;
   readonly configuration: Readonly<RuntimeData>;
   /** Present when this run may delegate; its tools are already in `tools`. */
   readonly delegation?: HostDelegation | undefined;

@@ -4,6 +4,7 @@ import type { ModelMessage, Tool } from 'ai';
 import { Schema } from 'effect';
 import { recordRawToolInputs } from './approval-input.ts';
 import type { HostCheckoutMove } from './checkout-isolation.ts';
+import { type HostReportedContext, reportedStepTokens } from './context-size.ts';
 import { canonical, type Json, jsonValue } from './json-value.ts';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.ts';
 import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.ts';
@@ -373,6 +374,12 @@ export interface HostRunState {
   promptContext?: string;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
+  /**
+   * BST-2526: what this run's requests reported about their size, folded from
+   * the committed `model.step` and `provider.request.prepared`; a committed
+   * compaction of its thread clears it.
+   */
+  reportedContext?: HostReportedContext | undefined;
   readonly responses: Set<string>;
   /**
    * After `run.finished`: the owner's background memory still joining. The
@@ -579,6 +586,11 @@ export function foldHostRunMessages(
   }
   if (event.type === 'model.step') {
     run.steps = event.stepNumber + 1;
+    // The step's request held the branch up to its own messages.
+    const tokens = reportedStepTokens(event.usage);
+    if (tokens !== undefined) {
+      run.reportedContext = { ...run.reportedContext, step: { after: previousLength, tokens } };
+    }
   }
   recordRawToolInputs(run.rawInputs, messages);
   for (const message of messages) {

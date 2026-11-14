@@ -23,9 +23,13 @@ Owners: [execution](../../packages/agent-host/src/core-run-execution.ts), [watch
   - Recoverable attempts are recorded before retry, stay on the committed branch and never repeat a step that streamed tool input or a call.
   - Context-overflow recovery needs a committed compaction that actually shortens the request.
 - Pre-request compaction measures the request the provider will receive.
-  - With Memory, that is the request Memory builds (selected turns, rewritten tool outputs, system context), not the branch; only the earlier turns that request holds can be compacted.
+  - It triggers at 90% of the run's input budget or its compaction cap (200,000 tokens by default), whichever is less, and reclaims toward 7/9 of that trigger. `deriveContextCompactionThreshold` in `assistant-contract` is the one derivation; the admission carries the cap beside `inputTokenLimit`.
+  - The size is what the provider last reported: the branch's latest `model.step` input tokens, else its latest `provider.request.prepared` `accounting.totalTokens`, plus the chars/4 estimate of what the branch committed after that request. A committed compaction voids every earlier report of its thread.
+  - With nothing reported, it is the chars/4 estimate of the request's messages plus the run's instructions and tool definitions. Turns are always sized by the estimate when choosing which to drop.
+  - With Memory, a reported count is of the request Memory built; unreported, the estimate is of that request (selected turns, rewritten tool outputs, system context), not the branch. Either way only the earlier turns that request holds can be compacted.
   - Memory then reassembles the request from the log without re-running its step preparation.
   - When the summarizer fails, the deterministic fallback's `context.compacted` records the typed failure code and its cause's log reference.
+  - Context-overflow recovery measures the same way and drops toward the same target, at least one turn.
 
 ## Consent and suspension
 

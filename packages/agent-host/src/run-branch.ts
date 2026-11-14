@@ -19,6 +19,7 @@ import type { ModelMessage, UserModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { withHostDeliveryLedger } from './child-delivery.ts';
 import { hostRootRunTurnId } from './committed-identities.ts';
+import { reportedRequestTokens } from './context-size.ts';
 import {
   createHostRunState,
   foldHostInteraction,
@@ -310,6 +311,32 @@ function foldHostConversationMessages(
     run.intake.push(event.delivery);
   }
 }
+/** The host's own count of a prepared request, which held the run's branch as it stood. */
+function foldHostRequestReport(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: Extract<HostEvent, { type: 'provider.request.prepared' }>
+): void {
+  const run = runs.get(event.runId);
+  const tokens = reportedRequestTokens(event.accounting);
+  if (!run || tokens === undefined) {
+    return;
+  }
+  // As many messages as `hostRunContext` holds, without building it.
+  const after = [...hostRunAncestors(runs, run), run].reduce(
+    (length, turn) => length + 1 + turn.messages.length,
+    0
+  );
+  run.reportedContext = { ...run.reportedContext, request: { after, tokens } };
+}
+/** A committed compaction changed what every request of its thread holds: no earlier report sizes it. */
+function forgetHostContextReports(runs: ReadonlyMap<string, HostRunState>, runId: string): void {
+  const threadId = runs.get(runId)?.threadId;
+  for (const run of runs.values()) {
+    if (run.threadId === threadId) {
+      run.reportedContext = undefined;
+    }
+  }
+}
 /** Fold a committed run event that is neither a command nor a run start into its run. */
 export function foldHostRunEvent(
   runs: ReadonlyMap<string, HostRunState>,
@@ -320,6 +347,12 @@ export function foldHostRunEvent(
     case 'model.step':
     case 'model.messages':
       foldHostConversationMessages(runs, event);
+      break;
+    case 'provider.request.prepared':
+      foldHostRequestReport(runs, event);
+      break;
+    case 'context.compacted':
+      forgetHostContextReports(runs, event.runId);
       break;
     case 'interaction.requested':
     case 'interaction.responded':
