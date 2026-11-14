@@ -6,6 +6,8 @@
 - **Builds on:** [ADR-0001](0001-coding-agent-stay-bespoke.md)
 - **Amended by:** [ADR-0023](0023-host-owns-its-tool-representation.md) (2026-10-15): the
   `@mastra/core` peer-dependency clause (see Amendment)
+- **Amended by:** [ADR-0039](0039-host-is-the-only-compactor.md) (2026-11-13): `@mastra/memory`
+  is retired; the host's loop and the rest of this ADR stand
 
 ## Context
 
