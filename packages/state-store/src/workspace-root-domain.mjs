@@ -82,7 +82,8 @@ function hasTable(db, table) {
 /**
  * The project of the folder at `canonicalPath`. A folder recorded for the first time starts a
  * project (ADR-0034, owner decisions 2026-11-10); this is the only place one is created, inside
- * the commit that records the folder.
+ * the commit that records the folder, or the commit that answers a repository found inside an
+ * open folder (`ensure-repository-project`, BST-2511).
  * @param {import('better-sqlite3').Database} db
  * @param {string} canonicalPath
  * @param {number} now
@@ -453,6 +454,131 @@ function unknownProject() {
   );
 }
 
+/** @returns {WorkspaceRootRefusal} */
+function threadFolderRefusal() {
+  return new WorkspaceRootRefusal(
+    'project.thread-folder',
+    'A managed worktree or a scratch folder has no project of its own to move: it lists with the thread that works in it.'
+  );
+}
+
+/**
+ * Whether the folder at `canonicalPath` is a thread's own: a managed worktree the ledger lists,
+ * or a folder recorded as a managed worktree or a scratch folder. Neither has a project of its
+ * own (ADR-0034).
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} canonicalPath
+ * @returns {boolean}
+ */
+function isThreadFolderPath(db, canonicalPath) {
+  const managed = 'SELECT path FROM brainstrike_worktrees WHERE archived_at IS NULL';
+  return Boolean(
+    db
+      .prepare('SELECT 1 FROM brainstrike_worktrees WHERE path = ? AND archived_at IS NULL')
+      .get(canonicalPath) ??
+      db
+        .prepare(
+          `SELECT 1 FROM roots WHERE canonical_path = ? AND (kind <> 'path' OR path IN (${managed}))`
+        )
+        .get(canonicalPath)
+  );
+}
+
+/**
+ * Moves the folder at `canonicalPath` from the project `leftProjectId` into `projectId`, and
+ * deletes the project it left once no folder is in it. Nothing else is written: a folder's trust
+ * and its approved hooks stay keyed by its own path.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} canonicalPath
+ * @param {string | null} leftProjectId
+ * @param {string} projectId
+ */
+function moveFolderToProject(db, canonicalPath, leftProjectId, projectId) {
+  db.prepare(`INSERT INTO project_folders (canonical_path, project_id) VALUES (?, ?)
+    ON CONFLICT (canonical_path) DO UPDATE SET project_id = excluded.project_id`).run(
+    canonicalPath,
+    projectId
+  );
+  if (leftProjectId !== null && leftProjectId !== projectId) {
+    db.prepare(`DELETE FROM projects WHERE id = ?
+      AND NOT EXISTS (SELECT 1 FROM project_folders WHERE project_id = ?)`).run(
+      leftProjectId,
+      leftProjectId
+    );
+  }
+}
+
+/**
+ * The project of a repository the host's inventory found inside an open folder, whose own
+ * checkout is not itself an open folder (ADR-0034 build decisions, BST-2511): the one recorded
+ * for its canonical path, or one made now as `register` makes a folder's. No root is written, so
+ * the repository never becomes an open folder this way, and nothing about trust or hooks is.
+ * Refused for an empty or relative path, and for a thread's own folder, which has no project.
+ * @param {import('better-sqlite3').Database} db
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'ensure-repository-project'}} request
+ * @param {RootPaths} paths
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function ensureRepositoryProject(db, { canonicalPath }, paths) {
+  // A repository's checkout is named as a granted root is: by an absolute path.
+  if (
+    !(canonicalPath.trim() && paths.isGranted({ path: canonicalPath, preferredId: 'repository' }))
+  ) {
+    throw new Error("A repository's project requires its checkout's absolute canonical path");
+  }
+  return db.transaction(() => {
+    if (isThreadFolderPath(db, canonicalPath)) {
+      throw threadFolderRefusal();
+    }
+    const id = folderProject(db, canonicalPath, Date.now());
+    const name = /** @type {string | null | undefined} */ (
+      db.prepare('SELECT name FROM projects WHERE id = ?').pluck().get(id)
+    );
+    return { project: { id, name: name ?? null }, roots: [] };
+  })();
+}
+
+/**
+ * Joins a repository found inside an open folder, by its own checkout's canonical path, to the
+ * project `projectId`, by the rules a folder's join follows (ADR-0034 build decisions, BST-2511).
+ * Refused for a path the store keeps no project for, for a thread's own folder and for a project
+ * the store does not have. Answers the roots recorded at that path, if any.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} projection
+ * @param {{ readonly canonicalPath: string; readonly projectId: string }} request
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
+ */
+function joinRepositoryProject(db, projection, { canonicalPath, projectId }) {
+  return db.transaction(() => {
+    const left = /** @type {string | undefined} */ (
+      db
+        .prepare('SELECT project_id FROM project_folders WHERE canonical_path = ?')
+        .pluck()
+        .get(canonicalPath)
+    );
+    if (left === undefined) {
+      throw new WorkspaceRootRefusal(
+        'project.folder-unknown',
+        'There is no project kept at this folder, so nothing changed.'
+      );
+    }
+    if (isThreadFolderPath(db, canonicalPath)) {
+      throw threadFolderRefusal();
+    }
+    if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+      throw unknownProject();
+    }
+    moveFolderToProject(db, canonicalPath, left, projectId);
+    return {
+      roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
+        db
+          .prepare(`SELECT ${projection} FROM roots WHERE canonical_path = ? AND kind = 'path'`)
+          .all(canonicalPath)
+      ),
+    };
+  })();
+}
+
 /**
  * Joins the folder of the root `rootId` to the project `projectId`, as the person asked
  * (ADR-0034 build decisions): its folder row names that project, and the project it leaves is
@@ -463,7 +589,7 @@ function unknownProject() {
  * not have. Answers the folder's root.
  * @param {import('better-sqlite3').Database} db
  * @param {string} projection
- * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'join-project'}} request
+ * @param {{ readonly projectId: string; readonly rootId: string }} request
  * @returns {import('./workspace-root-types.ts').WorkspaceRootReply}
  */
 function joinProject(db, projection, { projectId, rootId }) {
@@ -483,26 +609,12 @@ function joinProject(db, projection, { projectId, rootId }) {
       .prepare('SELECT 1 FROM brainstrike_worktrees WHERE path = ? AND archived_at IS NULL')
       .get(root.path);
     if (root.kind !== 'path' || managed) {
-      throw new WorkspaceRootRefusal(
-        'project.thread-folder',
-        'A managed worktree or a scratch folder has no project of its own to move: it lists with the thread that works in it.'
-      );
+      throw threadFolderRefusal();
     }
     if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
       throw unknownProject();
     }
-    db.prepare(`INSERT INTO project_folders (canonical_path, project_id) VALUES (?, ?)
-      ON CONFLICT (canonical_path) DO UPDATE SET project_id = excluded.project_id`).run(
-      root.canonicalPath,
-      projectId
-    );
-    if (root.projectId !== null && root.projectId !== projectId) {
-      db.prepare(`DELETE FROM projects WHERE id = ?
-        AND NOT EXISTS (SELECT 1 FROM project_folders WHERE project_id = ?)`).run(
-        root.projectId,
-        root.projectId
-      );
-    }
+    moveFolderToProject(db, root.canonicalPath, root.projectId, projectId);
     return {
       roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
         select.all(rootId)
@@ -604,6 +716,9 @@ export function executeWorkspaceRootRequest(db, request, paths) {
   if (request.operation === 'scratch-to-project') {
     return scratchToProject(db, request, paths);
   }
+  if (request.operation === 'ensure-repository-project') {
+    return ensureRepositoryProject(db, request, paths);
+  }
   const projection = rootProjection(db);
   switch (request.operation) {
     case 'list':
@@ -650,7 +765,9 @@ export function executeWorkspaceRootRequest(db, request, paths) {
     case 'rename-project':
       return renameProject(db, projection, request);
     case 'join-project':
-      return joinProject(db, projection, request);
+      return 'canonicalPath' in request
+        ? joinRepositoryProject(db, projection, request)
+        : joinProject(db, projection, request);
     case 'forget-scratch':
       // The thread's root and its scratch record go together, in one commit.
       return db.transaction(() => {

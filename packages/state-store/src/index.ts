@@ -105,6 +105,7 @@ export { StateTruthReader, type TruthConnection } from './state-truth-reader.ts'
 export { assertNotSyncedRoot, type SyncEnv, SyncedRootError } from './sync-roots.ts';
 export type { ViewFilterPresetPort } from './view-filter-preset-types.ts';
 export type {
+  WorkspaceProjectRecord,
   WorkspaceRootPort,
   WorkspaceRootRecord,
   WorkspaceRootReply,

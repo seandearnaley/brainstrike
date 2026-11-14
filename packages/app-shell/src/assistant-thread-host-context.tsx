@@ -84,15 +84,22 @@ export interface AssistantHostWorkspaceDiscovery extends WorkspaceTrustCapabilit
 }
 
 /**
+ * The folder a project's section is named by, which Move to project… moves: an open folder's
+ * root, or a repository found inside an open folder, which has no root, by its own checkout's
+ * path as the host's worktree listing names it (ADR-0034 build decisions, BST-2511).
+ */
+export type ThreadProjectFolder = { readonly rootId: string } | { readonly repositoryPath: string };
+
+/**
  * ADR-0034: the person's projects, which the host's root registry writes. Each call resolves once
  * its change committed and rejects with the host's refusal, which the caller shows.
  */
 export interface AssistantHostProjects {
   /**
-   * Moves the folder of `rootId` into the project `projectId`, so its threads list there. The
-   * folder's trust and approved hooks stay its own.
+   * Moves `folder` into the project `projectId`, so its threads list there. The folder's trust
+   * and approved hooks stay its own.
    */
-  join(rootId: string, projectId: string): Promise<void>;
+  join(folder: ThreadProjectFolder, projectId: string): Promise<void>;
   /**
    * Points the record of a folder that moved at the folder the person picks; its threads and
    * project follow it. Resolves the folder as mounted, or null when the person cancelled.

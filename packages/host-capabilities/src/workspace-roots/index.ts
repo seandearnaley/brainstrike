@@ -195,9 +195,18 @@ export function createHostRootRegistry(options: HostRootRegistryOptions): HostRo
   const service: HostRootRegistry = {
     // ADR-0034: a project's name and folders are written by the store's roots domain, whose
     // refusals (a name too long, an unknown project or folder, a thread's own folder) are typed.
-    'projects/join': async ({ projectId, rootId }) => {
+    'projects/join': async (request) => {
       refuseWhenReadOnly();
-      await store.workspaceRoots({ operation: 'join-project', projectId, rootId });
+      await store.workspaceRoots(
+        'rootId' in request
+          ? { operation: 'join-project', projectId: request.projectId, rootId: request.rootId }
+          : {
+              // The listing names a repository found inside an open folder by its canonical path.
+              canonicalPath: request.repositoryPath,
+              operation: 'join-project',
+              projectId: request.projectId,
+            }
+      );
       return null;
     },
     'projects/rename': async ({ name, projectId }) => {

@@ -91,25 +91,42 @@ function folderHeaderFacts(header: ThreadListFolderSection['header']): ThreadFol
 
 /**
  * The project a section stands for, with the folder its actions act on: the repository's own
- * checkout, or the folder. Null for a section with no project, and for Scratch and No project.
+ * checkout, or the folder. A repository found inside an open folder has a project but no folder
+ * of its own (BST-2511): it is named by its checkout's path, and never located. Null for a
+ * section with no project, and for Scratch and No project.
  */
 function sectionProject(header: ThreadListFolderSection['header']): ThreadSectionProject | null {
   if (header.kind === 'unassigned' || header.kind === 'scratch') {
     return null;
   }
-  const folder = header.kind === 'repository' ? header.repository.folder : header.folder;
-  const projectId =
-    header.kind === 'repository' ? header.repository.projectId : header.folder.projectId;
-  if (folder === null || projectId === null) {
+  const label = threadFolderSectionLabel(header);
+  if (header.kind === 'folder') {
+    const { folder } = header;
+    return folder.projectId === null
+      ? null
+      : {
+          folder: { rootId: folder.rootId },
+          folderName: folder.displayName,
+          label,
+          locateRootId: folder.status === 'disconnected' ? folder.rootId : null,
+          name: folder.projectName,
+          projectId: folder.projectId,
+        };
+  }
+  const { repository } = header;
+  if (repository.projectId === null) {
     return null;
   }
   return {
-    folderName: folder.displayName,
-    folderRootId: folder.rootId,
-    label: threadFolderSectionLabel(header),
-    locatable: header.kind === 'folder' && header.folder.status === 'disconnected',
-    name: header.kind === 'repository' ? header.repository.projectName : header.folder.projectName,
-    projectId,
+    folder:
+      repository.folder === null
+        ? { repositoryPath: repository.path }
+        : { rootId: repository.folder.rootId },
+    folderName: repository.folder?.displayName ?? repository.displayName,
+    label,
+    locateRootId: null,
+    name: repository.projectName,
+    projectId: repository.projectId,
   };
 }
 

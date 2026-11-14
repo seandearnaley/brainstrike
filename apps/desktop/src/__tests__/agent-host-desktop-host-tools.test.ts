@@ -329,6 +329,8 @@ test('the desktop host runs the worktree tools on its own worktree service, unde
     name: 'repo',
     path: root,
     primary: true,
+    projectId: null,
+    projectName: null,
     provenance: 'scanned',
     remedy: null,
     repoCommonDir: `${root}/.git`,

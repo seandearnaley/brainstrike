@@ -40,8 +40,13 @@ export const WORKSPACE_ROOTS_METHOD_SCHEMAS = {
    * threads list with that project's. The project it leaves is deleted once no folder is in it.
    * Nothing joins by a remote URL or a commit, and the folder's trust and approved hooks stay its
    * own. Refused for a managed worktree or a scratch folder, and for an unknown folder or project.
+   * A repository found inside an open folder has a project but no root (BST-2511), so it is named
+   * by `repositoryPath`, its own checkout's path as `worktrees/list` names it.
    */
-  'projects/join': Schema.Struct({ projectId: Id, rootId: Id }),
+  'projects/join': Schema.Union([
+    Schema.Struct({ projectId: Id, rootId: Id }),
+    Schema.Struct({ projectId: Id, repositoryPath: AbsolutePath }),
+  ]),
   /**
    * ADR-0034: names a project. The name is trimmed and an empty one clears it, so the project is
    * named by its folder again. Refused for a name over 80 characters and an unknown project.
