@@ -125,6 +125,12 @@ export interface WorkspaceBarCreateWorktreeRequest {
   readonly name: string;
 }
 
+/** What New worktree… did: made the worktree, or left the setup script's question to the sheet. */
+export interface WorkspaceBarQuickCreateOutcome {
+  /** Nothing was created: the repository's setup script has no answer, which only the sheet asks. */
+  readonly needsSheet: boolean;
+}
+
 export interface WorkspaceBarBaseRefOption {
   readonly label: string;
   readonly value: string;
@@ -167,10 +173,17 @@ export interface WorkspaceBarMode {
   readonly onCreateBranchHere: ((branch: string) => Promise<void>) | undefined;
   /** What choosing the Local row does while the thread works in a worktree. */
   readonly onHandOffToLocal: (() => void) | undefined;
-  /** Refreshes main-owned create defaults; rejection keeps the sheet closed. */
+  /** Customize…: refreshes main-owned create defaults; rejection keeps the sheet closed. */
   readonly onOpenCreateSheet: () => Promise<void>;
   /** Asks the caller to open the controlled "Other worktree…" picker. */
   readonly onOpenPicker: () => void;
+  /**
+   * New worktree…: makes a worktree at once with the defaults Automatic
+   * isolation uses and moves the thread into it, as `onCreate` does (ADR-0034).
+   * Resolves `needsSheet` and creates nothing while the repository's setup
+   * script has no answer. Rejects, after its own toast, when it cannot create.
+   */
+  readonly onQuickCreate: () => Promise<WorkspaceBarQuickCreateOutcome>;
   readonly pending: boolean;
   readonly picker: WorkspaceBarWorktreePicker;
   /** Present only while this repository's fallback script needs a decision. */

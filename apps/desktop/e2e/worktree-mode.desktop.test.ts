@@ -21,6 +21,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider, setupAssistantMock } from './utils/assistant-mock';
 import { chooseThreadFolder } from './utils/choose-thread-folder';
+import { type CreatedWorktree, createAndUseWorktree } from './utils/create-worktree';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   freshRepo as createFreshRepo,
@@ -38,12 +39,6 @@ const tempDirs = createTempDirTracker();
 const ROOT_ID = 'w3-worktree-mode-root-00000000-0000-4000-8000-000000000030';
 const RUN_IN_PROGRESS = "Available when this thread's run ends.";
 let managedDirectory: string;
-
-interface CreatedWorktree {
-  readonly branch: string;
-  readonly name: string;
-  readonly worktreePath: string;
-}
 
 function freshRepo(label: string): string {
   return createFreshRepo({ label, prefix: 'bst-w3-', tracker: tempDirs });
@@ -73,27 +68,6 @@ async function openComposer(page: Page): Promise<void> {
   await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   await expect(page.getByTestId('workspace-bar')).toBeVisible({ timeout: 30_000 });
-}
-
-async function createAndUseWorktree(page: Page): Promise<CreatedWorktree> {
-  await openWhereMenu(page);
-  await page.getByTestId('workspace-bar-mode-new-worktree').click();
-  const dialog = page.getByTestId('worktree-create-dialog');
-  await expect(dialog).toBeVisible({ timeout: 30_000 });
-  const branchField = dialog.getByTestId('worktree-create-branch');
-  await expect(branchField).toHaveValue(/^bs\/.+/u);
-  const branch = (await branchField.inputValue()).trim();
-  const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
-  const worktreePath = (await dialog.getByTestId('worktree-create-location').innerText()).trim();
-  await dialog.getByTestId('worktree-create-submit').click();
-  await expect(whereChip(page)).toContainText(name, {
-    timeout: 90_000,
-  });
-  // The thread moves before the operation ends; a person waits for "Worktree
-  // operation in progress." to go, and for the sheet to close.
-  await expect(whereChip(page)).not.toHaveAttribute('aria-busy', 'true', { timeout: 90_000 });
-  await expect(dialog).toBeHidden();
-  return { branch, name, worktreePath };
 }
 
 /** The turn a model request belongs to: `BETWEEN_TURNS_<n>` in its last user message. */
@@ -211,7 +185,8 @@ test.describe('Worktree mode (desktop)', () => {
     const asksAbout = region.getByTestId('approval-file-target-summary');
 
     // The person allows the repository's setup script in the create sheet and
-    // creates nothing: the host keeps the answer.
+    // creates nothing: the host keeps the answer. New worktree… opens the sheet
+    // because the script has no answer yet; it never skips it silently.
     await chooseThreadFolder(region, path.basename(repo));
     await openWhereMenu(region);
     await page.getByTestId('workspace-bar-mode-new-worktree').click();
@@ -527,18 +502,12 @@ test.describe('Worktree mode (desktop)', () => {
 
     // Between turns the sent thread can move: New worktree… is offered again.
     await chip.click();
-    const newWorktree = page.getByTestId('workspace-bar-mode-new-worktree');
-    await expect(newWorktree).not.toHaveAttribute('data-disabled', { timeout: 30_000 });
-    await newWorktree.click();
-    const dialog = page.getByTestId('worktree-create-dialog');
-    await expect(dialog).toBeVisible({ timeout: 30_000 });
-    await expect(dialog.getByTestId('worktree-create-uncommitted-note')).toHaveText(
-      `Uncommitted changes in ${path.basename(repo)} stay there.`
+    await expect(page.getByTestId('workspace-bar-mode-new-worktree')).not.toHaveAttribute(
+      'data-disabled',
+      { timeout: 30_000 }
     );
-    const name = (await dialog.getByTestId('worktree-create-name').inputValue()).trim();
-    const worktreePath = (await dialog.getByTestId('worktree-create-location').innerText()).trim();
-    await dialog.getByTestId('worktree-create-submit').click();
-    await expect(chip).toContainText(name, { timeout: 90_000 });
+    await page.keyboard.press('Escape');
+    const { name, worktreePath } = await createAndUseWorktree(page);
 
     // The next run works in the worktree; turn 1's uncommitted file stayed behind.
     await send(2);

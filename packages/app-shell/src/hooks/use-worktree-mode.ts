@@ -1,7 +1,7 @@
 /**
  * Everything the where-control's checkout rows need (Local, the thread's
- * worktree, Other worktree…, New worktree…, Create branch here, Archive), from
- * the thread's point of view.
+ * worktree, Other worktree…, New worktree… and Customize…, Create branch here,
+ * Archive), from the thread's point of view.
  *
  * Create ordering is deliberate: create the worktree, mount its folder, then
  * bind the thread. Binding earlier would leave the thread pointing at a root
@@ -23,12 +23,14 @@ import type {
 } from '@brainstrike/assistant-ui';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import type {
-  WorktreeCreateContext,
-  WorktreeCreateResult,
-  WorktreeListEntry,
-  WorktreeRepositorySetupDecision,
-  WorktreeSettings,
+import {
+  DEFAULT_WORKTREE_BASE_REF,
+  WORKTREE_BRANCH_PREFIX,
+  type WorktreeCreateContext,
+  type WorktreeCreateResult,
+  type WorktreeListEntry,
+  type WorktreeRepositorySetupDecision,
+  type WorktreeSettings,
 } from '@brainstrike/types';
 import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,6 +39,7 @@ import { subscribeRootRegistered } from '../roots/root-registration-events';
 import { useWorktreesBridge } from '../workspace-git-services';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 import { useArchivedWorktrees } from './use-archived-worktrees';
+import { useQuickWorktree } from './use-quick-worktree';
 import {
   errorMessage,
   toastFailure,
@@ -46,7 +49,7 @@ import {
 const logger = createLogger('WorktreeMode');
 
 const BASE_REFS: readonly [WorkspaceBarBaseRefOption, ...WorkspaceBarBaseRefOption[]] = [
-  { label: 'Current branch', value: 'HEAD' },
+  { label: 'Current branch', value: DEFAULT_WORKTREE_BASE_REF },
   { label: 'Default branch (fresh)', value: 'origin/HEAD' },
 ];
 
@@ -728,7 +731,8 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       });
   }, [addRootDirectory, refreshList]);
 
-  const onOpenCreateSheet = useCallback(async (): Promise<void> => {
+  // The host's create context, kept for the create sheet: Customize… and New worktree… read it.
+  const readCreateContext = useCallback(async (): Promise<WorktreeCreateContext> => {
     if (!(bridge && args.primaryRootId)) {
       throw new Error('Worktrees are not available here.');
     }
@@ -753,6 +757,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       rejectWithToast('Could not prepare worktree creation', describeBoundaryFailure(result.error));
     }
     setCreateSheetContext(result.value);
+    return result.value;
   }, [args.primaryRootId, bridge, threadState]);
 
   const managedParentPath =
@@ -800,6 +805,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     args.uncommittedChanges && args.primaryRootPath
       ? (pathFolderName(args.primaryRootPath) ?? args.primaryRootPath)
       : null;
+  const onQuickCreate = useQuickWorktree({ onCreate, readCreateContext, uncommittedFolderName });
   const missingWorktreeReason = missingWorktreeDiagnostic({
     currentWorktreeId,
     hasAttemptedForCurrentId,
@@ -821,7 +827,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         baseRefs: BASE_REFS,
         checkoutChangeDisabledReason: null,
         createDisabledReason: reason,
-        defaultBranchPrefix: 'bs/',
+        defaultBranchPrefix: WORKTREE_BRANCH_PREFIX,
         defaultName: '',
         disabledReason: reason,
         managedParentPath,
@@ -833,6 +839,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
         onHandOffToLocal: undefined,
         onOpenCreateSheet: () => Promise.resolve(),
         onOpenPicker: () => undefined,
+        onQuickCreate: () => Promise.reject(new Error(reason)),
         pending: false,
         picker: {
           error: null,
@@ -854,7 +861,7 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       baseRefs: BASE_REFS,
       checkoutChangeDisabledReason,
       createDisabledReason: disabled,
-      defaultBranchPrefix: 'bs/',
+      defaultBranchPrefix: WORKTREE_BRANCH_PREFIX,
       defaultName,
       disabledReason: missingWorktreeReason,
       managedParentPath,
@@ -863,8 +870,9 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
       onCreate,
       onCreateBranchHere: createBranchHereHandler,
       onHandOffToLocal: currentWorktreeId ? onHandOffToLocal : undefined,
-      onOpenCreateSheet,
+      onOpenCreateSheet: () => readCreateContext().then(() => undefined),
       onOpenPicker: () => onPickerOpenChange(true),
+      onQuickCreate,
       pending,
       picker: {
         archived,
@@ -916,12 +924,13 @@ export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | u
     onCreate,
     onGrantAccess,
     onHandOffToLocal,
-    onOpenCreateSheet,
     onPickerOpenChange,
+    onQuickCreate,
     onRepositorySetupDecision,
     onSelectExisting,
     pending,
     pickerOpen,
+    readCreateContext,
     repositorySetup,
     settings,
     threadState,
